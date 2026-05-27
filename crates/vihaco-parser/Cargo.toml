@@ -1,0 +1,20 @@
+[package]
+name = "vihaco-parser"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+authors.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full", "extra-traits"] }
+vihaco-parser-core = { path = "../vihaco-parser-core" }
+
+[dev-dependencies]
+chumsky = "0.10"
+vihaco-parser-core = { path = "../vihaco-parser-core" }
+trybuild = "1"

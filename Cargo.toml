@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/vihaco",
+    "crates/vihaco-cpu",
+    "crates/vihaco-macros",
+    "crates/vihaco-parser",
+    "crates/vihaco-parser-core",
+]
+
+[workspace.package]
+authors = [
+    "Kai-Hsin Wu <khwu@quera.com>",
+    "Xiuzhe(Roger) Luo <me@rogerluo.dev>",
+    "Neelay Fruitwala <nfruitwala@quera.com>",
+]

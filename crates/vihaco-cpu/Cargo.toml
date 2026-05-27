@@ -1,0 +1,15 @@
+[package]
+name = "vihaco-cpu"
+version = "0.1.0"
+edition = "2024"
+authors.workspace = true
+
+[dependencies]
+chumsky = "0.10"
+codespan = "0.13.1"
+eyre = "0.6.12"
+log = "0.4.29"
+vihaco = { version = "0.1.0", path = "../vihaco" }
+vihaco-macros = { version = "0.1.0", path = "../vihaco-macros" }
+vihaco-parser-core = { version = "0.1.0", path = "../vihaco-parser-core" }
+vihaco-parser = { version = "0.1.0", path = "../vihaco-parser" }

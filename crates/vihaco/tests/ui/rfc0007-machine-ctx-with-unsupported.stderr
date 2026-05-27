@@ -1,0 +1,5 @@
+error: ctx_with = ... is no longer supported for #[device(..., observe(...))]
+  --> tests/ui/rfc0007-machine-ctx-with-unsupported.rs:42:40
+   |
+42 |     #[device(0x01, observe(DemoEffect, ctx_with = build_snapshot(sensor)))]
+   |                                        ^^^^^^^^

@@ -1,0 +1,5 @@
+error: #[delegate] variants must be declared after all token-bearing variants
+ --> tests/compile_errors/delegate_before_token.rs:3:6
+  |
+3 | enum Bad {
+  |      ^^^

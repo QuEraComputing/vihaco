@@ -1,0 +1,5 @@
+error: shared device `device` references `observer_like`, which is not a declared #[core] field
+  --> tests/ui/rfc0007-machine-shared-non-core.rs:29:14
+   |
+29 |     #[shared(observer_like)]
+   |              ^^^^^^^^^^^^^

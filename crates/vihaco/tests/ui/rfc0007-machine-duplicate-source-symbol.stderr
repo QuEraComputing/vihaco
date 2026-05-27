@@ -1,0 +1,5 @@
+error: duplicate source symbol `scheduler` for `scheduler` and `device`
+  --> tests/ui/rfc0007-machine-duplicate-source-symbol.rs:24:28
+   |
+24 |     #[device(0x01, alias = "scheduler")]
+   |                            ^^^^^^^^^^^
