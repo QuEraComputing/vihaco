@@ -1,8 +1,11 @@
 [package]
 name = "vihaco-parser-core"
-version = "0.1.0"
 edition = "2021"
 rust-version = "1.75"
+description = "Core chumsky-based parser primitives shared by the vihaco parser-derive crate."
+version.workspace = true
+license.workspace = true
+repository.workspace = true
 authors.workspace = true
 
 [dependencies]

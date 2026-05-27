@@ -1,7 +1,10 @@
 [package]
 name = "vihaco-cpu"
-version = "0.1.0"
 edition = "2024"
+description = "CPU/host component implementation for vihaco machines."
+version.workspace = true
+license.workspace = true
+repository.workspace = true
 authors.workspace = true
 
 [dependencies]
@@ -9,7 +12,7 @@ chumsky = "0.10"
 codespan = "0.13.1"
 eyre = "0.6.12"
 log = "0.4.29"
-vihaco = { version = "0.1.0", path = "../vihaco" }
-vihaco-macros = { version = "0.1.0", path = "../vihaco-macros" }
-vihaco-parser-core = { version = "0.1.0", path = "../vihaco-parser-core" }
-vihaco-parser = { version = "0.1.0", path = "../vihaco-parser" }
+vihaco = { workspace = true }
+vihaco-macros = { workspace = true }
+vihaco-parser-core = { workspace = true }
+vihaco-parser = { workspace = true }
