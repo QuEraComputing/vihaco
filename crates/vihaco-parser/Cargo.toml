@@ -1,8 +1,11 @@
 [package]
 name = "vihaco-parser"
-version = "0.1.0"
 edition = "2021"
 rust-version = "1.75"
+description = "Derive macro (#[derive(Parse)]) that generates chumsky parsers for vihaco syntax types."
+version.workspace = true
+license.workspace = true
+repository.workspace = true
 authors.workspace = true
 
 [lib]
@@ -12,9 +15,9 @@ proc-macro = true
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["full", "extra-traits"] }
-vihaco-parser-core = { path = "../vihaco-parser-core" }
+vihaco-parser-core = { workspace = true }
 
 [dev-dependencies]
 chumsky = "0.10"
-vihaco-parser-core = { path = "../vihaco-parser-core" }
+vihaco-parser-core = { workspace = true }
 trybuild = "1"

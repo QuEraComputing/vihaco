@@ -9,8 +9,18 @@ members = [
 ]
 
 [workspace.package]
+version = "0.1.0"
+license = "MIT"
+repository = "https://github.com/QuEraComputing/vihaco"
 authors = [
     "Kai-Hsin Wu <khwu@quera.com>",
     "Xiuzhe(Roger) Luo <me@rogerluo.dev>",
     "Neelay Fruitwala <nfruitwala@quera.com>",
 ]
+
+[workspace.dependencies]
+vihaco            = { version = "0.1.0", path = "crates/vihaco" }
+vihaco-cpu        = { version = "0.1.0", path = "crates/vihaco-cpu" }
+vihaco-macros     = { version = "0.1.0", path = "crates/vihaco-macros" }
+vihaco-parser     = { version = "0.1.0", path = "crates/vihaco-parser" }
+vihaco-parser-core = { version = "0.1.0", path = "crates/vihaco-parser-core" }

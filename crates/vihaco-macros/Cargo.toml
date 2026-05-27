@@ -1,7 +1,10 @@
 [package]
 name = "vihaco-macros"
-version = "0.1.0"
 edition = "2024"
+description = "Procedural macros (#[derive(Instruction)], #[derive(Machine)], …) used by the vihaco crate."
+version.workspace = true
+license.workspace = true
+repository.workspace = true
 authors.workspace = true
 
 [lib]

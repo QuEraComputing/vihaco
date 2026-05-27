@@ -1,7 +1,10 @@
 [package]
 name = "vihaco"
-version = "0.1.0"
 edition = "2024"
+description = "Virtual ISA and machine framework for hybrid analog/digital quantum control orchestration."
+version.workspace = true
+license.workspace = true
+repository.workspace = true
 authors.workspace = true
 
 [dependencies]
@@ -13,9 +16,9 @@ env_logger = "0.11.8"
 eyre = "0.6.12"
 log = "0.4.29"
 smallvec = "1.15.1"
-vihaco-parser-core = { version = "0.1.0", path = "../vihaco-parser-core" }
-vihaco-parser = { version = "0.1.0", path = "../vihaco-parser" }
-vihaco-macros = { version = "0.1.0", path = "../vihaco-macros" }
+vihaco-parser-core = { workspace = true }
+vihaco-parser = { workspace = true }
+vihaco-macros = { workspace = true }
 
 [dev-dependencies]
 trybuild = "1.0"
