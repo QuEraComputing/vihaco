@@ -1,0 +1,5 @@
+error: scheduler device code 0x01 conflicts with field `device`
+  --> tests/ui/rfc0007-machine-scheduler-device-conflict.rs:25:5
+   |
+25 |     device: DemoDevice,
+   |     ^^^^^^

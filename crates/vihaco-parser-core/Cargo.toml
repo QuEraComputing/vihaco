@@ -1,0 +1,9 @@
+[package]
+name = "vihaco-parser-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+authors.workspace = true
+
+[dependencies]
+chumsky = "0.10"

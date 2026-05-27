@@ -1,0 +1,5 @@
+error: #[delegate] is only valid on single-field tuple variants
+ --> tests/compile_errors/delegate_multi_field.rs:5:5
+  |
+5 |     #[delegate]
+  |     ^

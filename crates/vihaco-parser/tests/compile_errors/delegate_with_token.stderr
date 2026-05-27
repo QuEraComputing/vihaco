@@ -1,0 +1,5 @@
+error: #[delegate] cannot be combined with #[token]
+ --> tests/compile_errors/delegate_with_token.rs:5:5
+  |
+5 |     #[delegate]
+  |     ^

@@ -1,0 +1,5 @@
+error: #[delegate] cannot be combined with #[parse_with] on a field
+ --> tests/compile_errors/delegate_with_parse_with.rs:9:5
+  |
+9 |     #[delegate]
+  |     ^

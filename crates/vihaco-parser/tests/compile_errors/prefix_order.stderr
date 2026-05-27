@@ -1,0 +1,5 @@
+error: token `foo` is a prefix of `foobar` declared after it — reorder so longer tokens come first
+ --> tests/compile_errors/prefix_order.rs:3:6
+  |
+3 | enum Bad {
+  |      ^^^
