@@ -15,6 +15,7 @@ impl Reset for CPU {
         self.stack.clear();
         self.span = (0, 0, 0);
         self.pending_pc = None;
+        self.current_pc = 0;
         self.return_values.clear();
     }
 }
@@ -149,14 +150,16 @@ impl CPU {
         }
 
         // Collect return values before truncating
-        let return_values: Vec<Value> = self.stack[self.stack.len() - keep as usize..].to_vec();
-        self.stack.truncate(frame.base + keep as usize);
+        let top = self.stack.len() - keep as usize;
+        let return_values: Vec<Value> = self.stack[top..].to_vec();
+        self.stack.drain(frame.base..top);
 
         if self.get_frame().is_err() {
             // No more frames - program is returning
             self.set_return_values(return_values);
             Ok(StepOutcome::Return)
         } else {
+            self.set_pending_pc(frame.ret_pc);
             Ok(StepOutcome::Continue)
         }
     }
@@ -173,6 +176,7 @@ impl CPU {
             base,
             span: self.span,
             function: None,
+            ret_pc: self.current_pc + 1,
         };
         self.push_frame(frame);
         self.set_pending_pc(target);
@@ -196,6 +200,7 @@ impl CPU {
             base,
             span: self.span,
             function: Some(f as usize),
+            ret_pc: self.current_pc + 1,
         };
         self.push_frame(frame);
         self.set_pending_pc(target);
@@ -326,6 +331,7 @@ mod tests {
             base: 0,
             span: (0, 0, 0),
             function: None,
+            ret_pc: 0,
         });
         cpu.stack_push(Value::I64(7));
 
@@ -333,6 +339,85 @@ mod tests {
 
         assert_eq!(outcome, StepOutcome::Return);
         assert_eq!(cpu.return_values(), &[Value::I64(7)]);
+    }
+
+    #[test]
+    fn op_return_restores_callers_pc() {
+        let mut cpu = CPU::default();
+        // Outer ("main") frame so the inner Return takes the Continue branch.
+        cpu.current_pc = 10;
+        cpu.push_frame(Frame {
+            base: 0,
+            span: (0, 0, 0),
+            function: None,
+            ret_pc: 0,
+        });
+
+        // Caller would be executing `call 0, 100` at some PC; op_call sets
+        // pending_pc to the callee target.
+        cpu.execute_instruction(Instruction::Call(0, 100)).unwrap();
+        assert_eq!(cpu.take_pending_pc(), Some(100));
+        assert_eq!(cpu.frames[1].ret_pc, 11);
+
+        // Callee returns immediately. pending_pc should be restored to the
+        // instruction after the call.
+        let outcome = cpu.execute_instruction(Instruction::Return(0)).unwrap();
+        assert_eq!(outcome, StepOutcome::Continue);
+        assert_eq!(cpu.take_pending_pc(), Some(11),);
+    }
+
+    #[test]
+    fn op_indirect_call_records_return_pc_after_call_site() {
+        let mut cpu = CPU::default();
+        cpu.current_pc = 10;
+        cpu.push_frame(Frame {
+            base: 0,
+            span: (0, 0, 0),
+            function: None,
+            ret_pc: 0,
+        });
+
+        // IndirectCall pops (top → bottom): target, arity, FunctionRef.
+        cpu.stack_push(Value::FunctionRef(7));
+        cpu.stack_push(Value::U32(0));
+        cpu.stack_push(Value::U32(100));
+
+        cpu.execute_instruction(Instruction::IndirectCall).unwrap();
+        assert_eq!(cpu.take_pending_pc(), Some(100));
+        assert_eq!(cpu.frames[1].ret_pc, 11);
+
+        let outcome = cpu.execute_instruction(Instruction::Return(0)).unwrap();
+        assert_eq!(outcome, StepOutcome::Continue);
+        assert_eq!(cpu.take_pending_pc(), Some(11));
+    }
+
+    #[test]
+    fn op_return_keeps_bottom_of_frame_when_callee_leaves_scratch() {
+        let mut cpu = CPU::default();
+        // Outer frame so Return takes the Continue branch.
+        cpu.push_frame(Frame {
+            base: 0,
+            span: (0, 0, 0),
+            function: None,
+            ret_pc: 0,
+        });
+
+        // Simulate a callee frame holding [scratch_a, scratch_b, return_val]
+        // where only `return_val` (the top) should survive `ret 1`.
+        cpu.push_frame(Frame {
+            base: 0,
+            span: (0, 0, 0),
+            function: None,
+            ret_pc: 0,
+        });
+        cpu.stack_push(Value::I64(111)); // scratch — bottom of callee frame
+        cpu.stack_push(Value::I64(222)); // scratch — middle
+        cpu.stack_push(Value::I64(999)); // intended return value — top
+
+        let outcome = cpu.execute_instruction(Instruction::Return(1)).unwrap();
+        assert_eq!(outcome, StepOutcome::Continue);
+
+        assert_eq!(cpu.stack(), &vec![Value::I64(999)],);
     }
 
     #[test]
@@ -441,6 +526,7 @@ mod tests {
             base: 0,
             span: (0, 0, 0),
             function: None,
+            ret_pc: 0,
         });
 
         let outcome = GeneratedComponent::execute_generated(
@@ -461,6 +547,7 @@ mod tests {
             base: 0,
             span: (0, 0, 0),
             function: None,
+            ret_pc: 0,
         });
 
         let outcome = GeneratedComponent::execute_generated(
@@ -485,6 +572,7 @@ mod tests {
             base: 0,
             span: (0, 0, 0),
             function: None,
+            ret_pc: 0,
         });
         cpu.stack_push(Value::I64(42));
 
@@ -506,6 +594,7 @@ mod tests {
             base: 0,
             span: (0, 0, 0),
             function: None,
+            ret_pc: 0,
         });
         cpu.stack_push(Value::I64(42));
 
