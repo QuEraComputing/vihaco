@@ -343,9 +343,11 @@ mod tests {
 
     #[test]
     fn op_return_restores_callers_pc() {
-        let mut cpu = CPU::default();
+        let mut cpu = CPU {
+            current_pc: 10,
+            ..Default::default()
+        };
         // Outer ("main") frame so the inner Return takes the Continue branch.
-        cpu.current_pc = 10;
         cpu.push_frame(Frame {
             base: 0,
             span: (0, 0, 0),
@@ -368,8 +370,10 @@ mod tests {
 
     #[test]
     fn op_indirect_call_records_return_pc_after_call_site() {
-        let mut cpu = CPU::default();
-        cpu.current_pc = 10;
+        let mut cpu = CPU {
+            current_pc: 10,
+            ..Default::default()
+        };
         cpu.push_frame(Frame {
             base: 0,
             span: (0, 0, 0),
