@@ -10,4 +10,7 @@ pub struct Frame {
     /// None if this frame is not associated with a function
     /// (e.g., the top-level frame, or a frame created by a direct call)
     pub function: Option<usize>,
+
+    /// The PC to return to after this frame completes.
+    pub ret_pc: u32,
 }

@@ -11,6 +11,7 @@ pub struct CPU {
     pub(crate) stack: Vec<Value>,
     pub(crate) span: (u32, u32, u32),
     pub(crate) pending_pc: Option<u32>,
+    pub(crate) current_pc: u32,
     pub(crate) return_values: Vec<Value>,
 }
 
@@ -131,6 +132,10 @@ impl CPU {
 
     pub fn clear_pending_pc(&mut self) {
         self.pending_pc = None;
+    }
+
+    pub fn set_current_pc(&mut self, pc: u32) {
+        self.current_pc = pc;
     }
 
     pub fn return_values(&self) -> &[Value] {
