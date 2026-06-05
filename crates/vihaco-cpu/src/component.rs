@@ -44,7 +44,7 @@ impl CPU {
             Dup => self.op_dup(),
             HeapAlloc(n_elements) => self.op_heap_alloc(n_elements),
             GetItem => self.op_get_item(),
-            HeapDealloc => self.op_dealloc_heap(),
+            HeapDealloc => self.op_heap_dealloc(),
             Const(v) => self.op_const(v),
             Add(ty) => self.op_add(ty),
             Sub(ty) => self.op_sub(ty),
@@ -262,7 +262,7 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_dealloc_heap(&mut self) -> Result<StepOutcome> {
+    pub fn op_heap_dealloc(&mut self) -> Result<StepOutcome> {
         let id = self.stack_pop()?.get_heap_ref()?;
         self.dealloc_heap_object(id)?;
         Ok(StepOutcome::Continue)
@@ -613,7 +613,7 @@ mod tests {
     }
 
     #[test]
-    fn op_dealloc_heap_marks_slot_dead() {
+    fn op_heap_dealloc_marks_slot_dead() {
         let mut cpu = CPU::default();
         cpu.stack_push(Value::I64(42));
         cpu.execute_instruction(Instruction::HeapAlloc(1)).unwrap();
@@ -625,7 +625,7 @@ mod tests {
     }
 
     #[test]
-    fn op_dealloc_heap_slot_is_reused_on_next_alloc() {
+    fn op_heap_dealloc_slot_is_reused_on_next_alloc() {
         let mut cpu = CPU::default();
         cpu.stack_push(Value::I64(1));
         cpu.execute_instruction(Instruction::HeapAlloc(1)).unwrap();
@@ -639,7 +639,7 @@ mod tests {
     }
 
     #[test]
-    fn op_dealloc_heap_rejects_double_free() {
+    fn op_heap_dealloc_rejects_double_free() {
         let mut cpu = CPU::default();
         cpu.stack_push(Value::I64(1));
         cpu.execute_instruction(Instruction::HeapAlloc(1)).unwrap();
@@ -653,7 +653,7 @@ mod tests {
     }
 
     #[test]
-    fn op_dealloc_heap_rejects_invalid_id() {
+    fn op_heap_dealloc_rejects_invalid_id() {
         let mut cpu = CPU::default();
         cpu.stack_push(Value::HeapRef(99));
 
