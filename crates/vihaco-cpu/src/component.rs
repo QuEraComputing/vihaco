@@ -240,11 +240,11 @@ impl CPU {
     }
 
     pub fn op_heap_alloc(&mut self, n_elements: u32) -> Result<StepOutcome> {
-let n: usize = n_elements as usize;
+        let n: usize = n_elements as usize;
         if self.stack.len() < n {
             return Err(eyre::eyre!("stack underflow"));
         }
-let start = self.stack.len() - n;
+        let start = self.stack.len() - n;
         let values: Box<[Value]> = self.stack.drain(start..).collect();
         let heap_id = self.push_heap_object(values);
         self.stack_push(Value::HeapRef(heap_id));
@@ -610,6 +610,69 @@ mod tests {
                 .unwrap_err();
 
         assert!(err.to_string().contains("Print requires"));
+    }
+
+    #[test]
+    fn op_dealloc_heap_marks_slot_dead() {
+        let mut cpu = CPU::default();
+        cpu.stack_push(Value::I64(42));
+        cpu.execute_instruction(Instruction::HeapAlloc(1)).unwrap();
+        cpu.stack_push(Value::HeapRef(0));
+
+        cpu.execute_instruction(Instruction::HeapDealloc).unwrap();
+
+        assert!(cpu.heap.get(0).unwrap_err().to_string().contains("deallocated"));
+    }
+
+    #[test]
+    fn op_dealloc_heap_slot_is_reused_on_next_alloc() {
+        let mut cpu = CPU::default();
+        cpu.stack_push(Value::I64(1));
+        cpu.execute_instruction(Instruction::HeapAlloc(1)).unwrap();
+        cpu.execute_instruction(Instruction::HeapDealloc).unwrap();
+
+        cpu.stack_push(Value::I64(2));
+        cpu.execute_instruction(Instruction::HeapAlloc(1)).unwrap();
+
+        assert_eq!(cpu.stack(), &vec![Value::HeapRef(0)]);
+        assert_eq!(cpu.heap.get(0).unwrap(), &[Value::I64(2)]);
+    }
+
+    #[test]
+    fn op_dealloc_heap_rejects_double_free() {
+        let mut cpu = CPU::default();
+        cpu.stack_push(Value::I64(1));
+        cpu.execute_instruction(Instruction::HeapAlloc(1)).unwrap();
+        cpu.stack_push(Value::HeapRef(0));
+        cpu.execute_instruction(Instruction::HeapDealloc).unwrap();
+
+        cpu.stack_push(Value::HeapRef(0));
+        let err = cpu.execute_instruction(Instruction::HeapDealloc).unwrap_err();
+
+        assert!(err.to_string().contains("double-free"));
+    }
+
+    #[test]
+    fn op_dealloc_heap_rejects_invalid_id() {
+        let mut cpu = CPU::default();
+        cpu.stack_push(Value::HeapRef(99));
+
+        let err = cpu.execute_instruction(Instruction::HeapDealloc).unwrap_err();
+
+        assert!(err.to_string().contains("invalid heap object id"));
+    }
+
+    #[test]
+    fn reset_clears_free_list() {
+        let mut cpu = CPU::default();
+        cpu.stack_push(Value::I64(1));
+        cpu.execute_instruction(Instruction::HeapAlloc(1)).unwrap();
+        cpu.stack_push(Value::HeapRef(0));
+        cpu.execute_instruction(Instruction::HeapDealloc).unwrap();
+
+        cpu.reset();
+
+        assert!(cpu.heap.is_empty());
     }
 }
 
