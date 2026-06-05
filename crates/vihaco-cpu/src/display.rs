@@ -48,6 +48,7 @@ impl std::fmt::Display for Instruction {
             Dup => show_instruction!(f, "dup"),
             HeapAlloc(n_elements) => show_instruction!(f, "heap_alloc ", n_elements),
             GetItem => show_instruction!(f, "get_item"),
+            HeapDealloc => show_instruction!(f, "heap_dealloc"),
             Const(v) => show_instruction!(f, "const.", v.type_of(), " ", v),
             Add(ty) => show_instruction!(f, "add.", ty),
             Sub(ty) => show_instruction!(f, "sub.", ty),

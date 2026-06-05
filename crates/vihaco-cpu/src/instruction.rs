@@ -100,6 +100,11 @@ pub enum Instruction {
     #[token = "get_item"]
     GetItem,
 
+    /// `heap_dealloc` — pops a HeapRef and marks the slot dead, returning it
+    /// to the free list for reuse by the next `heap_alloc`.
+    #[token = "heap_dealloc"]
+    HeapDealloc,
+
     /// `const.<type> <literal>` — numeric/bool only here. `.str`/`.fn_ref`/
     /// `.heap_ref` are orchestrator-handled.
     #[token = "const"]

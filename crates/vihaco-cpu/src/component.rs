@@ -44,6 +44,7 @@ impl CPU {
             Dup => self.op_dup(),
             HeapAlloc(n_elements) => self.op_heap_alloc(n_elements),
             GetItem => self.op_get_item(),
+            HeapDealloc => self.op_dealloc_heap(),
             Const(v) => self.op_const(v),
             Add(ty) => self.op_add(ty),
             Sub(ty) => self.op_sub(ty),
@@ -239,16 +240,12 @@ impl CPU {
     }
 
     pub fn op_heap_alloc(&mut self, n_elements: u32) -> Result<StepOutcome> {
-        if self.stack.len() < n_elements as usize {
+let n: usize = n_elements as usize;
+        if self.stack.len() < n {
             return Err(eyre::eyre!("stack underflow"));
         }
-
-        let mut values = Vec::with_capacity(n_elements as usize);
-        for _ in 0..n_elements {
-            values.push(self.stack_pop()?);
-        }
-        values.reverse();
-
+let start = self.stack.len() - n;
+        let values: Box<[Value]> = self.stack.drain(start..).collect();
         let heap_id = self.push_heap_object(values);
         self.stack_push(Value::HeapRef(heap_id));
         Ok(StepOutcome::Continue)
@@ -262,6 +259,12 @@ impl CPU {
             .get(index)
             .ok_or_else(|| eyre::eyre!("heap index {} out of bounds", index))?;
         self.stack_push(value);
+        Ok(StepOutcome::Continue)
+    }
+
+    pub fn op_dealloc_heap(&mut self) -> Result<StepOutcome> {
+        let id = self.stack_pop()?.get_heap_ref()?;
+        self.dealloc_heap_object(id)?;
         Ok(StepOutcome::Continue)
     }
 
@@ -436,8 +439,8 @@ mod tests {
         assert_eq!(outcome, StepOutcome::Continue);
         assert_eq!(cpu.stack(), &vec![Value::HeapRef(0)]);
         assert_eq!(
-            cpu.heap,
-            vec![vec![Value::I64(10), Value::I64(20), Value::I64(30)]]
+            cpu.heap.get(0).unwrap(),
+            &[Value::I64(10), Value::I64(20), Value::I64(30)]
         );
     }
 
@@ -449,7 +452,7 @@ mod tests {
 
         assert_eq!(outcome, StepOutcome::Continue);
         assert_eq!(cpu.stack(), &vec![Value::HeapRef(0)]);
-        assert_eq!(cpu.heap, vec![Vec::new()]);
+        assert_eq!(cpu.heap.get(0).unwrap(), &[] as &[Value]);
     }
 
     #[test]
@@ -519,8 +522,8 @@ mod tests {
         assert_eq!(Instruction::Label.opcode(), 1);
         assert_eq!(Instruction::FunctionStart.opcode(), 2);
         assert_eq!(Instruction::HeapAlloc(1).opcode(), 15);
-        assert_eq!(Instruction::Const(Value::I64(1)).opcode(), 17);
-        assert_eq!(Instruction::Ge(Type::I64).opcode(), 40);
+        assert_eq!(Instruction::Const(Value::I64(1)).opcode(), 18);
+        assert_eq!(Instruction::Ge(Type::I64).opcode(), 41);
     }
 
     #[test]
