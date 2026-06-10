@@ -14,15 +14,12 @@ impl Reset for CPU {
         self.heap.clear();
         self.stack.clear();
         self.span = (0, 0, 0);
-        self.pending_pc = None;
-        self.current_pc = 0;
         self.return_values.clear();
     }
 }
 
 impl CPU {
     pub fn execute_instruction(&mut self, inst: Instruction) -> eyre::Result<StepOutcome> {
-        self.clear_pending_pc();
         use Instruction::*;
         match inst {
             Span(file, start, end) => self.op_span(file, start, end),
@@ -75,7 +72,8 @@ impl CPU {
 #[derive(Debug, Clone, PartialEq, vihaco::Message)]
 pub enum CPUMessage {
     None,
-    FunctionInfo { arity: u32, start_address: u32 },
+    FunctionInfo { arity: u32, start_address: u32, return_address: u32 },
+    ReturnAddress(u32),
     Print(String),
 }
 
@@ -102,12 +100,18 @@ impl CPU {
                 CPUMessage::FunctionInfo {
                     arity,
                     start_address,
+                    return_address
                 },
             ) => {
                 self.stack_push(arity);
                 self.stack_push(start_address);
+                self.stack_push(return_address);
                 self.execute_instruction(inst).map(Effects::one)
-            }
+            },
+            (inst, CPUMessage::ReturnAddress(addr)) => {
+                self.stack_push(addr);
+                self.execute_instruction(inst).map(Effects::one)
+            },
             (inst, CPUMessage::None) => self.execute_instruction(inst).map(Effects::one),
         }
     }
@@ -120,8 +124,7 @@ impl CPU {
     }
 
     pub fn op_branch(&mut self, target: u32) -> eyre::Result<StepOutcome> {
-        self.set_pending_pc(target);
-        Ok(StepOutcome::Continue)
+        Ok(StepOutcome::JumpTo(target))
     }
 
     pub fn op_conditional_branch(
@@ -132,12 +135,10 @@ impl CPU {
         let cond = self.stack.pop().ok_or(eyre::eyre!("stack underflow"))?;
         match cond {
             Value::Bool(true) => {
-                self.set_pending_pc(true_target);
-                Ok(StepOutcome::Continue)
+                Ok(StepOutcome::JumpTo(true_target))
             }
             Value::Bool(false) => {
-                self.set_pending_pc(false_target);
-                Ok(StepOutcome::Continue)
+                Ok(StepOutcome::JumpTo(false_target))
             }
             _ => Err(eyre::eyre!("type error: expected bool on stack")),
         }
@@ -159,12 +160,13 @@ impl CPU {
             self.set_return_values(return_values);
             Ok(StepOutcome::Return)
         } else {
-            self.set_pending_pc(frame.ret_pc);
-            Ok(StepOutcome::Continue)
+            Ok(StepOutcome::JumpTo(frame.ret_pc))
         }
     }
 
     pub fn op_call(&mut self, arity: u32, target: u32) -> eyre::Result<StepOutcome> {
+        let ret_pc: u32 = self.stack_pop()?.try_into()?;
+
         if self.stack.len() < (arity as usize) {
             return Err(eyre::eyre!(
                 "not enough arguments on stack to call function"
@@ -176,15 +178,15 @@ impl CPU {
             base,
             span: self.span,
             function: None,
-            ret_pc: self.current_pc + 1,
+            ret_pc,
         };
         self.push_frame(frame);
-        self.set_pending_pc(target);
-        Ok(StepOutcome::Continue)
+        Ok(StepOutcome::JumpTo(target))
     }
 
     pub fn op_indirect_call(&mut self) -> eyre::Result<StepOutcome> {
         // simliar order to op_call but from the stack
+        let ret_pc: u32 = self.stack_pop()?.try_into()?;
         let target: u32 = self.stack_pop()?.try_into()?;
         let arity: u32 = self.stack_pop()?.try_into()?;
         let f = self.stack_pop()?.get_function_ref()?;
@@ -200,11 +202,10 @@ impl CPU {
             base,
             span: self.span,
             function: Some(f as usize),
-            ret_pc: self.current_pc + 1,
+            ret_pc,
         };
         self.push_frame(frame);
-        self.set_pending_pc(target);
-        Ok(StepOutcome::Continue)
+        Ok(StepOutcome::JumpTo(target))
     }
 
     fn op_load(&mut self, ty: Type, addr: u32) -> eyre::Result<StepOutcome> {
@@ -312,16 +313,31 @@ mod tests {
     }
 
     #[test]
-    fn execute_instruction_applies_control_flow_without_action() {
+    fn execute_instruction_reports_control_flow_as_goto_effect() {
         let mut cpu = CPU::default();
 
         let branch = cpu.execute_instruction(Instruction::Branch(9)).unwrap();
-        assert_eq!(branch, StepOutcome::Continue);
-        assert_eq!(cpu.take_pending_pc(), Some(9));
+        assert_eq!(branch, StepOutcome::JumpTo(9));
 
         let halt = cpu.execute_instruction(Instruction::Halt).unwrap();
         assert_eq!(halt, StepOutcome::Halt);
-        assert_eq!(cpu.take_pending_pc(), None);
+    }
+
+    #[test]
+    fn op_conditional_branch_selects_target_by_condition() {
+        let mut cpu = CPU::default();
+
+        cpu.stack_push(Value::Bool(true));
+        let taken = cpu
+            .execute_instruction(Instruction::ConditionalBranch(3, 7))
+            .unwrap();
+        assert_eq!(taken, StepOutcome::JumpTo(3));
+
+        cpu.stack_push(Value::Bool(false));
+        let not_taken = cpu
+            .execute_instruction(Instruction::ConditionalBranch(3, 7))
+            .unwrap();
+        assert_eq!(not_taken, StepOutcome::JumpTo(7));
     }
 
     #[test]
@@ -343,11 +359,8 @@ mod tests {
 
     #[test]
     fn op_return_restores_callers_pc() {
-        let mut cpu = CPU {
-            current_pc: 10,
-            ..Default::default()
-        };
-        // Outer ("main") frame so the inner Return takes the Continue branch.
+        let mut cpu = CPU::default();
+        // Outer ("main") frame so the inner Return takes the Goto branch.
         cpu.push_frame(Frame {
             base: 0,
             span: (0, 0, 0),
@@ -355,25 +368,22 @@ mod tests {
             ret_pc: 0,
         });
 
-        // Caller would be executing `call 0, 100` at some PC; op_call sets
-        // pending_pc to the callee target.
-        cpu.execute_instruction(Instruction::Call(0, 100)).unwrap();
-        assert_eq!(cpu.take_pending_pc(), Some(100));
+        // The composite supplies the return address on the stack; op_call
+        // pops it and records it in the new frame.
+        cpu.stack_push(Value::U32(11));
+        let outcome = cpu.execute_instruction(Instruction::Call(0, 100)).unwrap();
+        assert_eq!(outcome, StepOutcome::JumpTo(100));
         assert_eq!(cpu.frames[1].ret_pc, 11);
 
-        // Callee returns immediately. pending_pc should be restored to the
+        // Callee returns immediately; control transfers back to the
         // instruction after the call.
         let outcome = cpu.execute_instruction(Instruction::Return(0)).unwrap();
-        assert_eq!(outcome, StepOutcome::Continue);
-        assert_eq!(cpu.take_pending_pc(), Some(11),);
+        assert_eq!(outcome, StepOutcome::JumpTo(11));
     }
 
     #[test]
-    fn op_indirect_call_records_return_pc_after_call_site() {
-        let mut cpu = CPU {
-            current_pc: 10,
-            ..Default::default()
-        };
+    fn op_indirect_call_records_return_pc_from_stack() {
+        let mut cpu = CPU::default();
         cpu.push_frame(Frame {
             base: 0,
             span: (0, 0, 0),
@@ -381,18 +391,19 @@ mod tests {
             ret_pc: 0,
         });
 
-        // IndirectCall pops (top → bottom): target, arity, FunctionRef.
+        // IndirectCall pops (top → bottom): return address, target, arity,
+        // FunctionRef.
         cpu.stack_push(Value::FunctionRef(7));
         cpu.stack_push(Value::U32(0));
         cpu.stack_push(Value::U32(100));
+        cpu.stack_push(Value::U32(11));
 
-        cpu.execute_instruction(Instruction::IndirectCall).unwrap();
-        assert_eq!(cpu.take_pending_pc(), Some(100));
+        let outcome = cpu.execute_instruction(Instruction::IndirectCall).unwrap();
+        assert_eq!(outcome, StepOutcome::JumpTo(100));
         assert_eq!(cpu.frames[1].ret_pc, 11);
 
         let outcome = cpu.execute_instruction(Instruction::Return(0)).unwrap();
-        assert_eq!(outcome, StepOutcome::Continue);
-        assert_eq!(cpu.take_pending_pc(), Some(11));
+        assert_eq!(outcome, StepOutcome::JumpTo(11));
     }
 
     #[test]
@@ -412,14 +423,14 @@ mod tests {
             base: 0,
             span: (0, 0, 0),
             function: None,
-            ret_pc: 0,
+            ret_pc: 4,
         });
         cpu.stack_push(Value::I64(111)); // scratch — bottom of callee frame
         cpu.stack_push(Value::I64(222)); // scratch — middle
         cpu.stack_push(Value::I64(999)); // intended return value — top
 
         let outcome = cpu.execute_instruction(Instruction::Return(1)).unwrap();
-        assert_eq!(outcome, StepOutcome::Continue);
+        assert_eq!(outcome, StepOutcome::JumpTo(4));
 
         assert_eq!(cpu.stack(), &vec![Value::I64(999)],);
     }
@@ -545,7 +556,7 @@ mod tests {
     }
 
     #[test]
-    fn execute_generated_function_info_pushes_arity_and_start_address() {
+    fn execute_generated_function_info_pushes_return_address_on_top() {
         let mut cpu = CPU::default();
         cpu.push_frame(Frame {
             base: 0,
@@ -560,13 +571,38 @@ mod tests {
             CPUMessage::FunctionInfo {
                 arity: 2,
                 start_address: 42,
+                return_address: 11,
             },
         )
         .unwrap();
 
         assert_eq!(outcome, Effects::one(StepOutcome::Continue));
-        // arity pushed first, then start_address
-        assert_eq!(cpu.stack(), &vec![Value::U32(2), Value::U32(42)]);
+        // arity pushed first, then start_address, then return_address on top
+        assert_eq!(
+            cpu.stack(),
+            &vec![Value::U32(2), Value::U32(42), Value::U32(11)]
+        );
+    }
+
+    #[test]
+    fn execute_generated_return_address_supplies_call_return_pc() {
+        let mut cpu = CPU::default();
+        cpu.push_frame(Frame {
+            base: 0,
+            span: (0, 0, 0),
+            function: None,
+            ret_pc: 0,
+        });
+
+        let outcome = GeneratedComponent::execute_generated(
+            &mut cpu,
+            Instruction::Call(0, 100),
+            CPUMessage::ReturnAddress(11),
+        )
+        .unwrap();
+
+        assert_eq!(outcome, Effects::one(StepOutcome::JumpTo(100)));
+        assert_eq!(cpu.frames[1].ret_pc, 11);
     }
 
     #[test]

@@ -10,8 +10,6 @@ pub struct CPU {
     pub(crate) heap: Vec<Vec<Value>>,
     pub(crate) stack: Vec<Value>,
     pub(crate) span: (u32, u32, u32),
-    pub(crate) pending_pc: Option<u32>,
-    pub(crate) current_pc: u32,
     pub(crate) return_values: Vec<Value>,
 }
 
@@ -120,22 +118,6 @@ impl CPU {
             .get(id as usize)
             .map(Vec::as_slice)
             .ok_or_else(|| eyre::eyre!("invalid heap object id {}", id))
-    }
-
-    pub fn take_pending_pc(&mut self) -> Option<u32> {
-        self.pending_pc.take()
-    }
-
-    pub fn set_pending_pc(&mut self, pc: u32) {
-        self.pending_pc = Some(pc);
-    }
-
-    pub fn clear_pending_pc(&mut self) {
-        self.pending_pc = None;
-    }
-
-    pub fn set_current_pc(&mut self, pc: u32) {
-        self.current_pc = pc;
     }
 
     pub fn return_values(&self) -> &[Value] {
