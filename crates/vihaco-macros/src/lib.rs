@@ -19,7 +19,7 @@ pub fn derive_message(input: TokenStream) -> TokenStream {
     derive_message::expand(input)
 }
 
-#[proc_macro_derive(Machine, attributes(core, device, observe, program, scheduler, shared))]
+#[proc_macro_derive(Machine, attributes(device, observe, program))]
 pub fn derive_machine(input: TokenStream) -> TokenStream {
     derive_machine::expand(input)
 }
@@ -33,20 +33,13 @@ pub fn composite(_attr: TokenStream, item: TokenStream) -> TokenStream {
         Err(err) => return err.into_compile_error().into(),
     };
 
-    sanitized
-        .attrs
-        .retain(|attr| !attr.path().is_ident("scheduler"));
     if let Data::Struct(data) = &mut sanitized.data
         && let Fields::Named(fields) = &mut data.fields
     {
         for field in &mut fields.named {
             field.attrs.retain(|attr| {
                 let path = attr.path();
-                !(path.is_ident("core")
-                    || path.is_ident("device")
-                    || path.is_ident("observe")
-                    || path.is_ident("program")
-                    || path.is_ident("shared"))
+                !(path.is_ident("device") || path.is_ident("observe") || path.is_ident("program"))
             });
         }
     }
