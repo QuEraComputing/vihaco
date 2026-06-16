@@ -19,7 +19,7 @@ pub fn derive_message(input: TokenStream) -> TokenStream {
     derive_message::expand(input)
 }
 
-#[proc_macro_derive(Machine, attributes(device, observe, program))]
+#[proc_macro_derive(Machine, attributes(device, program))]
 pub fn derive_machine(input: TokenStream) -> TokenStream {
     derive_machine::expand(input)
 }
@@ -39,7 +39,7 @@ pub fn composite(_attr: TokenStream, item: TokenStream) -> TokenStream {
         for field in &mut fields.named {
             field.attrs.retain(|attr| {
                 let path = attr.path();
-                !(path.is_ident("device") || path.is_ident("observe") || path.is_ident("program"))
+                !(path.is_ident("device") || path.is_ident("program"))
             });
         }
     }
