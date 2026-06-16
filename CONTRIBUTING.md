@@ -2,8 +2,9 @@
 
 ## First-time setup
 
-After cloning, configure git to use the project's hooks:
+After cloning, install [prek](https://github.com/j178/prek) and set up the pre-commit hooks:
 
 ```sh
-git config --local core.hooksPath .githooks/
+cargo install prek
+prek install
 ```
