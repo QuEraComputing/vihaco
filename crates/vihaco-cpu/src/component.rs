@@ -621,7 +621,13 @@ mod tests {
 
         cpu.execute_instruction(Instruction::HeapDealloc).unwrap();
 
-        assert!(cpu.heap.get(0).unwrap_err().to_string().contains("deallocated"));
+        assert!(
+            cpu.heap
+                .get(0)
+                .unwrap_err()
+                .to_string()
+                .contains("deallocated")
+        );
     }
 
     #[test]
@@ -647,7 +653,9 @@ mod tests {
         cpu.execute_instruction(Instruction::HeapDealloc).unwrap();
 
         cpu.stack_push(Value::HeapRef(0));
-        let err = cpu.execute_instruction(Instruction::HeapDealloc).unwrap_err();
+        let err = cpu
+            .execute_instruction(Instruction::HeapDealloc)
+            .unwrap_err();
 
         assert!(err.to_string().contains("double-free"));
     }
@@ -657,7 +665,9 @@ mod tests {
         let mut cpu = CPU::default();
         cpu.stack_push(Value::HeapRef(99));
 
-        let err = cpu.execute_instruction(Instruction::HeapDealloc).unwrap_err();
+        let err = cpu
+            .execute_instruction(Instruction::HeapDealloc)
+            .unwrap_err();
 
         assert!(err.to_string().contains("invalid heap object id"));
     }

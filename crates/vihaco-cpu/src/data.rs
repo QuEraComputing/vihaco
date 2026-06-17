@@ -42,9 +42,10 @@ impl Heap {
                 self.free_list.push(id);
                 Ok(())
             }
-            Some(None) => {
-                Err(eyre::eyre!("double-free: heap object {} already deallocated", id))
-            }
+            Some(None) => Err(eyre::eyre!(
+                "double-free: heap object {} already deallocated",
+                id
+            )),
             None => Err(eyre::eyre!("invalid heap object id {}", id)),
         }
     }
@@ -52,9 +53,7 @@ impl Heap {
     pub fn get(&self, id: u32) -> eyre::Result<&[Value]> {
         match self.slots.get(id as usize) {
             Some(Some(v)) => Ok(v),
-            Some(None) => {
-                Err(eyre::eyre!("heap object {} has been deallocated", id))
-            }
+            Some(None) => Err(eyre::eyre!("heap object {} has been deallocated", id)),
             None => Err(eyre::eyre!("invalid heap object id {}", id)),
         }
     }
@@ -64,6 +63,7 @@ impl Heap {
         self.free_list.clear();
     }
 
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.slots.is_empty()
     }
