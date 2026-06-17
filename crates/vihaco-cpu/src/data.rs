@@ -7,12 +7,66 @@ use vihaco::{
 #[derive(Debug, Clone, Default)]
 pub struct CPU {
     pub(crate) frames: Vec<Frame>,
-    pub(crate) heap: Vec<Vec<Value>>,
+    pub(crate) heap: Heap,
     pub(crate) stack: Vec<Value>,
     pub(crate) span: (u32, u32, u32),
     pub(crate) pending_pc: Option<u32>,
     pub(crate) current_pc: u32,
     pub(crate) return_values: Vec<Value>,
+}
+
+type HeapSlot = Option<Box<[Value]>>;
+
+#[derive(Debug, Clone, Default)]
+pub struct Heap {
+    slots: Vec<HeapSlot>,
+    free_list: Vec<u32>,
+}
+
+impl Heap {
+    pub fn alloc(&mut self, values: Box<[Value]>) -> u32 {
+        if let Some(id) = self.free_list.pop() {
+            self.slots[id as usize] = Some(values);
+            id
+        } else {
+            let id = self.slots.len() as u32;
+            self.slots.push(Some(values));
+            id
+        }
+    }
+
+    pub fn dealloc(&mut self, id: u32) -> eyre::Result<()> {
+        match self.slots.get_mut(id as usize) {
+            Some(slot @ Some(_)) => {
+                *slot = None;
+                self.free_list.push(id);
+                Ok(())
+            }
+            Some(None) => Err(eyre::eyre!(
+                "double-free: heap object {} already deallocated",
+                id
+            )),
+            None => Err(eyre::eyre!("invalid heap object id {}", id)),
+        }
+    }
+
+    pub fn get(&self, id: u32) -> eyre::Result<&[Value]> {
+        match self.slots.get(id as usize) {
+            Some(Some(v)) => Ok(v),
+            Some(None) => Err(eyre::eyre!("heap object {} has been deallocated", id)),
+            None => Err(eyre::eyre!("invalid heap object id {}", id)),
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.slots.clear();
+        self.free_list.clear();
+    }
+
+    #[cfg(test)]
+    pub fn is_empty(&self) -> bool {
+        self.slots.is_empty()
+    }
 }
 
 impl StackMemory for CPU {
@@ -109,17 +163,16 @@ impl FrameMemory for CPU {
 }
 
 impl CPU {
-    pub fn push_heap_object(&mut self, values: Vec<Value>) -> u32 {
-        let id = self.heap.len() as u32;
-        self.heap.push(values);
-        id
+    pub fn push_heap_object(&mut self, values: Box<[Value]>) -> u32 {
+        self.heap.alloc(values)
     }
 
     pub fn heap_object(&self, id: u32) -> eyre::Result<&[Value]> {
-        self.heap
-            .get(id as usize)
-            .map(Vec::as_slice)
-            .ok_or_else(|| eyre::eyre!("invalid heap object id {}", id))
+        self.heap.get(id)
+    }
+
+    pub fn dealloc_heap_object(&mut self, id: u32) -> eyre::Result<()> {
+        self.heap.dealloc(id)
     }
 
     pub fn take_pending_pc(&mut self) -> Option<u32> {
