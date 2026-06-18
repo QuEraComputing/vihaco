@@ -61,8 +61,6 @@ mod public_api_tests {
         require_stdout_effect(StdoutEffect(String::new()));
         require_metadata(crate::CompositeMetadata {
             devices: &[],
-            scheduler: None,
-            shared_devices: &[],
             source_symbol_aliases: &[],
         });
     }

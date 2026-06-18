@@ -31,8 +31,6 @@ pub fn expect_exactly_one_effect<E>(effects: Effects<E>) -> Result<E> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompositeMetadata {
     pub devices: &'static [crate::metadata::DeviceMetadata],
-    pub scheduler: Option<&'static crate::metadata::SchedulerMetadata>,
-    pub shared_devices: &'static [crate::metadata::SharedDeviceMetadata],
     pub source_symbol_aliases: &'static [crate::metadata::SourceSymbolAliasMetadata],
 }
 
@@ -45,22 +43,11 @@ impl CompositeMetadata {
         self.devices.iter().find(|device| device.name == name)
     }
 
-    pub fn scheduler(&self) -> Option<&'static crate::metadata::SchedulerMetadata> {
-        self.scheduler
-    }
-
-    pub fn shared_devices(&self) -> &'static [crate::metadata::SharedDeviceMetadata] {
-        self.shared_devices
-    }
-
     pub fn source_symbol_aliases(&self) -> &'static [crate::metadata::SourceSymbolAliasMetadata] {
         self.source_symbol_aliases
     }
 
     pub fn source_symbol_device_code(&self, name: &str) -> Option<u8> {
-        if name == "scheduler" {
-            return self.scheduler.map(|scheduler| scheduler.device_code);
-        }
         if let Some(alias) = self
             .source_symbol_aliases
             .iter()
