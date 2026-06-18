@@ -1,0 +1,58 @@
+---
+import Base from "../layouts/Base.astro";
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const crates = [
+  { name: "vihaco", blurb: "The framework: instructions, messages, effects, components, observers, composites, modules, syntax, runtime." },
+  { name: "vihaco_cpu", blurb: "A ready-made CPU/host component and its instruction set." },
+  { name: "vihaco_parser", blurb: "The #[derive(Parse)] proc-macro." },
+  { name: "vihaco_parser_core", blurb: "The Parse trait and primitive parser impls." },
+];
+---
+<Base title="API Reference" current="reference">
+  <article class="shell narrow">
+    <div class="titleblock">
+      <p class="eyebrow">Reference</p>
+      <h1>API Reference</h1>
+      <p class="byline">
+        This site is the guide-style documentation. The full Rust API
+        reference is the generated rustdoc for the workspace crates.
+      </p>
+    </div>
+
+    <h2 id="hosted"><span class="sec-num">§ 1</span>Hosted rustdoc</h2>
+    <p>
+      The generated rustdoc is published alongside this site under the
+      <code>rust-api/</code> path. Entry points:
+    </p>
+    <dl class="crate-list">
+      {crates.map((c) => (
+        <>
+          <dt><a href={`${base}/rust-api/${c.name}/index.html`}><code>{c.name.replace(/_/g, "-")}</code></a></dt>
+          <dd>{c.blurb}</dd>
+        </>
+      ))}
+    </dl>
+
+    <h2 id="local"><span class="sec-num">§ 2</span>Build it locally</h2>
+    <p>To generate the same API docs from a checkout:</p>
+<pre><code class="language-bash">cargo doc --workspace --no-deps --open</code></pre>
+    <p>Common entry points in the generated output:</p>
+<pre><code>target/doc/vihaco/index.html
+target/doc/vihaco_cpu/index.html
+target/doc/vihaco_parser/index.html
+target/doc/vihaco_parser_core/index.html</code></pre>
+
+    <p>
+      For a live local preview of <em>this</em> guide site instead, run
+      <code>npm run dev</code> in <code>docs/</code>.
+    </p>
+
+    <h2 id="guides"><span class="sec-num">§ 3</span>Looking for the concepts?</h2>
+    <p>
+      The rustdoc documents every type and method. To learn how the pieces fit
+      together — instruction encoding, the message/effect data flow, the parser
+      pipeline, composing a machine — start with the
+      <a href={`${base}/guide`}>Guides</a>.
+    </p>
+  </article>
+</Base>

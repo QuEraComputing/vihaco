@@ -1,0 +1,48 @@
+---
+import Base from "./Base.astro";
+import { guides } from "../guides.ts";
+
+interface Heading {
+  depth: number;
+  slug: string;
+  text: string;
+}
+interface Frontmatter {
+  title: string;
+  slug?: string;
+  description?: string;
+}
+
+const { frontmatter, headings = [] } = Astro.props as {
+  frontmatter: Frontmatter;
+  headings?: Heading[];
+};
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+// Left "Guides" rail — every guide, in reading order.
+const sections = guides.map((g) => ({
+  id: g.slug,
+  label: g.label,
+  href: `${base}/guide/${g.slug}`,
+}));
+
+// Right on-page TOC — the h2 headings of this guide.
+const toc = (headings ?? [])
+  .filter((h) => h.depth === 2)
+  .map((h) => ({ label: h.text, href: `#${h.slug}` }));
+
+const currentSection = frontmatter.slug;
+---
+<Base
+  title={frontmatter.title}
+  description={frontmatter.description}
+  current="guide"
+  sections={sections}
+  currentSection={currentSection}
+  sectionsTitle="Guides"
+  toc={toc}
+>
+  <article class="shell narrow guide-body">
+    <slot />
+  </article>
+</Base>

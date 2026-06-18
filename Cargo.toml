@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/vihaco",
     "crates/vihaco-cpu",
+    "crates/vihaco-doctests",
     "crates/vihaco-macros",
     "crates/vihaco-parser",
     "crates/vihaco-parser-core",

@@ -1,0 +1,27 @@
+# Dev-only crate. Its sole job is to compile (and, where runnable, execute)
+# the code shown in the documentation so the docs can't drift from the API:
+#
+#   · the landing/quick-start example files under `docs/examples/*.rs`
+#     (the exact source the site imports via `?raw`) are `include!`d here, and
+#   · every fenced ```rust block in the guide markdown under
+#     `docs/src/pages/guide/*.md` is a rustdoc doctest (run via `cargo test --doc`).
+#
+# Not published; not depended on by any other crate.
+[package]
+name = "vihaco-doctests"
+edition = "2024"
+description = "Compiles and runs the code shown in the vihaco documentation (doc tests)."
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+vihaco = { workspace = true }
+vihaco-cpu = { workspace = true }
+vihaco-macros = { workspace = true }
+vihaco-parser = { workspace = true }
+vihaco-parser-core = { workspace = true }
+chumsky = "0.10"
+eyre = "0.6.12"

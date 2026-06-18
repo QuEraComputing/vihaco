@@ -1,0 +1,193 @@
+---
+import Base from "../layouts/Base.astro";
+import counterSrc from "../../examples/counter.rs?raw";
+import observeSrc from "../../examples/observe.rs?raw";
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+---
+<Base title="Overview" current="home">
+  <div class="hero-wrap">
+    <!-- QuEra atom cloud: overlapping spheres filled with the dawn
+         linear-gradient, blurred and concentrated in the upper-right via a
+         radial mask so the reading column on the left stays clean. -->
+    <svg class="atom-cloud" viewBox="0 0 1600 700" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <defs>
+        <linearGradient id="quera-dawn" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%"  stop-color="#7f3eff"/>
+          <stop offset="50%" stop-color="#fa82ec"/>
+          <stop offset="100%" stop-color="#ff7c24"/>
+        </linearGradient>
+        <radialGradient id="cloud-mask" cx="78%" cy="35%" r="55%">
+          <stop offset="0%"  stop-color="#fff" stop-opacity="1"/>
+          <stop offset="55%" stop-color="#fff" stop-opacity="0.6"/>
+          <stop offset="100%" stop-color="#fff" stop-opacity="0"/>
+        </radialGradient>
+        <mask id="cloud-fade">
+          <rect x="0" y="0" width="1600" height="700" fill="url(#cloud-mask)"/>
+        </mask>
+        <filter id="cloud-blur" x="-30%" y="-30%" width="160%" height="160%">
+          <feGaussianBlur stdDeviation="14"/>
+        </filter>
+      </defs>
+      <g class="cloud-atoms" fill="url(#quera-dawn)" mask="url(#cloud-fade)" filter="url(#cloud-blur)">
+        <circle cx="900"  cy="120" r="120"/>
+        <circle cx="1060" cy="230" r="160"/>
+        <circle cx="1240" cy="140" r="110"/>
+        <circle cx="1380" cy="260" r="140"/>
+        <circle cx="1500" cy="160" r="100"/>
+        <circle cx="980"  cy="360" r="130"/>
+        <circle cx="1180" cy="400" r="150"/>
+        <circle cx="1360" cy="450" r="110"/>
+        <circle cx="1520" cy="350" r="90"/>
+        <circle cx="780"  cy="220" r="90"/>
+        <circle cx="820"  cy="480" r="100"/>
+      </g>
+    </svg>
+
+    <section class="hero">
+      <div class="hero-text">
+        <p class="eyebrow">QuEra Computing · Rust · v0.1</p>
+        <h1>vihaco</h1>
+        <p class="byline">
+          A virtual ISA and machine framework for orchestrating hybrid
+          analog/digital quantum control. Define instruction sets, components,
+          effects, and parsers as ordinary Rust — then compose them into a
+          machine.
+        </p>
+        <div class="meta">
+          <span><strong>Rust</strong> 2024</span>
+          <span><strong>License</strong> MIT</span>
+          <span><strong>Source</strong> <a href="https://github.com/QuEraComputing/vihaco">github.com/QuEraComputing/vihaco</a></span>
+        </div>
+        <div class="hero-cta">
+          <a class="btn btn--primary" href={`${base}/quickstart`}>Quick Start</a>
+          <a class="btn" href={`${base}/guide`}>Guides</a>
+          <a class="btn" href={`${base}/reference`}>API Reference</a>
+        </div>
+      </div>
+
+      <figure class="hero-code" data-example-active="counter">
+        <figcaption>
+          <div class="hero-code-tabs" role="tablist" aria-label="Example">
+            <button type="button" role="tab" id="hero-tab-counter" aria-controls="hero-panel-counter" aria-selected="true" tabindex="0" data-example-set="counter" class="hero-code-tab">A component</button>
+            <button type="button" role="tab" id="hero-tab-observe" aria-controls="hero-panel-observe" aria-selected="false" tabindex="-1" data-example-set="observe" class="hero-code-tab">An observer</button>
+          </div>
+          <span class="hero-code-file">
+            <code data-example-pane="counter">counter.rs</code><code data-example-pane="observe" hidden>observe.rs</code>
+          </span>
+        </figcaption>
+        <div role="tabpanel" id="hero-panel-counter" aria-labelledby="hero-tab-counter" data-example-pane="counter">
+          <pre><code class="language-rust">{counterSrc}</code></pre>
+          <p class="hero-code-note">
+            A component is an execution unit: it takes a typed instruction plus
+            a resolved message and returns typed <em>effects</em>. The derives
+            handle opcodes, encoding, and the runtime glue.
+          </p>
+        </div>
+        <div role="tabpanel" id="hero-panel-observe" aria-labelledby="hero-tab-observe" data-example-pane="observe" hidden>
+          <pre><code class="language-rust">{observeSrc}</code></pre>
+          <p class="hero-code-note">
+            Execution and effect delivery are separate. Anything can
+            <code>#[observe]</code> an effect type — a log sink, a recorder, or
+            another component reacting to what its neighbours produced.
+          </p>
+        </div>
+      </figure>
+    </section>
+  </div>
+
+  <article class="shell home">
+    <section class="triptych" aria-label="What vihaco is for">
+      <div class="panel">
+        <span class="num">i. Instruction sets</span>
+        <h3>Bytecode as Rust enums</h3>
+        <p>
+          <code>#[derive(Instruction)]</code> turns an enum into an opcode
+          set with inferred (or fixed) encoding width. Nest enums to compose
+          several component instruction families under one machine type.
+        </p>
+      </div>
+      <div class="panel">
+        <span class="num">ii. Components &amp; effects</span>
+        <h3>Execute, then observe</h3>
+        <p>
+          Components consume a resolved <code>Message</code> and return typed
+          <code>Effects</code>. Observers react to those effects with
+          <code>#[observe]</code>, keeping execution and delivery cleanly
+          separated.
+        </p>
+      </div>
+      <div class="panel">
+        <span class="num">iii. Parsers for free</span>
+        <h3>From source text to module</h3>
+        <p>
+          <code>#[derive(Parse)]</code> generates a
+          <a href="https://github.com/zesterer/chumsky">chumsky</a> parser for
+          your instruction syntax; a two-pass resolver expands sugar, interns
+          strings, and resolves labels into a runtime module.
+        </p>
+      </div>
+    </section>
+
+    <section class="install-tabs" aria-label="Install vihaco">
+      <h2 class="section-h"><span class="section-h-num">§</span>Install</h2>
+      <p>
+        vihaco is a Cargo workspace of focused crates. <code>vihaco</code> is
+        the foundation — add the others as your project needs them. There is no
+        umbrella crate and no published release yet, so depend on the git repo:
+      </p>
+<pre><code class="language-toml">[dependencies]
+vihaco        = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}
+vihaco-cpu    = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}  # optional: a ready-made CPU component
+vihaco-parser = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}  # optional: #[derive(Parse)] for source text</code></pre>
+      <p class="install-pane-note">Requires Rust edition 2024.</p>
+      <a class="install-pane-link" href={`${base}/quickstart`}>Continue to the Quick Start →</a>
+    </section>
+
+    <p class="home-foot">
+      Continue to the
+      <a href={`${base}/quickstart`}>Quick Start</a>,
+      work through the <a href={`${base}/guide`}>Guides</a>,
+      or browse the <a href={`${base}/reference`}>API Reference</a>.
+    </p>
+  </article>
+
+  <script is:inline>
+    (() => {
+      const figure = document.querySelector(".hero-code");
+      if (!figure) return;
+      const tabs = Array.from(figure.querySelectorAll('[role="tab"][data-example-set]'));
+      const panes = figure.querySelectorAll("[data-example-pane]");
+      if (tabs.length === 0) return;
+      const activate = (tab, { focus } = { focus: false }) => {
+        const target = tab.getAttribute("data-example-set");
+        figure.setAttribute("data-example-active", target);
+        tabs.forEach((t) => {
+          const selected = t === tab;
+          t.setAttribute("aria-selected", selected ? "true" : "false");
+          t.setAttribute("tabindex", selected ? "0" : "-1");
+        });
+        panes.forEach((p) => {
+          const match = p.getAttribute("data-example-pane") === target;
+          if (match) p.removeAttribute("hidden");
+          else p.setAttribute("hidden", "");
+        });
+        if (focus) tab.focus();
+      };
+      tabs.forEach((tab, i) => {
+        tab.addEventListener("click", () => activate(tab));
+        tab.addEventListener("keydown", (e) => {
+          let next = null;
+          switch (e.key) {
+            case "ArrowRight":
+            case "ArrowDown": next = tabs[(i + 1) % tabs.length]; break;
+            case "ArrowLeft":
+            case "ArrowUp": next = tabs[(i - 1 + tabs.length) % tabs.length]; break;
+            case "Home": next = tabs[0]; break;
+            case "End": next = tabs[tabs.length - 1]; break;
+          }
+          if (next) { e.preventDefault(); activate(next, { focus: true }); }
+        });
+      });
+    })();
+  </script>
+</Base>
