@@ -76,10 +76,18 @@ jobs:
 
       - name: Build rustdoc
         # The Reference page links to the generated API docs under `rust-api/`.
-        # Build them and fold them into the published site so those links work.
-        run: cargo doc --workspace --no-deps
-        env:
-          RUSTDOCFLAGS: "-D warnings"
+        # Document exactly the library crates it links — not the dev-only
+        # `vihaco-doctests` crate, whose "docs" are the guide markdown (pulled
+        # in via include_str! for doctests) and would make rustdoc choke on
+        # prose like `Observe<EffectType>`. Don't promote rustdoc prose
+        # warnings to errors here; doc-code correctness is enforced by the
+        # `doctest` job in ci.yml.
+        run: >-
+          cargo doc --no-deps
+          -p vihaco
+          -p vihaco-cpu
+          -p vihaco-parser
+          -p vihaco-parser-core
 
       - name: Stage rustdoc under dist/rust-api
         run: |
