@@ -45,7 +45,7 @@ There is also a free function `vihaco_parser_core::ident()` returning a parser t
 ## Step 1: derive `Parse` on the instruction enum
 
 ```rust ignore
-use vihaco_macros::Instruction;
+use vihaco::Instruction;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Instruction, vihaco_parser::Parse)]
 #[instruction(width = 8)]
@@ -116,7 +116,7 @@ CPU instructions are mostly bare-form mnemonics with optional dot-qualified type
 
 ```rust ignore
 use vihaco::value::{Type, Value};
-use vihaco_macros::Instruction;
+use vihaco::Instruction;
 
 #[derive(Debug, Clone, PartialEq, Instruction, vihaco_parser::Parse)]
 pub enum Instruction {
