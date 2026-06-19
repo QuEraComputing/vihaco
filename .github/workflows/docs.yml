@@ -1,0 +1,176 @@
+name: Docs
+
+# Deploy the Astro docs site at `docs/` (plus the generated rustdoc under
+# `rust-api/`) to GitHub Pages.
+#
+# Behaviour:
+# - Push to `main`   → build with VIHACO_BASE=/vihaco and publish to the
+#                      gh-pages branch root.
+# - Pull request     → build with VIHACO_BASE=/vihaco/pr-preview/pr-<N> and
+#                      let rossjrw/pr-preview-action publish under
+#                      `pr-preview/pr-<N>/`. Triggered only when the diff
+#                      touches inputs the site depends on.
+# - PR closed        → cleanup-preview removes the `pr-preview/pr-<N>/` subtree.
+#
+# The project is served at https://QuEraComputing.github.io/vihaco/, so the
+# base path is `/vihaco` (not `/`).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "docs/**"
+      - "crates/**"
+      - ".github/workflows/docs.yml"
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.event.action != 'closed'
+    name: Build site
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: docs/package-lock.json
+
+      - name: Install Astro deps
+        run: npm ci
+        working-directory: docs
+
+      - name: Compute base path
+        id: compute-base
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "base=/vihaco/pr-preview/pr-${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "base=/vihaco" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build site
+        working-directory: docs
+        env:
+          VIHACO_SITE: https://QuEraComputing.github.io/vihaco
+          VIHACO_BASE: ${{ steps.compute-base.outputs.base }}
+        run: npm run build
+
+      - name: Build rustdoc
+        # The Reference page links to the generated API docs under `rust-api/`.
+        # Document exactly the library crates it links — not the dev-only
+        # `vihaco-doctests` crate, whose "docs" are the guide markdown (pulled
+        # in via include_str! for doctests) and would make rustdoc choke on
+        # prose like `Observe<EffectType>`. Don't promote rustdoc prose
+        # warnings to errors here; doc-code correctness is enforced by the
+        # `doctest` job in ci.yml.
+        run: >-
+          cargo doc --no-deps
+          -p vihaco
+          -p vihaco-cpu
+          -p vihaco-parser
+          -p vihaco-parser-core
+
+      - name: Stage rustdoc under dist/rust-api
+        run: |
+          mkdir -p docs/dist/rust-api
+          cp -r target/doc/. docs/dist/rust-api/
+
+      - name: Upload built site
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-dist
+          path: docs/dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy-main:
+    name: Deploy to gh-pages
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: deploy-gh-pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: docs-dist
+          path: docs/dist/
+
+      - name: Publish to gh-pages root
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs/dist
+          # Preserve /pr-preview/* (managed by pr-preview-action below).
+          keep_files: true
+          commit_message: "docs: deploy ${{ github.sha }}"
+
+  deploy-preview:
+    name: Deploy PR preview
+    needs: build
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: deploy-gh-pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: docs-dist
+          path: docs/dist/
+
+      - name: Deploy PR preview to gh-pages/pr-preview/pr-<N>
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: docs/dist/
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
+
+  cleanup-preview:
+    name: Clean up PR preview
+    if: github.event_name == 'pull_request_target' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: deploy-gh-pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: docs/dist/
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
+          action: remove

@@ -1,0 +1,168 @@
+---
+import Base from "../layouts/Base.astro";
+import quickstartSrc from "../../examples/quickstart.rs?raw";
+import parseSrc from "../../examples/quickstart_parse.rs?raw";
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const toc = [
+  { label: "§ 1 Workspace at a glance", href: "#workspace" },
+  { label: "§ 2 Pick crates by use case", href: "#pick" },
+  { label: "§ 3 Setup", href: "#setup" },
+  { label: "§ 4 A first component", href: "#component" },
+  { label: "§ 5 Parsing source text", href: "#parsing" },
+  { label: "§ 6 Next steps", href: "#next" },
+];
+---
+<Base title="Quick Start" current="quickstart" toc={toc}>
+  <div class="qs-hero qs-hero--rust">
+    <div class="qs-hero-inner">
+      <span class="chip"><span class="chip-dot"></span>Rust · edition 2024</span>
+      <h1><span class="lang">rs</span>Quick Start</h1>
+      <p class="audience">
+        vihaco is a framework for building small virtual machines: you define
+        the <strong>instruction set</strong>, the <strong>components</strong>
+        that execute it, the <strong>effects</strong> they emit, and (optionally)
+        a <strong>parser</strong> for source text — all as ordinary Rust.
+      </p>
+    </div>
+  </div>
+
+  <article class="shell narrow qs-page qs-page--rust">
+
+    <h2 id="workspace"><span class="sec-num">§ 1</span>Workspace at a glance</h2>
+
+    <p>
+      vihaco is a Cargo workspace of five focused crates. <code>vihaco</code>
+      is the foundation; everything else builds on it. Depend on what your
+      workload actually needs — there is no umbrella crate.
+    </p>
+
+    <dl class="crate-list">
+      <dt><code>vihaco</code> <span class="crate-tag">foundation</span></dt>
+      <dd>
+        The framework. The <code>Instruction</code> / <code>Message</code> /
+        <code>Effects</code> types and their derives, the
+        <code>#[component]</code>, <code>#[observe]</code>, and
+        <code>#[composite]</code> macros, the <code>module</code> /
+        <code>syntax</code> / <code>runtime</code> layers, and the
+        <code>Value</code> / <code>Type</code> value model. Re-exports the
+        macros, so most projects depend only on this crate.
+      </dd>
+      <dt><code>vihaco-cpu</code> <span class="crate-tag">component</span></dt>
+      <dd>
+        A ready-made CPU/host component — a small stack machine with
+        <code>cpu::Instruction</code> (constants, arithmetic, branches,
+        <code>halt</code>, …) and the <code>StepOutcome</code> control-flow
+        effect. Use it directly, or as a reference for writing your own
+        components.
+      </dd>
+      <dt><code>vihaco-parser</code> <span class="crate-tag">parser</span></dt>
+      <dd>
+        The <code>#[derive(Parse)]</code> proc-macro. It turns an instruction
+        enum into a <a href="https://github.com/zesterer/chumsky">chumsky</a>
+        parser, driven by <code>#[head]</code> / <code>#[token]</code> /
+        <code>#[delimiters]</code> / <code>#[parse_with]</code> attributes.
+      </dd>
+      <dt><code>vihaco-parser-core</code> <span class="crate-tag">parser</span></dt>
+      <dd>
+        The <code>Parse&lt;'src&gt;</code> trait and blanket impls for the
+        primitives (<code>i64</code>, <code>u64</code>, <code>f64</code>,
+        <code>bool</code>, <code>String</code>, …), plus the
+        <code>ident()</code> helper. Every parser in the workspace is a
+        <code>Parse</code> impl.
+      </dd>
+      <dt><code>vihaco-macros</code> <span class="crate-tag">internal</span></dt>
+      <dd>
+        The procedural macros behind <code>#[derive(Instruction)]</code>,
+        <code>#[derive(Message)]</code>, <code>#[component]</code>,
+        <code>#[observe]</code>, and <code>#[composite]</code>. Re-exported
+        through <code>vihaco</code> — you rarely depend on it directly.
+      </dd>
+    </dl>
+
+    <h2 id="pick"><span class="sec-num">§ 2</span>Pick crates by use case</h2>
+
+    <ul class="crate-pick">
+      <li>
+        <strong>Define instructions, components, and effects</strong>:
+        <code>vihaco</code>.
+      </li>
+      <li>
+        <strong>Reuse a CPU / stack machine</strong> as one of your components:
+        <code>vihaco</code> + <code>vihaco-cpu</code>.
+      </li>
+      <li>
+        <strong>Parse source text into instructions</strong>:
+        <code>vihaco</code> + <code>vihaco-parser</code> +
+        <code>vihaco-parser-core</code>.
+      </li>
+    </ul>
+
+    <h2 id="setup"><span class="sec-num">§ 3</span>Setup</h2>
+
+    <p>
+      Requires Rust edition 2024. There is no published release yet, so depend
+      on the git repo. The git dependency form is identical for each crate:
+    </p>
+
+<pre><code class="language-toml">[dependencies]
+vihaco             = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}
+vihaco-cpu         = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}
+vihaco-parser      = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}
+vihaco-parser-core = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}
+eyre               = "0.6"   # vihaco APIs return eyre::Result</code></pre>
+
+    <h2 id="component"><span class="sec-num">§ 4</span>A first component</h2>
+
+    <p>
+      A component bundles three things: an <code>Instruction</code> enum (the
+      operations), an optional <code>Message</code> (resolved execution input),
+      and an optional effect type (what execution returns). The
+      <code>#[component(...)]</code> attribute generates the runtime glue from a
+      single <code>execute</code> method.
+    </p>
+
+<pre><code class="language-rust">{quickstartSrc}</code></pre>
+
+    <p>
+      <code>execute_generated</code> is the runtime entry point the macro
+      generates (via the <code>GeneratedComponent</code> trait);
+      <code>expect_exactly_one_effect</code> is a helper for the common
+      single-effect case. For the full data-flow model — when to use a
+      <code>Message</code>, how effects are delivered to observers — read
+      <a href={`${base}/guide/components`}>Building Components</a>.
+    </p>
+
+    <h2 id="parsing"><span class="sec-num">§ 5</span>Parsing source text</h2>
+
+    <p>
+      Source-text parsing is orthogonal to bytecode. The same enum can derive
+      <code>vihaco_parser::Parse</code> alongside <code>Instruction</code>;
+      calling <code>parser()</code> gives you a chumsky parser:
+    </p>
+
+<pre><code class="language-rust">{parseSrc}</code></pre>
+
+    <p>
+      That is the whole instruction-level surface. Module-level orchestration —
+      device headers, function bodies, sugar expansion, string interning, label
+      resolution — is a two-pass <code>parse → resolve</code> pipeline covered
+      in <a href={`${base}/guide/parser`}>Parser Integration</a> and
+      <a href={`${base}/guide/parser-advanced`}>Advanced Parser Customization</a>.
+    </p>
+
+    <h2 id="next"><span class="sec-num">§ 6</span>Next steps</h2>
+    <ul>
+      <li>Work through the <a href={`${base}/guide`}>Guides</a> in order — they build the full authoring model from instructions up to composites.</li>
+      <li>Browse the <a href={`${base}/reference`}>API Reference</a> (generated rustdoc).</li>
+      <li>Read <code>vihaco-cpu</code> as a worked example of a non-trivial component.</li>
+    </ul>
+
+    <div class="qs-crosslink">
+      <div>
+        <span class="label">Next</span>
+        Ready for the full authoring model — instructions, messages, components, observers, composites?
+      </div>
+      <a href={`${base}/guide`}>Open the Guides</a>
+    </div>
+  </article>
+</Base>
