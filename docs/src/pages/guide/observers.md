@@ -2,7 +2,7 @@
 layout: ../../layouts/Guide.astro
 title: Observing Effects
 slug: observers
-description: How #[observe] works — declaring Observe<EffectType> impls on standalone observers and on components that also react to delivered effects.
+description: "How #[observe] works — declaring Observe<EffectType> impls on standalone observers and on components that also react to delivered effects."
 ---
 
 # Observing Effects With `#[observe]`

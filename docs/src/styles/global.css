@@ -110,23 +110,6 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Subtle brand-gradient atmosphere — only on landing hero (opt-in via .with-glow) */
-.with-glow::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(ellipse 720px 380px at 88% -10%, rgba(127, 62, 255, 0.10), transparent 65%),
-    radial-gradient(ellipse 560px 320px at 5% 0%, rgba(255, 124, 36, 0.08), transparent 70%);
-  z-index: 0;
-}
-html[data-theme="dark"] .with-glow::before {
-  background:
-    radial-gradient(ellipse 720px 380px at 88% -10%, rgba(127, 62, 255, 0.28), transparent 65%),
-    radial-gradient(ellipse 560px 320px at 5% 0%, rgba(255, 124, 36, 0.16), transparent 70%);
-}
-.with-glow > * { position: relative; z-index: 1; }
 
 main, header, footer, nav { position: relative; }
 
@@ -753,7 +736,8 @@ li { margin: 0.25em 0; }
   border-bottom: 1px solid var(--rule);
   padding: 2.2rem 0;
 }
-.triptych .panel h3 {
+.triptych .panel h3,
+.triptych .panel h2 {
   margin: 0 0 0.4em;
   font-size: 1rem;
   font-weight: 500;
@@ -770,219 +754,6 @@ li { margin: 0.25em 0; }
 }
 .triptych .panel p { font-size: 0.93rem; color: var(--ink-soft); margin: 0; line-height: 1.55; }
 @media (max-width: 720px) { .triptych { grid-template-columns: 1fr; gap: 1.4rem; padding: 1.4rem 0; } }
-
-/* ──────────── API reference ──────────── */
-
-.api-shell {
-  max-width: 80rem;
-  margin: 0 auto;
-  padding: 2.8rem var(--gutter) 6rem;
-  display: grid;
-  grid-template-columns: 16rem 1fr;
-  gap: 3.2rem;
-  align-items: start;
-}
-@media (max-width: 980px) {
-  .api-shell { grid-template-columns: 1fr; gap: 2rem; }
-  .api-toc { position: static !important; max-height: none !important; border-right: 0 !important; }
-}
-
-.api-toc {
-  position: sticky;
-  top: 4.5rem;
-  max-height: calc(100vh - 5.5rem);
-  overflow-y: auto;
-  font-size: 0.85rem;
-  padding-right: 0.6rem;
-  border-right: 1px solid var(--rule);
-}
-.api-toc h4 {
-  font-family: var(--mono);
-  font-size: 0.72rem;
-  color: var(--ink-faint);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  margin: 1.5em 0 0.6em;
-  font-weight: 400;
-}
-.api-toc h4:first-child { margin-top: 0.4em; }
-.api-toc ul { list-style: none; padding: 0; margin: 0 0 1.2em; }
-.api-toc li { margin: 0.18em 0; }
-.api-toc a {
-  color: var(--ink-soft);
-  border: 0;
-  display: block;
-  padding: 1px 0;
-  font-family: var(--mono);
-  font-size: 0.74rem;
-  letter-spacing: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.api-toc a:hover { color: var(--accent); }
-.api-toc .toc-group {
-  font-family: var(--sans-display);
-  font-size: 0.78rem;
-  color: var(--ink);
-  font-weight: 500;
-  margin: 0.7em 0 0.2em;
-  display: block;
-  letter-spacing: -0.005em;
-}
-.api-toc .toc-filter {
-  width: 100%;
-  font-family: var(--sans-body);
-  font-size: 0.9rem;
-  background: var(--bg-elev);
-  border: 1px solid var(--rule);
-  border-radius: 5px;
-  padding: 0.5rem 0.7rem;
-  color: var(--ink);
-  outline: none;
-  margin-bottom: 1.4rem;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
-}
-.api-toc .toc-filter:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(127, 62, 255, 0.15);
-}
-.api-toc .toc-filter::placeholder { color: var(--ink-mute); }
-
-/* Rust TOC: each crate has Modules / Structs / Enums / Traits / … subgroups.
-   The crate name is the heading; each kind gets a small coloured dot so the
-   reader can tell at a glance which kind of symbol they're scanning. */
-.api-toc .toc-crate { margin: 0 0 1.2em; }
-.api-toc .toc-kind {
-  list-style: none;
-  padding: 0;
-  margin: 0.35em 0 0.6em;
-}
-.api-toc .toc-kind-label {
-  display: flex;
-  align-items: center;
-  gap: 0.4em;
-  font-family: var(--sans-display);
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--ink-faint);
-  font-weight: 500;
-  margin: 0.45em 0 0.18em;
-}
-.api-toc .kind-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 2px;
-  background: var(--ink-mute);
-  flex-shrink: 0;
-}
-.api-toc .kind-dot--module     { background: #6b6580; border-radius: 50%; }
-.api-toc .kind-dot--struct     { background: #7f3eff; }
-.api-toc .kind-dot--enum       { background: #ff7c24; }
-.api-toc .kind-dot--trait      { background: #a252fa; transform: rotate(45deg); }
-.api-toc .kind-dot--function,
-.api-toc .kind-dot--method     { background: #fa82ec; border-radius: 50%; }
-.api-toc .kind-dot--macro      { background: #ffb072; border-radius: 2px; }
-.api-toc .kind-dot--type_alias { background: var(--ink-mute); border-radius: 1px; }
-.api-toc .kind-dot--other      { background: var(--ink-mute); }
-/* Subtle left rail per kind, so adjacent groups read as separate clusters. */
-.api-toc .toc-kind { border-left: 1px solid var(--rule-soft); padding-left: 0.55em; margin-left: 0.1em; }
-.api-toc .toc-kind--struct   { border-left-color: color-mix(in srgb, #7f3eff 22%, var(--rule-soft)); }
-.api-toc .toc-kind--enum     { border-left-color: color-mix(in srgb, #ff7c24 22%, var(--rule-soft)); }
-.api-toc .toc-kind--trait    { border-left-color: color-mix(in srgb, #a252fa 22%, var(--rule-soft)); }
-.api-toc .toc-kind--function { border-left-color: color-mix(in srgb, #fa82ec 22%, var(--rule-soft)); }
-.api-toc .toc-kind--macro    { border-left-color: color-mix(in srgb, #ffb072 22%, var(--rule-soft)); }
-.api-toc .toc-kind > li:first-child { margin-top: 0; }
-
-.api-section { margin: 0 0 4rem; }
-.api-section > h2 {
-  margin-top: 0;
-  padding-bottom: 0.6rem;
-  border-bottom: 1px solid var(--ink);
-  font-size: 1.4rem;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  flex-wrap: wrap;
-}
-.api-section > h2 .api-section-title { color: var(--ink); font-weight: 500; }
-.api-section > h2 code { font-family: var(--mono); font-size: 0.85em; color: var(--accent); background: none; border: 0; padding: 0; }
-.api-section .crate-blurb { font-style: normal; color: var(--ink-faint); margin-top: 0.5rem; font-size: 0.96rem; }
-.api-section--python > h2 { border-bottom-color: var(--purple); }
-.api-section--rust   > h2 { border-bottom-color: var(--orange); }
-.api-section--rust   > h2 code { color: var(--orange); }
-
-/* Language chip on section heading */
-.lang-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  font-family: var(--mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  padding: 3px 9px 4px;
-  border-radius: 999px;
-  border: 1px solid currentColor;
-  font-weight: 500;
-  vertical-align: 0.05em;
-}
-.lang-chip .dot {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-  box-shadow: 0 0 8px currentColor;
-}
-.lang-chip--python { color: var(--purple); background: color-mix(in srgb, var(--purple) 8%, transparent); }
-.lang-chip--rust   { color: var(--orange); background: color-mix(in srgb, var(--orange) 8%, transparent); }
-
-/* Language toggle in the TOC */
-.lang-toggle {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 4px;
-  margin: 0 0 1.5rem;
-  padding: 3px;
-  border: 1px solid var(--rule);
-  border-radius: 6px;
-  background: var(--bg-deep);
-}
-.lang-toggle button {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  font-family: var(--sans-display);
-  font-size: 0.78rem;
-  font-weight: 500;
-  letter-spacing: 0;
-  color: var(--ink-faint);
-  cursor: pointer;
-  padding: 5px 6px;
-  border-radius: 4px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  transition: background 120ms ease, color 120ms ease;
-}
-.lang-toggle button .dot {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  display: inline-block;
-  opacity: 0.7;
-}
-.lang-toggle button:hover { color: var(--ink); }
-.lang-toggle button[aria-pressed="true"] {
-  background: var(--bg-elev);
-  color: var(--ink);
-  box-shadow: 0 1px 2px rgba(15, 12, 36, 0.04), 0 0 0 1px var(--rule);
-}
-.lang-toggle button.lang-toggle--python[aria-pressed="true"] { color: var(--purple); box-shadow: 0 1px 2px rgba(15, 12, 36, 0.04), 0 0 0 1px color-mix(in srgb, var(--purple) 38%, var(--rule)); }
-.lang-toggle button.lang-toggle--rust[aria-pressed="true"]   { color: var(--orange); box-shadow: 0 1px 2px rgba(15, 12, 36, 0.04), 0 0 0 1px color-mix(in srgb, var(--orange) 40%, var(--rule)); }
 
 /* ──────────── Landing page ────────────
    QuEra × Swiss flat-academic:
@@ -1210,7 +981,8 @@ li { margin: 0.25em 0; }
   border: 0;
   padding: 0;
 }
-.shell.home .triptych .panel h3 {
+.shell.home .triptych .panel h3,
+.shell.home .triptych .panel h2 {
   font-family: var(--sans-display);
   font-size: 0.98rem;
   font-weight: 500;
@@ -1288,11 +1060,6 @@ li { margin: 0.25em 0; }
 .install-tab[aria-selected="true"] {
   color: var(--ink);
   background: transparent;
-  border-bottom-color: var(--accent);
-}
-.install-tab--python[aria-selected="true"],
-.install-tab--rust[aria-selected="true"],
-.install-tab--agents[aria-selected="true"] {
   border-bottom-color: var(--accent);
 }
 .install-tab-label {
@@ -1487,12 +1254,6 @@ li { margin: 0.25em 0; }
 }
 .crate-pick li { margin: 0.35rem 0; line-height: 1.55; }
 .crate-pick strong { color: var(--ink); font-weight: 500; }
-
-/* Subtle accent rail on each section's API items */
-.api-section--python .api-item { border-left-color: color-mix(in srgb, var(--purple) 14%, var(--rule)); }
-.api-section--python .api-item:hover { border-left-color: var(--purple); box-shadow: 0 1px 3px rgba(15, 12, 36, 0.04), 0 8px 24px -16px rgba(127, 62, 255, 0.25); }
-.api-section--rust   .api-item { border-left-color: color-mix(in srgb, var(--orange) 14%, var(--rule)); }
-.api-section--rust   .api-item:hover { border-left-color: var(--orange); box-shadow: 0 1px 3px rgba(15, 12, 36, 0.04), 0 8px 24px -16px rgba(255, 124, 36, 0.3); }
 
 /* Search status line */
 .api-search-status {
@@ -1774,11 +1535,8 @@ html[data-theme="dark"] .kind-attribute,
 html[data-theme="dark"] .kind-module   { color: var(--ink); background: var(--bg-elev); border-color: var(--rule); }
 
 /* ──────────── Quick Start ────────────
-   Two language-specific Quick Starts, distinguished by accent colour:
-     · Python  → brand purple (default)
-     · Rust    → brand orange
-   The differentiation reads at a glance: hero ribbon, eyebrow chip, side
-   rule on code blocks, and badge colour all key off the same accent. */
+   The Quick Start keys its accent colour (brand orange) into the hero ribbon,
+   eyebrow chip, side rule on code blocks, and badge colour via `--qs-accent`. */
 
 .qs-hero {
   margin: 0;
@@ -1800,7 +1558,6 @@ html[data-theme="dark"] .kind-module   { color: var(--ink); background: var(--bg
   z-index: 0;
 }
 .qs-hero > * { position: relative; z-index: 1; }
-.qs-hero--python { --qs-accent: var(--purple); --qs-accent-soft: rgba(127, 62, 255, 0.14); --qs-accent-faint: rgba(127, 62, 255, 0.07); }
 .qs-hero--rust   { --qs-accent: var(--orange); --qs-accent-soft: rgba(255, 124, 36, 0.16); --qs-accent-faint: rgba(255, 124, 36, 0.07); }
 
 .qs-hero-inner {
@@ -1895,129 +1652,6 @@ html[data-theme="dark"] .kind-module   { color: var(--ink); background: var(--bg
   display: inline-block;
 }
 .qs-crosslink a:hover::after { color: var(--accent); transform: translateX(2px); }
-
-/* ──────────── Quick Start chooser page ──────────── */
-
-.qs-chooser {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1.6rem;
-  margin: 2.4rem 0 0;
-}
-@media (max-width: 820px) { .qs-chooser { grid-template-columns: 1fr; } }
-
-.qs-card {
-  display: flex;
-  flex-direction: column;
-  text-decoration: none;
-  border: 1px solid var(--rule);
-  border-radius: 8px;
-  padding: 1.6rem 1.7rem 1.5rem;
-  background: var(--bg-elev);
-  position: relative;
-  overflow: hidden;
-  transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease;
-  --card-accent: var(--purple);
-  --card-accent-soft: rgba(127, 62, 255, 0.12);
-  color: var(--ink);
-}
-.qs-card::before {
-  content: "";
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 4px;
-  background: linear-gradient(90deg, var(--card-accent), color-mix(in srgb, var(--card-accent) 40%, transparent));
-}
-.qs-card::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(ellipse 380px 220px at 100% -30%, var(--card-accent-soft), transparent 65%);
-  z-index: 0;
-}
-.qs-card > * { position: relative; z-index: 1; }
-.qs-card:hover {
-  transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--card-accent) 40%, var(--rule));
-  box-shadow: 0 4px 14px -8px color-mix(in srgb, var(--card-accent) 45%, transparent),
-              0 1px 3px rgba(15, 12, 36, 0.05);
-}
-.qs-card--python { --card-accent: var(--purple); --card-accent-soft: rgba(127, 62, 255, 0.12); }
-.qs-card--rust   { --card-accent: var(--orange); --card-accent-soft: rgba(255, 124, 36, 0.14); }
-
-.qs-card .qs-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-family: var(--mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--card-accent);
-  margin-bottom: 0.7rem;
-}
-.qs-card .qs-chip .chip-dot {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  background: var(--card-accent);
-  box-shadow: 0 0 10px var(--card-accent);
-}
-.qs-card h3 {
-  margin: 0 0 0.45em;
-  font-size: 1.5rem;
-  font-weight: 500;
-  letter-spacing: -0.018em;
-  color: var(--ink);
-}
-.qs-card .audience-tag {
-  display: inline-block;
-  font-family: var(--mono);
-  font-size: 0.72rem;
-  color: var(--ink-soft);
-  border: 1px solid var(--rule);
-  padding: 2px 8px 3px;
-  border-radius: 4px;
-  margin-bottom: 0.9rem;
-}
-.qs-card p {
-  margin: 0 0 1em;
-  color: var(--ink-soft);
-  font-size: 0.96rem;
-  line-height: 1.55;
-}
-.qs-card .qs-bullets {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 1.1em;
-  font-size: 0.92rem;
-  color: var(--ink-soft);
-}
-.qs-card .qs-bullets li {
-  padding-left: 1.2rem;
-  position: relative;
-  margin: 0.3em 0;
-}
-.qs-card .qs-bullets li::before {
-  content: "";
-  position: absolute;
-  left: 0; top: 0.55em;
-  width: 6px; height: 1px;
-  background: var(--card-accent);
-}
-.qs-card .qs-cta {
-  margin-top: auto;
-  font-family: var(--sans-display);
-  font-weight: 500;
-  font-size: 0.95rem;
-  color: var(--card-accent);
-}
-.qs-card .qs-cta::after {
-  content: " →";
-  display: inline-block;
-  transition: transform 150ms ease;
-}
-.qs-card:hover .qs-cta::after { transform: translateX(3px); }
 
 /* ──────────── Tutorial-era TOC, reused on Quick Start pages ──────────── */
 

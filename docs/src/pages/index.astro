@@ -99,7 +99,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, "");
     <section class="triptych" aria-label="What vihaco is for">
       <div class="panel">
         <span class="num">i. Instruction sets</span>
-        <h3>Bytecode as Rust enums</h3>
+        <h2>Bytecode as Rust enums</h2>
         <p>
           <code>#[derive(Instruction)]</code> turns an enum into an opcode
           set with inferred (or fixed) encoding width. Nest enums to compose
@@ -108,7 +108,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, "");
       </div>
       <div class="panel">
         <span class="num">ii. Components &amp; effects</span>
-        <h3>Execute, then observe</h3>
+        <h2>Execute, then observe</h2>
         <p>
           Components consume a resolved <code>Message</code> and return typed
           <code>Effects</code>. Observers react to those effects with
@@ -118,7 +118,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, "");
       </div>
       <div class="panel">
         <span class="num">iii. Parsers for free</span>
-        <h3>From source text to module</h3>
+        <h2>From source text to module</h2>
         <p>
           <code>#[derive(Parse)]</code> generates a
           <a href="https://github.com/zesterer/chumsky">chumsky</a> parser for

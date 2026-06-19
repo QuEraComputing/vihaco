@@ -2,7 +2,7 @@
 layout: ../../layouts/Guide.astro
 title: Parser Integration
 slug: parser
-description: Derive a chumsky parser for an instruction enum with #[derive(vihaco_parser::Parse)] — the head/token/delimiters/parse_with attributes and the Parse trait.
+description: "Derive a chumsky parser for an instruction enum with #[derive(vihaco_parser::Parse)] — the head/token/delimiters/parse_with attributes and the Parse trait."
 ---
 
 # Parser Integration for Component Instructions
