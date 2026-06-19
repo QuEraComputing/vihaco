@@ -1,0 +1,262 @@
+<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="How to define a component-local instruction enum with"><title>Defining Instructions — vihaco</title><script>
+      (() => {
+        const stored = localStorage.getItem("vihaco-theme") || "auto";
+        const sysDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const resolved = stored === "auto" ? (sysDark ? "dark" : "light") : stored;
+        document.documentElement.setAttribute("data-theme", resolved);
+        document.documentElement.setAttribute("data-theme-pref", stored);
+      })();
+    </script><link rel="stylesheet" href="/vihaco/_astro/Base.Bnd5gKDh.css"></head> <body> <header class="masthead"> <div class="masthead-inner"> <a class="brand" href="/vihaco/"> <span class="brand-mark" aria-hidden="true"></span> <span class="brand-mono">vihaco</span> <span class="brand-sub">/ virtual ISA &amp; machine framework</span> </a> <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Open navigation menu"> <span class="nav-toggle-bars" aria-hidden="true"></span> </button> <nav class="nav-links" id="primary-nav"> <a href="/vihaco/">Overview</a><a href="/vihaco/quickstart">Quick Start</a><a href="/vihaco/guide" aria-current="page">Guides</a><a href="/vihaco/reference">Reference</a> <div class="theme-toggle" role="group" aria-label="Theme"> <button type="button" data-theme-set="light" title="Light theme" aria-label="Light theme"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <circle cx="12" cy="12" r="4"></circle> <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path> </svg> </button> <button type="button" data-theme-set="dark" title="Dark theme" aria-label="Dark theme"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path> </svg> </button> <button type="button" data-theme-set="auto" title="Match system theme" aria-label="Auto (follow system)"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <rect x="3" y="4" width="18" height="13" rx="2"></rect> <path d="M8 21h8M12 17v4"></path> </svg> </button> </div> </nav> </div> </header> <main> <div class="page-shell page-shell--3col"> <details class="page-sections side-nav" aria-label="Guides"> <summary class="page-toc-label">Guides</summary> <ol> <li> <a href="/vihaco/guide/instructions" aria-current="page">Defining Instructions</a> </li><li> <a href="/vihaco/guide/instructions-advanced">Advanced Instruction Usage</a> </li><li> <a href="/vihaco/guide/parser">Parser Integration</a> </li><li> <a href="/vihaco/guide/parser-advanced">Advanced Parser Customization</a> </li><li> <a href="/vihaco/guide/messages">Using Messages</a> </li><li> <a href="/vihaco/guide/components">Building Components</a> </li><li> <a href="/vihaco/guide/observers">Observing Effects</a> </li><li> <a href="/vihaco/guide/composites">Defining a Composite</a> </li> </ol> </details> <div class="page-toc-content">  <article class="shell narrow guide-body"> <h1 id="defining-instructions-with-vihaco">Defining Instructions With <code>vihaco</code></h1>
+<p>Instruction types are the bytecode-visible operations in <code>vihaco</code>.
+They are usually Rust enums annotated with <code>#[derive(Instruction)]</code>.</p>
+<p>This guide shows:</p>
+<ul>
+<li>how to define a component-local instruction enum</li>
+<li>how opcodes are assigned by default</li>
+<li>how instruction width is chosen</li>
+</ul>
+<p>For explicit opcode overrides, explicit widths, and machine-level wrapper instructions, see <a href="/vihaco/guide/instructions-advanced">Advanced Instruction Usage</a>.</p>
+<p>If you are new to the component model, read <a href="/vihaco/guide/components">Building Components With <code>vihaco</code></a> first.</p>
+<h2 id="a-small-instruction-enum">A Small Instruction Enum</h2>
+<p>The smallest useful instruction type is just an enum with <code>#[derive(Instruction)]</code>.</p>
+<pre><code class="language-rust">use vihaco::Instruction;
+
+#[derive(Debug, Clone, Instruction)]
+pub enum CounterInst {
+    Add(i64),
+    Print,
+}
+</code></pre>
+<p>Each variant becomes an opcode in the encoded instruction stream.
+Tuple fields become payload bytes that follow the opcode.</p>
+<p>Conceptually:</p>
+<pre><code class="language-text">CounterInst::Add(5) => [opcode for Add][encoded i64 payload]
+CounterInst::Print  => [opcode for Print]
+</code></pre>
+<p>By default, <code>#[derive(Instruction)]</code> assigns opcodes in variant order starting at <code>0</code>.
+That means the first variant gets opcode <code>0</code>, the second gets <code>1</code>, and so on.</p>
+<p>In normal component code, this instruction type is the <code>instruction = ...</code> value on the component impl:</p>
+<pre><code class="language-rust">use eyre::Result;
+use vihaco::{Instruction, component};
+
+#[derive(Debug, Clone, Instruction)]
+pub enum LampInst {
+    On,
+    Off,
+}
+
+#[derive(Debug, Default)]
+pub struct Lamp {
+    on: bool,
+}
+
+#[component(instruction = LampInst, message = ())]
+impl Lamp {
+    fn execute(&#x26;mut self, inst: LampInst, _msg: ()) -> Result&#x3C;vihaco::Effects&#x3C;()>> {
+        self.on = matches!(inst, LampInst::On);
+        Ok(vihaco::Effects::none())
+    }
+}
+</code></pre>
+<h2 id="how-width-is-chosen">How Width Is Chosen</h2>
+<p>Every instruction type has an encoded width in bytes.
+That width includes:</p>
+<ul>
+<li>one opcode byte for the enum variant itself</li>
+<li>enough payload space for the largest variant in the enum</li>
+</ul>
+<p>If you do not set a width explicitly, <code>#[derive(Instruction)]</code> computes it from the enum shape.</p>
+<p>As a rule:</p>
+<ul>
+<li>a unit variant contributes only its opcode byte</li>
+<li>a tuple variant contributes its opcode byte plus the widths of its fields</li>
+<li>the enum width becomes the largest of those variant widths</li>
+</ul>
+<p>For example:</p>
+<pre><code class="language-rust">use vihaco::Instruction;
+
+#[derive(Debug, Clone, Instruction)]
+pub enum InnerInst {
+    Ping,
+    Pong,
+}
+
+#[derive(Debug, Clone, Instruction)]
+pub enum OuterInst {
+    Idle,
+    Inner(InnerInst),
+}
+</code></pre>
+<p><code>InnerInst</code> has width <code>1</code>, because each variant is only an opcode.
+<code>OuterInst</code> has width <code>2</code>:</p>
+<ul>
+<li><code>OuterInst::Idle</code> needs <code>1</code> byte</li>
+<li><code>OuterInst::Inner(...)</code> needs <code>1</code> outer opcode byte plus the <code>1</code> byte used by <code>InnerInst</code></li>
+</ul>
+<p>So the final width is the maximum variant width, which is <code>2</code>.</p>
+<h2 id="practical-guidance">Practical Guidance</h2>
+<ul>
+<li>Put bytecode-visible operations in an <code>#[derive(Instruction)]</code> enum.</li>
+<li>Let opcodes default to variant order unless you need specific encoded values.</li>
+<li>Start with inferred width unless you already need a fixed record size.</li>
+</ul>
+<h2 id="what-comes-next">What Comes Next</h2>
+<p>For explicit opcode assignment, explicit widths, and machine-level wrapper instructions, see <a href="/vihaco/guide/instructions-advanced">Advanced Instruction Usage</a>.</p>
+<p><code>#[derive(Instruction)]</code> covers bytecode and runtime semantics; source-text parsing is owned by an orthogonal <code>#[derive(vihaco_parser::Parse)]</code> on the same enum. See <a href="/vihaco/guide/parser">Parser Integration for Component Instructions</a> for the parser-side workflow and <a href="/vihaco/guide/parser-advanced">Advanced Parser Customization</a> for module-level orchestration (headers, sugar, labels).</p>
+<p>After defining an instruction type, the next step is usually to attach it to a component impl with <code>#[component(...)]</code>.</p>
+<p>See <a href="/vihaco/guide/components">Building Components With <code>vihaco</code></a> for the execution side of that model.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <span class="section-pager-link section-pager-prev section-pager-empty" aria-hidden="true"></span> <a class="section-pager-link section-pager-next" href="/vihaco/guide/instructions-advanced" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Advanced Instruction Usage</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#a-small-instruction-enum" data-toc-link="#a-small-instruction-enum">A Small Instruction Enum</a></li><li><a href="#how-width-is-chosen" data-toc-link="#how-width-is-chosen">How Width Is Chosen</a></li><li><a href="#practical-guidance" data-toc-link="#practical-guidance">Practical Guidance</a></li><li><a href="#what-comes-next" data-toc-link="#what-comes-next">What Comes Next</a></li> </ol> </details> </div> </main> <script>
+        // Scroll-spy: mark the TOC link for the section currently in view.
+        (() => {
+          const links = Array.from(document.querySelectorAll(".page-toc [data-toc-link]"));
+          if (!links.length) return;
+          const targets = links
+            .map((a) => {
+              const href = a.getAttribute("data-toc-link") || "";
+              const id = href.startsWith("#") ? href.slice(1) : null;
+              const el = id ? document.getElementById(id) : null;
+              return el ? { link: a, el } : null;
+            })
+            .filter(Boolean);
+          if (!targets.length) return;
+          const ANCHOR = 120;
+          function update() {
+            let activeIdx = 0;
+            for (let i = 0; i < targets.length; i++) {
+              const top = targets[i].el.getBoundingClientRect().top;
+              if (top - ANCHOR <= 0) activeIdx = i;
+              else break;
+            }
+            for (let i = 0; i < targets.length; i++) {
+              targets[i].link.setAttribute("aria-current", i === activeIdx ? "true" : "false");
+            }
+          }
+          update();
+          window.addEventListener("scroll", update, { passive: true });
+          window.addEventListener("resize", update);
+        })();
+      </script> <script>
+      // Mobile navigation drawer + responsive open-state for the sidebar TOCs.
+      (() => {
+        const mq = window.matchMedia("(min-width: 901px)");
+        const sideNavs = document.querySelectorAll("details.side-nav");
+        function syncSideNavs() {
+          for (const d of sideNavs) {
+            if (mq.matches) d.setAttribute("open", "");
+            else d.removeAttribute("open");
+          }
+        }
+        syncSideNavs();
+        mq.addEventListener("change", syncSideNavs);
+
+        const toggle = document.querySelector(".nav-toggle");
+        const nav = document.getElementById("primary-nav");
+        if (toggle && nav) {
+          function setOpen(open) {
+            toggle.setAttribute("aria-expanded", open ? "true" : "false");
+            toggle.setAttribute("aria-label", open ? "Close navigation menu" : "Open navigation menu");
+            nav.toggleAttribute("data-open", open);
+          }
+          toggle.addEventListener("click", () => {
+            const open = toggle.getAttribute("aria-expanded") !== "true";
+            setOpen(open);
+          });
+          nav.addEventListener("click", (e) => {
+            if (e.target && e.target.closest && e.target.closest("a")) setOpen(false);
+          });
+          const mqNav = window.matchMedia("(min-width: 721px)");
+          mqNav.addEventListener("change", () => setOpen(false));
+        }
+      })();
+    </script> <script>
+      // Inject a copy button into every <pre> block.
+      (() => {
+        const COPY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+        const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+        for (const pre of document.querySelectorAll("pre")) {
+          if (pre.querySelector(".copy-btn")) continue;
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "copy-btn";
+          btn.setAttribute("aria-label", "Copy code to clipboard");
+          btn.innerHTML = COPY_SVG + "<span>Copy</span>";
+          pre.appendChild(btn);
+          btn.addEventListener("click", async () => {
+            const code = pre.querySelector("code");
+            let raw;
+            if (code) {
+              raw = code.innerText;
+            } else {
+              const clone = pre.cloneNode(true);
+              for (const el of clone.querySelectorAll(".copy-btn")) el.remove();
+              raw = clone.innerText;
+            }
+            const text = raw.replace(/\n$/, "");
+            try {
+              await navigator.clipboard.writeText(text);
+            } catch {
+              const ta = document.createElement("textarea");
+              ta.value = text;
+              ta.style.position = "fixed";
+              ta.style.opacity = "0";
+              document.body.appendChild(ta);
+              ta.select();
+              try { document.execCommand("copy"); } catch {}
+              document.body.removeChild(ta);
+            }
+            btn.dataset.state = "copied";
+            btn.innerHTML = CHECK_SVG + "<span>Copied</span>";
+            setTimeout(() => {
+              btn.removeAttribute("data-state");
+              btn.innerHTML = COPY_SVG + "<span>Copy</span>";
+            }, 1500);
+          });
+        }
+      })();
+    </script> <script>
+      // Theme switcher: light / dark / auto, persisted in localStorage.
+      (() => {
+        const root = document.documentElement;
+        const mql = window.matchMedia("(prefers-color-scheme: dark)");
+        const buttons = document.querySelectorAll(".theme-toggle button[data-theme-set]");
+        function apply(pref) {
+          const resolved = pref === "auto" ? (mql.matches ? "dark" : "light") : pref;
+          root.setAttribute("data-theme", resolved);
+          root.setAttribute("data-theme-pref", pref);
+          localStorage.setItem("vihaco-theme", pref);
+          for (const b of buttons) {
+            b.setAttribute("aria-pressed", b.dataset.themeSet === pref ? "true" : "false");
+          }
+        }
+        const initial = localStorage.getItem("vihaco-theme") || "auto";
+        apply(initial);
+        for (const b of buttons) b.addEventListener("click", () => apply(b.dataset.themeSet));
+        mql.addEventListener("change", () => {
+          if ((localStorage.getItem("vihaco-theme") || "auto") === "auto") apply("auto");
+        });
+      })();
+    </script> <button type="button" class="back-to-top" aria-label="Back to top" hidden> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M12 19V5"></path> <path d="m5 12 7-7 7 7"></path> </svg> </button> <script>
+      (() => {
+        const btn = document.querySelector(".back-to-top");
+        if (!btn) return;
+        const threshold = () => Math.max(window.innerHeight * 1.2, 600);
+        function sync() {
+          btn.toggleAttribute("hidden", !(window.scrollY > threshold()));
+        }
+        btn.addEventListener("click", () => {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+          const brand = document.querySelector(".brand");
+          if (brand && brand.focus) brand.focus({ preventScroll: true });
+        });
+        window.addEventListener("scroll", sync, { passive: true });
+        window.addEventListener("resize", sync);
+        sync();
+      })();
+    </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
+          documentation generated <time>2026-06-19</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
+      (() => {
+        if (typeof hljs === "undefined") return;
+        for (const el of document.querySelectorAll("pre code[class*='language-']")) {
+          hljs.highlightElement(el);
+        }
+      })();
+    </script> </body> </html>
