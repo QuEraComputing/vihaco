@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SharedDeviceMetadata {
     pub device_code: u8,

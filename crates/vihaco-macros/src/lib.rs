@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
 mod attr_component;
 mod attr_observe;
 mod common;

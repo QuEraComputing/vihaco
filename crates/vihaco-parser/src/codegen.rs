@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
 use crate::attr::{EnumAttrs, FieldAttrs, HeadAttr, VariantAttrs};
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;

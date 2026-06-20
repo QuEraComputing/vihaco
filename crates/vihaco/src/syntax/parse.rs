@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
 //! chumsky-0.10 combinators for the parsed-syntax shape.
 //!
 //! `Parse` impls for `ParsedModule`/`ParsedFunction` are generic over the

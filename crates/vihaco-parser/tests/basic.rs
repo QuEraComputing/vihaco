@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
 #![allow(clippy::approx_constant)]
 
 use chumsky::Parser;

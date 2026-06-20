@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
 //! The `Resolve` trait — bridge between [`super::ParsedModule`] and the
 //! runtime [`crate::module::Module`]. Each consumer implements this for its
 //! own instruction set + header type, holding whatever state is needed

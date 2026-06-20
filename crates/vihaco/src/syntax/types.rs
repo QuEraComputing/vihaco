@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
 //! Parsed-syntax data shapes. See module docs in [`super`].
 
 /// Parsed `.sst` module — pre-resolution. `H` is the consumer's device-header

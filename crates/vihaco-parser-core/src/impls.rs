@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
 use crate::Parse;
 use chumsky::error::Simple;
 use chumsky::extra;

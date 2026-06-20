@@ -1,0 +1,32 @@
+headerPath = "licenserc.header.txt"
+
+# Source globs that get the SPDX header. vihaco is a pure-Rust workspace, so
+# this is the crate sources; docs and examples are covered by `excludes`.
+includes = [
+  "crates/**/*.rs",
+]
+
+excludes = [
+  "**/target/**",
+  "**/node_modules/**",
+  "**/.venv/**",
+  "**/dist/**",
+  "**/generated/**",
+  "**/*.lock",
+  "docs/**",
+  "examples/**",
+  # trybuild UI fixtures: their .stderr snapshots are line-number
+  # sensitive, so a header would shift the diagnostics and break the
+  # tests. The trybuild *runner* files (tests/compile_errors.rs,
+  # tests/rfc0007_machine_compile_fail.rs) are not under these dirs and
+  # are still stamped.
+  "**/tests/ui/**",
+  "**/tests/compile_errors/**",
+]
+
+useDefaultMapping = true
+
+[properties]
+inceptionYear = 2026
+copyrightOwner = "The vihaco Authors"
+licenseId = "MIT"

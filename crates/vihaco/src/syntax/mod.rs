@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
 //! Parsed-module syntax — the source-text shape that `#[derive(Parse)]` and
 //! the hand-written `Module`/`Function` parsers produce, **before** the
 //! resolver lowers it into [`crate::module::Module`].
