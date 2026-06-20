@@ -1,0 +1,16 @@
+# release-plz configuration — https://release-plz.dev/docs/config
+#
+# vihaco's crates share a single version via `version.workspace = true`, so the
+# whole workspace is released in lockstep under one version number, bumped from
+# the conventional-commit history. `vihaco-doctests` is `publish = false`, so
+# release-plz skips it automatically.
+
+[workspace]
+# Catch accidental breaking changes before they ship (runs cargo-semver-checks).
+semver_check = true
+# Tag + create a GitHub Release for each published version.
+git_release_enable = true
+# Maintain a per-crate CHANGELOG.md generated from conventional commits.
+changelog_update = true
+# This is a 0.x project: a breaking change bumps the minor (0.1 -> 0.2), a
+# feature/fix bumps the patch — the standard Cargo semver semantics.
