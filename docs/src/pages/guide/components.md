@@ -2,7 +2,7 @@
 layout: ../../layouts/Guide.astro
 title: Building Components
 slug: components
-description: Components are the basic execution units in vihaco — an instruction type, an optional message, an optional effect, and one #[component(...)] impl that executes the instruction.
+description: "Components are the basic execution units in vihaco — an instruction type, an optional message, an optional effect, and one #[component(...)] impl that executes the instruction."
 ---
 
 # Building Components With `vihaco`

@@ -2,7 +2,7 @@
 layout: ../../layouts/Guide.astro
 title: Defining a Composite
 slug: composites
-description: Composite structs are the composition root in vihaco — #[composite] generates the outer instruction enum and device metadata; message resolution and effect delivery are hand-written.
+description: "Composite structs are the composition root in vihaco — #[composite] generates the outer instruction enum and device metadata; message resolution and effect delivery are hand-written."
 ---
 
 # Defining A Composite With `vihaco`

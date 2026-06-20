@@ -2,7 +2,7 @@
 layout: ../../layouts/Guide.astro
 title: Defining Instructions
 slug: instructions
-description: How to define a component-local instruction enum with #[derive(Instruction)], how opcodes are assigned, and how encoding width is chosen.
+description: "How to define a component-local instruction enum with #[derive(Instruction)], how opcodes are assigned, and how encoding width is chosen."
 ---
 
 # Defining Instructions With `vihaco`
