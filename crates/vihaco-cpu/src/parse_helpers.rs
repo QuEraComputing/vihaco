@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
 //! Field-level parser helpers wired into `#[derive(vihaco_parser::Parse)]` via
 //! `#[parse_with = "..."]` on the `vihaco_cpu::Instruction` enum.
 //!

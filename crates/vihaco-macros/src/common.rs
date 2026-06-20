@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
 use std::collections::BTreeSet;
 
 use syn::parse::{Parse, ParseStream};

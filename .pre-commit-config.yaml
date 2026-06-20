@@ -14,3 +14,12 @@ repos:
         language: system
         types: [rust]
         pass_filenames: false
+
+      # SPDX license headers. `mise exec` makes hawkeye available even when
+      # the shell isn't mise-activated; install it with `mise install`.
+      - id: license-header
+        name: license header (SPDX)
+        entry: mise exec -- hawkeye check
+        language: system
+        types: [rust]
+        pass_filenames: false

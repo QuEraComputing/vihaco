@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
 use crate::instruction::Instruction;
 use vihaco::color::{Themed, show_instruction};
 

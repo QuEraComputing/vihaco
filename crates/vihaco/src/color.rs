@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
 use colored::{Color::TrueColor, Colorize};
 use std::fmt::{Display, Formatter, Result as FmtResult};
 

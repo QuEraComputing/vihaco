@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;

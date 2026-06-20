@@ -15,6 +15,13 @@ excludes = [
   "**/*.lock",
   "docs/**",
   "examples/**",
+  # trybuild UI fixtures: their .stderr snapshots are line-number
+  # sensitive, so a header would shift the diagnostics and break the
+  # tests. The trybuild *runner* files (tests/compile_errors.rs,
+  # tests/rfc0007_machine_compile_fail.rs) are not under these dirs and
+  # are still stamped.
+  "**/tests/ui/**",
+  "**/tests/compile_errors/**",
 ]
 
 useDefaultMapping = true

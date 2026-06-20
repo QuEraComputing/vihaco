@@ -1,0 +1,40 @@
+# mise-en-place: dev toolchain + tasks for vihaco.
+# Quick start:
+#   mise install        # install rust, node, prek, hawkeye
+#   mise run setup      # install the git pre-commit hooks
+#   mise run test       # run the test suite
+# Docs: https://mise.jdx.dev
+
+[tools]
+rust = "stable"             # edition 2024 needs >= 1.85
+node = "lts"                # docs/ is an Astro site (needs Node >= 20)
+prek = "latest"             # aqua:j178/prek — fast pre-commit runner
+"cargo:hawkeye" = "latest"  # SPDX license-header tool (reads licenserc.toml)
+
+[tasks.setup]
+description = "Install the git pre-commit hooks (prek)"
+run = "prek install"
+
+[tasks.test]
+description = "Run the workspace test suite (excludes doctests)"
+run = "cargo test --workspace --all-targets"
+
+[tasks.doctest]
+description = "Run the guide / doc tests"
+run = "cargo test --workspace --doc"
+
+[tasks.fmt]
+description = "Format all crates"
+run = "cargo fmt --all"
+
+[tasks.lint]
+description = "Clippy with warnings denied"
+run = "cargo clippy --workspace --all-targets -- -D warnings"
+
+[tasks.license]
+description = "Check SPDX license headers"
+run = "hawkeye check"
+
+[tasks.license-fix]
+description = "Add or repair SPDX license headers in place"
+run = "hawkeye format"

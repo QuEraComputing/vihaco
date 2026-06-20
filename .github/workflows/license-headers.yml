@@ -1,0 +1,23 @@
+name: License headers
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check SPDX headers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # hawkeye reads licenserc.toml at the repo root. Run `mise run license-fix`
+      # (or `hawkeye format`) locally to add headers to new files.
+      - name: Check license headers
+        uses: korandoru/hawkeye@v6.5.1
+        with:
+          mode: check

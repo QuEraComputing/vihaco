@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
 use proc_macro2::Span;
 use syn::{spanned::Spanned, Attribute, Error, Fields, LitStr, Meta, Result, Variant};
 

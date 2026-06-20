@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
 //! Doc tests for the vihaco documentation site.
 //!
 //! This crate ships no real code. It exists so CI fails if the documentation

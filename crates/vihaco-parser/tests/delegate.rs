@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
 use chumsky::Parser;
 use vihaco_parser::Parse;
 use vihaco_parser_core::Parse as ParseTrait;

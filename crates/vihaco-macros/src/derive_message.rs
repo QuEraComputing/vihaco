@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::DeriveInput;

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Frame {
     /// base pointer to the bottom of the frame in the stack

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
 use crate::color::Themed;
 
 #[derive(Debug, Clone, PartialEq)]

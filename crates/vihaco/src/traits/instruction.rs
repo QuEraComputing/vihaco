@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
 pub trait FromBytes {
     fn from_bytes<R: std::io::Read>(bytes: &mut R) -> eyre::Result<Self>
     where
