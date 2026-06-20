@@ -43,5 +43,6 @@ If you do not agree to those terms, please do not open a pull request.
 ## Reporting issues
 
 Use GitHub Issues for bugs and feature requests. For security-sensitive
-reports, please email the maintainers privately rather than filing a
-public issue.
+reports, please email a maintainer privately rather than filing a public
+issue: Kai-Hsin Wu <khwu@quera.com>, Neelay Fruitwala
+<nfruitwala@quera.com>, or Roger Luo <me@rogerluo.dev>.
