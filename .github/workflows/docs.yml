@@ -4,16 +4,19 @@ name: Docs
 # `rust-api/`) to GitHub Pages.
 #
 # Behaviour:
-# - Push to `main`   → build with VIHACO_BASE=/vihaco and publish to the
-#                      gh-pages branch root.
-# - Pull request     → build with VIHACO_BASE=/vihaco/pr-preview/pr-<N> and
-#                      let rossjrw/pr-preview-action publish under
+# - Push to `main`   → build with VIHACO_BASE=/ and publish to the gh-pages
+#                      branch root.
+# - Pull request     → build with VIHACO_BASE=/pr-preview/pr-<N> and let
+#                      rossjrw/pr-preview-action publish under
 #                      `pr-preview/pr-<N>/`. Triggered only when the diff
 #                      touches inputs the site depends on.
 # - PR closed        → cleanup-preview removes the `pr-preview/pr-<N>/` subtree.
 #
-# The project is served at https://QuEraComputing.github.io/vihaco/, so the
-# base path is `/vihaco` (not `/`).
+# The repo is private, so GitHub Pages serves the gh-pages branch at the ROOT of
+# a `*.pages.github.io` subdomain (not under `/vihaco`). The base path is
+# therefore `/` for the main deploy. (If the repo is ever made public — served
+# at https://QuEraComputing.github.io/vihaco/ — switch the base back to
+# `/vihaco` and prefix the preview base accordingly.)
 
 on:
   push:
@@ -62,15 +65,15 @@ jobs:
         id: compute-base
         run: |
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            echo "base=/vihaco/pr-preview/pr-${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+            echo "base=/pr-preview/pr-${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
           else
-            echo "base=/vihaco" >> "$GITHUB_OUTPUT"
+            echo "base=/" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build site
         working-directory: docs
         env:
-          VIHACO_SITE: https://QuEraComputing.github.io/vihaco
+          VIHACO_SITE: https://probable-adventure-1qn9gkl.pages.github.io
           VIHACO_BASE: ${{ steps.compute-base.outputs.base }}
         run: npm run build
 

@@ -1,11 +1,12 @@
 import { defineConfig } from "astro/config";
 
 // `site` + `base` are read from env in CI so the same astro config powers
-// three deploy targets:
+// three deploy targets (the repo is private, so Pages serves the gh-pages root
+// at a `*.pages.github.io` subdomain — i.e. base `/`, not `/vihaco`):
 //   · local dev:        VIHACO_SITE=http://localhost:4321   VIHACO_BASE=/
 //   · main → gh-pages:  VIHACO_SITE=https://<pages-host>     VIHACO_BASE=/
 //   · PR preview deploy:VIHACO_SITE=https://<pages-host>     VIHACO_BASE=/pr-preview/pr-<N>
-const site = process.env.VIHACO_SITE ?? "https://QuEraComputing.github.io/vihaco";
+const site = process.env.VIHACO_SITE ?? "https://probable-adventure-1qn9gkl.pages.github.io";
 const base = process.env.VIHACO_BASE ?? "/";
 
 // Self-contained rehype plugin: prefix every root-absolute internal link
