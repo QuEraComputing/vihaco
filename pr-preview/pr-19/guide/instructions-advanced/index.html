@@ -1,0 +1,297 @@
+<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Explicit opcode assignment, explicit instruction widths, and machine-level wrapper instructions that compose several component instruction sets."><title>Advanced Instruction Usage — vihaco</title><script>
+      (() => {
+        // localStorage can throw when storage is blocked (hardened privacy
+        // settings, sandboxed frames); fall back to "auto" so the theme still
+        // applies before first paint.
+        let stored = "auto";
+        try { stored = localStorage.getItem("vihaco-theme") || "auto"; } catch (e) {}
+        const sysDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const resolved = stored === "auto" ? (sysDark ? "dark" : "light") : stored;
+        document.documentElement.setAttribute("data-theme", resolved);
+        document.documentElement.setAttribute("data-theme-pref", stored);
+      })();
+    </script><link rel="stylesheet" href="/pr-preview/pr-19/_astro/Base.CrxhgeBX.css"></head> <body> <header class="masthead"> <div class="masthead-inner"> <a class="brand" href="/pr-preview/pr-19/"> <span class="brand-mark" aria-hidden="true"></span> <span class="brand-mono">vihaco</span> <span class="brand-sub">/ virtual ISA &amp; machine framework</span> </a> <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Open navigation menu"> <span class="nav-toggle-bars" aria-hidden="true"></span> </button> <nav class="nav-links" id="primary-nav"> <a href="/pr-preview/pr-19/">Overview</a><a href="/pr-preview/pr-19/quickstart">Quick Start</a><a href="/pr-preview/pr-19/guide" aria-current="page">Guides</a><a href="/pr-preview/pr-19/reference">Reference</a> <div class="theme-toggle" role="group" aria-label="Theme"> <button type="button" data-theme-set="light" title="Light theme" aria-label="Light theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <circle cx="12" cy="12" r="4"></circle> <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path> </svg> </button> <button type="button" data-theme-set="dark" title="Dark theme" aria-label="Dark theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path> </svg> </button> <button type="button" data-theme-set="auto" title="Match system theme" aria-label="Auto (follow system)" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <rect x="3" y="4" width="18" height="13" rx="2"></rect> <path d="M8 21h8M12 17v4"></path> </svg> </button> </div> </nav> </div> </header> <main> <div class="page-shell page-shell--3col"> <details class="page-sections side-nav" aria-label="Guides"> <summary class="page-toc-label">Guides</summary> <ol> <li> <a href="/pr-preview/pr-19/guide/instructions">Defining Instructions</a> </li><li> <a href="/pr-preview/pr-19/guide/instructions-advanced" aria-current="page">Advanced Instruction Usage</a> </li><li> <a href="/pr-preview/pr-19/guide/parser">Parser Integration</a> </li><li> <a href="/pr-preview/pr-19/guide/parser-advanced">Advanced Parser Customization</a> </li><li> <a href="/pr-preview/pr-19/guide/messages">Using Messages</a> </li><li> <a href="/pr-preview/pr-19/guide/components">Building Components</a> </li><li> <a href="/pr-preview/pr-19/guide/observers">Observing Effects</a> </li><li> <a href="/pr-preview/pr-19/guide/composites">Defining a Composite</a> </li> </ol> </details> <div class="page-toc-content">  <article class="shell narrow guide-body"> <h1 id="advanced-instruction-usage">Advanced Instruction Usage</h1>
+<p>This guide covers explicit opcode assignment, explicit instruction widths, and machine-level wrapper instructions.</p>
+<p>For the basics of defining instruction enums and how width inference works, see <a href="/pr-preview/pr-19/guide/instructions">Defining Instructions With <code>vihaco</code></a>.</p>
+<h2 id="setting-an-explicit-opcode">Setting An Explicit Opcode</h2>
+<p>Use <code>#[opcode = ...]</code> on a variant when you want to choose the encoded opcode value yourself instead of using the default variant-order assignment.</p>
+<pre><code class="language-rust">use vihaco::Instruction;
+
+#[derive(Debug, Clone, Instruction)]
+#[instruction(width = 16)]
+pub enum BranchInst {
+    #[opcode = 0x10]
+    Jump(u32),
+    #[opcode = 0x11]
+    Select(u32, u32),
+}
+</code></pre>
+<p>This is useful when:</p>
+<ul>
+<li>the bytecode format needs stable numeric opcode values</li>
+<li>you want specific opcode numbers for compatibility or tooling</li>
+<li>you want to leave gaps for future instructions</li>
+</ul>
+<p>If you do not need that control, leaving opcodes inferred from variant order is the simpler default.</p>
+<h2 id="setting-an-explicit-width">Setting An Explicit Width</h2>
+<p>Use <code>#[instruction(width = ...)]</code> when you want the encoded record size to stay fixed even if the enum could be smaller.</p>
+<p>A fixed-width device instruction type is a common case — for example a signal generator that takes a channel address and a <code>Play</code>:</p>
+<pre><code class="language-rust">use vihaco::Instruction;
+
+#[derive(Debug, Clone, Instruction)]
+#[instruction(width = 8)]
+pub enum SignalInst {
+    Poly(u32),
+    Play,
+}
+</code></pre>
+<p>This says that every encoded <code>SignalInst</code> record is <code>8</code> bytes wide.</p>
+<p>Conceptually:</p>
+<pre><code class="language-text">SignalInst::Play
+=> [opcode for Play][0][0][0][0][0][0][0]
+</code></pre>
+<pre><code class="language-text">SignalInst::Poly(addr)
+=> [opcode for Poly][encoded address bytes...][zero padding if needed]
+</code></pre>
+<p>This is useful when you want a stable instruction record size at a component boundary.</p>
+<h2 id="when-to-leave-width-inferred">When To Leave Width Inferred</h2>
+<p>Leave width inferred when:</p>
+<ul>
+<li>you want the enum width to naturally track its largest payload</li>
+<li>the instruction type is only used as a reusable building block inside a larger wrapper enum</li>
+<li>you do not need a fixed external record size</li>
+</ul>
+<p>Set an explicit width when:</p>
+<ul>
+<li>the instruction format should always occupy a fixed number of bytes</li>
+<li>you want smaller variants padded up to a known record size</li>
+<li>the component already has a width contract you want to preserve as the enum evolves</li>
+</ul>
+<h2 id="machine-level-wrapper-instructions">Machine-Level Wrapper Instructions</h2>
+<p><code>vihaco</code> also supports instruction enums that wrap other instruction enums.
+This is how a machine can expose several component instruction sets through one outer instruction type.</p>
+<p>A machine that drives a CPU plus a signal generator can wrap both:</p>
+<pre><code class="language-rust">use vihaco::Instruction;
+use vihaco_cpu as cpu;
+
+#[derive(Debug, Clone, Instruction)]
+pub enum MachineInst {
+    Cpu(cpu::Instruction),
+    Signal(SignalInst),
+}
+</code></pre>
+<p>Each outer variant identifies which nested instruction family is being used.
+The nested instruction then becomes the payload of that outer variant.</p>
+<p>Conceptually:</p>
+<pre><code class="language-text">MachineInst::Signal(SignalInst::Play)
+=> [opcode for outer Signal variant][encoded SignalInst][padding if needed]
+</code></pre>
+<p>This keeps composition straightforward:</p>
+<ul>
+<li>each component keeps its own instruction type</li>
+<li>the machine exposes one outer instruction type</li>
+<li>the wrapper enum handles outer dispatch without forcing every inner instruction type to be rewritten</li>
+</ul>
+<blockquote>
+<p>When you use the <a href="/pr-preview/pr-19/guide/composites"><code>#[composite]</code></a> attribute, this outer wrapper enum is generated for you (as <code>&#x3C;MachineName>Instruction</code>). Writing it by hand, as above, is the same shape — useful when you want full control over the wrapper.</p>
+</blockquote>
+<h2 id="how-nested-widths-compose">How Nested Widths Compose</h2>
+<p>For wrapper enums, the outer instruction width is computed from the outer enum, not by changing the inner types.</p>
+<p>That means:</p>
+<ul>
+<li>each inner instruction keeps its own width</li>
+<li>a nested instruction payload contributes its full encoded width as payload</li>
+<li>the outer enum width is <code>1</code> opcode byte plus the largest nested payload used by any variant</li>
+<li>smaller nested payloads are padded inside the outer record</li>
+</ul>
+<p>For example, imagine:</p>
+<ul>
+<li><code>cpu::Instruction</code> is <code>16</code> bytes wide</li>
+<li><code>SignalInst</code> is <code>8</code> bytes wide</li>
+</ul>
+<p>Then the outer machine instruction width becomes <code>17</code> bytes:</p>
+<ul>
+<li><code>1</code> byte for the outer machine opcode</li>
+<li><code>16</code> bytes for the largest nested payload</li>
+</ul>
+<p>So a smaller instruction such as <code>MachineInst::Signal(...)</code> still occupies the full outer width once encoded.</p>
+<p>Conceptually:</p>
+<pre><code class="language-text">MachineInst::Signal(signal_inst)
+=> [opcode for Signal][encoded signal instruction][zero padding...]
+</code></pre>
+<p>This is what makes nested instruction composition deterministic:</p>
+<ul>
+<li>decoding always reads one full outer instruction record</li>
+<li>the outer opcode decides which nested instruction type should decode the payload</li>
+<li>the nested type decodes only the bytes it understands</li>
+</ul>
+<h2 id="practical-guidance">Practical Guidance</h2>
+<ul>
+<li>Use <code>#[opcode = ...]</code> when opcode numbers are part of the bytecode contract.</li>
+<li>Use <code>#[instruction(width = ...)]</code> when record size is part of the component contract.</li>
+<li>Wrap inner instruction enums in an outer machine enum instead of flattening all instructions into one giant type.</li>
+<li>Let the outer enum own machine-visible composition and padding behavior.</li>
+</ul>
+<h2 id="what-comes-next">What Comes Next</h2>
+<p><code>#[derive(Instruction)]</code> covers bytecode and runtime semantics; source-text parsing is owned by an orthogonal <code>#[derive(vihaco_parser::Parse)]</code> on the same enum. See <a href="/pr-preview/pr-19/guide/parser">Parser Integration for Component Instructions</a> for the parser-side workflow and <a href="/pr-preview/pr-19/guide/parser-advanced">Advanced Parser Customization</a> for module-level orchestration (headers, sugar, labels).</p>
+<p>After defining an instruction type, the next step is usually to attach it to a component impl with <code>#[component(...)]</code>.</p>
+<p>See <a href="/pr-preview/pr-19/guide/components">Building Components With <code>vihaco</code></a> for the execution side of that model.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/pr-preview/pr-19/guide/instructions" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Defining Instructions</span> </a> <a class="section-pager-link section-pager-next" href="/pr-preview/pr-19/guide/parser" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Parser Integration</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#setting-an-explicit-opcode" data-toc-link="#setting-an-explicit-opcode">Setting An Explicit Opcode</a></li><li><a href="#setting-an-explicit-width" data-toc-link="#setting-an-explicit-width">Setting An Explicit Width</a></li><li><a href="#when-to-leave-width-inferred" data-toc-link="#when-to-leave-width-inferred">When To Leave Width Inferred</a></li><li><a href="#machine-level-wrapper-instructions" data-toc-link="#machine-level-wrapper-instructions">Machine-Level Wrapper Instructions</a></li><li><a href="#how-nested-widths-compose" data-toc-link="#how-nested-widths-compose">How Nested Widths Compose</a></li><li><a href="#practical-guidance" data-toc-link="#practical-guidance">Practical Guidance</a></li><li><a href="#what-comes-next" data-toc-link="#what-comes-next">What Comes Next</a></li> </ol> </details> </div> </main> <script>
+        // Scroll-spy: mark the TOC link for the section currently in view.
+        (() => {
+          const links = Array.from(document.querySelectorAll(".page-toc [data-toc-link]"));
+          if (!links.length) return;
+          const targets = links
+            .map((a) => {
+              const href = a.getAttribute("data-toc-link") || "";
+              const id = href.startsWith("#") ? href.slice(1) : null;
+              const el = id ? document.getElementById(id) : null;
+              return el ? { link: a, el } : null;
+            })
+            .filter(Boolean);
+          if (!targets.length) return;
+          const ANCHOR = 120;
+          function update() {
+            let activeIdx = 0;
+            for (let i = 0; i < targets.length; i++) {
+              const top = targets[i].el.getBoundingClientRect().top;
+              if (top - ANCHOR <= 0) activeIdx = i;
+              else break;
+            }
+            for (let i = 0; i < targets.length; i++) {
+              targets[i].link.setAttribute("aria-current", i === activeIdx ? "true" : "false");
+            }
+          }
+          update();
+          window.addEventListener("scroll", update, { passive: true });
+          window.addEventListener("resize", update);
+        })();
+      </script> <script>
+      // Mobile navigation drawer + responsive open-state for the sidebar TOCs.
+      (() => {
+        const mq = window.matchMedia("(min-width: 901px)");
+        const sideNavs = document.querySelectorAll("details.side-nav");
+        function syncSideNavs() {
+          for (const d of sideNavs) {
+            if (mq.matches) d.setAttribute("open", "");
+            else d.removeAttribute("open");
+          }
+        }
+        syncSideNavs();
+        mq.addEventListener("change", syncSideNavs);
+
+        const toggle = document.querySelector(".nav-toggle");
+        const nav = document.getElementById("primary-nav");
+        if (toggle && nav) {
+          function setOpen(open) {
+            toggle.setAttribute("aria-expanded", open ? "true" : "false");
+            toggle.setAttribute("aria-label", open ? "Close navigation menu" : "Open navigation menu");
+            nav.toggleAttribute("data-open", open);
+          }
+          toggle.addEventListener("click", () => {
+            const open = toggle.getAttribute("aria-expanded") !== "true";
+            setOpen(open);
+          });
+          nav.addEventListener("click", (e) => {
+            if (e.target && e.target.closest && e.target.closest("a")) setOpen(false);
+          });
+          const mqNav = window.matchMedia("(min-width: 721px)");
+          mqNav.addEventListener("change", () => setOpen(false));
+        }
+      })();
+    </script> <script>
+      // Inject a copy button into every <pre> block.
+      (() => {
+        const COPY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+        const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+        for (const pre of document.querySelectorAll("pre")) {
+          if (pre.querySelector(".copy-btn")) continue;
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "copy-btn";
+          btn.setAttribute("aria-label", "Copy code to clipboard");
+          btn.innerHTML = COPY_SVG + "<span>Copy</span>";
+          pre.appendChild(btn);
+          btn.addEventListener("click", async () => {
+            const code = pre.querySelector("code");
+            let raw;
+            if (code) {
+              raw = code.innerText;
+            } else {
+              const clone = pre.cloneNode(true);
+              for (const el of clone.querySelectorAll(".copy-btn")) el.remove();
+              raw = clone.innerText;
+            }
+            const text = raw.replace(/\n$/, "");
+            try {
+              await navigator.clipboard.writeText(text);
+            } catch {
+              const ta = document.createElement("textarea");
+              ta.value = text;
+              ta.style.position = "fixed";
+              ta.style.opacity = "0";
+              document.body.appendChild(ta);
+              ta.select();
+              try { document.execCommand("copy"); } catch {}
+              document.body.removeChild(ta);
+            }
+            btn.dataset.state = "copied";
+            btn.innerHTML = CHECK_SVG + "<span>Copied</span>";
+            setTimeout(() => {
+              btn.removeAttribute("data-state");
+              btn.innerHTML = COPY_SVG + "<span>Copy</span>";
+            }, 1500);
+          });
+        }
+      })();
+    </script> <script>
+      // Theme switcher: light / dark / auto, persisted in localStorage.
+      (() => {
+        const root = document.documentElement;
+        const mql = window.matchMedia("(prefers-color-scheme: dark)");
+        const buttons = document.querySelectorAll(".theme-toggle button[data-theme-set]");
+        // localStorage may be unavailable (blocked storage); degrade gracefully
+        // so the toggle still themes the page for the current session.
+        const readPref = () => {
+          try { return localStorage.getItem("vihaco-theme") || "auto"; } catch (e) { return "auto"; }
+        };
+        function apply(pref) {
+          const resolved = pref === "auto" ? (mql.matches ? "dark" : "light") : pref;
+          root.setAttribute("data-theme", resolved);
+          root.setAttribute("data-theme-pref", pref);
+          try { localStorage.setItem("vihaco-theme", pref); } catch (e) {}
+          for (const b of buttons) {
+            b.setAttribute("aria-pressed", b.dataset.themeSet === pref ? "true" : "false");
+          }
+        }
+        apply(readPref());
+        for (const b of buttons) b.addEventListener("click", () => apply(b.dataset.themeSet));
+        mql.addEventListener("change", () => {
+          if (readPref() === "auto") apply("auto");
+        });
+      })();
+    </script> <button type="button" class="back-to-top" aria-label="Back to top" hidden> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M12 19V5"></path> <path d="m5 12 7-7 7 7"></path> </svg> </button> <script>
+      (() => {
+        const btn = document.querySelector(".back-to-top");
+        if (!btn) return;
+        const threshold = () => Math.max(window.innerHeight * 1.2, 600);
+        function sync() {
+          btn.toggleAttribute("hidden", !(window.scrollY > threshold()));
+        }
+        btn.addEventListener("click", () => {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+          const brand = document.querySelector(".brand");
+          if (brand && brand.focus) brand.focus({ preventScroll: true });
+        });
+        window.addEventListener("scroll", sync, { passive: true });
+        window.addEventListener("resize", sync);
+        sync();
+      })();
+    </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
+          documentation generated <time>2026-06-20</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
+      (() => {
+        if (typeof hljs === "undefined") return;
+        for (const el of document.querySelectorAll("pre code[class*='language-']")) {
+          hljs.highlightElement(el);
+        }
+      })();
+    </script> </body> </html>

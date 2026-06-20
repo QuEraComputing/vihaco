@@ -1,0 +1,9 @@
+(function() {
+    const implementors = Object.fromEntries([["vihaco",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.96.0/core/convert/trait.AsRef.html\" title=\"trait core::convert::AsRef\">AsRef</a>&lt;<a class=\"enum\" href=\"vihaco/value/enum.Type.html\" title=\"enum vihaco::value::Type\">Type</a>&gt; for <a class=\"enum\" href=\"vihaco/value/enum.Type.html\" title=\"enum vihaco::value::Type\">Type</a>",0]]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":59,"fragment_lengths":[370]}
