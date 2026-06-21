@@ -2,16 +2,22 @@ name: Release-plz
 
 # Automated releases driven by conventional commits.
 #
-#   • release-plz-pr      opens/updates a "release PR" that bumps the workspace
-#                         version and regenerates the changelogs. CI runs on it
-#                         (the GitHub App token below can trigger workflows).
-#   • release-plz-release on push to main (i.e. when that PR is merged), tags
-#                         the release, creates the GitHub Release(s), and
-#                         publishes the changed crates to crates.io.
+#   - release-plz-pr:      opens/updates a "release PR" that bumps the workspace
+#                          version and regenerates the changelogs. CI runs on it
+#                          (the GitHub App token below can trigger workflows).
+#   - release-plz-release: on push to main (i.e. when that PR is merged), tags
+#                          the release, creates the GitHub Release(s), and
+#                          publishes the changed crates to crates.io.
 #
-# crates.io auth uses OIDC trusted publishing (no stored token) — see the
+# crates.io auth uses OIDC trusted publishing (no stored token) -- see the
 # `id-token: write` permission on the release job. Configure each crate's
 # trusted publisher at https://crates.io/crates/<name>/settings once it exists.
+#
+# NOTE: release-plz/action is pinned by commit SHA (the `# v0.5.130` comment
+# tracks the human-readable tag). Do not replace the SHA with the `action@vX.Y.Z`
+# tag form: that token looks like an email address and gets mangled into
+# "[email protected]" by an email-obfuscation filter, which produces an
+# invalid `uses:` ref and makes GitHub reject the whole workflow at startup.
 
 on:
   push:
@@ -45,7 +51,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run release-plz
-        uses: release-plz/[email protected]
+        uses: release-plz/action@e8792575c7f2366cf6ff3ccc33ead9ace5b691c7 # v0.5.130
         with:
           command: release
         env:
@@ -62,7 +68,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    # Don't cancel an in-flight PR update — let it finish to avoid a half-written PR.
+    # Don't cancel an in-flight PR update; let it finish to avoid a half-written PR.
     concurrency:
       group: release-plz-${{ github.ref }}
       cancel-in-progress: false
@@ -82,7 +88,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run release-plz
-        uses: release-plz/[email protected]
+        uses: release-plz/action@e8792575c7f2366cf6ff3ccc33ead9ace5b691c7 # v0.5.130
         with:
           command: release-pr
         env:
