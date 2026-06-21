@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["expect_exactly_one_effect"],"struct":["CompositeMetadata"],"trait":["EffectSink","GeneratedComponent","Message","Observe"]};
