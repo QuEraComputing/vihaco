@@ -1,5 +1,5 @@
 [package]
-name = "vihaco-macros"
+name = "vihaco-derive"
 edition = "2024"
 description = "Procedural macros (#[derive(Instruction)], #[derive(Machine)], …) used by the vihaco crate."
 version.workspace = true

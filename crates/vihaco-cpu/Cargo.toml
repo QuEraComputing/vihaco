@@ -13,6 +13,6 @@ codespan = "0.13.1"
 eyre = "0.6.12"
 log = "0.4.29"
 vihaco = { workspace = true }
-vihaco-macros = { workspace = true }
+vihaco-derive = { workspace = true }
 vihaco-parser-core = { workspace = true }
 vihaco-parser = { workspace = true }
