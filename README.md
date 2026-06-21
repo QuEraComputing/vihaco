@@ -68,7 +68,7 @@ needs; there is no umbrella crate.
 | [`vihaco-cpu`](crates/vihaco-cpu) | A ready-made CPU/host component — a small stack machine (constants, arithmetic, branches, halt, …) with a `StepOutcome` control-flow effect. Use directly, or as a reference for writing your own. |
 | [`vihaco-parser`](crates/vihaco-parser) | `#[derive(Parse)]` — turns an instruction enum into a [chumsky](https://github.com/zesterer/chumsky) parser via `#[head]` / `#[token]` / `#[delimiters]` / `#[parse_with]` attributes. |
 | [`vihaco-parser-core`](crates/vihaco-parser-core) | The `Parse<'src>` trait and primitive impls shared by the parser derive. |
-| [`vihaco-macros`](crates/vihaco-macros) | The procedural macros behind the derives (used via `vihaco`'s re-exports). |
+| [`vihaco-derive`](crates/vihaco-derive) | The procedural macros behind the derives (used via `vihaco`'s re-exports). |
 
 ## Quick start
 

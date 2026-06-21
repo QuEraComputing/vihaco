@@ -3,8 +3,8 @@ resolver = "2"
 members = [
     "crates/vihaco",
     "crates/vihaco-cpu",
+    "crates/vihaco-derive",
     "crates/vihaco-doctests",
-    "crates/vihaco-macros",
     "crates/vihaco-parser",
     "crates/vihaco-parser-core",
 ]
@@ -22,6 +22,6 @@ authors = [
 [workspace.dependencies]
 vihaco            = { version = "0.1.0", path = "crates/vihaco" }
 vihaco-cpu        = { version = "0.1.0", path = "crates/vihaco-cpu" }
-vihaco-macros     = { version = "0.1.0", path = "crates/vihaco-macros" }
+vihaco-derive     = { version = "0.1.0", path = "crates/vihaco-derive" }
 vihaco-parser     = { version = "0.1.0", path = "crates/vihaco-parser" }
 vihaco-parser-core = { version = "0.1.0", path = "crates/vihaco-parser-core" }

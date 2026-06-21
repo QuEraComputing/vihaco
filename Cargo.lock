@@ -605,7 +605,7 @@ dependencies = [
  "log",
  "smallvec",
  "trybuild",
- "vihaco-macros",
+ "vihaco-derive",
  "vihaco-parser",
  "vihaco-parser-core",
 ]
@@ -619,9 +619,19 @@ dependencies = [
  "eyre",
  "log",
  "vihaco",
- "vihaco-macros",
+ "vihaco-derive",
  "vihaco-parser",
  "vihaco-parser-core",
+]
+
+[[package]]
+name = "vihaco-derive"
+version = "0.1.0"
+dependencies = [
+ "convert_case",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -632,19 +642,9 @@ dependencies = [
  "eyre",
  "vihaco",
  "vihaco-cpu",
- "vihaco-macros",
+ "vihaco-derive",
  "vihaco-parser",
  "vihaco-parser-core",
-]
-
-[[package]]
-name = "vihaco-macros"
-version = "0.1.0"
-dependencies = [
- "convert_case",
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]

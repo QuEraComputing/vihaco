@@ -20,7 +20,7 @@ publish = false
 [dependencies]
 vihaco = { workspace = true }
 vihaco-cpu = { workspace = true }
-vihaco-macros = { workspace = true }
+vihaco-derive = { workspace = true }
 vihaco-parser = { workspace = true }
 vihaco-parser-core = { workspace = true }
 chumsky = "0.10"
