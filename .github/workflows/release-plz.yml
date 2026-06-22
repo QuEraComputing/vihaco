@@ -9,9 +9,23 @@ name: Release-plz
 #                         the release, creates the GitHub Release(s), and
 #                         publishes the changed crates to crates.io.
 #
-# crates.io auth uses OIDC trusted publishing (no stored token) — see the
-# `id-token: write` permission on the release job. Configure each crate's
-# trusted publisher at https://crates.io/crates/<name>/settings once it exists.
+# Auth:
+#   - GitHub:   the default GITHUB_TOKEN (no PAT/App, so no org-admin setup).
+#               Tradeoff: PRs opened by GITHUB_TOKEN do not trigger CI, so the
+#               release PR won't run the CI workflow. That's acceptable here --
+#               it only bumps versions/changelogs, and the feature PRs feeding
+#               the release already passed CI. To get CI on the release PR,
+#               swap in a PAT/App token later.
+#   - crates.io: OIDC trusted publishing (no stored token) -- see the
+#               `id-token: write` permission on the release job. Configure each
+#               crate's trusted publisher at crates.io/crates/<name>/settings.
+#
+# NOTE: pinned by version tag (matching release-plz's docs and the other
+# actions in this repo). Heads-up for automated edits: a "name@version" ref
+# looks like an email address, so some web proxies / AI assistants rewrite it
+# into an obfuscated placeholder -- an invalid `uses:` ref that makes GitHub
+# reject the whole workflow at startup. Verify the release-plz `uses:` lines
+# after editing this file with such tools.
 
 on:
   push:
@@ -27,8 +41,9 @@ jobs:
     name: Release-plz release
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # push tags + create GitHub Releases
-      id-token: write   # OIDC: mint a short-lived crates.io token (trusted publishing)
+      contents: write       # push tags + create GitHub Releases
+      pull-requests: read   # link merged PRs in the release notes
+      id-token: write       # OIDC: mint a short-lived crates.io token (trusted publishing)
     steps:
       - name: Generate GitHub App token
         uses: actions/create-github-app-token@v3
@@ -45,7 +60,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run release-plz
-        uses: release-plz/[email protected]
+        uses: release-plz/action@v0.5.130
         with:
           command: release
         env:
@@ -82,7 +97,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run release-plz
-        uses: release-plz/[email protected]
+        uses: release-plz/action@v0.5.130
         with:
           command: release-pr
         env:
