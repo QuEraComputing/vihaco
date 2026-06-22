@@ -67,6 +67,14 @@ If you do not agree to those terms, please do not open a pull request.
    check.
 6. A maintainer will review. Be prepared to iterate.
 
+## Releasing
+
+Releases are automated from conventional commits with
+[release-plz](https://release-plz.dev) — maintainers cut a release by merging
+the bot's "Release PR", not by running `cargo publish`. See
+[RELEASING.md](RELEASING.md) for the flow, the auth setup, and the gotchas
+(notably: `release-plz/action` must be pinned by commit SHA, not by tag).
+
 ## Reporting issues
 
 Use GitHub Issues for bugs and feature requests. For security-sensitive
