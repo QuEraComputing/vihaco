@@ -19,10 +19,12 @@ name: Release-plz
 #               `id-token: write` permission on the release job. Configure each
 #               crate's trusted publisher at crates.io/crates/<name>/settings.
 #
-# NOTE: release-plz/action is pinned by commit SHA (the `# v0.5.130` comment
-# tracks the human-readable tag). Do NOT replace the SHA with the tag form:
-# that token looks like an email address and gets mangled by an obfuscation
-# filter into an invalid `uses:` ref, which makes GitHub reject the workflow.
+# NOTE: pinned by version tag (matching release-plz's docs and the other
+# actions in this repo). Heads-up for automated edits: a "name@version" ref
+# looks like an email address, so some web proxies / AI assistants rewrite it
+# into an obfuscated placeholder -- an invalid `uses:` ref that makes GitHub
+# reject the whole workflow at startup. Verify the release-plz `uses:` lines
+# after editing this file with such tools.
 
 on:
   push:
@@ -38,8 +40,9 @@ jobs:
     name: Release-plz release
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # push tags + create GitHub Releases
-      id-token: write   # OIDC: mint a short-lived crates.io token (trusted publishing)
+      contents: write       # push tags + create GitHub Releases
+      pull-requests: read   # link merged PRs in the release notes
+      id-token: write       # OIDC: mint a short-lived crates.io token (trusted publishing)
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -49,7 +52,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run release-plz
-        uses: release-plz/action@e8792575c7f2366cf6ff3ccc33ead9ace5b691c7 # v0.5.130
+        uses: release-plz/action@v0.5.130
         with:
           command: release
         env:
@@ -77,7 +80,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run release-plz
-        uses: release-plz/action@e8792575c7f2366cf6ff3ccc33ead9ace5b691c7 # v0.5.130
+        uses: release-plz/action@v0.5.130
         with:
           command: release-pr
         env:
