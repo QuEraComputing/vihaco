@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"macro":["show","show_instruction"],"struct":["Decorated"],"trait":["Themed"]};
