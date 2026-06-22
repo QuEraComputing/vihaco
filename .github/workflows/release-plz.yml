@@ -45,7 +45,7 @@ jobs:
       id-token: write       # OIDC: mint a short-lived crates.io token (trusted publishing)
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0   # full history is needed to release from the merge commit
           persist-credentials: false
@@ -73,7 +73,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
