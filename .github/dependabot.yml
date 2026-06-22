@@ -1,0 +1,22 @@
+# Dependabot version updates.
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates
+#
+# Keeps the GitHub Actions used by our workflows current -- in particular
+# release-plz/action, which we pin by version tag (see RELEASING.md). Dependabot
+# bumps the tag and updates the workflow for us.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # One combined PR per week for all action bumps, rather than one each.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    # Conventional-commit messages so release-plz categorizes them and they
+    # don't trigger a release (`ci` is not a release-bumping type).
+    commit-message:
+      prefix: ci
+      include: scope
