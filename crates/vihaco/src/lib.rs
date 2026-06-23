@@ -5,6 +5,7 @@ extern crate self as vihaco;
 
 #[doc(hidden)]
 pub mod __private;
+pub mod binary;
 pub mod color;
 pub mod effect;
 pub mod frame;
@@ -22,25 +23,32 @@ pub mod syntax;
 pub mod traits;
 pub mod value;
 
+pub use binary::{
+    BytecodeContext, BytecodeContextHandle, BytecodeFile, CompositeHeader, ConstantId,
+    ProgramContext, ProgramGlobals, SectionPath, SectionView, SectionWalk,
+};
 pub use effect::Effects;
 pub use instruction_syntax::{
     CanonicalInstructionSyntax, CanonicalInstructionVariantSyntax, InstructionSugarSyntax,
     InstructionSugarVariantSyntax, OperandKind, SugarOperandKind,
 };
-pub use loader::ProgramLoader;
+pub use loader::{LoadInput, LoadSection, ModuleProgramLoader, ProgramLoader};
 pub use macros::{Instruction, Message, component, composite, observe};
 pub use runtime::{
     CompositeMetadata, EffectSink, GeneratedComponent, Message as MessageMarker, Observe,
     expect_exactly_one_effect,
 };
-pub use traits::Reset;
+pub use traits::{GetProgramGlobal, Reset};
 pub use value::{Type, Value};
 
 #[cfg(test)]
 mod public_api_tests {
     use crate::{
-        EffectSink, Effects, GeneratedComponent, Reset,
+        BytecodeContext, EffectSink, Effects, GeneratedComponent, LoadSection, ProgramGlobals,
+        Reset, SectionWalk,
+        binary::ConstantId,
         instruction::{FromBytes, OpCode, WriteBytes},
+        module::FunctionInfo,
         observer::stdio::StdoutEffect,
     };
 
@@ -55,12 +63,22 @@ mod public_api_tests {
         fn require_effect_sink<S: EffectSink<()>>() {}
         fn require_reset<T: Reset>() {}
         fn require_instruction<T: FromBytes + OpCode + WriteBytes>() {}
+        fn require_bytecode_context<T: BytecodeContext>() {}
+        fn require_program_globals<T: ProgramGlobals>() {}
+        fn require_load_section<T: LoadSection>() {}
+        fn require_section_walk(_walk: Option<SectionWalk<'_, crate::ProgramContext>>) {}
         fn require_stdout_effect(_effect: StdoutEffect) {}
         fn require_metadata(_metadata: crate::CompositeMetadata) {}
 
         require_effect_sink::<Vec<()>>();
         require_reset::<PublicReset>();
         require_instruction::<u32>();
+        require_bytecode_context::<crate::ProgramContext>();
+        require_program_globals::<crate::ProgramContext>();
+        require_load_section::<crate::ProgramLoader<()>>();
+        require_section_walk(None);
+        let _constant = ConstantId(0);
+        let _function: Option<FunctionInfo<crate::Type>> = None;
         require_stdout_effect(StdoutEffect(String::new()));
         require_metadata(crate::CompositeMetadata {
             devices: &[],

@@ -2,18 +2,64 @@
 // SPDX-License-Identifier: MIT
 
 use crate::{
+    BytecodeFile,
+    binary::{
+        BytecodeContextHandle, ConstantId, ProgramContext, ProgramGlobals, SectionView,
+        decode_instruction_stream,
+    },
     module::{Module, NoInfo},
     traits::{self, GetProgramGlobal, ProgramCounter},
     value::{Type, Value},
 };
 
+pub struct LoadInput<'bc, C = ProgramContext> {
+    pub section: SectionView<'bc, C>,
+}
+
+impl<'bc, C> Clone for LoadInput<'bc, C> {
+    fn clone(&self) -> Self {
+        Self {
+            section: self.section.clone(),
+        }
+    }
+}
+
+impl<'bc, C> From<&'bc BytecodeFile<C>> for LoadInput<'bc, C> {
+    fn from(file: &'bc BytecodeFile<C>) -> Self {
+        Self {
+            section: file.root(),
+        }
+    }
+}
+
+impl<'bc, C> From<SectionView<'bc, C>> for LoadInput<'bc, C> {
+    fn from(section: SectionView<'bc, C>) -> Self {
+        Self { section }
+    }
+}
+
+impl<C> std::fmt::Debug for LoadInput<'_, C>
+where
+    C: crate::binary::BytecodeContext,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoadInput")
+            .field("section", &self.section)
+            .finish_non_exhaustive()
+    }
+}
+
+pub trait LoadSection<C = ProgramContext> {
+    fn load_section<'bc>(&mut self, input: LoadInput<'bc, C>) -> eyre::Result<()>;
+}
+
 #[derive(Debug, Clone)]
-pub struct ProgramLoader<I, Info = NoInfo> {
-    pub module: Module<I, Value, Type, Info>,
+pub struct ModuleProgramLoader<I, V = Value, Ty = Type, Info = NoInfo> {
+    pub module: Module<I, V, Ty, Info>,
     pub pc: u32,
 }
 
-impl<I, Info: Default> Default for ProgramLoader<I, Info> {
+impl<I, V, Ty, Info: Default> Default for ModuleProgramLoader<I, V, Ty, Info> {
     fn default() -> Self {
         Self {
             module: Module::default(),
@@ -22,7 +68,7 @@ impl<I, Info: Default> Default for ProgramLoader<I, Info> {
     }
 }
 
-impl<I: traits::Instruction, Info> ProgramCounter for ProgramLoader<I, Info> {
+impl<I: traits::Instruction, V, Ty, Info> ProgramCounter for ModuleProgramLoader<I, V, Ty, Info> {
     type Instruction = I;
 
     fn pc(&self) -> u32 {
@@ -44,8 +90,12 @@ impl<I: traits::Instruction, Info> ProgramCounter for ProgramLoader<I, Info> {
     }
 }
 
-impl<I: traits::Instruction, Info> GetProgramGlobal for ProgramLoader<I, Info> {
-    type Type = Type;
+impl<I: traits::Instruction, V, Ty, Info> GetProgramGlobal for ModuleProgramLoader<I, V, Ty, Info>
+where
+    Ty: Clone,
+{
+    type Type = Ty;
+    type Value = V;
 
     fn get_function(&self, index: usize) -> eyre::Result<crate::module::FunctionInfo<Self::Type>> {
         self.module.functions.get(index).cloned().ok_or_else(|| {
@@ -65,5 +115,114 @@ impl<I: traits::Instruction, Info> GetProgramGlobal for ProgramLoader<I, Info> {
                 self.module.strings.len()
             ))
         })
+    }
+
+    fn get_constant(&self, id: ConstantId) -> eyre::Result<&Self::Value> {
+        self.module.constants.get(id.0 as usize).ok_or_else(|| {
+            eyre::eyre!(format!(
+                "constant index out of bounds: {} (max {})",
+                id.0,
+                self.module.constants.len()
+            ))
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ProgramLoader<I, C = ProgramContext, Info = NoInfo> {
+    pub code: Vec<I>,
+    pub context: Option<BytecodeContextHandle<C>>,
+    pub pc: u32,
+    pub extra: Info,
+}
+
+impl<I, C, Info: Default> Default for ProgramLoader<I, C, Info> {
+    fn default() -> Self {
+        Self {
+            code: Vec::new(),
+            context: None,
+            pc: 0,
+            extra: Info::default(),
+        }
+    }
+}
+
+impl<I, C, Info> ProgramLoader<I, C, Info> {
+    pub fn new() -> Self
+    where
+        Info: Default,
+    {
+        Self::default()
+    }
+
+    pub fn with_extra(extra: Info) -> Self {
+        Self {
+            code: Vec::new(),
+            context: None,
+            pc: 0,
+            extra,
+        }
+    }
+
+    pub fn context(&self) -> eyre::Result<&C> {
+        self.context
+            .as_ref()
+            .map(BytecodeContextHandle::get)
+            .ok_or_else(|| eyre::eyre!("bytecode program loader has not been loaded"))
+    }
+}
+
+impl<I, C, Info> LoadSection<C> for ProgramLoader<I, C, Info>
+where
+    I: traits::Instruction,
+    C: crate::binary::BytecodeContext,
+{
+    fn load_section<'bc>(&mut self, input: LoadInput<'bc, C>) -> eyre::Result<()> {
+        self.code = decode_instruction_stream(input.section.bytecode())?;
+        self.context = Some(input.section.context_handle());
+        self.pc = 0;
+        Ok(())
+    }
+}
+
+impl<I: traits::Instruction, C, Info> ProgramCounter for ProgramLoader<I, C, Info> {
+    type Instruction = I;
+
+    fn pc(&self) -> u32 {
+        self.pc
+    }
+
+    fn pc_mut(&mut self) -> &mut u32 {
+        &mut self.pc
+    }
+
+    fn get_instruction(&self, pc: u32) -> eyre::Result<&Self::Instruction> {
+        self.code.get(pc as usize).ok_or_else(|| {
+            eyre::eyre!(format!(
+                "program counter out of bounds: {} (max {})",
+                pc,
+                self.code.len()
+            ))
+        })
+    }
+}
+
+impl<I, C, Info> GetProgramGlobal for ProgramLoader<I, C, Info>
+where
+    C: ProgramGlobals,
+{
+    type Type = C::Type;
+    type Value = C::Value;
+
+    fn get_function(&self, index: usize) -> eyre::Result<crate::module::FunctionInfo<Self::Type>> {
+        self.context()?.get_function(index)
+    }
+
+    fn get_string(&self, index: usize) -> eyre::Result<&String> {
+        self.context()?.get_string(index)
+    }
+
+    fn get_constant(&self, id: ConstantId) -> eyre::Result<&Self::Value> {
+        self.context()?.get_constant(id)
     }
 }
