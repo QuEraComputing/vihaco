@@ -1,0 +1,6 @@
+skill = []
+
+[agents]
+template = "builtin:rust"
+checksum = "sha256:d0560c47d550d56e3348ccbbdaa0138e04dc7d2085428e359de6ad2e84973a83"
+updated-at = "2026-06-23T01:00:07Z"
