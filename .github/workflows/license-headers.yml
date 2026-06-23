@@ -14,7 +14,7 @@ jobs:
     name: Check SPDX headers
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # hawkeye reads licenserc.toml at the repo root. Run `mise run license-fix`
       # (or `hawkeye format`) locally to add headers to new files.
       - name: Check license headers
