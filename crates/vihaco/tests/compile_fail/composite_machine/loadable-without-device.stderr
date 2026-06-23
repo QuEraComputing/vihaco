@@ -1,0 +1,5 @@
+error: field `child` marked #[loadable] must also be marked #[device(...)]
+ --> tests/compile_fail/composite_machine/loadable-without-device.rs:6:5
+  |
+6 |     child: Child,
+  |     ^^^^^

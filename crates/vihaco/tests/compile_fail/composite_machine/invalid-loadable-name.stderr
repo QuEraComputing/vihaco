@@ -1,0 +1,5 @@
+error: loadable section name cannot contain `/`
+ --> tests/compile_fail/composite_machine/invalid-loadable-name.rs:6:16
+  |
+6 |     #[loadable("child/nested")]
+  |                ^^^^^^^^^^^^^^

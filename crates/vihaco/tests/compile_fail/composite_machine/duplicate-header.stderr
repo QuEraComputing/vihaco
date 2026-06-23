@@ -1,0 +1,5 @@
+error: duplicate header field `second`; `first` is already marked #[header]
+  --> tests/compile_fail/composite_machine/duplicate-header.rs:10:5
+   |
+10 |     second: Header,
+   |     ^^^^^^

@@ -52,7 +52,8 @@ If you do not agree to those terms, please do not open a pull request.
 - **License headers.** Every source file under `crates/**` carries a two-line
   SPDX header. Add one to a new file with `mise run license-fix` (or
   `hawkeye format`); CI enforces it. Line-sensitive trybuild fixtures under
-  `tests/ui/` and `tests/compile_errors/` are intentionally excluded.
+  `tests/compile_fail/` and `tests/compile_errors/` are intentionally
+  excluded.
 
 ## Workflow
 
