@@ -159,7 +159,7 @@ pub struct CpuMachine {
 }
 ```
 
-The field type must implement `CompositeHeader`, which has a blanket impl for types implementing `FromBytes + WriteBytes`. Generated loading parses `input.section.header_bytes()` with `SectionView::parse_header::<CpuHeader>()` and assigns the result to the field before loading the program or child sections. Composites without a `#[header]` field generate no header parsing code, no header trait bound, and no runtime header check.
+For binary bytecode, the field type must implement `CompositeHeader`, which has a blanket impl for types implementing `FromBytes + WriteBytes`. Generated binary loading parses `input.section.header_bytes()` with `BinarySectionView::parse_header::<CpuHeader>()` and assigns the result to the field before loading the program or child sections. For text bytecode, generated loading trims `input.section.header_text()` and parses it with `FromStr`, so the header type must also implement `FromStr` when you load `TextBytecodeFile<C>`. Composites without a `#[header]` field generate no header parsing code, no header trait bound, and no runtime header check.
 
 ### `#[loadable]`
 
@@ -178,9 +178,9 @@ pub struct Machine {
 }
 ```
 
-`#[loadable]` must be used on a `#[device(...)]` field whose type implements `LoadSection` as well as `GeneratedComponent`. It uses the field name as the local section name. `#[loadable("name")]` overrides it. Names must be non-empty direct child names, so they cannot contain `/`.
+`#[loadable]` must be used on a `#[device(...)]` field whose type implements `LoadSection` for the bytecode representation you are loading as well as `GeneratedComponent`. Binary bytecode delegates through `LoadSection<Vec<u8>, C>`; text bytecode delegates through `LoadSection<String, C>`. The attribute uses the field name as the local section name. `#[loadable("name")]` overrides it. Names must be non-empty direct child names, so they cannot contain `/`.
 
-Section identity is represented as a `SectionPath`, which is a vector of string-table indices for local path components. The root section is `SectionPath::root()` with zero components. A root child named `cpu` has the path `[cpu]`; a child named `alu` inside that section has `[cpu, alu]`. Generated loading asks the current section for direct children by local name, so the same composite can be loaded at the root or under another parent section.
+Section identity is represented as a `SectionPath`, which is a vector of resolved local section names. The root section is `SectionPath::root()` with zero components. A root child named `cpu` has the path `cpu`; a child named `alu` inside that section has `cpu/alu`. Generated loading asks the current section for direct children by local name, so the same composite can be loaded at the root or under another parent section.
 
 Manual loaders can inspect a whole section subtree with `SectionView::walk()`, which yields the current section followed by its descendants in depth-first order. `SectionView::descendants()` uses the same order but skips the current section. To walk an entire file, use `BytecodeFile::sections()`.
 
@@ -189,20 +189,20 @@ The generated loader is strict:
 - every `#[loadable]` device field must have exactly one matching direct child section
 - every direct child section must correspond to a `#[loadable]` device field
 - if the composite has no `#[program]` field, its own section bytecode must be empty
-- composite headers are parsed by the macro only when the composite has a `#[header]` field; manual loaders can still inspect raw headers through `SectionView::header_bytes()` or `SectionView::parse_header::<H>()`
+- composite headers are parsed by the macro only when the composite has a `#[header]` field; manual loaders can still inspect binary headers through `BinarySectionView::header_bytes()` / `BinarySectionView::parse_header::<H>()`, or text headers through `TextSectionView::header_text()`
 
 ## Multi-Section Bytecode
 
 The read-side bytecode API lives in `vihaco::binary` and `vihaco::loader`.
 
 ```rust ignore
-fn load_machine<'bc>(file: &'bc vihaco::BytecodeFile) -> eyre::Result<Machine> {
+fn load_machine<'bc>(file: &'bc vihaco::BinaryBytecodeFile) -> eyre::Result<Machine> {
     let mut machine = Machine::default();
     machine.load_section(vihaco::LoadInput::from(file))?;
     Ok(machine)
 }
 
-let file: vihaco::BytecodeFile = vihaco::BytecodeFile::from_bytes(bytes)?;
+let file: vihaco::BinaryBytecodeFile = vihaco::BinaryBytecodeFile::from_bytes(bytes)?;
 let machine = load_machine(&file)?;
 ```
 
@@ -217,7 +217,7 @@ program context bytes
 root section bytes
 ```
 
-The program context contains the shared `Module` tables except `code` and `extra`: constants, strings, functions, labels, `main_function`, `file`, and source symbols. `ProgramContext<V = Value, Ty = Type>` is the default context representation and is generic over the VM's constant value and type encodings. A bytecode file can also use a custom context type by implementing `BytecodeContext`; generated composite loading is generic over that context type, so Rust infers it from `BytecodeFile<C>` / `LoadInput<C>`. Section bytecode can refer to shared constants with `vihaco::ConstantId`, a `u32` newtype that implements the bytecode field traits.
+The program context contains the shared `Module` tables except `code` and `extra`: constants, strings, functions, labels, `main_function`, `file`, and source symbols. `ProgramContext<V = Value, Ty = Type>` is the default context representation and is generic over the VM's constant value and type encodings. A binary bytecode file can also use a custom context type by implementing `BytecodeContext`; generated composite loading is generic over that context type, so Rust infers it from `BinaryBytecodeFile<C>` / `LoadInput<Vec<u8>, C>`. Section bytecode can refer to shared constants with `vihaco::ConstantId`, a `u32` newtype that implements the bytecode field traits.
 
 Each section is:
 
@@ -242,9 +242,64 @@ u32 local_name_string
 u64 section_offset
 ```
 
-The section frame is part of every section, including the root section. The bytecode header starts after the composite header, and the section's bytecode immediately follows that length. Child-related metadata comes after the parent bytecode. `local_name_string` is resolved through `BytecodeContext::section_name` and represents the child's local section name. The parser builds each child's `SectionPath` by appending that component to the parent path. Child section offsets are relative to the start of the containing section.
+The section frame is part of every section, including the root section. The bytecode header starts after the composite header, and the section's bytecode immediately follows that length. Child-related metadata comes after the parent bytecode. `local_name_string` is resolved through `BytecodeContext::section_name` and represents the child's local section name. The parser builds each child's `SectionPath` by appending that resolved name to the parent path. Child section offsets are relative to the start of the containing section.
 
-`ProgramLoader<I, C = ProgramContext, Info = NoInfo>` is the standard loader for fixed-width instruction streams. It decodes `section.bytecode()` with `decode_instruction_stream::<I>()`, stores a cloned `BytecodeContextHandle<C>`, implements `ProgramCounter`, and exposes functions, strings, and constants through `GetProgramGlobal` when `C: ProgramGlobals`.
+### Text Multi-Section Bytecode
+
+Text bytecode uses `TextBytecodeFile<C>`, `TextSectionView<'bc, C>`, `LoadInput<String, C>`, and generated `LoadSection<String, C>` machinery. The backing contents are the original source text and each section stores ranges into that string. Parse text files with `TextBytecodeFile::<C>::from_text(source)`:
+
+```rust ignore
+let file: vihaco::TextBytecodeFile<MyContext> =
+    vihaco::TextBytecodeFile::from_text(source)?;
+
+let mut machine = Machine::default();
+machine.load_section(vihaco::LoadInput::from(&file))?;
+```
+
+The file begins with the text magic/version marker, then a global context block:
+
+```text
+vhbc1
+
+@>
+global context text
+<@
+```
+
+`vhbc1` is the text spelling of version 1. The context body is delegated to `C::from_bytes(context_text.as_bytes())`; custom text formats usually provide a custom `BytecodeContext` that interprets this block. The context start marker `@>` and end marker `<@` must be at indentation level 0.
+
+After the context comes the root section. Sections use `~> name:` to begin and `<~ name.` to end. The root section is still parsed as `SectionPath::root()`, so its marker name is only a matching delimiter; direct child section names become path components.
+
+```text
+~> root:
+	!>
+		root header
+	<!
+
+	^>
+		root bytecode
+	<^
+
+	~> cpu:
+		^>
+			cpu bytecode
+		<^
+	<~ cpu.
+<~ root.
+```
+
+Inside a section:
+
+- `!>` / `<!` delimit the composite header text for `TextSectionView::header_text()`
+- `^>` / `<^` delimit the section bytecode text for `TextSectionView::text()`
+- child sections are nested directly inside their parent section
+- header, bytecode, and direct child section markers must be indented with exactly one tab more than their parent section
+- section end markers must use the same indentation as their matching section start marker
+- section names must be local names; `/` is rejected in a single marker name
+
+The text parser preserves the original header and bytecode ranges, including their leading tabs. Generated header loading trims `section.header_text()` before calling `FromStr` for the `#[header]` field type. Generated program loading delegates to `ProgramLoader<I, C>`, which parses `section.text()` with `parse_instruction_stream::<I>()`; instruction types loaded this way must implement both `Instruction` and `vihaco_parser_core::Parse`.
+
+`ProgramLoader<I, C = ProgramContext, Info = NoInfo>` is the standard loader for section program streams. For binary bytecode it decodes `section.bytecode()` with `decode_instruction_stream::<I>()`; for text bytecode it parses `section.text()` with `parse_instruction_stream::<I>()`. In both cases it stores a cloned `ContextHandle<C>`, implements `ProgramCounter`, and exposes functions, strings, and constants through `GetProgramGlobal` when `C: ProgramGlobals`.
 
 ## Effect Continuation Is Hand-Written
 

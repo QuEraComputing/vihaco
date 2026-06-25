@@ -13,7 +13,7 @@ mod text;
 mod tests;
 
 pub use context::{BytecodeContext, ContextHandle, ProgramContext, ProgramGlobals};
-pub use file::{BytecodeFile, FileContents};
+pub use file::{BinaryBytecodeFile, BytecodeFile, FileContents, TextBytecodeFile};
 pub use format::{decode_instruction_stream, CompositeHeader, ConstantId, FLAGS, MAGIC, VERSION};
-pub use section::{SectionPath, SectionView};
+pub use section::{BinarySectionView, SectionPath, SectionView, TextSectionView};
 pub use text::parse_instruction_stream;
