@@ -23,10 +23,10 @@ pub(super) enum LineKind {
     EndContext,
     BeginSection(String),
     EndSection(String),
-    BeginHeader(String),
-    EndHeader(String),
-    BeginBytecode(String),
-    EndBytecode(String),
+    BeginHeader,
+    EndHeader,
+    BeginBytecode,
+    EndBytecode,
     Body,
     Blank,
 }
@@ -35,6 +35,7 @@ pub(super) enum LineKind {
 pub(super) struct SourceLine {
     pub(super) kind: LineKind,
     pub(super) full: Range<usize>,
+    pub(super) indent: usize,
     pub(super) number: usize,
 }
 
@@ -77,80 +78,44 @@ fn parse_line(line: &str) -> Result<LineKind> {
 }
 
 fn line_parser<'src>() -> impl Parser<'src, &'src str, LineKind, ParseExtra<'src>> {
-    let hspace = one_of(" \t").repeated();
-    let required_hspace = one_of(" \t").repeated().at_least(1);
+    let space = one_of(" \t").repeated().at_least(1);
     let name = any()
-        .filter(|c: &char| !c.is_whitespace() && *c != ':')
+        .filter(|c: &char| !c.is_whitespace() && !matches!(*c, ':' | '.'))
         .repeated()
         .at_least(1)
         .collect::<String>();
-    let colon = just(':');
 
-    let version = just("vihaco")
-        .ignore_then(required_hspace.clone())
-        .ignore_then(just("version"))
-        .ignore_then(required_hspace.clone())
+    let version = just("vhbc")
         .ignore_then(text::int(10).try_map(|version: &str, span| {
             version.parse::<u16>().map_err(|_| Simple::new(None, span))
         }))
         .map(LineKind::Version);
 
-    let begin_context = just("begin")
-        .ignore_then(required_hspace.clone())
-        .ignore_then(just("context"))
-        .then_ignore(colon)
-        .to(LineKind::BeginContext);
-    let end_context = just("end")
-        .ignore_then(required_hspace.clone())
-        .ignore_then(just("context"))
-        .to(LineKind::EndContext);
+    let begin_context = just("@>").to(LineKind::BeginContext);
+    let end_context = just("<@").to(LineKind::EndContext);
 
-    let begin_section = just("begin")
-        .ignore_then(required_hspace.clone())
-        .ignore_then(just("section"))
-        .ignore_then(required_hspace.clone())
+    let begin_section = just("~>")
+        .ignore_then(space.clone())
         .ignore_then(name.clone())
-        .then_ignore(colon)
+        .then_ignore(just(':'))
         .map(LineKind::BeginSection);
-    let end_section = just("end")
-        .ignore_then(required_hspace.clone())
-        .ignore_then(just("section"))
-        .ignore_then(required_hspace.clone())
+    let end_section = just("<~")
+        .ignore_then(space)
         .ignore_then(name.clone())
+        .then_ignore(just('.'))
         .map(LineKind::EndSection);
 
-    let begin_header = just("begin")
-        .ignore_then(required_hspace.clone())
-        .ignore_then(just("header"))
-        .ignore_then(required_hspace.clone())
-        .ignore_then(name.clone())
-        .then_ignore(colon)
-        .map(LineKind::BeginHeader);
-    let end_header = just("end")
-        .ignore_then(required_hspace.clone())
-        .ignore_then(just("header"))
-        .ignore_then(required_hspace.clone())
-        .ignore_then(name.clone())
-        .map(LineKind::EndHeader);
+    let begin_header = just("!>").to(LineKind::BeginHeader);
+    let end_header = just("<!").to(LineKind::EndHeader);
 
-    let begin_bytecode = just("begin")
-        .ignore_then(required_hspace.clone())
-        .ignore_then(just("bytecode"))
-        .ignore_then(required_hspace.clone())
-        .ignore_then(name.clone())
-        .then_ignore(colon)
-        .map(LineKind::BeginBytecode);
-    let end_bytecode = just("end")
-        .ignore_then(required_hspace)
-        .ignore_then(just("bytecode"))
-        .ignore_then(one_of(" \t").repeated().at_least(1))
-        .ignore_then(name)
-        .map(LineKind::EndBytecode);
+    let begin_bytecode = just("^>").to(LineKind::BeginBytecode);
+    let end_bytecode = just("<^").to(LineKind::EndBytecode);
 
-    let blank = hspace.clone().to(LineKind::Blank);
+    let blank = one_of(" \t").repeated().to(LineKind::Blank);
     let body = any().repeated().at_least(1).to(LineKind::Body);
 
-    hspace
+    just(' ')
+        .repeated()
         .ignore_then(choice((
             version,
             begin_context,
@@ -189,10 +154,16 @@ pub(super) fn lex_lines(text: &str) -> Result<Vec<SourceLine>> {
             }
         }
 
+        let indent = text[start..content_end]
+            .bytes()
+            .take_while(|byte| *byte == b'\t')
+            .count();
+        let line_start = start + indent;
         lines.push(SourceLine {
-            kind: parse_line(&text[start..content_end])
+            kind: parse_line(&text[line_start..content_end])
                 .map_err(|err| eyre::eyre!("line {}: {err}", index + 1))?,
             full: start..full_end,
+            indent,
             number: index + 1,
         });
         start = full_end;
@@ -200,10 +171,16 @@ pub(super) fn lex_lines(text: &str) -> Result<Vec<SourceLine>> {
 
     if start < text.len() {
         let number = lines.len() + 1;
+        let indent = text[start..]
+            .bytes()
+            .take_while(|byte| *byte == b'\t')
+            .count();
+        let line_start = start + indent;
         lines.push(SourceLine {
-            kind: parse_line(&text[start..])
+            kind: parse_line(&text[line_start..])
                 .map_err(|err| eyre::eyre!("line {}: {err}", number))?,
             full: start..text.len(),
+            indent,
             number,
         });
     }
@@ -241,11 +218,12 @@ impl<'a> LineCursor<'a> {
 pub(super) fn consume_context(cursor: &mut LineCursor<'_>) -> Result<usize> {
     while let Some(line) = cursor.next_significant() {
         if line.kind == LineKind::EndContext {
+            ensure_indent(line, 0, "context end")?;
             return Ok(line.full.start);
         }
     }
 
-    Err(eyre::eyre!("unterminated context; expected `end context`"))
+    Err(eyre::eyre!("unterminated context; expected `<@`"))
 }
 
 pub(super) struct TextSectionParseInfo<'a> {
@@ -256,6 +234,7 @@ pub(super) struct TextSectionParseInfo<'a> {
 #[derive(Clone, Copy)]
 pub(super) struct ParentSection<'a> {
     pub(super) path: &'a SectionPath,
+    pub(super) indent: usize,
 }
 
 pub(super) fn parse_section<C>(
@@ -277,12 +256,16 @@ where
         .ok_or_else(|| eyre::eyre!("expected section"))?;
     debug_assert_eq!(consumed_begin.full, begin.full);
 
+    let section_indent = begin.indent;
+    match parent {
+        Some(parent) => ensure_indent(begin, parent.indent + 1, "child section")?,
+        None => ensure_indent(begin, 0, "root section")?,
+    }
+
     let path = match parent {
         Some(parent) => {
-            validate_local_section_name(parent.path, context, &section_name)?;
-            parent
-                .path
-                .child(find_section_name(context, parent.path, &section_name)?)
+            validate_local_section_name(parent.path, &section_name)?;
+            parent.path.child(section_name.clone())
         }
         None => SectionPath::root(),
     };
@@ -299,6 +282,7 @@ where
 
         match &line.kind {
             LineKind::EndSection(name) => {
+                ensure_indent(line, section_indent, "section end")?;
                 if name != &section_name {
                     return Err(line_error(
                         line,
@@ -318,73 +302,53 @@ where
                     children,
                 });
             }
-            LineKind::BeginHeader(name) => {
-                if name != &section_name {
-                    return Err(line_error(
-                        line,
-                        format!(
-                            "section `{}` has header marker for `{}`",
-                            section_name, name
-                        ),
-                    ));
-                }
+            LineKind::BeginHeader => {
+                ensure_indent(line, section_indent + 1, "header")?;
                 if header.is_some() {
                     return Err(line_error(
                         line,
-                        format!(
-                            "section `{}` declares duplicate header",
-                            path.display(context)
-                        ),
+                        format!("section `{}` declares duplicate header", path),
                     ));
                 }
                 header = Some(consume_named_block(
                     cursor,
                     &section_name,
                     "header",
+                    section_indent + 1,
                     |kind| match kind {
-                        LineKind::EndHeader(name) => Some(name.as_str()),
-                        _ => None,
+                        LineKind::EndHeader => true,
+                        _ => false,
                     },
                 )?);
             }
-            LineKind::BeginBytecode(name) => {
-                if name != &section_name {
-                    return Err(line_error(
-                        line,
-                        format!(
-                            "section `{}` has bytecode marker for `{}`",
-                            section_name, name
-                        ),
-                    ));
-                }
+            LineKind::BeginBytecode => {
+                ensure_indent(line, section_indent + 1, "bytecode")?;
                 if bytecode.is_some() {
                     return Err(line_error(
                         line,
-                        format!(
-                            "section `{}` declares duplicate bytecode",
-                            path.display(context)
-                        ),
+                        format!("section `{}` declares duplicate bytecode", path),
                     ));
                 }
                 bytecode = Some(consume_named_block(
                     cursor,
                     &section_name,
                     "bytecode",
+                    section_indent + 1,
                     |kind| match kind {
-                        LineKind::EndBytecode(name) => Some(name.as_str()),
-                        _ => None,
+                        LineKind::EndBytecode => true,
+                        _ => false,
                     },
                 )?);
             }
             LineKind::BeginSection(child_name) => {
-                validate_local_section_name(&path, context, child_name)?;
+                ensure_indent(line, section_indent + 1, "child section")?;
+                validate_local_section_name(&path, child_name)?;
                 if !child_names.insert(child_name.clone()) {
                     return Err(line_error(
                         line,
                         format!(
                             "section `{}` declares duplicate child `{}`",
-                            path.display(context),
-                            child_name
+                            path, child_name
                         ),
                     ));
                 }
@@ -392,7 +356,10 @@ where
                     cursor,
                     context,
                     TextSectionParseInfo {
-                        parent: Some(ParentSection { path: &path }),
+                        parent: Some(ParentSection {
+                            path: &path,
+                            indent: section_indent,
+                        }),
                         begin: line,
                     },
                 )?;
@@ -404,7 +371,7 @@ where
             _ => {
                 return Err(line_error(
                     line,
-                    format!("unexpected content in section `{}`", path.display(context)),
+                    format!("unexpected content in section `{}`", path),
                 ));
             }
         }
@@ -415,57 +382,46 @@ fn consume_named_block(
     cursor: &mut LineCursor<'_>,
     section_name: &str,
     label: &str,
-    end_name: impl Fn(&LineKind) -> Option<&str>,
+    block_indent: usize,
+    end_name: impl Fn(&LineKind) -> bool,
 ) -> Result<Range<usize>> {
     let begin = cursor
         .next_significant()
-        .ok_or_else(|| eyre::eyre!("expected `begin {label} {section_name}:`"))?;
+        .ok_or_else(|| eyre::eyre!("expected `{label}` block in section `{section_name}`"))?;
     let start = begin.full.end;
 
     while let Some(line) = cursor.next_significant() {
-        if let Some(name) = end_name(&line.kind) {
-            if name != section_name {
-                return Err(line_error(
-                    line,
-                    format!(
-                        "{label} `{}` ended with mismatched marker `{}`",
-                        section_name, name
-                    ),
-                ));
-            }
+        if end_name(&line.kind) {
+            ensure_indent(line, block_indent, label)?;
             return Ok(start..line.full.start);
         }
     }
 
     Err(line_error(
         begin,
-        format!("unterminated {label}; expected `end {label} {section_name}`"),
+        format!("unterminated {label}; expected `{}`", end_marker(label)),
     ))
 }
 
-fn find_section_name<C>(context: &C, parent: &SectionPath, name: &str) -> Result<u32>
-where
-    C: BytecodeContext,
-{
-    let mut index = 0;
-    while let Some(candidate) = context.section_name(index) {
-        if candidate == name {
-            return Ok(index);
-        }
-        index = index.checked_add(1).ok_or_else(|| {
-            eyre::eyre!(
-                "section `{}` name lookup overflowed while resolving `{}`",
-                parent.display(context),
-                name
-            )
-        })?;
+fn ensure_indent(line: &SourceLine, expected: usize, label: &str) -> Result<()> {
+    if line.indent != expected {
+        return Err(line_error(
+            line,
+            format!(
+                "{label} must be indented with {expected} tab(s), found {}",
+                line.indent
+            ),
+        ));
     }
+    Ok(())
+}
 
-    Err(eyre::eyre!(
-        "section `{}` references missing section name `{}`",
-        parent.display(context),
-        name
-    ))
+fn end_marker(label: &str) -> &'static str {
+    match label {
+        "header" => "<!",
+        "bytecode" => "<^",
+        _ => "end marker",
+    }
 }
 
 pub(super) fn line_error(line: &SourceLine, message: impl std::fmt::Display) -> eyre::Report {

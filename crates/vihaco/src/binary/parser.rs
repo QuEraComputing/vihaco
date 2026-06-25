@@ -18,20 +18,12 @@ use super::{
 };
 
 impl SectionFrame {
-    fn read_at<C>(
-        bytes: &[u8],
-        section_start: usize,
-        path: &SectionPath,
-        context: &C,
-    ) -> eyre::Result<Self>
-    where
-        C: BytecodeContext,
-    {
+    fn read_at(bytes: &[u8], section_start: usize, path: &SectionPath) -> eyre::Result<Self> {
         let frame_end = checked_add(section_start, Self::ENCODED_LEN, "section frame end")?;
         let frame_bytes = bytes.get(section_start..frame_end).ok_or_else(|| {
             eyre::eyre!(
                 "section `{}` does not contain a complete section frame",
-                path.display(context)
+                path
             )
         })?;
         let mut cursor = Cursor::new(frame_bytes);
@@ -65,18 +57,18 @@ where
         path,
     } = info;
 
-    let frame = SectionFrame::read_at(bytes, section_start, &path, context)?;
+    let frame = SectionFrame::read_at(bytes, section_start, &path)?;
     let section_end = checked_add(section_start, frame.section_len, "section end")?;
     if section_end > bytes.len() {
         return Err(eyre::eyre!(
             "section `{}` extends past end of bytecode",
-            path.display(context)
+            path
         ));
     }
     if frame.composite_header_len > frame.section_len {
         return Err(eyre::eyre!(
             "section `{}` composite header length {} exceeds section length {}",
-            path.display(context),
+            path,
             frame.composite_header_len,
             frame.section_len
         ));
@@ -106,7 +98,7 @@ where
     {
         return Err(eyre::eyre!(
             "section `{}` does not contain a complete bytecode header",
-            path.display(context)
+            path
         ));
     }
 
@@ -121,7 +113,7 @@ where
     if bytecode_end > section_end {
         return Err(eyre::eyre!(
             "section `{}` bytecode extends past section end",
-            path.display(context)
+            path
         ));
     }
 
@@ -134,7 +126,7 @@ where
     {
         return Err(eyre::eyre!(
             "section `{}` does not contain a complete child section table header",
-            path.display(context)
+            path
         ));
     }
 
@@ -143,12 +135,7 @@ where
     let total_len_of_child_section_entries = child_table_header
         .child_count
         .checked_mul(ChildSectionTableEntry::ENCODED_LEN)
-        .ok_or_else(|| {
-            eyre::eyre!(
-                "section `{}` child table length overflows usize",
-                path.display(context)
-            )
-        })?;
+        .ok_or_else(|| eyre::eyre!("section `{}` child table length overflows usize", path))?;
     let expected_child_table_len = checked_add(
         ChildSectionTableHeader::ENCODED_LEN,
         total_len_of_child_section_entries,
@@ -162,7 +149,7 @@ where
     {
         return Err(eyre::eyre!(
             "section `{}` does not contain a complete child section table",
-            path.display(context)
+            path
         ));
     }
 
@@ -232,16 +219,16 @@ where
             .ok_or_else(|| {
                 eyre::eyre!(
                     "section `{}` references missing section name string {}",
-                    parent_path.display(context),
+                    parent_path,
                     entry.local_name_string
                 )
             })?
             .to_string();
-        validate_local_section_name(parent_path, context, &child_name)?;
+        validate_local_section_name(parent_path, &child_name)?;
         if !names.insert(child_name.clone()) {
             return Err(eyre::eyre!(
                 "section `{}` declares duplicate child `{}`",
-                parent_path.display(context),
+                parent_path,
                 child_name
             ));
         }
@@ -270,21 +257,17 @@ impl ClaimedSectionRanges {
         }
     }
 
-    fn claim_child<C>(
+    fn claim_child(
         &mut self,
         parent_path: &SectionPath,
-        context: &C,
         child_name: String,
         range: Range<usize>,
-    ) -> eyre::Result<()>
-    where
-        C: BytecodeContext,
-    {
+    ) -> eyre::Result<()> {
         for (existing_name, existing) in &self.ranges {
             if ranges_overlap(existing, &range) {
                 return Err(eyre::eyre!(
                     "section `{}` child `{}` overlaps `{}`",
-                    parent_path.display(context),
+                    parent_path,
                     child_name,
                     existing_name
                 ));
@@ -328,18 +311,18 @@ where
     } = child;
 
     let child_start = checked_add(parent_start, entry.section_offset, "child section start")?;
-    let child_path = parent_path.child(entry.local_name_string);
+    let child_path = parent_path.child(child_name.clone());
     if child_start < parent_child_table_end {
         return Err(eyre::eyre!(
             "section `{}` child `{}` begins before parent child table ends",
-            parent_path.display(context),
+            parent_path,
             child_name
         ));
     }
     if child_start >= parent_end {
         return Err(eyre::eyre!(
             "section `{}` child `{}` extends past section end",
-            parent_path.display(context),
+            parent_path,
             child_name
         ));
     }
@@ -351,23 +334,23 @@ where
     {
         return Err(eyre::eyre!(
             "section `{}` child `{}` extends past section end",
-            parent_path.display(context),
+            parent_path,
             child_name
         ));
     }
 
-    let child_frame = SectionFrame::read_at(bytes, child_start, &child_path, context)?;
+    let child_frame = SectionFrame::read_at(bytes, child_start, &child_path)?;
     let child_end = checked_add(child_start, child_frame.section_len, "child section end")?;
     if child_end > parent_end {
         return Err(eyre::eyre!(
             "section `{}` child `{}` extends past section end",
-            parent_path.display(context),
+            parent_path,
             child_name
         ));
     }
 
     let range = child_start..child_end;
-    claimed_ranges.claim_child(parent_path, context, child_name, range)?;
+    claimed_ranges.claim_child(parent_path, child_name, range)?;
 
     parse_section(
         bytes,

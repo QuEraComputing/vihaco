@@ -107,13 +107,13 @@ fn parses_binary_context_and_nested_sections() {
 
     let root = parsed.root();
     assert!(root.path().is_root());
-    assert_eq!(root.path().components(), &[] as &[u32]);
+    assert!(root.path().components().is_empty());
     assert_eq!(root.local_name(), None);
     assert_eq!(root.display_path().to_string(), "<root>");
     assert_eq!(root.header_bytes(), b"root header");
 
     let cpu = root.child("cpu").unwrap();
-    assert_eq!(cpu.path().components(), &[CPU_NAME]);
+    assert_eq!(path_components(cpu.path()), vec!["cpu"]);
     assert_eq!(cpu.local_name(), Some("cpu"));
     assert_eq!(cpu.display_path().to_string(), "cpu");
     assert_eq!(cpu.header_bytes(), b"cpu header");
@@ -123,7 +123,7 @@ fn parses_binary_context_and_nested_sections() {
     );
 
     let alu = cpu.child("alu").unwrap();
-    assert_eq!(alu.path().components(), &[CPU_NAME, ALU_NAME]);
+    assert_eq!(path_components(alu.path()), vec!["cpu", "alu"]);
     assert_eq!(alu.local_name(), Some("alu"));
     assert_eq!(alu.display_path().to_string(), "cpu/alu");
     assert_eq!(alu.header_bytes(), b"alu header");
@@ -302,68 +302,62 @@ fn rejects_binary_instruction_stream_with_non_multiple_width() {
 #[test]
 fn parses_text_context_and_nested_sections() {
     let parsed = TextBytecodeFile::<TextContext>::from_text(&text_file(
-        "cpu\nalu\n",
-        r#"begin section root:
-begin header root:
-root header
-end header root
-begin bytecode root:
-root bytecode
-end bytecode root
-begin section cpu:
-begin header cpu:
-cpu header
-end header cpu
-begin bytecode cpu:
-cpu bytecode
-end bytecode cpu
-begin section alu:
-begin header alu:
-alu header
-end header alu
-begin bytecode alu:
-alu bytecode
-end bytecode alu
-end section alu
-end section cpu
-end section root
-"#,
+        "",
+        "~> root:\n\
+\t!>\n\
+\t\troot header\n\
+\t<!\n\
+\t^>\n\
+\t\troot bytecode\n\
+\t<^\n\
+\t~> cpu:\n\
+\t\t!>\n\
+\t\t\tcpu header\n\
+\t\t<!\n\
+\t\t^>\n\
+\t\t\tcpu bytecode\n\
+\t\t<^\n\
+\t\t~> alu:\n\
+\t\t\t!>\n\
+\t\t\t\talu header\n\
+\t\t\t<!\n\
+\t\t\t^>\n\
+\t\t\t\talu bytecode\n\
+\t\t\t<^\n\
+\t\t<~ alu.\n\
+\t<~ cpu.\n\
+<~ root.\n",
     ))
     .unwrap();
 
-    assert_eq!(parsed.context().section_names, vec!["cpu", "alu"]);
+    assert!(parsed.context().section_names.is_empty());
 
     let root = parsed.root();
     assert!(root.path().is_root());
     assert_eq!(root.local_name(), None);
     assert_eq!(root.display_path().to_string(), "<root>");
-    assert_eq!(root.header_text(), "root header\n");
-    assert_eq!(root.text(), "root bytecode\n");
+    assert_eq!(root.header_text(), "\t\troot header\n");
+    assert_eq!(root.text(), "\t\troot bytecode\n");
 
     let cpu = root.child("cpu").unwrap();
-    assert_eq!(cpu.path().components(), &[0]);
+    assert_eq!(path_components(cpu.path()), vec!["cpu"]);
     assert_eq!(cpu.local_name(), Some("cpu"));
     assert_eq!(cpu.display_path().to_string(), "cpu");
-    assert_eq!(cpu.header_text(), "cpu header\n");
-    assert_eq!(cpu.text(), "cpu bytecode\n");
+    assert_eq!(cpu.header_text(), "\t\t\tcpu header\n");
+    assert_eq!(cpu.text(), "\t\t\tcpu bytecode\n");
 
     let alu = cpu.child("alu").unwrap();
-    assert_eq!(alu.path().components(), &[0, 1]);
+    assert_eq!(path_components(alu.path()), vec!["cpu", "alu"]);
     assert_eq!(alu.local_name(), Some("alu"));
     assert_eq!(alu.display_path().to_string(), "cpu/alu");
-    assert_eq!(alu.header_text(), "alu header\n");
-    assert_eq!(alu.text(), "alu bytecode\n");
+    assert_eq!(alu.header_text(), "\t\t\t\talu header\n");
+    assert_eq!(alu.text(), "\t\t\t\talu bytecode\n");
 }
 
 #[test]
 fn parses_text_section_without_header_or_bytecode_as_empty_ranges() {
-    let parsed = TextBytecodeFile::<TextContext>::from_text(&text_file(
-        "",
-        r#"begin section root:
-end section root
-"#,
-    ))
-    .unwrap();
+    let parsed =
+        TextBytecodeFile::<TextContext>::from_text(&text_file("", "~> root:\n<~ root.\n")).unwrap();
 
     let root = parsed.root();
     assert_eq!(root.header_text(), "");
@@ -373,7 +367,7 @@ end section root
 #[test]
 fn rejects_text_bad_version() {
     let err = TextBytecodeFile::<TextContext>::from_text(&format!(
-        "vihaco version {}\nbegin context:\nend context\nbegin section root:\nend section root\n",
+        "vhbc{}\n@>\n<@\n~> root:\n<~ root.\n",
         VERSION + 1
     ))
     .unwrap_err();
@@ -383,40 +377,28 @@ fn rejects_text_bad_version() {
 
 #[test]
 fn rejects_text_missing_context_end() {
-    let err = TextBytecodeFile::<TextContext>::from_text(
-        "vihaco version 1\nbegin context:\ncpu\nbegin section root:\nend section root\n",
-    )
-    .unwrap_err();
+    let err = TextBytecodeFile::<TextContext>::from_text("vhbc1\n@>\ncpu\n~> root:\n<~ root.\n")
+        .unwrap_err();
 
     assert!(err.to_string().contains("unterminated context"));
 }
 
 #[test]
-fn rejects_text_missing_section_name() {
+fn rejects_text_non_local_child_section_name() {
     let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
-        "cpu\n",
-        r#"begin section root:
-begin section gpu:
-end section gpu
-end section root
-"#,
+        "",
+        "~> root:\n\t~> gpu/core:\n\t<~ gpu/core.\n<~ root.\n",
     ))
     .unwrap_err();
 
-    assert!(err.to_string().contains("missing section name `gpu`"));
+    assert!(err.to_string().contains("must be a local name"));
 }
 
 #[test]
 fn rejects_text_duplicate_child_sections() {
     let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
         "cpu\n",
-        r#"begin section root:
-begin section cpu:
-end section cpu
-begin section cpu:
-end section cpu
-end section root
-"#,
+        "~> root:\n\t~> cpu:\n\t<~ cpu.\n\t~> cpu:\n\t<~ cpu.\n<~ root.\n",
     ))
     .unwrap_err();
 
@@ -425,13 +407,8 @@ end section root
 
 #[test]
 fn rejects_text_mismatched_section_end_marker() {
-    let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
-        "",
-        r#"begin section root:
-end section other
-"#,
-    ))
-    .unwrap_err();
+    let err = TextBytecodeFile::<TextContext>::from_text(&text_file("", "~> root:\n<~ other.\n"))
+        .unwrap_err();
 
     assert!(err.to_string().contains("mismatched marker `other`"));
 }
@@ -440,16 +417,35 @@ end section other
 fn rejects_text_body_directly_inside_section() {
     let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
         "",
-        r#"begin section root:
-this line is not in a header or bytecode block
-end section root
-"#,
+        "~> root:\n\tthis line is not in a header or bytecode block\n<~ root.\n",
     ))
     .unwrap_err();
 
     assert!(err
         .to_string()
         .contains("unexpected content in section `<root>`"));
+}
+
+#[test]
+fn rejects_text_child_section_indented_with_spaces() {
+    let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
+        "",
+        "~> root:\n  ~> cpu:\n  <~ cpu.\n<~ root.\n",
+    ))
+    .unwrap_err();
+
+    assert!(err.to_string().contains("child section must be indented"));
+}
+
+#[test]
+fn rejects_text_header_indented_with_spaces() {
+    let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
+        "",
+        "~> root:\n  !>\n\t\troot header\n  <!\n<~ root.\n",
+    ))
+    .unwrap_err();
+
+    assert!(err.to_string().contains("header must be indented"));
 }
 
 fn binary_file_bytes(context: Vec<u8>, root: Vec<u8>) -> Vec<u8> {
@@ -642,8 +638,12 @@ fn raw_binary_section_with_entry_offsets(
     bytes
 }
 
+fn path_components(path: &SectionPath) -> Vec<&str> {
+    path.components().iter().map(String::as_str).collect()
+}
+
 fn text_file(context: &str, sections: &str) -> String {
-    format!("vihaco version {VERSION}\nbegin context:\n{context}end context\n{sections}")
+    format!("vhbc{VERSION}\n\n@>\n{context}<@\n\n{sections}")
 }
 
 fn write_string(bytes: &mut Vec<u8>, value: &str) {

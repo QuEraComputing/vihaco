@@ -143,7 +143,7 @@ where
 /// machine definitions, we wrap the context in an [`Arc`] to drop it
 /// automatically.
 #[derive(Debug)]
-pub struct ContextHandle<C:  = ProgramContext>(Arc<C>);
+pub struct ContextHandle<C = ProgramContext>(Arc<C>);
 
 impl<C> Clone for ContextHandle<C> {
     fn clone(&self) -> Self {

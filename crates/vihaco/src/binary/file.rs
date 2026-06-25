@@ -21,7 +21,7 @@ use super::{
 ///    support (yet? maybe in the future we can expose an API), and
 /// 2. we don't want to use an enum for [`BytecodeFile`] when we know the
 ///    type of our file's contents statically; when dealing with a
-///    [`BytecodeFile`] we'd have to constantly destruct and unreachable!()
+///    [`BytecodeFile`] we'd have to constantly destruct
 ///
 /// https://rust-lang.github.io/api-guidelines/future-proofing.html#sealed-traits-protect-against-downstream-implementations-c-sealed
 mod private {
@@ -131,26 +131,35 @@ where
         let mut cursor = LineCursor::new(&lines);
 
         let Some(version) = cursor.next_significant() else {
-            return Err(eyre::eyre!(
-                "expected `vihaco version {}`",
-                super::format::VERSION
-            ));
+            return Err(eyre::eyre!("expected `vhbc{}`", super::format::VERSION));
         };
+        if version.indent != 0 {
+            return Err(text_line_error(
+                version,
+                "version marker must not be indented",
+            ));
+        }
         match &version.kind {
             LineKind::Version(version) => verify_version(*version)?,
             _ => {
                 return Err(text_line_error(
                     version,
-                    format!("expected `vihaco version {}`", super::format::VERSION),
+                    format!("expected `vhbc{}`", super::format::VERSION),
                 ))
             }
         }
 
         let Some(context_begin) = cursor.next_significant() else {
-            return Err(eyre::eyre!("expected `begin context:`"));
+            return Err(eyre::eyre!("expected `@>`"));
         };
         if context_begin.kind != LineKind::BeginContext {
-            return Err(text_line_error(context_begin, "expected `begin context:`"));
+            return Err(text_line_error(context_begin, "expected `@>`"));
+        }
+        if context_begin.indent != 0 {
+            return Err(text_line_error(
+                context_begin,
+                "context start must not be indented",
+            ));
         }
 
         let context_start = context_begin.full.end;

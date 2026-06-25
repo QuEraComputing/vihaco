@@ -13,9 +13,9 @@ use super::{
 /// The fully resolved path for a given section.
 ///
 /// The root section will be empty.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SectionPath {
-    components: Vec<u32>,
+    components: Vec<String>,
 }
 
 impl SectionPath {
@@ -29,25 +29,18 @@ impl SectionPath {
         self.components.is_empty()
     }
 
-    pub fn components(&self) -> &[u32] {
+    pub fn components(&self) -> &[String] {
         &self.components
     }
 
-    pub fn local_name(&self) -> Option<u32> {
-        self.components.last().copied()
+    pub fn local_name(&self) -> Option<&str> {
+        self.components.last().map(String::as_str)
     }
 
-    pub fn child(&self, local_name: u32) -> Self {
+    pub fn child(&self, local_name: impl Into<String>) -> Self {
         let mut components = self.components.clone();
-        components.push(local_name);
+        components.push(local_name.into());
         Self { components }
-    }
-
-    pub fn display<'a, C>(&'a self, context: &'a C) -> SectionPathDisplay<'a, C> {
-        SectionPathDisplay {
-            path: self,
-            context,
-        }
     }
 }
 
@@ -57,37 +50,23 @@ impl Default for SectionPath {
     }
 }
 
-pub struct SectionPathDisplay<'a, C = ProgramContext> {
-    path: &'a SectionPath,
-    context: &'a C,
-}
-
-impl<C> std::fmt::Display for SectionPathDisplay<'_, C>
-where
-    C: BytecodeContext,
-{
+impl std::fmt::Display for SectionPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.path.is_root() {
+        if self.is_root() {
             return f.write_str("<root>");
         }
 
-        for (index, component) in self.path.components.iter().enumerate() {
+        for (index, component) in self.components.iter().enumerate() {
             if index != 0 {
                 f.write_str("/")?;
             }
-            match self.context.section_name(*component) {
-                Some(name) => f.write_str(name)?,
-                None => write!(f, "<missing:{}>", component)?,
-            }
+            f.write_str(component)?;
         }
         Ok(())
     }
 }
 
-impl<C> std::fmt::Debug for SectionPathDisplay<'_, C>
-where
-    C: BytecodeContext,
-{
+impl std::fmt::Debug for SectionPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(self, f)
     }
@@ -141,8 +120,8 @@ where
         &self.node.path
     }
 
-    pub fn display_path(&self) -> SectionPathDisplay<'_, C> {
-        self.node.path.display(self.context.get())
+    pub fn display_path(&self) -> &'bc SectionPath {
+        &self.node.path
     }
 
     pub fn context(&self) -> &C {
@@ -169,7 +148,6 @@ where
                 child
                     .path
                     .local_name()
-                    .and_then(|name| self.context.section_name(name))
                     .is_some_and(|name| name == local_name)
             })
             .map(|node| SectionView {
@@ -180,10 +158,7 @@ where
     }
 
     pub fn local_name(&self) -> Option<&str> {
-        self.node
-            .path
-            .local_name()
-            .and_then(|name| self.context.section_name(name))
+        self.node.path.local_name()
     }
 }
 
