@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: MIT
 
 use crate::{
+    BytecodeContext, BytecodeFile,
     binary::{
-        decode_instruction_stream, parse_instruction_stream, ConstantId, ContextHandle,
-        FileContents, ProgramContext, ProgramGlobals, SectionView,
+        ConstantId, ContextHandle, FileContents, ProgramContext, ProgramGlobals, SectionView,
+        decode_instruction_stream, parse_instruction_stream,
     },
     module::{Module, NoInfo},
     traits::{self, GetProgramGlobal, ProgramCounter},
     value::{Type, Value},
-    BytecodeContext, BytecodeFile,
 };
 
 pub struct LoadInput<'bc, F = Vec<u8>, C = ProgramContext>

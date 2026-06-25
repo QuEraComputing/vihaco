@@ -34,10 +34,10 @@ pub use instruction_syntax::{
     InstructionSugarVariantSyntax, OperandKind, SugarOperandKind,
 };
 pub use loader::{LoadInput, LoadSection, ModuleProgramLoader, ProgramLoader};
-pub use macros::{component, composite, observe, Instruction, Message};
+pub use macros::{Instruction, Message, component, composite, observe};
 pub use runtime::{
-    expect_exactly_one_effect, CompositeMetadata, EffectSink, GeneratedComponent,
-    Message as MessageMarker, Observe,
+    CompositeMetadata, EffectSink, GeneratedComponent, Message as MessageMarker, Observe,
+    expect_exactly_one_effect,
 };
 pub use traits::{GetProgramGlobal, Reset};
 pub use value::{Type, Value};
@@ -45,12 +45,12 @@ pub use value::{Type, Value};
 #[cfg(test)]
 mod public_api_tests {
     use crate::{
+        BytecodeContext, EffectSink, Effects, GeneratedComponent, LoadSection, ProgramGlobals,
+        Reset,
         binary::ConstantId,
         instruction::{FromBytes, OpCode, WriteBytes},
         module::FunctionInfo,
         observer::stdio::StdoutEffect,
-        BytecodeContext, EffectSink, Effects, GeneratedComponent, LoadSection, ProgramGlobals,
-        Reset,
     };
 
     struct PublicReset;

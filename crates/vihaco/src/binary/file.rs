@@ -4,14 +4,14 @@
 use std::io::Cursor;
 
 use crate::binary::text::{
-    consume_context, lex_lines, line_error as text_line_error, parse_section as parse_text_section,
-    verify_version, LineCursor, LineKind, TextSectionParseInfo,
+    LineCursor, LineKind, TextSectionParseInfo, consume_context, lex_lines,
+    line_error as text_line_error, parse_section as parse_text_section, verify_version,
 };
 
 use super::{
     context::{BytecodeContext, ContextHandle, ProgramContext},
     format::BytecodeHeader,
-    parser::{checked_add, parse_section, SectionParseInfo},
+    parser::{SectionParseInfo, checked_add, parse_section},
     section::{SectionNode, SectionPath, SectionView},
 };
 
@@ -145,7 +145,7 @@ where
                 return Err(text_line_error(
                     version,
                     format!("expected `vhbc{}`", super::format::VERSION),
-                ))
+                ));
             }
         }
 

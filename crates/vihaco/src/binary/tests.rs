@@ -287,9 +287,10 @@ fn rejects_binary_bytecode_that_extends_past_section_end() {
     ))
     .unwrap_err();
 
-    assert!(err
-        .to_string()
-        .contains("bytecode extends past section end"));
+    assert!(
+        err.to_string()
+            .contains("bytecode extends past section end")
+    );
 }
 
 #[test]
@@ -429,9 +430,10 @@ fn rejects_text_body_directly_inside_section() {
     ))
     .unwrap_err();
 
-    assert!(err
-        .to_string()
-        .contains("unexpected content in section `<root>`"));
+    assert!(
+        err.to_string()
+            .contains("unexpected content in section `<root>`")
+    );
 }
 
 #[test]

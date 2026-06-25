@@ -14,6 +14,6 @@ mod tests;
 
 pub use context::{BytecodeContext, ContextHandle, ProgramContext, ProgramGlobals};
 pub use file::{BinaryBytecodeFile, BytecodeFile, FileContents, TextBytecodeFile};
-pub use format::{decode_instruction_stream, CompositeHeader, ConstantId, FLAGS, MAGIC, VERSION};
+pub use format::{CompositeHeader, ConstantId, FLAGS, MAGIC, VERSION, decode_instruction_stream};
 pub use section::{BinarySectionView, SectionPath, SectionView, TextSectionView};
 pub use text::parse_instruction_stream;

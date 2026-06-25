@@ -5,10 +5,10 @@ use std::{io::Read, str::FromStr};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use vihaco::{
-    binary::{FLAGS, MAGIC, VERSION},
-    traits::{FromBytes, WriteBytes},
     BytecodeContext, BytecodeFile, ConstantId, Effects, GeneratedComponent, GetProgramGlobal,
     Instruction, LoadInput, LoadSection, ProgramLoader, Value,
+    binary::{FLAGS, MAGIC, VERSION},
+    traits::{FromBytes, WriteBytes},
 };
 
 const CHILD_NAME: u32 = 0;
@@ -296,19 +296,23 @@ fn binary_generated_loadable_routes_program_and_child_sections() {
         vec![TestInst::Load(ConstantId(0))]
     );
     assert_eq!(machine.default_child.program.code, vec![TestInst::Nop]);
-    assert!(machine
-        .program
-        .context
-        .as_ref()
-        .unwrap()
-        .ptr_eq(&file.context_handle()));
-    assert!(machine
-        .child
-        .program
-        .context
-        .as_ref()
-        .unwrap()
-        .ptr_eq(&file.context_handle()));
+    assert!(
+        machine
+            .program
+            .context
+            .as_ref()
+            .unwrap()
+            .ptr_eq(&file.context_handle())
+    );
+    assert!(
+        machine
+            .child
+            .program
+            .context
+            .as_ref()
+            .unwrap()
+            .ptr_eq(&file.context_handle())
+    );
     assert_eq!(
         machine.program.get_constant(ConstantId(0)).unwrap(),
         &Value::I64(9)
@@ -342,19 +346,23 @@ fn text_generated_loadable_routes_program_and_child_sections() {
     assert_eq!(machine.program.code, vec![TextInst::Nop]);
     assert_eq!(machine.child.program.code, vec![TextInst::Alt]);
     assert_eq!(machine.default_child.program.code, vec![TextInst::Nop]);
-    assert!(machine
-        .program
-        .context
-        .as_ref()
-        .unwrap()
-        .ptr_eq(&file.context_handle()));
-    assert!(machine
-        .child
-        .program
-        .context
-        .as_ref()
-        .unwrap()
-        .ptr_eq(&file.context_handle()));
+    assert!(
+        machine
+            .program
+            .context
+            .as_ref()
+            .unwrap()
+            .ptr_eq(&file.context_handle())
+    );
+    assert!(
+        machine
+            .child
+            .program
+            .context
+            .as_ref()
+            .unwrap()
+            .ptr_eq(&file.context_handle())
+    );
 }
 
 #[test]
@@ -417,27 +425,33 @@ fn binary_generated_loadable_routes_three_level_section_tree() {
         machine.middle.leaf.program.code,
         vec![TestInst::Nop, TestInst::Load(ConstantId(0))]
     );
-    assert!(machine
-        .program
-        .context
-        .as_ref()
-        .unwrap()
-        .ptr_eq(&file.context_handle()));
-    assert!(machine
-        .middle
-        .program
-        .context
-        .as_ref()
-        .unwrap()
-        .ptr_eq(&file.context_handle()));
-    assert!(machine
-        .middle
-        .leaf
-        .program
-        .context
-        .as_ref()
-        .unwrap()
-        .ptr_eq(&file.context_handle()));
+    assert!(
+        machine
+            .program
+            .context
+            .as_ref()
+            .unwrap()
+            .ptr_eq(&file.context_handle())
+    );
+    assert!(
+        machine
+            .middle
+            .program
+            .context
+            .as_ref()
+            .unwrap()
+            .ptr_eq(&file.context_handle())
+    );
+    assert!(
+        machine
+            .middle
+            .leaf
+            .program
+            .context
+            .as_ref()
+            .unwrap()
+            .ptr_eq(&file.context_handle())
+    );
 }
 
 #[test]
@@ -471,27 +485,33 @@ fn text_generated_loadable_routes_three_level_section_tree() {
         machine.middle.leaf.program.code,
         vec![TextInst::Nop, TextInst::Alt]
     );
-    assert!(machine
-        .program
-        .context
-        .as_ref()
-        .unwrap()
-        .ptr_eq(&file.context_handle()));
-    assert!(machine
-        .middle
-        .program
-        .context
-        .as_ref()
-        .unwrap()
-        .ptr_eq(&file.context_handle()));
-    assert!(machine
-        .middle
-        .leaf
-        .program
-        .context
-        .as_ref()
-        .unwrap()
-        .ptr_eq(&file.context_handle()));
+    assert!(
+        machine
+            .program
+            .context
+            .as_ref()
+            .unwrap()
+            .ptr_eq(&file.context_handle())
+    );
+    assert!(
+        machine
+            .middle
+            .program
+            .context
+            .as_ref()
+            .unwrap()
+            .ptr_eq(&file.context_handle())
+    );
+    assert!(
+        machine
+            .middle
+            .leaf
+            .program
+            .context
+            .as_ref()
+            .unwrap()
+            .ptr_eq(&file.context_handle())
+    );
 }
 
 #[test]
