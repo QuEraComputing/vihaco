@@ -15,7 +15,7 @@ mnemonics so the orchestrator can dispatch first.</li>
 form is tracked in <code>~/.claude/plans/vihaco-future-rawvalue-refactor.md</code>.</li>
 </ul>
 </div></details><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.cpu_const_value.html" title="fn vihaco_cpu::parse_helpers::cpu_const_value">cpu_<wbr>const_<wbr>value</a></dt><dd>Parses the body of <code>const.&lt;type&gt; &lt;literal&gt;</code> — without the leading <code>const</code>
-keyword (the derive macro emits that). Numeric and bool variants only.</dd><dt><a class="fn" href="fn.cpu_type.html" title="fn vihaco_cpu::parse_helpers::cpu_type">cpu_<wbr>type</a></dt><dd>Parses <code>.&lt;typename&gt;</code> and returns the matching [<code>Type</code>]. Used for the typed
+keyword (the derive macro emits that). Numeric and bool variants only.</dd><dt><a class="fn" href="fn.cpu_type.html" title="fn vihaco_cpu::parse_helpers::cpu_type">cpu_<wbr>type</a></dt><dd>Parses <code>.&lt;typename&gt;</code> and returns the matching <a href="../../vihaco/value/enum.Type.html" title="enum vihaco::value::Type"><code>Type</code></a>. Used for the typed
 arithmetic/comparison variants — <code>add.i64</code>, <code>lt.u64</code>, etc.</dd><dt><a class="fn" href="fn.never_u32.html" title="fn vihaco_cpu::parse_helpers::never_u32">never_<wbr>u32</a></dt><dd>A parser that always fails. Used for variant operands whose real form is a
 symbolic <code>@label</code> (<code>Branch</code>, <code>ConditionalBranch</code>, <code>Call</code>). Letting these
 fall through here means <code>Instruction::parser()</code> errors on their mnemonics,

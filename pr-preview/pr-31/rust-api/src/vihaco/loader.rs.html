@@ -2,14 +2,14 @@
 <a href=#2 id=2 data-nosnippet>2</a>// SPDX-License-Identifier: MIT
 <a href=#3 id=3 data-nosnippet>3</a>
 <a href=#4 id=4 data-nosnippet>4</a></span><span class="kw">use </span>crate::{
-<a href=#5 id=5 data-nosnippet>5</a>    binary::{
-<a href=#6 id=6 data-nosnippet>6</a>        decode_instruction_stream, parse_instruction_stream, ConstantId, ContextHandle,
-<a href=#7 id=7 data-nosnippet>7</a>        FileContents, ProgramContext, ProgramGlobals, SectionView,
-<a href=#8 id=8 data-nosnippet>8</a>    },
-<a href=#9 id=9 data-nosnippet>9</a>    module::{Module, NoInfo},
-<a href=#10 id=10 data-nosnippet>10</a>    traits::{<span class="self">self</span>, GetProgramGlobal, ProgramCounter},
-<a href=#11 id=11 data-nosnippet>11</a>    value::{Type, Value},
-<a href=#12 id=12 data-nosnippet>12</a>    BytecodeContext, BytecodeFile,
+<a href=#5 id=5 data-nosnippet>5</a>    BytecodeContext, BytecodeFile,
+<a href=#6 id=6 data-nosnippet>6</a>    binary::{
+<a href=#7 id=7 data-nosnippet>7</a>        ConstantId, ContextHandle, FileContents, ProgramContext, ProgramGlobals, SectionView,
+<a href=#8 id=8 data-nosnippet>8</a>        decode_instruction_stream, parse_instruction_stream,
+<a href=#9 id=9 data-nosnippet>9</a>    },
+<a href=#10 id=10 data-nosnippet>10</a>    module::{Module, NoInfo},
+<a href=#11 id=11 data-nosnippet>11</a>    traits::{<span class="self">self</span>, GetProgramGlobal, ProgramCounter},
+<a href=#12 id=12 data-nosnippet>12</a>    value::{Type, Value},
 <a href=#13 id=13 data-nosnippet>13</a>};
 <a href=#14 id=14 data-nosnippet>14</a>
 <a href=#15 id=15 data-nosnippet>15</a><span class="kw">pub struct </span>LoadInput&lt;<span class="lifetime">'bc</span>, F = Vec&lt;u8&gt;, C = ProgramContext&gt;

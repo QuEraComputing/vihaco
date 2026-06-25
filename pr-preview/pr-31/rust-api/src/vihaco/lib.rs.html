@@ -34,10 +34,10 @@
 <a href=#34 id=34 data-nosnippet>34</a>    InstructionSugarVariantSyntax, OperandKind, SugarOperandKind,
 <a href=#35 id=35 data-nosnippet>35</a>};
 <a href=#36 id=36 data-nosnippet>36</a><span class="kw">pub use </span>loader::{LoadInput, LoadSection, ModuleProgramLoader, ProgramLoader};
-<a href=#37 id=37 data-nosnippet>37</a><span class="kw">pub use </span>macros::{component, composite, observe, Instruction, Message};
+<a href=#37 id=37 data-nosnippet>37</a><span class="kw">pub use </span>macros::{Instruction, Message, component, composite, observe};
 <a href=#38 id=38 data-nosnippet>38</a><span class="kw">pub use </span>runtime::{
-<a href=#39 id=39 data-nosnippet>39</a>    expect_exactly_one_effect, CompositeMetadata, EffectSink, GeneratedComponent,
-<a href=#40 id=40 data-nosnippet>40</a>    Message <span class="kw">as </span>MessageMarker, Observe,
+<a href=#39 id=39 data-nosnippet>39</a>    CompositeMetadata, EffectSink, GeneratedComponent, Message <span class="kw">as </span>MessageMarker, Observe,
+<a href=#40 id=40 data-nosnippet>40</a>    expect_exactly_one_effect,
 <a href=#41 id=41 data-nosnippet>41</a>};
 <a href=#42 id=42 data-nosnippet>42</a><span class="kw">pub use </span>traits::{GetProgramGlobal, Reset};
 <a href=#43 id=43 data-nosnippet>43</a><span class="kw">pub use </span>value::{Type, Value};
@@ -45,12 +45,12 @@
 <a href=#45 id=45 data-nosnippet>45</a><span class="attr">#[cfg(test)]
 <a href=#46 id=46 data-nosnippet>46</a></span><span class="kw">mod </span>public_api_tests {
 <a href=#47 id=47 data-nosnippet>47</a>    <span class="kw">use </span>crate::{
-<a href=#48 id=48 data-nosnippet>48</a>        binary::ConstantId,
-<a href=#49 id=49 data-nosnippet>49</a>        instruction::{FromBytes, OpCode, WriteBytes},
-<a href=#50 id=50 data-nosnippet>50</a>        module::FunctionInfo,
-<a href=#51 id=51 data-nosnippet>51</a>        observer::stdio::StdoutEffect,
-<a href=#52 id=52 data-nosnippet>52</a>        BytecodeContext, EffectSink, Effects, GeneratedComponent, LoadSection, ProgramGlobals,
-<a href=#53 id=53 data-nosnippet>53</a>        Reset,
+<a href=#48 id=48 data-nosnippet>48</a>        BytecodeContext, EffectSink, Effects, GeneratedComponent, LoadSection, ProgramGlobals,
+<a href=#49 id=49 data-nosnippet>49</a>        Reset,
+<a href=#50 id=50 data-nosnippet>50</a>        binary::ConstantId,
+<a href=#51 id=51 data-nosnippet>51</a>        instruction::{FromBytes, OpCode, WriteBytes},
+<a href=#52 id=52 data-nosnippet>52</a>        module::FunctionInfo,
+<a href=#53 id=53 data-nosnippet>53</a>        observer::stdio::StdoutEffect,
 <a href=#54 id=54 data-nosnippet>54</a>    };
 <a href=#55 id=55 data-nosnippet>55</a>
 <a href=#56 id=56 data-nosnippet>56</a>    <span class="kw">struct </span>PublicReset;

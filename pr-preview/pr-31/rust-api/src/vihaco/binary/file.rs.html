@@ -4,14 +4,14 @@
 <a href=#4 id=4 data-nosnippet>4</a></span><span class="kw">use </span>std::io::Cursor;
 <a href=#5 id=5 data-nosnippet>5</a>
 <a href=#6 id=6 data-nosnippet>6</a><span class="kw">use </span><span class="kw">crate</span>::binary::text::{
-<a href=#7 id=7 data-nosnippet>7</a>    consume_context, lex_lines, line_error <span class="kw">as </span>text_line_error, parse_section <span class="kw">as </span>parse_text_section,
-<a href=#8 id=8 data-nosnippet>8</a>    verify_version, LineCursor, LineKind, TextSectionParseInfo,
+<a href=#7 id=7 data-nosnippet>7</a>    LineCursor, LineKind, TextSectionParseInfo, consume_context, lex_lines,
+<a href=#8 id=8 data-nosnippet>8</a>    line_error <span class="kw">as </span>text_line_error, parse_section <span class="kw">as </span>parse_text_section, verify_version,
 <a href=#9 id=9 data-nosnippet>9</a>};
 <a href=#10 id=10 data-nosnippet>10</a>
 <a href=#11 id=11 data-nosnippet>11</a><span class="kw">use </span>super::{
 <a href=#12 id=12 data-nosnippet>12</a>    context::{BytecodeContext, ContextHandle, ProgramContext},
 <a href=#13 id=13 data-nosnippet>13</a>    format::BytecodeHeader,
-<a href=#14 id=14 data-nosnippet>14</a>    parser::{checked_add, parse_section, SectionParseInfo},
+<a href=#14 id=14 data-nosnippet>14</a>    parser::{SectionParseInfo, checked_add, parse_section},
 <a href=#15 id=15 data-nosnippet>15</a>    section::{SectionNode, SectionPath, SectionView},
 <a href=#16 id=16 data-nosnippet>16</a>};
 <a href=#17 id=17 data-nosnippet>17</a>
@@ -145,7 +145,7 @@
 <a href=#145 id=145 data-nosnippet>145</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(text_line_error(
 <a href=#146 id=146 data-nosnippet>146</a>                    version,
 <a href=#147 id=147 data-nosnippet>147</a>                    <span class="macro">format!</span>(<span class="string">"expected `vhbc{}`"</span>, <span class="kw">super</span>::format::VERSION),
-<a href=#148 id=148 data-nosnippet>148</a>                ))
+<a href=#148 id=148 data-nosnippet>148</a>                ));
 <a href=#149 id=149 data-nosnippet>149</a>            }
 <a href=#150 id=150 data-nosnippet>150</a>        }
 <a href=#151 id=151 data-nosnippet>151</a>
