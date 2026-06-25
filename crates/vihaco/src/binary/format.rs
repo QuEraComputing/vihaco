@@ -201,7 +201,7 @@ pub fn decode_instruction_stream<I: Instruction>(bytes: &[u8]) -> eyre::Result<V
             bytes.len()
         ));
     }
-    if bytes.len() % width != 0 {
+    if !bytes.len().is_multiple_of(width) {
         return Err(eyre::eyre!(
             "bytecode length {} is not a multiple of instruction width {}",
             bytes.len(),

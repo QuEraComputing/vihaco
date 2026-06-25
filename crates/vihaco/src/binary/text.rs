@@ -9,7 +9,6 @@ use eyre::Result;
 use crate::binary::common::validate_local_section_name;
 
 use super::{
-    context::BytecodeContext,
     format::VERSION,
     section::{SectionNode, SectionPath},
 };
@@ -96,13 +95,13 @@ fn line_parser<'src>() -> impl Parser<'src, &'src str, LineKind, ParseExtra<'src
     let end_context = just("<@").to(LineKind::EndContext);
 
     let begin_section = just("~>")
-        .ignore_then(space.clone())
-        .ignore_then(name.clone())
+        .ignore_then(space)
+        .ignore_then(name)
         .then_ignore(just(':'))
         .map(LineKind::BeginSection);
     let end_section = just("<~")
         .ignore_then(space)
-        .ignore_then(name.clone())
+        .ignore_then(name)
         .then_ignore(just('.'))
         .map(LineKind::EndSection);
 
@@ -238,14 +237,10 @@ pub(super) struct ParentSection<'a> {
     pub(super) indent: usize,
 }
 
-pub(super) fn parse_section<C>(
+pub(super) fn parse_section(
     cursor: &mut LineCursor<'_>,
-    context: &C,
     info: TextSectionParseInfo<'_>,
-) -> Result<SectionNode>
-where
-    C: BytecodeContext,
-{
+) -> Result<SectionNode> {
     let TextSectionParseInfo { parent, begin } = info;
     let section_name = match &begin.kind {
         LineKind::BeginSection(name) => name.clone(),
@@ -324,10 +319,7 @@ where
                     &section_name,
                     "header",
                     section_indent + 1,
-                    |kind| match kind {
-                        LineKind::EndHeader => true,
-                        _ => false,
-                    },
+                    |kind| matches!(kind, LineKind::EndHeader),
                 )?);
             }
             LineKind::BeginBytecode => {
@@ -343,10 +335,7 @@ where
                     &section_name,
                     "bytecode",
                     section_indent + 1,
-                    |kind| match kind {
-                        LineKind::EndBytecode => true,
-                        _ => false,
-                    },
+                    |kind| matches!(kind, LineKind::EndBytecode),
                 )?);
             }
             LineKind::BeginSection(child_name) => {
@@ -363,7 +352,6 @@ where
                 }
                 let child = parse_section(
                     cursor,
-                    context,
                     TextSectionParseInfo {
                         parent: Some(ParentSection {
                             path: &path,

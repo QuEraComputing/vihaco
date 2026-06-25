@@ -164,14 +164,13 @@ where
 
         let context_start = context_begin.full.end;
         let context_end = consume_context(&mut cursor)?;
-        let context = C::from_bytes(text[context_start..context_end].as_bytes())?;
+        let context = C::from_bytes(&text.as_bytes()[context_start..context_end])?;
 
         let Some(section_begin) = cursor.peek_significant() else {
             return Err(eyre::eyre!("expected root section"));
         };
         let root = parse_text_section(
             &mut cursor,
-            &context,
             TextSectionParseInfo {
                 parent: None,
                 begin: section_begin,
