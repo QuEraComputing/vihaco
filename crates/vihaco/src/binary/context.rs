@@ -143,15 +143,15 @@ where
 /// machine definitions, we wrap the context in an [`Arc`] to drop it
 /// automatically.
 #[derive(Debug)]
-pub struct BytecodeContextHandle<C = ProgramContext>(Arc<C>);
+pub struct ContextHandle<C:  = ProgramContext>(Arc<C>);
 
-impl<C> Clone for BytecodeContextHandle<C> {
+impl<C> Clone for ContextHandle<C> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
 }
 
-impl<C> BytecodeContextHandle<C> {
+impl<C> ContextHandle<C> {
     pub fn new(context: C) -> Self {
         Self(Arc::new(context))
     }
@@ -165,7 +165,7 @@ impl<C> BytecodeContextHandle<C> {
     }
 }
 
-impl<C> std::ops::Deref for BytecodeContextHandle<C> {
+impl<C> std::ops::Deref for ContextHandle<C> {
     type Target = C;
 
     fn deref(&self) -> &Self::Target {

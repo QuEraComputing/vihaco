@@ -1,14 +1,14 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-use std::io::Read;
+use std::{io::Read, str::FromStr};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use vihaco::{
-    BytecodeFile, ConstantId, Effects, GeneratedComponent, GetProgramGlobal, Instruction,
-    LoadInput, LoadSection, ProgramLoader, Value,
     binary::{FLAGS, MAGIC, VERSION},
     traits::{FromBytes, WriteBytes},
+    BytecodeContext, BytecodeFile, ConstantId, Effects, GeneratedComponent, GetProgramGlobal,
+    Instruction, LoadInput, LoadSection, ProgramLoader, Value,
 };
 
 const CHILD_NAME: u32 = 0;
@@ -25,6 +25,12 @@ const CHILD_SECTION_TABLE_ENTRY_LEN: usize = 4 + 8;
 enum TestInst {
     Nop,
     Load(ConstantId),
+}
+
+#[derive(Debug, Clone, PartialEq, Instruction, vihaco_parser::Parse)]
+enum TextInst {
+    Nop,
+    Alt,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -47,9 +53,47 @@ impl WriteBytes for TestHeader {
     }
 }
 
+impl FromStr for TestHeader {
+    type Err = std::num::ParseIntError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        Ok(Self {
+            cores: text.parse()?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TextContext {
+    section_names: Vec<String>,
+}
+
+impl BytecodeContext for TextContext {
+    fn from_bytes(bytes: &[u8]) -> eyre::Result<Self> {
+        let text = std::str::from_utf8(bytes)?;
+        Ok(Self {
+            section_names: text
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(ToOwned::to_owned)
+                .collect(),
+        })
+    }
+
+    fn section_name(&self, index: u32) -> Option<&str> {
+        self.section_names.get(index as usize).map(String::as_str)
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 struct LoadedDevice {
     program: ProgramLoader<TestInst>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct TextLoadedDevice {
+    program: ProgramLoader<TextInst, TextContext>,
 }
 
 impl GeneratedComponent for LoadedDevice {
@@ -66,8 +110,31 @@ impl GeneratedComponent for LoadedDevice {
     }
 }
 
+impl GeneratedComponent for TextLoadedDevice {
+    type Instruction = TextInst;
+    type Message = ();
+    type Effect = ();
+
+    fn execute_generated(
+        &mut self,
+        _inst: Self::Instruction,
+        _msg: Self::Message,
+    ) -> eyre::Result<Effects<Self::Effect>> {
+        Ok(Effects::none())
+    }
+}
+
 impl LoadSection for LoadedDevice {
     fn load_section<'bc>(&mut self, input: LoadInput<'bc>) -> eyre::Result<()> {
+        self.program.load_section(input)
+    }
+}
+
+impl LoadSection<String, TextContext> for TextLoadedDevice {
+    fn load_section<'bc>(
+        &mut self,
+        input: LoadInput<'bc, String, TextContext>,
+    ) -> eyre::Result<()> {
         self.program.load_section(input)
     }
 }
@@ -140,16 +207,85 @@ struct HeaderMachine {
     device: LoadedDevice,
 }
 
+#[vihaco::composite]
+#[derive(Debug, Default)]
+#[allow(dead_code)]
+struct TextMachine {
+    #[program]
+    program: ProgramLoader<TextInst, TextContext>,
+
+    #[device(0x01)]
+    #[loadable("child")]
+    child: TextLoadedDevice,
+
+    #[device(0x02)]
+    #[loadable]
+    default_child: TextLoadedDevice,
+}
+
+#[vihaco::composite]
+#[derive(Debug, Default)]
+#[allow(dead_code)]
+struct TextNestedMachine {
+    #[program]
+    program: ProgramLoader<TextInst, TextContext>,
+
+    #[device(0x01)]
+    #[loadable("leaf")]
+    leaf: TextLoadedDevice,
+}
+
+impl GeneratedComponent for TextNestedMachine {
+    type Instruction = TextNestedMachineInstruction;
+    type Message = ();
+    type Effect = ();
+
+    fn execute_generated(
+        &mut self,
+        _inst: Self::Instruction,
+        _msg: Self::Message,
+    ) -> eyre::Result<Effects<Self::Effect>> {
+        Ok(Effects::none())
+    }
+}
+
+#[vihaco::composite]
+#[derive(Debug, Default)]
+#[allow(dead_code)]
+struct TextHostMachine {
+    #[program]
+    program: ProgramLoader<TextInst, TextContext>,
+
+    #[device(0x01)]
+    #[loadable("middle")]
+    middle: TextNestedMachine,
+}
+
+#[vihaco::composite]
+#[derive(Debug, Default)]
+#[allow(dead_code)]
+struct TextHeaderMachine {
+    #[header]
+    info: TestHeader,
+
+    #[program]
+    program: ProgramLoader<TextInst, TextContext>,
+
+    #[device(0x01)]
+    device: TextLoadedDevice,
+}
+
 #[test]
-fn generated_loadable_routes_program_and_child_sections() {
-    let child = section_bytes(b"", &[TestInst::Load(ConstantId(0))], vec![]);
-    let default_child = section_bytes(b"", &[TestInst::Nop], vec![]);
-    let root = section_bytes(
+fn binary_generated_loadable_routes_program_and_child_sections() {
+    let child = binary_section_bytes(b"", &[TestInst::Load(ConstantId(0))], vec![]);
+    let default_child = binary_section_bytes(b"", &[TestInst::Nop], vec![]);
+    let root = binary_section_bytes(
         b"",
         &[TestInst::Nop],
         vec![(CHILD_NAME, child), (DEFAULT_CHILD_NAME, default_child)],
     );
-    let file: BytecodeFile = BytecodeFile::from_bytes(file_bytes(context_bytes(), root)).unwrap();
+    let file: BytecodeFile<Vec<u8>> =
+        BytecodeFile::from_bytes(binary_file_bytes(context_bytes(), root)).unwrap();
 
     let mut machine = Machine::default();
     machine.load_section(LoadInput::from(&file)).unwrap();
@@ -160,23 +296,19 @@ fn generated_loadable_routes_program_and_child_sections() {
         vec![TestInst::Load(ConstantId(0))]
     );
     assert_eq!(machine.default_child.program.code, vec![TestInst::Nop]);
-    assert!(
-        machine
-            .program
-            .context
-            .as_ref()
-            .unwrap()
-            .ptr_eq(&file.context_handle())
-    );
-    assert!(
-        machine
-            .child
-            .program
-            .context
-            .as_ref()
-            .unwrap()
-            .ptr_eq(&file.context_handle())
-    );
+    assert!(machine
+        .program
+        .context
+        .as_ref()
+        .unwrap()
+        .ptr_eq(&file.context_handle()));
+    assert!(machine
+        .child
+        .program
+        .context
+        .as_ref()
+        .unwrap()
+        .ptr_eq(&file.context_handle()));
     assert_eq!(
         machine.program.get_constant(ConstantId(0)).unwrap(),
         &Value::I64(9)
@@ -184,11 +316,55 @@ fn generated_loadable_routes_program_and_child_sections() {
 }
 
 #[test]
-fn generated_loadable_parses_marked_header() {
+fn text_generated_loadable_routes_program_and_child_sections() {
+    let file = text_file(
+        &["child", "default_child"],
+        r#"begin section root:
+begin bytecode root:
+nop
+end bytecode root
+begin section child:
+begin bytecode child:
+alt
+end bytecode child
+end section child
+begin section default_child:
+begin bytecode default_child:
+nop
+end bytecode default_child
+end section default_child
+end section root
+"#,
+    );
+
+    let mut machine = TextMachine::default();
+    machine.load_section(LoadInput::from(&file)).unwrap();
+
+    assert_eq!(machine.program.code, vec![TextInst::Nop]);
+    assert_eq!(machine.child.program.code, vec![TextInst::Alt]);
+    assert_eq!(machine.default_child.program.code, vec![TextInst::Nop]);
+    assert!(machine
+        .program
+        .context
+        .as_ref()
+        .unwrap()
+        .ptr_eq(&file.context_handle()));
+    assert!(machine
+        .child
+        .program
+        .context
+        .as_ref()
+        .unwrap()
+        .ptr_eq(&file.context_handle()));
+}
+
+#[test]
+fn binary_generated_loadable_parses_marked_header() {
     let mut header = Vec::new();
     TestHeader { cores: 8 }.write_bytes(&mut header).unwrap();
-    let root = section_bytes(&header, &[TestInst::Nop], vec![]);
-    let file: BytecodeFile = BytecodeFile::from_bytes(file_bytes(context_bytes(), root)).unwrap();
+    let root = binary_section_bytes(&header, &[TestInst::Nop], vec![]);
+    let file: BytecodeFile<Vec<u8>> =
+        BytecodeFile::from_bytes(binary_file_bytes(context_bytes(), root)).unwrap();
 
     let mut machine = HeaderMachine::default();
     machine.load_section(LoadInput::from(&file)).unwrap();
@@ -198,15 +374,38 @@ fn generated_loadable_parses_marked_header() {
 }
 
 #[test]
-fn generated_loadable_routes_three_level_section_tree() {
-    let leaf = section_bytes(b"", &[TestInst::Nop, TestInst::Load(ConstantId(0))], vec![]);
-    let middle = section_bytes(
+fn text_generated_loadable_parses_marked_header() {
+    let file = text_file(
+        &[],
+        r#"begin section root:
+begin header root:
+8
+end header root
+begin bytecode root:
+nop
+end bytecode root
+end section root
+"#,
+    );
+
+    let mut machine = TextHeaderMachine::default();
+    machine.load_section(LoadInput::from(&file)).unwrap();
+
+    assert_eq!(machine.info, TestHeader { cores: 8 });
+    assert_eq!(machine.program.code, vec![TextInst::Nop]);
+}
+
+#[test]
+fn binary_generated_loadable_routes_three_level_section_tree() {
+    let leaf = binary_section_bytes(b"", &[TestInst::Nop, TestInst::Load(ConstantId(0))], vec![]);
+    let middle = binary_section_bytes(
         b"",
         &[TestInst::Load(ConstantId(0))],
         vec![(LEAF_NAME, leaf)],
     );
-    let root = section_bytes(b"", &[TestInst::Nop], vec![(MIDDLE_NAME, middle)]);
-    let file: BytecodeFile = BytecodeFile::from_bytes(file_bytes(context_bytes(), root)).unwrap();
+    let root = binary_section_bytes(b"", &[TestInst::Nop], vec![(MIDDLE_NAME, middle)]);
+    let file: BytecodeFile<Vec<u8>> =
+        BytecodeFile::from_bytes(binary_file_bytes(context_bytes(), root)).unwrap();
 
     let mut machine = HostMachine::default();
     machine.load_section(LoadInput::from(&file)).unwrap();
@@ -220,39 +419,89 @@ fn generated_loadable_routes_three_level_section_tree() {
         machine.middle.leaf.program.code,
         vec![TestInst::Nop, TestInst::Load(ConstantId(0))]
     );
-    assert!(
-        machine
-            .program
-            .context
-            .as_ref()
-            .unwrap()
-            .ptr_eq(&file.context_handle())
-    );
-    assert!(
-        machine
-            .middle
-            .program
-            .context
-            .as_ref()
-            .unwrap()
-            .ptr_eq(&file.context_handle())
-    );
-    assert!(
-        machine
-            .middle
-            .leaf
-            .program
-            .context
-            .as_ref()
-            .unwrap()
-            .ptr_eq(&file.context_handle())
-    );
+    assert!(machine
+        .program
+        .context
+        .as_ref()
+        .unwrap()
+        .ptr_eq(&file.context_handle()));
+    assert!(machine
+        .middle
+        .program
+        .context
+        .as_ref()
+        .unwrap()
+        .ptr_eq(&file.context_handle()));
+    assert!(machine
+        .middle
+        .leaf
+        .program
+        .context
+        .as_ref()
+        .unwrap()
+        .ptr_eq(&file.context_handle()));
 }
 
 #[test]
-fn generated_loadable_requires_marked_children() {
-    let root = section_bytes(b"", &[TestInst::Nop], vec![]);
-    let file: BytecodeFile = BytecodeFile::from_bytes(file_bytes(context_bytes(), root)).unwrap();
+fn text_generated_loadable_routes_three_level_section_tree() {
+    let file = text_file(
+        &["middle", "leaf"],
+        r#"begin section root:
+begin bytecode root:
+nop
+end bytecode root
+begin section middle:
+begin bytecode middle:
+alt
+end bytecode middle
+begin section leaf:
+begin bytecode leaf:
+nop
+alt
+end bytecode leaf
+end section leaf
+end section middle
+end section root
+"#,
+    );
+
+    let mut machine = TextHostMachine::default();
+    machine.load_section(LoadInput::from(&file)).unwrap();
+
+    assert_eq!(machine.program.code, vec![TextInst::Nop]);
+    assert_eq!(machine.middle.program.code, vec![TextInst::Alt]);
+    assert_eq!(
+        machine.middle.leaf.program.code,
+        vec![TextInst::Nop, TextInst::Alt]
+    );
+    assert!(machine
+        .program
+        .context
+        .as_ref()
+        .unwrap()
+        .ptr_eq(&file.context_handle()));
+    assert!(machine
+        .middle
+        .program
+        .context
+        .as_ref()
+        .unwrap()
+        .ptr_eq(&file.context_handle()));
+    assert!(machine
+        .middle
+        .leaf
+        .program
+        .context
+        .as_ref()
+        .unwrap()
+        .ptr_eq(&file.context_handle()));
+}
+
+#[test]
+fn binary_generated_loadable_requires_marked_children() {
+    let root = binary_section_bytes(b"", &[TestInst::Nop], vec![]);
+    let file: BytecodeFile<Vec<u8>> =
+        BytecodeFile::from_bytes(binary_file_bytes(context_bytes(), root)).unwrap();
     let mut machine = Machine::default();
 
     let err = machine.load_section(LoadInput::from(&file)).unwrap_err();
@@ -261,10 +510,29 @@ fn generated_loadable_requires_marked_children() {
 }
 
 #[test]
-fn generated_loadable_rejects_unexpected_direct_children() {
-    let extra = section_bytes(b"", &[], vec![]);
-    let root = section_bytes(b"", &[TestInst::Nop], vec![(EXTRA_NAME, extra)]);
-    let file: BytecodeFile = BytecodeFile::from_bytes(file_bytes(context_bytes(), root)).unwrap();
+fn text_generated_loadable_requires_marked_children() {
+    let file = text_file(
+        &["child", "default_child"],
+        r#"begin section root:
+begin bytecode root:
+nop
+end bytecode root
+end section root
+"#,
+    );
+    let mut machine = TextMachine::default();
+
+    let err = machine.load_section(LoadInput::from(&file)).unwrap_err();
+
+    assert!(err.to_string().contains("missing required child section"));
+}
+
+#[test]
+fn binary_generated_loadable_rejects_unexpected_direct_children() {
+    let extra = binary_section_bytes(b"", &[], vec![]);
+    let root = binary_section_bytes(b"", &[TestInst::Nop], vec![(EXTRA_NAME, extra)]);
+    let file: BytecodeFile<Vec<u8>> =
+        BytecodeFile::from_bytes(binary_file_bytes(context_bytes(), root)).unwrap();
     let mut machine = Machine::default();
 
     let err = machine.load_section(LoadInput::from(&file)).unwrap_err();
@@ -272,7 +540,31 @@ fn generated_loadable_rejects_unexpected_direct_children() {
     assert!(err.to_string().contains("unexpected child section"));
 }
 
-fn file_bytes(context: Vec<u8>, root: Vec<u8>) -> Vec<u8> {
+#[test]
+fn text_generated_loadable_rejects_unexpected_direct_children() {
+    let file = text_file(
+        &["child", "default_child", "extra"],
+        r#"begin section root:
+begin bytecode root:
+nop
+end bytecode root
+begin section child:
+end section child
+begin section default_child:
+end section default_child
+begin section extra:
+end section extra
+end section root
+"#,
+    );
+    let mut machine = TextMachine::default();
+
+    let err = machine.load_section(LoadInput::from(&file)).unwrap_err();
+
+    assert!(err.to_string().contains("unexpected child section"));
+}
+
+fn binary_file_bytes(context: Vec<u8>, root: Vec<u8>) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(MAGIC);
     bytes.write_u16::<LittleEndian>(VERSION).unwrap();
@@ -283,6 +575,19 @@ fn file_bytes(context: Vec<u8>, root: Vec<u8>) -> Vec<u8> {
     bytes.extend_from_slice(&context);
     bytes.extend_from_slice(&root);
     bytes
+}
+
+fn text_file(section_names: &[&str], sections: &str) -> BytecodeFile<String, TextContext> {
+    let context = section_names.join("\n");
+    let context = if context.is_empty() {
+        String::new()
+    } else {
+        format!("{context}\n")
+    };
+    BytecodeFile::<String, TextContext>::from_text(&format!(
+        "vihaco version {VERSION}\nbegin context:\n{context}end context\n{sections}"
+    ))
+    .unwrap()
 }
 
 fn context_bytes() -> Vec<u8> {
@@ -306,7 +611,7 @@ fn context_bytes() -> Vec<u8> {
     bytes
 }
 
-fn section_bytes(
+fn binary_section_bytes(
     header: &[u8],
     instructions: &[TestInst],
     children: Vec<(u32, Vec<u8>)>,

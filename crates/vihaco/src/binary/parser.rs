@@ -7,6 +7,8 @@ use std::{
     ops::Range,
 };
 
+use crate::binary::common::validate_local_section_name;
+
 use super::{
     context::BytecodeContext,
     format::{
@@ -50,10 +52,6 @@ pub(super) struct SectionParseInfo {
 ///
 /// All logic related to the parsing of the current section should
 /// come _before_ the parsing logic of its children.
-///
-/// This function is called recursively, albeit with some intermediate stops along the
-/// way related to the validation of child sections within its parent section's bounds;
-/// this follows naturally from the tree structure of the sections.
 pub(super) fn parse_section<C>(
     bytes: &[u8],
     context: &C,
@@ -379,30 +377,6 @@ where
             path: child_path,
         },
     )
-}
-
-fn validate_local_section_name<C>(
-    parent: &SectionPath,
-    context: &C,
-    child: &str,
-) -> eyre::Result<()>
-where
-    C: BytecodeContext,
-{
-    if child.is_empty() {
-        return Err(eyre::eyre!(
-            "section `{}` has an empty child name",
-            parent.display(context)
-        ));
-    }
-    if child.contains('/') {
-        return Err(eyre::eyre!(
-            "section `{}` child name `{}` must be a local name",
-            parent.display(context),
-            child
-        ));
-    }
-    Ok(())
 }
 
 pub(super) fn checked_add(lhs: usize, rhs: usize, label: &str) -> eyre::Result<usize> {

@@ -2,45 +2,63 @@
 // SPDX-License-Identifier: MIT
 
 use crate::{
-    BytecodeFile,
     binary::{
-        BytecodeContextHandle, ConstantId, ProgramContext, ProgramGlobals, SectionView,
-        decode_instruction_stream,
+        decode_instruction_stream, parse_instruction_stream, ConstantId, ContextHandle,
+        FileContents, ProgramContext, ProgramGlobals, SectionView,
     },
     module::{Module, NoInfo},
     traits::{self, GetProgramGlobal, ProgramCounter},
     value::{Type, Value},
+    BytecodeContext, BytecodeFile,
 };
 
-pub struct LoadInput<'bc, C = ProgramContext> {
-    pub section: SectionView<'bc, C>,
+pub struct LoadInput<'bc, F = Vec<u8>, C = ProgramContext>
+where
+    F: FileContents,
+    C: BytecodeContext,
+{
+    pub section: SectionView<'bc, F, C>,
 }
 
-impl<'bc, C> Clone for LoadInput<'bc, C> {
+impl<'bc, F, C> Clone for LoadInput<'bc, F, C>
+where
+    F: FileContents,
+    C: BytecodeContext,
+{
     fn clone(&self) -> Self {
-        Self {
+        LoadInput {
             section: self.section.clone(),
         }
     }
 }
 
-impl<'bc, C> From<&'bc BytecodeFile<C>> for LoadInput<'bc, C> {
-    fn from(file: &'bc BytecodeFile<C>) -> Self {
+impl<'bc, F, C> From<&'bc BytecodeFile<F, C>> for LoadInput<'bc, F, C>
+where
+    F: FileContents,
+    C: BytecodeContext,
+{
+    fn from(file: &'bc BytecodeFile<F, C>) -> Self {
         Self {
             section: file.root(),
         }
     }
 }
 
-impl<'bc, C> From<SectionView<'bc, C>> for LoadInput<'bc, C> {
-    fn from(section: SectionView<'bc, C>) -> Self {
+impl<'bc, F, C> From<SectionView<'bc, F, C>> for LoadInput<'bc, F, C>
+where
+    F: FileContents,
+    C: BytecodeContext,
+{
+    fn from(section: SectionView<'bc, F, C>) -> Self {
         Self { section }
     }
 }
 
-impl<C> std::fmt::Debug for LoadInput<'_, C>
+impl<'bc, F, C> std::fmt::Debug for LoadInput<'bc, F, C>
 where
-    C: crate::binary::BytecodeContext,
+    F: FileContents,
+    C: BytecodeContext,
+    SectionView<'bc, F, C>: std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LoadInput")
@@ -49,8 +67,12 @@ where
     }
 }
 
-pub trait LoadSection<C = ProgramContext> {
-    fn load_section<'bc>(&mut self, input: LoadInput<'bc, C>) -> eyre::Result<()>;
+pub trait LoadSection<F = Vec<u8>, C = ProgramContext>
+where
+    F: FileContents,
+    C: BytecodeContext,
+{
+    fn load_section<'bc>(&mut self, input: LoadInput<'bc, F, C>) -> eyre::Result<()>;
 }
 
 #[derive(Debug, Clone)]
@@ -131,7 +153,7 @@ where
 #[derive(Debug, Clone)]
 pub struct ProgramLoader<I, C = ProgramContext, Info = NoInfo> {
     pub code: Vec<I>,
-    pub context: Option<BytecodeContextHandle<C>>,
+    pub context: Option<ContextHandle<C>>,
     pub pc: u32,
     pub extra: Info,
 }
@@ -167,18 +189,32 @@ impl<I, C, Info> ProgramLoader<I, C, Info> {
     pub fn context(&self) -> eyre::Result<&C> {
         self.context
             .as_ref()
-            .map(BytecodeContextHandle::get)
+            .map(ContextHandle::get)
             .ok_or_else(|| eyre::eyre!("bytecode program loader has not been loaded"))
     }
 }
 
-impl<I, C, Info> LoadSection<C> for ProgramLoader<I, C, Info>
+impl<I, C, Info> LoadSection<Vec<u8>, C> for ProgramLoader<I, C, Info>
 where
     I: traits::Instruction,
-    C: crate::binary::BytecodeContext,
+    C: BytecodeContext,
 {
-    fn load_section<'bc>(&mut self, input: LoadInput<'bc, C>) -> eyre::Result<()> {
+    fn load_section<'bc>(&mut self, input: LoadInput<'bc, Vec<u8>, C>) -> eyre::Result<()> {
         self.code = decode_instruction_stream(input.section.bytecode())?;
+        self.context = Some(input.section.context_handle());
+        self.pc = 0;
+        Ok(())
+    }
+}
+
+impl<I, C, Info> LoadSection<String, C> for ProgramLoader<I, C, Info>
+where
+    I: traits::Instruction,
+    C: BytecodeContext,
+    for<'src> I: vihaco_parser_core::Parse<'src>,
+{
+    fn load_section<'bc>(&mut self, input: LoadInput<'bc, String, C>) -> eyre::Result<()> {
+        self.code = parse_instruction_stream(input.section.text())?;
         self.context = Some(input.section.context_handle());
         self.pc = 0;
         Ok(())

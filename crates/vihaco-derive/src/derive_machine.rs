@@ -3,7 +3,7 @@
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
-use quote::{ToTokens, format_ident, quote};
+use quote::{format_ident, quote, ToTokens};
 use std::collections::{BTreeMap, BTreeSet};
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
@@ -446,12 +446,12 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
     }
     if let Some((_, program_ty)) = &program_field {
         loadable_predicates
-            .push(quote! { #program_ty: ::vihaco::loader::LoadSection<#loadable_context_param> });
+            .push(quote! { #program_ty: ::vihaco::loader::LoadSection<::std::vec::Vec<u8>, #loadable_context_param> });
     }
     for loadable in &loadables {
         let ty = &loadable.ty;
         loadable_predicates
-            .push(quote! { #ty: ::vihaco::loader::LoadSection<#loadable_context_param> });
+            .push(quote! { #ty: ::vihaco::loader::LoadSection<::std::vec::Vec<u8>, #loadable_context_param> });
     }
     let loadable_method_where = method_where_clause(&loadable_predicates);
 
@@ -472,7 +472,7 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
 
     let program_load = if let Some((field_name, field_ty)) = &program_field {
         quote! {
-            <#field_ty as ::vihaco::loader::LoadSection<#loadable_context_param>>::load_section(
+            <#field_ty as ::vihaco::loader::LoadSection<::std::vec::Vec<u8>, #loadable_context_param>>::load_section(
                 &mut self.#field_name,
                 input.clone(),
             )?;
@@ -515,7 +515,7 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
                         #name,
                     )
                 })?;
-                <#ty as ::vihaco::loader::LoadSection<#loadable_context_param>>::load_section(
+                <#ty as ::vihaco::loader::LoadSection<::std::vec::Vec<u8>, #loadable_context_param>>::load_section(
                     &mut self.#field,
                     ::vihaco::loader::LoadInput::from(__vihaco_child)
                 )?;
@@ -527,7 +527,7 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
         impl #impl_generics #ident #ty_generics #where_clause {
             pub fn load_generated_sections<#bc_lifetime, #loadable_context_param>(
                 &mut self,
-                input: ::vihaco::loader::LoadInput<#bc_lifetime, #loadable_context_param>,
+                input: ::vihaco::loader::LoadInput<#bc_lifetime, ::std::vec::Vec<u8>, #loadable_context_param>,
             ) -> ::eyre::Result<()>
             #loadable_method_where
             {
@@ -560,15 +560,160 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
             }
         }
 
-        impl #loadable_impl_generics ::vihaco::loader::LoadSection<#loadable_context_param>
+        impl #loadable_impl_generics ::vihaco::loader::LoadSection<::std::vec::Vec<u8>, #loadable_context_param>
             for #ident #ty_generics
             #loadable_where_clause
         {
             fn load_section<#bc_lifetime>(
                 &mut self,
-                input: ::vihaco::loader::LoadInput<#bc_lifetime, #loadable_context_param>,
+                input: ::vihaco::loader::LoadInput<#bc_lifetime, ::std::vec::Vec<u8>, #loadable_context_param>,
             ) -> ::eyre::Result<()> {
                 self.load_generated_sections(input)
+            }
+        }
+    };
+
+    let mut text_loadable_predicates = Vec::<TokenStream2>::new();
+    text_loadable_predicates
+        .push(quote! { #loadable_context_param: ::vihaco::binary::BytecodeContext });
+    if let Some((_, header_ty)) = &header_field {
+        text_loadable_predicates.push(quote! { #header_ty: ::std::str::FromStr });
+        text_loadable_predicates
+            .push(quote! { <#header_ty as ::std::str::FromStr>::Err: ::std::fmt::Display });
+    }
+    if let Some((_, program_ty)) = &program_field {
+        text_loadable_predicates
+            .push(quote! { #program_ty: ::vihaco::loader::LoadSection<::std::string::String, #loadable_context_param> });
+    }
+    for loadable in &loadables {
+        let ty = &loadable.ty;
+        text_loadable_predicates
+            .push(quote! { #ty: ::vihaco::loader::LoadSection<::std::string::String, #loadable_context_param> });
+    }
+    let text_loadable_method_where = method_where_clause(&text_loadable_predicates);
+
+    let mut text_loadable_impl_generics = generics.clone();
+    text_loadable_impl_generics
+        .params
+        .push(syn::parse_quote!(#loadable_context_param));
+    if !text_loadable_predicates.is_empty() {
+        let where_clause = text_loadable_impl_generics.make_where_clause();
+        for predicate in &text_loadable_predicates {
+            where_clause
+                .predicates
+                .push(syn::parse2(predicate.clone())?);
+        }
+    }
+    let (text_loadable_impl_generics, _, text_loadable_where_clause) =
+        text_loadable_impl_generics.split_for_impl();
+
+    let text_program_load = if let Some((field_name, field_ty)) = &program_field {
+        quote! {
+            <#field_ty as ::vihaco::loader::LoadSection<::std::string::String, #loadable_context_param>>::load_section(
+                &mut self.#field_name,
+                input.clone(),
+            )?;
+        }
+    } else {
+        quote! {
+            if !input.section.text().trim().is_empty() {
+                return Err(::eyre::eyre!(
+                    "section `{}` has bytecode but `{}` has no #[program] field",
+                    input.section.display_path(),
+                    stringify!(#ident),
+                ));
+            }
+        }
+    };
+
+    let text_header_load = if let Some((field_name, field_ty)) = &header_field {
+        quote! {
+            self.#field_name = input
+                .section
+                .header_text()
+                .trim()
+                .parse::<#field_ty>()
+                .map_err(|__vihaco_err| {
+                    ::eyre::eyre!(
+                        "failed to parse section `{}` header for `{}`: {}",
+                        input.section.display_path(),
+                        stringify!(#field_ty),
+                        __vihaco_err,
+                    )
+                })?;
+        }
+    } else {
+        quote! {}
+    };
+
+    let text_child_loads: Vec<_> = loadables
+        .iter()
+        .map(|loadable| {
+            let field = &loadable.field;
+            let ty = &loadable.ty;
+            let name = &loadable.section_name;
+            quote! {
+                let __vihaco_child = input.section.child(#name).ok_or_else(|| {
+                    ::eyre::eyre!(
+                        "section `{}` is missing required child section `{}`",
+                        input.section.display_path(),
+                        #name,
+                    )
+                })?;
+                <#ty as ::vihaco::loader::LoadSection<::std::string::String, #loadable_context_param>>::load_section(
+                    &mut self.#field,
+                    ::vihaco::loader::LoadInput::from(__vihaco_child)
+                )?;
+            }
+        })
+        .collect();
+
+    let text_loadable_impl = quote! {
+        impl #impl_generics #ident #ty_generics #where_clause {
+            pub fn load_generated_text_sections<#bc_lifetime, #loadable_context_param>(
+                &mut self,
+                input: ::vihaco::loader::LoadInput<#bc_lifetime, ::std::string::String, #loadable_context_param>,
+            ) -> ::eyre::Result<()>
+            #text_loadable_method_where
+            {
+                #text_header_load
+                #text_program_load
+
+                let __vihaco_expected_children: &[&str] = &[#(#loadable_names),*];
+
+                for __vihaco_child in input.section.children() {
+                    let __vihaco_child_name = __vihaco_child.local_name().ok_or_else(|| {
+                        ::eyre::eyre!(
+                            "section `{}` yielded a root section as a child",
+                            input.section.display_path(),
+                        )
+                    })?;
+                    if !__vihaco_expected_children
+                        .iter()
+                        .any(|__vihaco_expected| *__vihaco_expected == __vihaco_child_name)
+                    {
+                        return Err(::eyre::eyre!(
+                            "section `{}` has unexpected child section `{}`",
+                            input.section.display_path(),
+                            __vihaco_child.display_path(),
+                        ));
+                    }
+                }
+
+                #( #text_child_loads )*
+                Ok(())
+            }
+        }
+
+        impl #text_loadable_impl_generics ::vihaco::loader::LoadSection<::std::string::String, #loadable_context_param>
+            for #ident #ty_generics
+            #text_loadable_where_clause
+        {
+            fn load_section<#bc_lifetime>(
+                &mut self,
+                input: ::vihaco::loader::LoadInput<#bc_lifetime, ::std::string::String, #loadable_context_param>,
+            ) -> ::eyre::Result<()> {
+                self.load_generated_text_sections(input)
             }
         }
     };
@@ -598,5 +743,6 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
 
         #program_impl
         #loadable_impl
+        #text_loadable_impl
     })
 }

@@ -3,8 +3,10 @@
 
 use std::{io::Cursor, ops::Range};
 
+use crate::binary::file::FileContents;
+
 use super::{
-    context::{BytecodeContext, BytecodeContextHandle, ProgramContext},
+    context::{BytecodeContext, ContextHandle, ProgramContext},
     format::CompositeHeader,
 };
 
@@ -106,24 +108,33 @@ pub(super) struct SectionNode {
 /// The public handle of a bytecode section.
 ///
 /// This is a lightweight view into information owned by [`BytecodeFile`].
-pub struct SectionView<'bc, C = ProgramContext> {
-    pub(super) bytes: &'bc [u8],
-    pub(super) context: BytecodeContextHandle<C>,
+pub struct SectionView<'bc, F = Vec<u8>, C = ProgramContext>
+where
+    F: FileContents,
+    C: BytecodeContext,
+{
+    pub(super) contents: &'bc F,
+    pub(super) context: ContextHandle<C>,
     pub(super) node: &'bc SectionNode,
 }
 
-impl<'bc, C> Clone for SectionView<'bc, C> {
-    fn clone(&self) -> Self {
-        Self {
-            bytes: self.bytes,
+impl<'bc, F, C> Clone for SectionView<'bc, F, C>
+where
+    F: FileContents,
+    C: BytecodeContext,
+{
+    fn clone(&self) -> SectionView<'bc, F, C> {
+        SectionView {
+            contents: self.contents,
             context: self.context.clone(),
             node: self.node,
         }
     }
 }
 
-impl<'bc, C> SectionView<'bc, C>
+impl<'bc, F, C> SectionView<'bc, F, C>
 where
+    F: FileContents,
     C: BytecodeContext,
 {
     pub fn path(&self) -> &'bc SectionPath {
@@ -138,49 +149,19 @@ where
         self.context.get()
     }
 
-    pub fn context_handle(&self) -> BytecodeContextHandle<C> {
+    pub fn context_handle(&self) -> ContextHandle<C> {
         self.context.clone()
     }
 
-    pub fn header_bytes(&self) -> &'bc [u8] {
-        &self.bytes[self.node.header.clone()]
-    }
-
-    pub fn bytecode(&self) -> &'bc [u8] {
-        &self.bytes[self.node.bytecode.clone()]
-    }
-
-    pub fn children(&self) -> impl Iterator<Item = SectionView<'bc, C>> + '_ {
+    pub fn children(&self) -> impl Iterator<Item = SectionView<'bc, F, C>> + '_ {
         self.node.children.iter().map(|node| SectionView {
-            bytes: self.bytes,
+            contents: self.contents,
             context: self.context.clone(),
             node,
         })
     }
 
-    /// Walk this section and all of its descendants in depth-first order.
-    ///
-    /// The first yielded section is always `self`.
-    pub fn walk(&self) -> SectionWalk<'bc, C> {
-        SectionWalk {
-            bytes: self.bytes,
-            context: self.context.clone(),
-            stack: vec![self.node],
-        }
-    }
-
-    /// Walk all descendants of this section in depth-first order.
-    ///
-    /// Unlike [`walk`](Self::walk), this does not yield `self`.
-    pub fn descendants(&self) -> SectionWalk<'bc, C> {
-        SectionWalk {
-            bytes: self.bytes,
-            context: self.context.clone(),
-            stack: self.node.children.iter().rev().collect(),
-        }
-    }
-
-    pub fn child(&self, local_name: &str) -> Option<SectionView<'bc, C>> {
+    pub fn child(&self, local_name: &str) -> Option<SectionView<'bc, F, C>> {
         self.node
             .children
             .iter()
@@ -192,7 +173,7 @@ where
                     .is_some_and(|name| name == local_name)
             })
             .map(|node| SectionView {
-                bytes: self.bytes,
+                contents: self.contents,
                 context: self.context.clone(),
                 node,
             })
@@ -203,6 +184,21 @@ where
             .path
             .local_name()
             .and_then(|name| self.context.section_name(name))
+    }
+}
+
+pub type BinarySectionView<'bc, C> = SectionView<'bc, Vec<u8>, C>;
+
+impl<'bc, C> BinarySectionView<'bc, C>
+where
+    C: BytecodeContext,
+{
+    pub fn header_bytes(&self) -> &'bc [u8] {
+        &self.contents[self.node.header.clone()]
+    }
+
+    pub fn bytecode(&self) -> &'bc [u8] {
+        &self.contents[self.node.bytecode.clone()]
     }
 
     /// Parse the specified composite header from the raw header bytes.
@@ -221,28 +217,7 @@ where
     }
 }
 
-/// A depth-first iterator over a section subtree.
-pub struct SectionWalk<'bc, C = ProgramContext> {
-    bytes: &'bc [u8],
-    context: BytecodeContextHandle<C>,
-    stack: Vec<&'bc SectionNode>,
-}
-
-impl<'bc, C> Iterator for SectionWalk<'bc, C> {
-    type Item = SectionView<'bc, C>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let node = self.stack.pop()?;
-        self.stack.extend(node.children.iter().rev());
-        Some(SectionView {
-            bytes: self.bytes,
-            context: self.context.clone(),
-            node,
-        })
-    }
-}
-
-impl<C> std::fmt::Debug for SectionView<'_, C>
+impl<C> std::fmt::Debug for BinarySectionView<'_, C>
 where
     C: BytecodeContext,
 {
@@ -253,5 +228,20 @@ where
             .field("bytecode_len", &self.bytecode().len())
             .field("child_count", &self.node.children.len())
             .finish()
+    }
+}
+
+pub type TextSectionView<'bc, C> = SectionView<'bc, String, C>;
+
+impl<'bc, C> TextSectionView<'bc, C>
+where
+    C: BytecodeContext,
+{
+    pub fn header_text(&self) -> &'bc str {
+        &self.contents[self.node.header.clone()]
+    }
+
+    pub fn text(&self) -> &'bc str {
+        &self.contents[self.node.bytecode.clone()]
     }
 }

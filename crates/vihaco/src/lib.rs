@@ -24,8 +24,8 @@ pub mod traits;
 pub mod value;
 
 pub use binary::{
-    BytecodeContext, BytecodeContextHandle, BytecodeFile, CompositeHeader, ConstantId,
-    ProgramContext, ProgramGlobals, SectionPath, SectionView, SectionWalk,
+    BytecodeContext, BytecodeFile, CompositeHeader, ConstantId, ContextHandle, ProgramContext,
+    ProgramGlobals, SectionPath, SectionView,
 };
 pub use effect::Effects;
 pub use instruction_syntax::{
@@ -45,7 +45,7 @@ pub use value::{Type, Value};
 mod public_api_tests {
     use crate::{
         BytecodeContext, EffectSink, Effects, GeneratedComponent, LoadSection, ProgramGlobals,
-        Reset, SectionWalk,
+        Reset,
         binary::ConstantId,
         instruction::{FromBytes, OpCode, WriteBytes},
         module::FunctionInfo,
@@ -66,7 +66,6 @@ mod public_api_tests {
         fn require_bytecode_context<T: BytecodeContext>() {}
         fn require_program_globals<T: ProgramGlobals>() {}
         fn require_load_section<T: LoadSection>() {}
-        fn require_section_walk(_walk: Option<SectionWalk<'_, crate::ProgramContext>>) {}
         fn require_stdout_effect(_effect: StdoutEffect) {}
         fn require_metadata(_metadata: crate::CompositeMetadata) {}
 
@@ -76,7 +75,6 @@ mod public_api_tests {
         require_bytecode_context::<crate::ProgramContext>();
         require_program_globals::<crate::ProgramContext>();
         require_load_section::<crate::ProgramLoader<()>>();
-        require_section_walk(None);
         let _constant = ConstantId(0);
         let _function: Option<FunctionInfo<crate::Type>> = None;
         require_stdout_effect(StdoutEffect(String::new()));
