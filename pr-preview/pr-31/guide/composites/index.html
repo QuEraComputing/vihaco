@@ -196,8 +196,8 @@ global context text
 &#x3C;@
 </code></pre>
 <p><code>vhbc1</code> is the text spelling of version 1. The context body is delegated to <code>C::from_bytes(context_text.as_bytes())</code>; custom text formats usually provide a custom <code>BytecodeContext</code> that interprets this block. The context start marker <code>@></code> and end marker <code>&#x3C;@</code> must be at indentation level 0.</p>
-<p>After the context comes the root section. Sections use <code>~> name:</code> to begin and <code>&#x3C;~ name.</code> to end. The root section is still parsed as <code>SectionPath::root()</code>, so its marker name is only a matching delimiter; direct child section names become path components.</p>
-<pre><code class="language-text">~> root:
+<p>After the context comes the root section. Sections use <code>~> name:</code> to begin and <code>&#x3C;~ name.</code> to end. The top-level section must be named <code>/</code> (<code>~> /:</code> and <code>&#x3C;~ /.</code>), and it is parsed as <code>SectionPath::root()</code>. Direct child section names become path components.</p>
+<pre><code class="language-text">~> /:
 	!>
 		root header
 	&#x3C;!
@@ -211,7 +211,7 @@ global context text
 			cpu bytecode
 		&#x3C;^
 	&#x3C;~ cpu.
-&#x3C;~ root.
+&#x3C;~ /.
 </code></pre>
 <p>Inside a section:</p>
 <ul>
