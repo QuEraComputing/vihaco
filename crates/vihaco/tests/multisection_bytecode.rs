@@ -319,7 +319,7 @@ fn binary_generated_loadable_routes_program_and_child_sections() {
 fn text_generated_loadable_routes_program_and_child_sections() {
     let file = text_file(
         &["child", "default_child"],
-        "~> root:\n\
+        "~> /:\n\
 \t^>\n\
 \t\tnop\n\
 \t<^\n\
@@ -333,7 +333,7 @@ fn text_generated_loadable_routes_program_and_child_sections() {
 \t\t\tnop\n\
 \t\t<^\n\
 \t<~ default_child.\n\
-<~ root.\n",
+<~ /.\n",
     );
 
     let mut machine = TextMachine::default();
@@ -376,14 +376,14 @@ fn binary_generated_loadable_parses_marked_header() {
 fn text_generated_loadable_parses_marked_header() {
     let file = text_file(
         &[],
-        "~> root:\n\
+        "~> /:\n\
 \t!>\n\
 \t\t8\n\
 \t<!\n\
 \t^>\n\
 \t\tnop\n\
 \t<^\n\
-<~ root.\n",
+<~ /.\n",
     );
 
     let mut machine = TextHeaderMachine::default();
@@ -444,7 +444,7 @@ fn binary_generated_loadable_routes_three_level_section_tree() {
 fn text_generated_loadable_routes_three_level_section_tree() {
     let file = text_file(
         &["middle", "leaf"],
-        "~> root:\n\
+        "~> /:\n\
 \t^>\n\
 \t\tnop\n\
 \t<^\n\
@@ -459,7 +459,7 @@ fn text_generated_loadable_routes_three_level_section_tree() {
 \t\t\t<^\n\
 \t\t<~ leaf.\n\
 \t<~ middle.\n\
-<~ root.\n",
+<~ /.\n",
     );
 
     let mut machine = TextHostMachine::default();
@@ -510,11 +510,11 @@ fn binary_generated_loadable_requires_marked_children() {
 fn text_generated_loadable_requires_marked_children() {
     let file = text_file(
         &["child", "default_child"],
-        "~> root:\n\
+        "~> /:\n\
 \t^>\n\
 \t\tnop\n\
 \t<^\n\
-<~ root.\n",
+<~ /.\n",
     );
     let mut machine = TextMachine::default();
 
@@ -540,7 +540,7 @@ fn binary_generated_loadable_rejects_unexpected_direct_children() {
 fn text_generated_loadable_rejects_unexpected_direct_children() {
     let file = text_file(
         &["child", "default_child", "extra"],
-        "~> root:\n\
+        "~> /:\n\
 \t^>\n\
 \t\tnop\n\
 \t<^\n\
@@ -550,7 +550,7 @@ fn text_generated_loadable_rejects_unexpected_direct_children() {
 \t<~ default_child.\n\
 \t~> extra:\n\
 \t<~ extra.\n\
-<~ root.\n",
+<~ /.\n",
     );
     let mut machine = TextMachine::default();
 

@@ -15,6 +15,7 @@ use super::{
 };
 
 type ParseExtra<'src> = extra::Err<Simple<'src, char>>;
+const ROOT_SECTION_NAME: &str = "/";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum LineKind {
@@ -259,7 +260,15 @@ where
     let section_indent = begin.indent;
     match parent {
         Some(parent) => ensure_indent(begin, parent.indent + 1, "child section")?,
-        None => ensure_indent(begin, 0, "root section")?,
+        None => {
+            ensure_indent(begin, 0, "root section")?;
+            if section_name != ROOT_SECTION_NAME {
+                return Err(line_error(
+                    begin,
+                    format!("root section must be named `{ROOT_SECTION_NAME}`"),
+                ));
+            }
+        }
     }
 
     let path = match parent {

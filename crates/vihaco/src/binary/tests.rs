@@ -303,7 +303,7 @@ fn rejects_binary_instruction_stream_with_non_multiple_width() {
 fn parses_text_context_and_nested_sections() {
     let parsed = TextBytecodeFile::<TextContext>::from_text(&text_file(
         "",
-        "~> root:\n\
+        "~> /:\n\
 \t!>\n\
 \t\troot header\n\
 \t<!\n\
@@ -326,7 +326,7 @@ fn parses_text_context_and_nested_sections() {
 \t\t\t<^\n\
 \t\t<~ alu.\n\
 \t<~ cpu.\n\
-<~ root.\n",
+<~ /.\n",
     ))
     .unwrap();
 
@@ -357,7 +357,7 @@ fn parses_text_context_and_nested_sections() {
 #[test]
 fn parses_text_section_without_header_or_bytecode_as_empty_ranges() {
     let parsed =
-        TextBytecodeFile::<TextContext>::from_text(&text_file("", "~> root:\n<~ root.\n")).unwrap();
+        TextBytecodeFile::<TextContext>::from_text(&text_file("", "~> /:\n<~ /.\n")).unwrap();
 
     let root = parsed.root();
     assert_eq!(root.header_text(), "");
@@ -365,9 +365,17 @@ fn parses_text_section_without_header_or_bytecode_as_empty_ranges() {
 }
 
 #[test]
+fn rejects_text_root_section_with_non_root_name() {
+    let err = TextBytecodeFile::<TextContext>::from_text(&text_file("", "~> root:\n<~ root.\n"))
+        .unwrap_err();
+
+    assert!(err.to_string().contains("root section must be named `/`"));
+}
+
+#[test]
 fn rejects_text_bad_version() {
     let err = TextBytecodeFile::<TextContext>::from_text(&format!(
-        "vhbc{}\n@>\n<@\n~> root:\n<~ root.\n",
+        "vhbc{}\n@>\n<@\n~> /:\n<~ /.\n",
         VERSION + 1
     ))
     .unwrap_err();
@@ -377,8 +385,8 @@ fn rejects_text_bad_version() {
 
 #[test]
 fn rejects_text_missing_context_end() {
-    let err = TextBytecodeFile::<TextContext>::from_text("vhbc1\n@>\ncpu\n~> root:\n<~ root.\n")
-        .unwrap_err();
+    let err =
+        TextBytecodeFile::<TextContext>::from_text("vhbc1\n@>\ncpu\n~> /:\n<~ /.\n").unwrap_err();
 
     assert!(err.to_string().contains("unterminated context"));
 }
@@ -387,7 +395,7 @@ fn rejects_text_missing_context_end() {
 fn rejects_text_non_local_child_section_name() {
     let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
         "",
-        "~> root:\n\t~> gpu/core:\n\t<~ gpu/core.\n<~ root.\n",
+        "~> /:\n\t~> gpu/core:\n\t<~ gpu/core.\n<~ /.\n",
     ))
     .unwrap_err();
 
@@ -398,7 +406,7 @@ fn rejects_text_non_local_child_section_name() {
 fn rejects_text_duplicate_child_sections() {
     let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
         "cpu\n",
-        "~> root:\n\t~> cpu:\n\t<~ cpu.\n\t~> cpu:\n\t<~ cpu.\n<~ root.\n",
+        "~> /:\n\t~> cpu:\n\t<~ cpu.\n\t~> cpu:\n\t<~ cpu.\n<~ /.\n",
     ))
     .unwrap_err();
 
@@ -407,7 +415,7 @@ fn rejects_text_duplicate_child_sections() {
 
 #[test]
 fn rejects_text_mismatched_section_end_marker() {
-    let err = TextBytecodeFile::<TextContext>::from_text(&text_file("", "~> root:\n<~ other.\n"))
+    let err = TextBytecodeFile::<TextContext>::from_text(&text_file("", "~> /:\n<~ other.\n"))
         .unwrap_err();
 
     assert!(err.to_string().contains("mismatched marker `other`"));
@@ -417,7 +425,7 @@ fn rejects_text_mismatched_section_end_marker() {
 fn rejects_text_body_directly_inside_section() {
     let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
         "",
-        "~> root:\n\tthis line is not in a header or bytecode block\n<~ root.\n",
+        "~> /:\n\tthis line is not in a header or bytecode block\n<~ /.\n",
     ))
     .unwrap_err();
 
@@ -430,7 +438,7 @@ fn rejects_text_body_directly_inside_section() {
 fn rejects_text_child_section_indented_with_spaces() {
     let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
         "",
-        "~> root:\n  ~> cpu:\n  <~ cpu.\n<~ root.\n",
+        "~> /:\n  ~> cpu:\n  <~ cpu.\n<~ /.\n",
     ))
     .unwrap_err();
 
@@ -441,7 +449,7 @@ fn rejects_text_child_section_indented_with_spaces() {
 fn rejects_text_header_indented_with_spaces() {
     let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
         "",
-        "~> root:\n  !>\n\t\troot header\n  <!\n<~ root.\n",
+        "~> /:\n  !>\n\t\troot header\n  <!\n<~ /.\n",
     ))
     .unwrap_err();
 
