@@ -1,9 +1,9 @@
 (function() {
-    const implementors = Object.fromEntries([["vihaco",[["impl&lt;C&gt; <a class=\"trait\" href=\"https://doc.rust-lang.org/1.96.0/core/ops/deref/trait.Deref.html\" title=\"trait core::ops::deref::Deref\">Deref</a> for <a class=\"struct\" href=\"vihaco/binary/struct.ContextHandle.html\" title=\"struct vihaco::binary::ContextHandle\">ContextHandle</a>&lt;C&gt;",0],["impl&lt;C, L&gt; <a class=\"trait\" href=\"https://doc.rust-lang.org/1.96.0/core/ops/deref/trait.Deref.html\" title=\"trait core::ops::deref::Deref\">Deref</a> for <a class=\"struct\" href=\"vihaco/loader/struct.LoadableComponent.html\" title=\"struct vihaco::loader::LoadableComponent\">LoadableComponent</a>&lt;C, L&gt;<div class=\"where\">where\n    C: <a class=\"trait\" href=\"vihaco/runtime/trait.GeneratedComponent.html\" title=\"trait vihaco::runtime::GeneratedComponent\">GeneratedComponent</a>,</div>",0]]]]);
+    const implementors = Object.fromEntries([["vihaco",[["impl&lt;C&gt; <a class=\"trait\" href=\"https://doc.rust-lang.org/1.96.0/core/ops/deref/trait.Deref.html\" title=\"trait core::ops::deref::Deref\">Deref</a> for <a class=\"struct\" href=\"vihaco/binary/struct.ContextHandle.html\" title=\"struct vihaco::binary::ContextHandle\">ContextHandle</a>&lt;C&gt;",0]]]]);
     if (window.register_implementors) {
         window.register_implementors(implementors);
     } else {
         window.pending_implementors = implementors;
     }
 })()
-//{"start":59,"fragment_lengths":[839]}
+//{"start":59,"fragment_lengths":[322]}

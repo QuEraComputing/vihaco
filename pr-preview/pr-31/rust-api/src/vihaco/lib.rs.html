@@ -35,7 +35,7 @@
 <a href=#35 id=35 data-nosnippet>35</a>    CanonicalInstructionSyntax, CanonicalInstructionVariantSyntax, InstructionSugarSyntax,
 <a href=#36 id=36 data-nosnippet>36</a>    InstructionSugarVariantSyntax, OperandKind, SugarOperandKind,
 <a href=#37 id=37 data-nosnippet>37</a>};
-<a href=#38 id=38 data-nosnippet>38</a><span class="kw">pub use </span>loader::{LoadInput, LoadSection, LoadableComponent, ModuleProgramLoader, ProgramLoader};
+<a href=#38 id=38 data-nosnippet>38</a><span class="kw">pub use </span>loader::{LoadInput, LoadSection, ModuleProgramLoader, ProgramLoader};
 <a href=#39 id=39 data-nosnippet>39</a><span class="kw">pub use </span>macros::{Instruction, Message, component, composite, observe};
 <a href=#40 id=40 data-nosnippet>40</a><span class="kw">pub use </span>program::{ProgramContext, ProgramGlobals, Type, Value};
 <a href=#41 id=41 data-nosnippet>41</a><span class="kw">pub use </span>runtime::{
@@ -47,8 +47,8 @@
 <a href=#47 id=47 data-nosnippet>47</a><span class="attr">#[cfg(test)]
 <a href=#48 id=48 data-nosnippet>48</a></span><span class="kw">mod </span>public_api_tests {
 <a href=#49 id=49 data-nosnippet>49</a>    <span class="kw">use </span>crate::{
-<a href=#50 id=50 data-nosnippet>50</a>        BytecodeContext, EffectSink, Effects, GeneratedComponent, LoadSection, LoadableComponent,
-<a href=#51 id=51 data-nosnippet>51</a>        ProgramGlobals, Reset,
+<a href=#50 id=50 data-nosnippet>50</a>        BytecodeContext, EffectSink, Effects, GeneratedComponent, LoadSection, ProgramGlobals,
+<a href=#51 id=51 data-nosnippet>51</a>        Reset,
 <a href=#52 id=52 data-nosnippet>52</a>        binary::ConstantId,
 <a href=#53 id=53 data-nosnippet>53</a>        instruction::{FromBytes, OpCode, WriteBytes},
 <a href=#54 id=54 data-nosnippet>54</a>        module::FunctionInfo,
@@ -87,47 +87,30 @@
 <a href=#87 id=87 data-nosnippet>87</a>        });
 <a href=#88 id=88 data-nosnippet>88</a>    }
 <a href=#89 id=89 data-nosnippet>89</a>
-<a href=#90 id=90 data-nosnippet>90</a>    <span class="attr">#[derive(Clone, Copy, Default)]
+<a href=#90 id=90 data-nosnippet>90</a>    <span class="attr">#[derive(Clone, Copy)]
 <a href=#91 id=91 data-nosnippet>91</a>    </span><span class="kw">struct </span>DemoComponent;
 <a href=#92 id=92 data-nosnippet>92</a>
-<a href=#93 id=93 data-nosnippet>93</a>    <span class="kw">impl </span>DemoComponent {
-<a href=#94 id=94 data-nosnippet>94</a>        <span class="kw">fn </span>marker(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; u8 {
-<a href=#95 id=95 data-nosnippet>95</a>            <span class="number">11
-<a href=#96 id=96 data-nosnippet>96</a>        </span>}
-<a href=#97 id=97 data-nosnippet>97</a>    }
-<a href=#98 id=98 data-nosnippet>98</a>
-<a href=#99 id=99 data-nosnippet>99</a>    <span class="kw">impl </span>GeneratedComponent <span class="kw">for </span>DemoComponent {
-<a href=#100 id=100 data-nosnippet>100</a>        <span class="kw">type </span>Instruction = ();
-<a href=#101 id=101 data-nosnippet>101</a>        <span class="kw">type </span>Message = ();
-<a href=#102 id=102 data-nosnippet>102</a>        <span class="kw">type </span>Effect = u8;
-<a href=#103 id=103 data-nosnippet>103</a>
-<a href=#104 id=104 data-nosnippet>104</a>        <span class="kw">fn </span>execute_generated(
-<a href=#105 id=105 data-nosnippet>105</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#106 id=106 data-nosnippet>106</a>            _inst: <span class="self">Self</span>::Instruction,
-<a href=#107 id=107 data-nosnippet>107</a>            _msg: <span class="self">Self</span>::Message,
-<a href=#108 id=108 data-nosnippet>108</a>        ) -&gt; eyre::Result&lt;Effects&lt;<span class="self">Self</span>::Effect&gt;&gt; {
-<a href=#109 id=109 data-nosnippet>109</a>            <span class="prelude-val">Ok</span>(Effects::one(<span class="number">7</span>))
-<a href=#110 id=110 data-nosnippet>110</a>        }
-<a href=#111 id=111 data-nosnippet>111</a>    }
-<a href=#112 id=112 data-nosnippet>112</a>
-<a href=#113 id=113 data-nosnippet>113</a>    <span class="attr">#[test]
-<a href=#114 id=114 data-nosnippet>114</a>    </span><span class="kw">fn </span>generated_component_executes_without_exec_context() {
-<a href=#115 id=115 data-nosnippet>115</a>        <span class="kw">let </span><span class="kw-2">mut </span>component = DemoComponent;
-<a href=#116 id=116 data-nosnippet>116</a>        <span class="kw">let </span>effects = GeneratedComponent::execute_generated(<span class="kw-2">&amp;mut </span>component, (), ()).unwrap();
-<a href=#117 id=117 data-nosnippet>117</a>
-<a href=#118 id=118 data-nosnippet>118</a>        <span class="macro">assert_eq!</span>(effects, Effects::one(<span class="number">7</span>));
-<a href=#119 id=119 data-nosnippet>119</a>        <span class="macro">assert_eq!</span>(<span class="kw">crate</span>::expect_exactly_one_effect(effects).unwrap(), <span class="number">7</span>);
-<a href=#120 id=120 data-nosnippet>120</a>    }
-<a href=#121 id=121 data-nosnippet>121</a>
-<a href=#122 id=122 data-nosnippet>122</a>    <span class="attr">#[test]
-<a href=#123 id=123 data-nosnippet>123</a>    </span><span class="kw">fn </span>loadable_component_derefs_to_component_and_executes_component() {
-<a href=#124 id=124 data-nosnippet>124</a>        <span class="kw">let </span><span class="kw-2">mut </span>component: LoadableComponent&lt;DemoComponent, <span class="kw">crate</span>::ProgramLoader&lt;()&gt;&gt; =
-<a href=#125 id=125 data-nosnippet>125</a>            LoadableComponent::default();
-<a href=#126 id=126 data-nosnippet>126</a>
-<a href=#127 id=127 data-nosnippet>127</a>        <span class="macro">assert_eq!</span>(component.marker(), <span class="number">11</span>);
-<a href=#128 id=128 data-nosnippet>128</a>        <span class="kw">let </span>effects = GeneratedComponent::execute_generated(<span class="kw-2">&amp;mut </span>component, (), ()).unwrap();
-<a href=#129 id=129 data-nosnippet>129</a>
-<a href=#130 id=130 data-nosnippet>130</a>        <span class="macro">assert_eq!</span>(effects, Effects::one(<span class="number">7</span>));
-<a href=#131 id=131 data-nosnippet>131</a>    }
-<a href=#132 id=132 data-nosnippet>132</a>}
+<a href=#93 id=93 data-nosnippet>93</a>    <span class="kw">impl </span>GeneratedComponent <span class="kw">for </span>DemoComponent {
+<a href=#94 id=94 data-nosnippet>94</a>        <span class="kw">type </span>Instruction = ();
+<a href=#95 id=95 data-nosnippet>95</a>        <span class="kw">type </span>Message = ();
+<a href=#96 id=96 data-nosnippet>96</a>        <span class="kw">type </span>Effect = u8;
+<a href=#97 id=97 data-nosnippet>97</a>
+<a href=#98 id=98 data-nosnippet>98</a>        <span class="kw">fn </span>execute_generated(
+<a href=#99 id=99 data-nosnippet>99</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+<a href=#100 id=100 data-nosnippet>100</a>            _inst: <span class="self">Self</span>::Instruction,
+<a href=#101 id=101 data-nosnippet>101</a>            _msg: <span class="self">Self</span>::Message,
+<a href=#102 id=102 data-nosnippet>102</a>        ) -&gt; eyre::Result&lt;Effects&lt;<span class="self">Self</span>::Effect&gt;&gt; {
+<a href=#103 id=103 data-nosnippet>103</a>            <span class="prelude-val">Ok</span>(Effects::one(<span class="number">7</span>))
+<a href=#104 id=104 data-nosnippet>104</a>        }
+<a href=#105 id=105 data-nosnippet>105</a>    }
+<a href=#106 id=106 data-nosnippet>106</a>
+<a href=#107 id=107 data-nosnippet>107</a>    <span class="attr">#[test]
+<a href=#108 id=108 data-nosnippet>108</a>    </span><span class="kw">fn </span>generated_component_executes_without_exec_context() {
+<a href=#109 id=109 data-nosnippet>109</a>        <span class="kw">let </span><span class="kw-2">mut </span>component = DemoComponent;
+<a href=#110 id=110 data-nosnippet>110</a>        <span class="kw">let </span>effects = GeneratedComponent::execute_generated(<span class="kw-2">&amp;mut </span>component, (), ()).unwrap();
+<a href=#111 id=111 data-nosnippet>111</a>
+<a href=#112 id=112 data-nosnippet>112</a>        <span class="macro">assert_eq!</span>(effects, Effects::one(<span class="number">7</span>));
+<a href=#113 id=113 data-nosnippet>113</a>        <span class="macro">assert_eq!</span>(<span class="kw">crate</span>::expect_exactly_one_effect(effects).unwrap(), <span class="number">7</span>);
+<a href=#114 id=114 data-nosnippet>114</a>    }
+<a href=#115 id=115 data-nosnippet>115</a>}
 </code></pre></div></section></main></body></html>
