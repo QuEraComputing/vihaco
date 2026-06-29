@@ -120,7 +120,7 @@ pub struct CpuMachine {
 </code></pre>
 <p>For binary bytecode, the field type must implement <code>CompositeHeader</code>, which has a blanket impl for types implementing <code>FromBytes + WriteBytes</code>. Generated binary loading parses <code>input.section.header_bytes()</code> with <code>BinarySectionView::parse_header::&#x3C;CpuHeader>()</code> and assigns the result to the field before loading the program or child sections. For text bytecode, generated loading trims <code>input.section.header_text()</code> and parses it with <code>FromStr</code>, so the header type must also implement <code>FromStr</code> when you load <code>TextBytecodeFile&#x3C;C></code>. Composites without a <code>#[header]</code> field generate no header parsing code, no header trait bound, and no runtime header check.</p>
 <h3 id="loadable"><code>#[loadable]</code></h3>
-<p>Marks a device field that should receive its own direct child section when loading v1 multi-section bytecode. The device owns its loader internally; the generated composite loader only routes the section to the marked device’s <code>LoadSection</code> impl.</p>
+<p>Marks a device field that should receive its own direct child section when loading v1 multi-section bytecode. The macro wraps a bare component field in <code>vihaco::LoadableComponent</code>, so the component can stay focused on execution while the wrapper owns the section loader.</p>
 <pre><code class="language-rust">#[composite]
 #[derive(Default)]
 pub struct Machine {
@@ -132,7 +132,18 @@ pub struct Machine {
     signal: SignalMachine,
 }
 </code></pre>
-<p><code>#[loadable]</code> must be used on a <code>#[device(...)]</code> field whose type implements <code>LoadSection</code> for the bytecode representation you are loading as well as <code>GeneratedComponent</code>. Binary bytecode delegates through <code>LoadSection&#x3C;Vec&#x3C;u8>, C></code>; text bytecode delegates through <code>LoadSection&#x3C;String, C></code>. The attribute uses the field name as the local section name. <code>#[loadable("name")]</code> overrides it. Names must be non-empty direct child names, so they cannot contain <code>/</code>.</p>
+<p>The emitted struct stores that field as roughly:</p>
+<pre><code class="language-rust">signal: vihaco::LoadableComponent&#x3C;SignalMachine>
+</code></pre>
+<p><code>LoadableComponent&#x3C;C, L></code> implements <code>Deref&#x3C;Target = C></code> and <code>DerefMut</code>, so normal component calls still read naturally:</p>
+<pre><code class="language-rust">machine.signal.push_frame(frame)?;
+</code></pre>
+<p>The default loader is <code>ProgramLoader&#x3C;&#x3C;C as GeneratedComponent>::Instruction></code>. If a field needs a custom loader, such as a text loader with a non-default bytecode context or another generated composite loader, spell the field type explicitly and the macro will not wrap it again:</p>
+<pre><code class="language-rust">#[device(0x02)]
+#[loadable("child")]
+child: vihaco::LoadableComponent&#x3C;ChildComponent, ChildLoader>,
+</code></pre>
+<p><code>#[loadable]</code> must be used on a <code>#[device(...)]</code> field whose component type implements <code>GeneratedComponent</code>, and whose wrapper loader implements <code>LoadSection</code> for the bytecode representation you are loading. Binary bytecode delegates through <code>LoadSection&#x3C;Vec&#x3C;u8>, C></code>; text bytecode delegates through <code>LoadSection&#x3C;String, C></code>. The attribute uses the field name as the local section name. <code>#[loadable("name")]</code> overrides it. Names must be non-empty direct child names, so they cannot contain <code>/</code>.</p>
 <p>Section identity is represented as a <code>SectionPath</code>, which is a vector of resolved local section names. The root section is <code>SectionPath::root()</code> with zero components. A root child named <code>cpu</code> has the path <code>cpu</code>; a child named <code>alu</code> inside that section has <code>cpu/alu</code>. Generated loading asks the current section for direct children by local name, so the same composite can be loaded at the root or under another parent section.</p>
 <p>Manual loaders can inspect a whole section subtree with <code>SectionView::walk()</code>, which yields the current section followed by its descendants in depth-first order. <code>SectionView::descendants()</code> uses the same order but skips the current section. To walk an entire file, use <code>BytecodeFile::sections()</code>.</p>
 <p>The generated loader is strict:</p>
