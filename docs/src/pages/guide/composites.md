@@ -217,7 +217,7 @@ program context bytes
 root section bytes
 ```
 
-The program context contains the shared `Module` tables except `code` and `extra`: constants, strings, functions, labels, `main_function`, `file`, and source symbols. `ProgramContext<V = Value, Ty = Type>` is the default context representation and is generic over the VM's constant value and type encodings. A binary bytecode file can also use a custom context type by implementing `BytecodeContext`; generated composite loading is generic over that context type, so Rust infers it from `BinaryBytecodeFile<C>` / `LoadInput<Vec<u8>, C>`. Section bytecode can refer to shared constants with `vihaco::ConstantId`, a `u32` newtype that implements the bytecode field traits.
+The program context contains the shared `Module` tables except `code` and `extra`: constants, strings, functions, labels, `main_function`, `file`, and source symbols. `vihaco::program::ProgramContext<V = Value, Ty = Type>` is the default context representation and is generic over the VM's constant value and type encodings. A binary bytecode file can also use a custom context type by implementing `BytecodeContext`; generated composite loading is generic over that context type, so Rust infers it from `BinaryBytecodeFile<C>` / `LoadInput<Vec<u8>, C>`. Section bytecode can refer to shared constants with `vihaco::ConstantId`, a `u32` newtype that implements the bytecode field traits.
 
 Each section is:
 

@@ -8,7 +8,7 @@ use vihaco::{
     BytecodeContext, BytecodeFile, ConstantId, Effects, GeneratedComponent, GetProgramGlobal,
     Instruction, LoadInput, LoadSection, ProgramLoader, Value,
     binary::{FLAGS, MAGIC, VERSION},
-    traits::{FromBytes, WriteBytes},
+    traits::{FromBytes, FromText, WriteBytes},
 };
 
 const CHILD_NAME: u32 = 0;
@@ -46,6 +46,14 @@ impl FromBytes for TestHeader {
     }
 }
 
+impl FromText for TestHeader {
+    fn from_text<R: Read>(text: &mut R) -> eyre::Result<Self> {
+        let mut buffer = String::new();
+        text.read_to_string(&mut buffer)?;
+        Ok(buffer.trim().parse()?)
+    }
+}
+
 impl WriteBytes for TestHeader {
     fn write_bytes<W: std::io::Write>(&self, io: &mut W) -> eyre::Result<()> {
         io.write_u32::<LittleEndian>(self.cores)?;
@@ -71,6 +79,10 @@ struct TextContext {
 impl BytecodeContext for TextContext {
     fn from_bytes(bytes: &[u8]) -> eyre::Result<Self> {
         let text = std::str::from_utf8(bytes)?;
+        Self::from_text(text)
+    }
+
+    fn from_text(text: &str) -> eyre::Result<Self> {
         Ok(Self {
             section_names: text
                 .lines()
@@ -515,19 +527,23 @@ fn text_generated_loadable_routes_three_level_section_tree() {
 }
 
 #[test]
-fn binary_generated_loadable_requires_marked_children() {
+fn binary_generated_loadable_allows_missing_marked_children() {
     let root = binary_section_bytes(b"", &[TestInst::Nop], vec![]);
     let file: BytecodeFile<Vec<u8>> =
         BytecodeFile::from_bytes(binary_file_bytes(context_bytes(), root)).unwrap();
     let mut machine = Machine::default();
 
-    let err = machine.load_section(LoadInput::from(&file)).unwrap_err();
+    machine.load_section(LoadInput::from(&file)).unwrap();
 
-    assert!(err.to_string().contains("missing required child section"));
+    assert_eq!(machine.program.code, vec![TestInst::Nop]);
+    assert!(machine.child.program.code.is_empty());
+    assert!(machine.child.program.context.is_none());
+    assert!(machine.default_child.program.code.is_empty());
+    assert!(machine.default_child.program.context.is_none());
 }
 
 #[test]
-fn text_generated_loadable_requires_marked_children() {
+fn text_generated_loadable_allows_missing_marked_children() {
     let file = text_file(
         &["child", "default_child"],
         "~> /:\n\
@@ -538,9 +554,13 @@ fn text_generated_loadable_requires_marked_children() {
     );
     let mut machine = TextMachine::default();
 
-    let err = machine.load_section(LoadInput::from(&file)).unwrap_err();
+    machine.load_section(LoadInput::from(&file)).unwrap();
 
-    assert!(err.to_string().contains("missing required child section"));
+    assert_eq!(machine.program.code, vec![TextInst::Nop]);
+    assert!(machine.child.program.code.is_empty());
+    assert!(machine.child.program.context.is_none());
+    assert!(machine.default_child.program.code.is_empty());
+    assert!(machine.default_child.program.context.is_none());
 }
 
 #[test]

@@ -4,14 +4,15 @@
 use crate::{
     BytecodeContext, BytecodeFile,
     binary::{
-        ConstantId, ContextHandle, FileContents, ProgramContext, ProgramGlobals, SectionView,
-        decode_instruction_stream, parse_instruction_stream,
+        ConstantId, ContextHandle, FileContents, SectionView, decode_instruction_stream,
+        parse_instruction_stream,
     },
     module::{Module, NoInfo},
+    program::{ProgramContext, ProgramGlobals, Type, Value},
     traits::{self, GetProgramGlobal, ProgramCounter},
-    value::{Type, Value},
 };
 
+/// The input given to a specific loadable machine.
 pub struct LoadInput<'bc, F = Vec<u8>, C = ProgramContext>
 where
     F: FileContents,
@@ -67,6 +68,11 @@ where
     }
 }
 
+/// Allow a machine to load a section.
+///
+/// When used with the [`vihaco_derive::composite`] macro, any field marked
+/// `#[program]` will automatically have the section routed to it;
+/// that field should implement the logic for loading a section.
 pub trait LoadSection<F = Vec<u8>, C = ProgramContext>
 where
     F: FileContents,

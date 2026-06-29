@@ -17,16 +17,18 @@ pub mod macros;
 pub mod metadata;
 pub mod module;
 pub mod observer;
+pub mod program;
 pub mod runtime;
 pub mod syntax;
 #[doc(hidden)]
 pub mod traits;
-pub mod value;
+pub mod value {
+    pub use crate::program::{Type, Value};
+}
 
 pub use binary::{
     BinaryBytecodeFile, BinarySectionView, BytecodeContext, BytecodeFile, CompositeHeader,
-    ConstantId, ContextHandle, ProgramContext, ProgramGlobals, SectionPath, SectionView,
-    TextBytecodeFile, TextSectionView,
+    ConstantId, ContextHandle, SectionPath, SectionView, TextBytecodeFile, TextSectionView,
 };
 pub use effect::Effects;
 pub use instruction_syntax::{
@@ -35,12 +37,12 @@ pub use instruction_syntax::{
 };
 pub use loader::{LoadInput, LoadSection, ModuleProgramLoader, ProgramLoader};
 pub use macros::{Instruction, Message, component, composite, observe};
+pub use program::{ProgramContext, ProgramGlobals, Type, Value};
 pub use runtime::{
     CompositeMetadata, EffectSink, GeneratedComponent, Message as MessageMarker, Observe,
     expect_exactly_one_effect,
 };
 pub use traits::{GetProgramGlobal, Reset};
-pub use value::{Type, Value};
 
 #[cfg(test)]
 mod public_api_tests {

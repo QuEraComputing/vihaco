@@ -7,6 +7,12 @@ pub trait FromBytes {
         Self: Sized;
 }
 
+pub trait FromText {
+    fn from_text<R: std::io::Read>(text: &mut R) -> eyre::Result<Self>
+    where
+        Self: Sized;
+}
+
 pub trait FromBytesWithOpcode: Sized {
     fn from_bytes_with_opcode<R: std::io::Read>(bytes: &mut R, opcode: u8) -> eyre::Result<Self>;
 }

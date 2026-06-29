@@ -5,11 +5,11 @@ use std::io::{Cursor, Read};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::traits::{FromBytes, Instruction, OpCode, WriteBytes};
+use crate::traits::{FromBytes, FromText, Instruction, OpCode, WriteBytes};
 
-pub trait CompositeHeader: Sized + FromBytes + WriteBytes {}
+pub trait CompositeHeader: Sized + FromBytes + FromText + WriteBytes {}
 
-impl<T> CompositeHeader for T where T: Sized + FromBytes + WriteBytes {}
+impl<T> CompositeHeader for T where T: Sized + FromBytes + FromText + WriteBytes {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ConstantId(pub u32);

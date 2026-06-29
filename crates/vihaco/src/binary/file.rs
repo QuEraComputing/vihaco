@@ -7,9 +7,10 @@ use crate::binary::text::{
     LineCursor, LineKind, TextSectionParseInfo, consume_context, lex_lines,
     line_error as text_line_error, parse_section as parse_text_section, verify_version,
 };
+use crate::program::ProgramContext;
 
 use super::{
-    context::{BytecodeContext, ContextHandle, ProgramContext},
+    context::{BytecodeContext, ContextHandle},
     format::BytecodeHeader,
     parser::{SectionParseInfo, checked_add, parse_section},
     section::{SectionNode, SectionPath, SectionView},
@@ -164,7 +165,10 @@ where
 
         let context_start = context_begin.full.end;
         let context_end = consume_context(&mut cursor)?;
-        let context = C::from_bytes(&text.as_bytes()[context_start..context_end])?;
+        let context = C::from_text(
+            text.get(context_start..context_end)
+                .ok_or_else(|| eyre::eyre!("program context is out of bounds"))?,
+        )?;
 
         let Some(section_begin) = cursor.peek_significant() else {
             return Err(eyre::eyre!("expected root section"));

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 use vihaco::Instruction;
-use vihaco::value::{Type, Value};
+use vihaco::program::{Type, Value};
 
 /// `#[derive(Parse)]` notes:
 ///
@@ -210,7 +210,7 @@ impl vihaco::CanonicalInstructionSyntax for Instruction {
 mod parse_tests {
     use super::Instruction;
     use chumsky::Parser as _;
-    use vihaco::value::{Type, Value};
+    use vihaco::program::{Type, Value};
     use vihaco_parser_core::Parse;
 
     fn parse(input: &str) -> Instruction {

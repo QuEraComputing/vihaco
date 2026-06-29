@@ -508,17 +508,12 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
             let ty = &loadable.ty;
             let name = &loadable.section_name;
             quote! {
-                let __vihaco_child = input.section.child(#name).ok_or_else(|| {
-                    ::eyre::eyre!(
-                        "section `{}` is missing required child section `{}`",
-                        input.section.display_path(),
-                        #name,
-                    )
-                })?;
-                <#ty as ::vihaco::loader::LoadSection<::std::vec::Vec<u8>, #loadable_context_param>>::load_section(
-                    &mut self.#field,
-                    ::vihaco::loader::LoadInput::from(__vihaco_child)
-                )?;
+                if let ::std::option::Option::Some(__vihaco_child) = input.section.child(#name) {
+                    <#ty as ::vihaco::loader::LoadSection<::std::vec::Vec<u8>, #loadable_context_param>>::load_section(
+                        &mut self.#field,
+                        ::vihaco::loader::LoadInput::from(__vihaco_child)
+                    )?;
+                }
             }
         })
         .collect();
@@ -653,17 +648,12 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
             let ty = &loadable.ty;
             let name = &loadable.section_name;
             quote! {
-                let __vihaco_child = input.section.child(#name).ok_or_else(|| {
-                    ::eyre::eyre!(
-                        "section `{}` is missing required child section `{}`",
-                        input.section.display_path(),
-                        #name,
-                    )
-                })?;
-                <#ty as ::vihaco::loader::LoadSection<::std::string::String, #loadable_context_param>>::load_section(
-                    &mut self.#field,
-                    ::vihaco::loader::LoadInput::from(__vihaco_child)
-                )?;
+                if let ::std::option::Option::Some(__vihaco_child) = input.section.child(#name) {
+                    <#ty as ::vihaco::loader::LoadSection<::std::string::String, #loadable_context_param>>::load_section(
+                        &mut self.#field,
+                        ::vihaco::loader::LoadInput::from(__vihaco_child)
+                    )?;
+                }
             }
         })
         .collect();

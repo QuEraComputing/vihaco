@@ -21,7 +21,7 @@
 use chumsky::error::Simple;
 use chumsky::extra;
 use chumsky::prelude::*;
-use vihaco::value::{Type, Value};
+use vihaco::program::{Type, Value};
 use vihaco_parser_core::Parse;
 
 type E<'src> = extra::Err<Simple<'src, char>>;

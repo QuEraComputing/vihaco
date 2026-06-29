@@ -31,7 +31,7 @@ pub struct Param {
 }
 
 /// Bare type token — `"i64"`, `"f64"`, …. The resolver translates to
-/// [`crate::value::Type`].
+/// [`crate::program::Type`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RawType(pub String);
 

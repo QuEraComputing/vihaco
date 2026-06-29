@@ -12,7 +12,7 @@ mod text;
 #[cfg(test)]
 mod tests;
 
-pub use context::{BytecodeContext, ContextHandle, ProgramContext, ProgramGlobals};
+pub use context::{BytecodeContext, ContextHandle};
 pub use file::{BinaryBytecodeFile, BytecodeFile, FileContents, TextBytecodeFile};
 pub use format::{CompositeHeader, ConstantId, FLAGS, MAGIC, VERSION, decode_instruction_stream};
 pub use section::{BinarySectionView, SectionPath, SectionView, TextSectionView};

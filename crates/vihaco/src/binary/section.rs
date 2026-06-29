@@ -4,9 +4,10 @@
 use std::{io::Cursor, ops::Range};
 
 use crate::binary::file::FileContents;
+use crate::program::ProgramContext;
 
 use super::{
-    context::{BytecodeContext, ContextHandle, ProgramContext},
+    context::{BytecodeContext, ContextHandle},
     format::CompositeHeader,
 };
 
@@ -124,10 +125,6 @@ where
         &self.node.path
     }
 
-    pub fn context(&self) -> &C {
-        self.context.get()
-    }
-
     pub fn context_handle(&self) -> ContextHandle<C> {
         self.context.clone()
     }
@@ -218,5 +215,34 @@ where
 
     pub fn text(&self) -> &'bc str {
         &self.contents[self.node.bytecode.clone()]
+    }
+
+    /// Parse the specified composite header from the text format.
+    pub fn parse_header<H: CompositeHeader>(&self) -> eyre::Result<H> {
+        let text = self.header_text();
+        let mut cursor = Cursor::new(text);
+        let header = H::from_text(&mut cursor)?;
+        if cursor.position() as usize != text.len() {
+            return Err(eyre::eyre!(
+                "section `{}` header has {} trailing bytes",
+                self.display_path(),
+                text.len() - cursor.position() as usize
+            ));
+        }
+        Ok(header)
+    }
+}
+
+impl<C> std::fmt::Debug for TextSectionView<'_, C>
+where
+    C: BytecodeContext,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SectionView")
+            .field("path", &self.display_path().to_string())
+            .field("header_len", &self.header_text().len())
+            .field("text_len", &self.text().len())
+            .field("child_count", &self.node.children.len())
+            .finish()
     }
 }
