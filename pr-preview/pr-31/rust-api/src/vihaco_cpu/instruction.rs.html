@@ -2,7 +2,7 @@
 <a href=#2 id=2 data-nosnippet>2</a>// SPDX-License-Identifier: MIT
 <a href=#3 id=3 data-nosnippet>3</a>
 <a href=#4 id=4 data-nosnippet>4</a></span><span class="kw">use </span>vihaco::Instruction;
-<a href=#5 id=5 data-nosnippet>5</a><span class="kw">use </span>vihaco::value::{Type, Value};
+<a href=#5 id=5 data-nosnippet>5</a><span class="kw">use </span>vihaco::program::{Type, Value};
 <a href=#6 id=6 data-nosnippet>6</a>
 <a href=#7 id=7 data-nosnippet>7</a><span class="doccomment">/// `#[derive(Parse)]` notes:
 <a href=#8 id=8 data-nosnippet>8</a>///
@@ -210,7 +210,7 @@
 <a href=#210 id=210 data-nosnippet>210</a></span><span class="kw">mod </span>parse_tests {
 <a href=#211 id=211 data-nosnippet>211</a>    <span class="kw">use </span><span class="kw">super</span>::Instruction;
 <a href=#212 id=212 data-nosnippet>212</a>    <span class="kw">use </span>chumsky::Parser <span class="kw">as _</span>;
-<a href=#213 id=213 data-nosnippet>213</a>    <span class="kw">use </span>vihaco::value::{Type, Value};
+<a href=#213 id=213 data-nosnippet>213</a>    <span class="kw">use </span>vihaco::program::{Type, Value};
 <a href=#214 id=214 data-nosnippet>214</a>    <span class="kw">use </span>vihaco_parser_core::Parse;
 <a href=#215 id=215 data-nosnippet>215</a>
 <a href=#216 id=216 data-nosnippet>216</a>    <span class="kw">fn </span>parse(input: <span class="kw-2">&amp;</span>str) -&gt; Instruction {
