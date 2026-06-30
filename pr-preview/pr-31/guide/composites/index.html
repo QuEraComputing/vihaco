@@ -191,36 +191,36 @@ machine.load_section(vihaco::LoadInput::from(&#x26;file))?;
 <p>The file begins with the text magic/version marker, then a global context block:</p>
 <pre><code class="language-text">vhbc1
 
-@>
+.global:
 global context text
-&#x3C;@
+.global.
 </code></pre>
-<p><code>vhbc1</code> is the text spelling of version 1. The context body is delegated to <code>C::from_bytes(context_text.as_bytes())</code>; custom text formats usually provide a custom <code>BytecodeContext</code> that interprets this block. The context start marker <code>@></code> and end marker <code>&#x3C;@</code> must be at indentation level 0.</p>
-<p>After the context comes the root section. Sections use <code>~> name:</code> to begin and <code>&#x3C;~ name.</code> to end. The top-level section must be named <code>/</code> (<code>~> /:</code> and <code>&#x3C;~ /.</code>), and it is parsed as <code>SectionPath::root()</code>. Direct child section names become path components.</p>
-<pre><code class="language-text">~> /:
-	!>
+<p><code>vhbc1</code> is the text spelling of version 1. The context body is delegated to <code>C::from_text(context_text)</code>; custom text formats usually provide a custom <code>BytecodeContext</code> that interprets this block. The context start marker <code>.global:</code> and end marker <code>.global.</code> must be at indentation level 0.</p>
+<p>After the context comes the root section. Sections use <code>.section(name):</code> to begin and <code>.section(name).</code> to end. The top-level section must be named <code>root</code> (<code>.section(root):</code> and <code>.section(root).</code>), and it is parsed as <code>SectionPath::root()</code>. Direct child section names become path components.</p>
+<pre><code class="language-text">.section(root):
+	.header(root):
 		root header
-	&#x3C;!
+	.header(root).
 
-	^>
+	.text(root):
 		root bytecode
-	&#x3C;^
+	.text(root).
 
-	~> cpu:
-		^>
+	.section(cpu):
+		.text(cpu):
 			cpu bytecode
-		&#x3C;^
-	&#x3C;~ cpu.
-&#x3C;~ /.
+		.text(cpu).
+	.section(cpu).
+.section(root).
 </code></pre>
 <p>Inside a section:</p>
 <ul>
-<li><code>!></code> / <code>&#x3C;!</code> delimit the composite header text for <code>TextSectionView::header_text()</code></li>
-<li><code>^></code> / <code>&#x3C;^</code> delimit the section bytecode text for <code>TextSectionView::text()</code></li>
+<li><code>.header(name):</code> / <code>.header(name).</code> delimit the composite header text for <code>TextSectionView::header_text()</code></li>
+<li><code>.text(name):</code> / <code>.text(name).</code> delimit the section bytecode text for <code>TextSectionView::text()</code></li>
 <li>child sections are nested directly inside their parent section</li>
 <li>header, bytecode, and direct child section markers must be indented with exactly one tab more than their parent section</li>
 <li>section end markers must use the same indentation as their matching section start marker</li>
-<li>section names must be local names; <code>/</code> is rejected in a single marker name</li>
+<li>section names must be local names; <code>/</code> is rejected in a child marker name</li>
 </ul>
 <p>The text parser preserves the original header and bytecode ranges, including their leading tabs. Generated header loading trims <code>section.header_text()</code> before calling <code>FromStr</code> for the <code>#[header]</code> field type. Generated program loading delegates to <code>ProgramLoader&#x3C;I, C></code>, which parses <code>section.text()</code> with <code>parse_instruction_stream::&#x3C;I>()</code>; instruction types loaded this way must implement both <code>Instruction</code> and <code>vihaco_parser_core::Parse</code>.</p>
 <p><code>ProgramLoader&#x3C;I, C = ProgramContext, Info = NoInfo></code> is the standard loader for section program streams. For binary bytecode it decodes <code>section.bytecode()</code> with <code>decode_instruction_stream::&#x3C;I>()</code>; for text bytecode it parses <code>section.text()</code> with <code>parse_instruction_stream::&#x3C;I>()</code>. In both cases it stores a cloned <code>ContextHandle&#x3C;C></code>, implements <code>ProgramCounter</code>, and exposes functions, strings, and constants through <code>GetProgramGlobal</code> when <code>C: ProgramGlobals</code>.</p>
@@ -425,7 +425,7 @@ impl CounterComposite {
         sync();
       })();
     </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-06-29</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
+          documentation generated <time>2026-06-30</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {
