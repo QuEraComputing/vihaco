@@ -4,7 +4,10 @@
 use std::convert::TryFrom;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use chumsky::{error::Simple, extra, prelude::*};
 use eyre::Result;
+
+type ValueParseExtra<'src> = extra::Err<Simple<'src, char>>;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Value {
@@ -194,6 +197,21 @@ impl crate::traits::FromBytes for Type {
     }
 }
 
+impl crate::traits::FromText for Type {
+    fn from_text<R: std::io::Read>(text: &mut R) -> eyre::Result<Self>
+    where
+        Self: Sized,
+    {
+        let mut buffer = String::new();
+        text.read_to_string(&mut buffer)?;
+        type_text_parser()
+            .then_ignore(end())
+            .parse(buffer.trim())
+            .into_result()
+            .map_err(format_value_parse_errors)
+    }
+}
+
 impl crate::traits::WriteBytes for Type {
     fn write_bytes<W: std::io::Write>(&self, io: &mut W) -> eyre::Result<()> {
         let type_byte = match self {
@@ -257,6 +275,21 @@ impl crate::traits::FromBytes for Value {
     }
 }
 
+impl crate::traits::FromText for Value {
+    fn from_text<R: std::io::Read>(text: &mut R) -> eyre::Result<Self>
+    where
+        Self: Sized,
+    {
+        let mut buffer = String::new();
+        text.read_to_string(&mut buffer)?;
+        value_text_parser()
+            .then_ignore(end())
+            .parse(buffer.trim())
+            .into_result()
+            .map_err(format_value_parse_errors)
+    }
+}
+
 impl crate::traits::WriteBytes for Value {
     fn write_bytes<W: std::io::Write>(&self, io: &mut W) -> eyre::Result<()> {
         match self {
@@ -298,4 +331,80 @@ impl crate::traits::WriteBytes for Value {
         }
         Ok(())
     }
+}
+
+fn type_text_parser<'src>() -> impl Parser<'src, &'src str, Type, ValueParseExtra<'src>> + Clone {
+    choice((
+        just("undefined").to(Type::Undefined),
+        just("string").to(Type::String),
+        just("str").to(Type::String),
+        just("bool").to(Type::Bool),
+        just("i64").to(Type::I64),
+        just("u32").to(Type::U32),
+        just("u64").to(Type::U64),
+        just("f64").to(Type::F64),
+        just("fn").to(Type::FunctionRef),
+        just("heap").to(Type::HeapRef),
+    ))
+}
+
+fn value_text_parser<'src>() -> impl Parser<'src, &'src str, Value, ValueParseExtra<'src>> + Clone {
+    let ws = one_of(" \t").repeated().at_least(1).ignored();
+    choice((
+        just("undefined").to(Value::Undefined),
+        just("string")
+            .or(just("str"))
+            .ignore_then(ws)
+            .ignore_then(scalar_text::<u32>())
+            .map(Value::String),
+        just("bool")
+            .ignore_then(ws)
+            .ignore_then(choice((just("true").to(true), just("false").to(false))))
+            .map(Value::Bool),
+        just("i64")
+            .ignore_then(ws)
+            .ignore_then(scalar_text::<i64>())
+            .map(Value::I64),
+        just("u32")
+            .ignore_then(ws)
+            .ignore_then(scalar_text::<u32>())
+            .map(Value::U32),
+        just("u64")
+            .ignore_then(ws)
+            .ignore_then(scalar_text::<u64>())
+            .map(Value::U64),
+        just("f64")
+            .ignore_then(ws)
+            .ignore_then(scalar_text::<f64>())
+            .map(Value::F64),
+        just("fn")
+            .ignore_then(ws)
+            .ignore_then(scalar_text::<u32>())
+            .map(Value::FunctionRef),
+        just("heap")
+            .ignore_then(ws)
+            .ignore_then(scalar_text::<u32>())
+            .map(Value::HeapRef),
+    ))
+}
+
+fn scalar_text<'src, T>() -> impl Parser<'src, &'src str, T, ValueParseExtra<'src>> + Clone
+where
+    T: std::str::FromStr,
+{
+    any()
+        .filter(|ch: &char| !ch.is_whitespace())
+        .repeated()
+        .at_least(1)
+        .to_slice()
+        .try_map(|text: &str, span| text.parse::<T>().map_err(|_| Simple::new(None, span)))
+}
+
+fn format_value_parse_errors(errors: Vec<Simple<'_, char>>) -> eyre::Report {
+    let error = errors
+        .into_iter()
+        .next()
+        .map(|error| format!("{error:?}"))
+        .unwrap_or_else(|| "unknown parse error".to_string());
+    eyre::eyre!("failed to parse value text: {error}")
 }

@@ -1,5 +1,5 @@
 error: duplicate device code 0x01 for fields `a` and `b`
-  --> tests/ui/rfc0007-machine-duplicate-device-code.rs:26:5
+  --> tests/compile_fail/composite_machine/duplicate-device-code.rs:26:5
    |
 26 |     b: DemoDevice,
    |     ^

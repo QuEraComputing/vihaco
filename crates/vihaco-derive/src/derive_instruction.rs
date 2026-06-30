@@ -16,6 +16,7 @@ pub fn expand(input: TokenStream) -> TokenStream {
     }
 
     let ident = &input.ident;
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let width_override = match instruction_attrs(&input) {
         Ok(width) => width,
         Err(err) => return err.into_compile_error().into(),
@@ -115,7 +116,7 @@ pub fn expand(input: TokenStream) -> TokenStream {
     };
 
     quote! {
-        impl ::vihaco::instruction::OpCode for #ident {
+        impl #impl_generics ::vihaco::instruction::OpCode for #ident #ty_generics #where_clause {
             fn width() -> u32 {
                 #width_impl
             }
@@ -127,7 +128,7 @@ pub fn expand(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl ::vihaco::instruction::FromBytesWithOpcode for #ident {
+        impl #impl_generics ::vihaco::instruction::FromBytesWithOpcode for #ident #ty_generics #where_clause {
             fn from_bytes_with_opcode<R: ::std::io::Read>(
                 bytes: &mut R,
                 opcode: u8,
@@ -142,7 +143,7 @@ pub fn expand(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl ::vihaco::instruction::WriteBytes for #ident {
+        impl #impl_generics ::vihaco::instruction::WriteBytes for #ident #ty_generics #where_clause {
             fn write_bytes<W: ::std::io::Write>(&self, io: &mut W) -> ::eyre::Result<()> {
                 let mut payload = Vec::new();
                 match self {

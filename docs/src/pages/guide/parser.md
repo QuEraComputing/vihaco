@@ -115,7 +115,7 @@ That's it for the instruction-level surface.
 CPU instructions are mostly bare-form mnemonics with optional dot-qualified types:
 
 ```rust ignore
-use vihaco::value::{Type, Value};
+use vihaco::program::{Type, Value};
 use vihaco::Instruction;
 
 #[derive(Debug, Clone, PartialEq, Instruction, vihaco_parser::Parse)]

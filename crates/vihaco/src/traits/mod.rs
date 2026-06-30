@@ -6,7 +6,7 @@ mod instruction;
 mod machine;
 
 pub use event_sink::EffectSink;
-pub use instruction::{FromBytes, FromBytesWithOpcode, Instruction, OpCode, WriteBytes};
+pub use instruction::{FromBytes, FromBytesWithOpcode, FromText, Instruction, OpCode, WriteBytes};
 pub use machine::{FrameMemory, GetProgramGlobal, ProgramCounter, StackFrame, StackMemory, Stdout};
 
 pub trait Reset {
