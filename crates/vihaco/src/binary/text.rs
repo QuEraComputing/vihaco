@@ -14,7 +14,7 @@ use super::{
 };
 
 type ParseExtra<'src> = extra::Err<Simple<'src, char>>;
-const ROOT_SECTION_NAME: &str = "/";
+const ROOT_SECTION_NAME: &str = "root";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum LineKind {
@@ -23,10 +23,10 @@ pub(super) enum LineKind {
     EndContext,
     BeginSection(String),
     EndSection(String),
-    BeginHeader,
-    EndHeader,
-    BeginBytecode,
-    EndBytecode,
+    BeginHeader(String),
+    EndHeader(String),
+    BeginBytecode(String),
+    EndBytecode(String),
     Body,
     Blank,
 }
@@ -78,9 +78,8 @@ fn parse_line(line: &str) -> Result<LineKind> {
 }
 
 fn line_parser<'src>() -> impl Parser<'src, &'src str, LineKind, ParseExtra<'src>> {
-    let space = one_of(" \t").repeated().at_least(1);
     let name = any()
-        .filter(|c: &char| !c.is_whitespace() && !matches!(*c, ':' | '.'))
+        .filter(|c: &char| !c.is_whitespace() && !matches!(*c, ':' | '.' | '(' | ')'))
         .repeated()
         .at_least(1)
         .collect::<String>();
@@ -91,25 +90,35 @@ fn line_parser<'src>() -> impl Parser<'src, &'src str, LineKind, ParseExtra<'src
         }))
         .map(LineKind::Version);
 
-    let begin_context = just("@>").to(LineKind::BeginContext);
-    let end_context = just("<@").to(LineKind::EndContext);
+    let begin_context = just(".global:").to(LineKind::BeginContext);
+    let end_context = just(".global.").to(LineKind::EndContext);
 
-    let begin_section = just("~>")
-        .ignore_then(space)
+    let begin_section = just(".section(")
         .ignore_then(name)
-        .then_ignore(just(':'))
+        .then_ignore(just("):"))
         .map(LineKind::BeginSection);
-    let end_section = just("<~")
-        .ignore_then(space)
+    let end_section = just(".section(")
         .ignore_then(name)
-        .then_ignore(just('.'))
+        .then_ignore(just(")."))
         .map(LineKind::EndSection);
 
-    let begin_header = just("!>").to(LineKind::BeginHeader);
-    let end_header = just("<!").to(LineKind::EndHeader);
+    let begin_header = just(".header(")
+        .ignore_then(name)
+        .then_ignore(just("):"))
+        .map(LineKind::BeginHeader);
+    let end_header = just(".header(")
+        .ignore_then(name)
+        .then_ignore(just(")."))
+        .map(LineKind::EndHeader);
 
-    let begin_bytecode = just("^>").to(LineKind::BeginBytecode);
-    let end_bytecode = just("<^").to(LineKind::EndBytecode);
+    let begin_bytecode = just(".text(")
+        .ignore_then(name)
+        .then_ignore(just("):"))
+        .map(LineKind::BeginBytecode);
+    let end_bytecode = just(".text(")
+        .ignore_then(name)
+        .then_ignore(just(")."))
+        .map(LineKind::EndBytecode);
 
     let blank = one_of(" \t").repeated().to(LineKind::Blank);
     let body = any().repeated().at_least(1).to(LineKind::Body);
@@ -223,7 +232,7 @@ pub(super) fn consume_context(cursor: &mut LineCursor<'_>) -> Result<usize> {
         }
     }
 
-    Err(eyre::eyre!("unterminated context; expected `<@`"))
+    Err(eyre::eyre!("unterminated context; expected `.global.`"))
 }
 
 pub(super) struct TextSectionParseInfo<'a> {
@@ -306,8 +315,9 @@ pub(super) fn parse_section(
                     children,
                 });
             }
-            LineKind::BeginHeader => {
+            LineKind::BeginHeader(name) => {
                 ensure_indent(line, section_indent + 1, "header")?;
+                ensure_block_marker_name(line, "header", name, &section_name)?;
                 if header.is_some() {
                     return Err(line_error(
                         line,
@@ -319,11 +329,11 @@ pub(super) fn parse_section(
                     &section_name,
                     "header",
                     section_indent + 1,
-                    |kind| matches!(kind, LineKind::EndHeader),
                 )?);
             }
-            LineKind::BeginBytecode => {
+            LineKind::BeginBytecode(name) => {
                 ensure_indent(line, section_indent + 1, "bytecode")?;
+                ensure_block_marker_name(line, "bytecode", name, &section_name)?;
                 if bytecode.is_some() {
                     return Err(line_error(
                         line,
@@ -335,7 +345,6 @@ pub(super) fn parse_section(
                     &section_name,
                     "bytecode",
                     section_indent + 1,
-                    |kind| matches!(kind, LineKind::EndBytecode),
                 )?);
             }
             LineKind::BeginSection(child_name) => {
@@ -380,7 +389,6 @@ fn consume_named_block(
     section_name: &str,
     label: &str,
     block_indent: usize,
-    end_name: impl Fn(&LineKind) -> bool,
 ) -> Result<Range<usize>> {
     let begin = cursor
         .next_significant()
@@ -388,16 +396,46 @@ fn consume_named_block(
     let start = begin.full.end;
 
     while let Some(line) = cursor.next_significant() {
-        if end_name(&line.kind) {
+        if let Some(marker_name) = block_end_marker_name(&line.kind, label) {
             ensure_indent(line, block_indent, label)?;
+            ensure_block_marker_name(line, label, marker_name, section_name)?;
             return Ok(start..line.full.start);
         }
     }
 
     Err(line_error(
         begin,
-        format!("unterminated {label}; expected `{}`", end_marker(label)),
+        format!(
+            "unterminated {label}; expected `{}`",
+            end_marker(label, section_name)
+        ),
     ))
+}
+
+fn block_end_marker_name<'a>(kind: &'a LineKind, label: &str) -> Option<&'a str> {
+    match (label, kind) {
+        ("header", LineKind::EndHeader(name)) | ("bytecode", LineKind::EndBytecode(name)) => {
+            Some(name)
+        }
+        _ => None,
+    }
+}
+
+fn ensure_block_marker_name(
+    line: &SourceLine,
+    label: &str,
+    marker_name: &str,
+    section_name: &str,
+) -> Result<()> {
+    if marker_name != section_name {
+        return Err(line_error(
+            line,
+            format!(
+                "{label} marker for section `{section_name}` uses mismatched name `{marker_name}`"
+            ),
+        ));
+    }
+    Ok(())
 }
 
 fn ensure_indent(line: &SourceLine, expected: usize, label: &str) -> Result<()> {
@@ -413,11 +451,11 @@ fn ensure_indent(line: &SourceLine, expected: usize, label: &str) -> Result<()> 
     Ok(())
 }
 
-fn end_marker(label: &str) -> &'static str {
+fn end_marker(label: &str, section_name: &str) -> String {
     match label {
-        "header" => "<!",
-        "bytecode" => "<^",
-        _ => "end marker",
+        "header" => format!(".header({section_name})."),
+        "bytecode" => format!(".text({section_name})."),
+        _ => "end marker".to_string(),
     }
 }
 

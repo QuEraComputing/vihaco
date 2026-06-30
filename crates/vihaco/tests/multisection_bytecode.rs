@@ -335,21 +335,21 @@ fn binary_generated_loadable_routes_program_and_child_sections() {
 fn text_generated_loadable_routes_program_and_child_sections() {
     let file = text_file(
         &["child", "default_child"],
-        "~> /:\n\
-\t^>\n\
+        ".section(root):\n\
+\t.text(root):\n\
 \t\tnop\n\
-\t<^\n\
-\t~> child:\n\
-\t\t^>\n\
+\t.text(root).\n\
+\t.section(child):\n\
+\t\t.text(child):\n\
 \t\t\talt\n\
-\t\t<^\n\
-\t<~ child.\n\
-\t~> default_child:\n\
-\t\t^>\n\
+\t\t.text(child).\n\
+\t.section(child).\n\
+\t.section(default_child):\n\
+\t\t.text(default_child):\n\
 \t\t\tnop\n\
-\t\t<^\n\
-\t<~ default_child.\n\
-<~ /.\n",
+\t\t.text(default_child).\n\
+\t.section(default_child).\n\
+.section(root).\n",
     );
 
     let mut machine = TextMachine::default();
@@ -396,14 +396,14 @@ fn binary_generated_loadable_parses_marked_header() {
 fn text_generated_loadable_parses_marked_header() {
     let file = text_file(
         &[],
-        "~> /:\n\
-\t!>\n\
+        ".section(root):\n\
+\t.header(root):\n\
 \t\t8\n\
-\t<!\n\
-\t^>\n\
+\t.header(root).\n\
+\t.text(root):\n\
 \t\tnop\n\
-\t<^\n\
-<~ /.\n",
+\t.text(root).\n\
+.section(root).\n",
     );
 
     let mut machine = TextHeaderMachine::default();
@@ -470,22 +470,22 @@ fn binary_generated_loadable_routes_three_level_section_tree() {
 fn text_generated_loadable_routes_three_level_section_tree() {
     let file = text_file(
         &["middle", "leaf"],
-        "~> /:\n\
-\t^>\n\
+        ".section(root):\n\
+\t.text(root):\n\
 \t\tnop\n\
-\t<^\n\
-\t~> middle:\n\
-\t\t^>\n\
+\t.text(root).\n\
+\t.section(middle):\n\
+\t\t.text(middle):\n\
 \t\t\talt\n\
-\t\t<^\n\
-\t\t~> leaf:\n\
-\t\t\t^>\n\
+\t\t.text(middle).\n\
+\t\t.section(leaf):\n\
+\t\t\t.text(leaf):\n\
 \t\t\t\tnop\n\
 \t\t\t\talt\n\
-\t\t\t<^\n\
-\t\t<~ leaf.\n\
-\t<~ middle.\n\
-<~ /.\n",
+\t\t\t.text(leaf).\n\
+\t\t.section(leaf).\n\
+\t.section(middle).\n\
+.section(root).\n",
     );
 
     let mut machine = TextHostMachine::default();
@@ -546,11 +546,11 @@ fn binary_generated_loadable_allows_missing_marked_children() {
 fn text_generated_loadable_allows_missing_marked_children() {
     let file = text_file(
         &["child", "default_child"],
-        "~> /:\n\
-\t^>\n\
+        ".section(root):\n\
+\t.text(root):\n\
 \t\tnop\n\
-\t<^\n\
-<~ /.\n",
+\t.text(root).\n\
+.section(root).\n",
     );
     let mut machine = TextMachine::default();
 
@@ -580,17 +580,17 @@ fn binary_generated_loadable_rejects_unexpected_direct_children() {
 fn text_generated_loadable_rejects_unexpected_direct_children() {
     let file = text_file(
         &["child", "default_child", "extra"],
-        "~> /:\n\
-\t^>\n\
+        ".section(root):\n\
+\t.text(root):\n\
 \t\tnop\n\
-\t<^\n\
-\t~> child:\n\
-\t<~ child.\n\
-\t~> default_child:\n\
-\t<~ default_child.\n\
-\t~> extra:\n\
-\t<~ extra.\n\
-<~ /.\n",
+\t.text(root).\n\
+\t.section(child):\n\
+\t.section(child).\n\
+\t.section(default_child):\n\
+\t.section(default_child).\n\
+\t.section(extra):\n\
+\t.section(extra).\n\
+.section(root).\n",
     );
     let mut machine = TextMachine::default();
 
@@ -620,7 +620,7 @@ fn text_file(section_names: &[&str], sections: &str) -> BytecodeFile<String, Tex
         format!("{context}\n")
     };
     BytecodeFile::<String, TextContext>::from_text(&format!(
-        "vhbc{VERSION}\n\n@>\n{context}<@\n\n{sections}"
+        "vhbc{VERSION}\n\n.global:\n{context}.global.\n\n{sections}"
     ))
     .unwrap()
 }

@@ -344,30 +344,30 @@ fn rejects_binary_instruction_stream_with_non_multiple_width() {
 fn parses_text_context_and_nested_sections() {
     let parsed = TextBytecodeFile::<TextContext>::from_text(&text_file(
         "",
-        "~> /:\n\
-\t!>\n\
+        ".section(root):\n\
+\t.header(root):\n\
 \t\troot header\n\
-\t<!\n\
-\t^>\n\
+\t.header(root).\n\
+\t.text(root):\n\
 \t\troot bytecode\n\
-\t<^\n\
-\t~> cpu:\n\
-\t\t!>\n\
+\t.text(root).\n\
+\t.section(cpu):\n\
+\t\t.header(cpu):\n\
 \t\t\tcpu header\n\
-\t\t<!\n\
-\t\t^>\n\
+\t\t.header(cpu).\n\
+\t\t.text(cpu):\n\
 \t\t\tcpu bytecode\n\
-\t\t<^\n\
-\t\t~> alu:\n\
-\t\t\t!>\n\
+\t\t.text(cpu).\n\
+\t\t.section(alu):\n\
+\t\t\t.header(alu):\n\
 \t\t\t\talu header\n\
-\t\t\t<!\n\
-\t\t\t^>\n\
+\t\t\t.header(alu).\n\
+\t\t\t.text(alu):\n\
 \t\t\t\talu bytecode\n\
-\t\t\t<^\n\
-\t\t<~ alu.\n\
-\t<~ cpu.\n\
-<~ /.\n",
+\t\t\t.text(alu).\n\
+\t\t.section(alu).\n\
+\t.section(cpu).\n\
+.section(root).\n",
     ))
     .unwrap();
 
@@ -397,8 +397,11 @@ fn parses_text_context_and_nested_sections() {
 
 #[test]
 fn parses_text_section_without_header_or_bytecode_as_empty_ranges() {
-    let parsed =
-        TextBytecodeFile::<TextContext>::from_text(&text_file("", "~> /:\n<~ /.\n")).unwrap();
+    let parsed = TextBytecodeFile::<TextContext>::from_text(&text_file(
+        "",
+        ".section(root):\n.section(root).\n",
+    ))
+    .unwrap();
 
     let root = parsed.root();
     assert_eq!(root.header_text(), "");
@@ -442,7 +445,7 @@ fn 1 () -> (bool, i64) 0 12 24 4\n\
 0 \"cpu\"\n\
 1 \"memory\"\n\
 2 \"timer\"\n",
-        "~> /:\n<~ /.\n",
+        ".section(root):\n.section(root).\n",
     ))
     .unwrap();
 
@@ -546,16 +549,22 @@ fn 1 () -> (bool, i64) 0 12 24 4\n\
 
 #[test]
 fn rejects_text_root_section_with_non_root_name() {
-    let err = TextBytecodeFile::<TextContext>::from_text(&text_file("", "~> root:\n<~ root.\n"))
-        .unwrap_err();
+    let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
+        "",
+        ".section(other):\n.section(other).\n",
+    ))
+    .unwrap_err();
 
-    assert!(err.to_string().contains("root section must be named `/`"));
+    assert!(
+        err.to_string()
+            .contains("root section must be named `root`")
+    );
 }
 
 #[test]
 fn rejects_text_bad_version() {
     let err = TextBytecodeFile::<TextContext>::from_text(&format!(
-        "vhbc{}\n@>\n<@\n~> /:\n<~ /.\n",
+        "vhbc{}\n.global:\n.global.\n.section(root):\n.section(root).\n",
         VERSION + 1
     ))
     .unwrap_err();
@@ -565,8 +574,10 @@ fn rejects_text_bad_version() {
 
 #[test]
 fn rejects_text_missing_context_end() {
-    let err =
-        TextBytecodeFile::<TextContext>::from_text("vhbc1\n@>\ncpu\n~> /:\n<~ /.\n").unwrap_err();
+    let err = TextBytecodeFile::<TextContext>::from_text(
+        "vhbc1\n.global:\ncpu\n.section(root):\n.section(root).\n",
+    )
+    .unwrap_err();
 
     assert!(err.to_string().contains("unterminated context"));
 }
@@ -575,7 +586,7 @@ fn rejects_text_missing_context_end() {
 fn rejects_text_non_local_child_section_name() {
     let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
         "",
-        "~> /:\n\t~> gpu/core:\n\t<~ gpu/core.\n<~ /.\n",
+        ".section(root):\n\t.section(gpu/core):\n\t.section(gpu/core).\n.section(root).\n",
     ))
     .unwrap_err();
 
@@ -586,7 +597,7 @@ fn rejects_text_non_local_child_section_name() {
 fn rejects_text_duplicate_child_sections() {
     let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
         "cpu\n",
-        "~> /:\n\t~> cpu:\n\t<~ cpu.\n\t~> cpu:\n\t<~ cpu.\n<~ /.\n",
+        ".section(root):\n\t.section(cpu):\n\t.section(cpu).\n\t.section(cpu):\n\t.section(cpu).\n.section(root).\n",
     ))
     .unwrap_err();
 
@@ -595,17 +606,48 @@ fn rejects_text_duplicate_child_sections() {
 
 #[test]
 fn rejects_text_mismatched_section_end_marker() {
-    let err = TextBytecodeFile::<TextContext>::from_text(&text_file("", "~> /:\n<~ other.\n"))
-        .unwrap_err();
+    let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
+        "",
+        ".section(root):\n.section(other).\n",
+    ))
+    .unwrap_err();
 
     assert!(err.to_string().contains("mismatched marker `other`"));
+}
+
+#[test]
+fn rejects_text_header_marker_with_wrong_section_name() {
+    let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
+        "",
+        ".section(root):\n\t.header(cpu):\n\t.header(cpu).\n.section(root).\n",
+    ))
+    .unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("header marker for section `root` uses mismatched name `cpu`")
+    );
+}
+
+#[test]
+fn rejects_text_bytecode_end_marker_with_wrong_section_name() {
+    let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
+        "",
+        ".section(root):\n\t.text(root):\n\t.text(cpu).\n.section(root).\n",
+    ))
+    .unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("bytecode marker for section `root` uses mismatched name `cpu`")
+    );
 }
 
 #[test]
 fn rejects_text_body_directly_inside_section() {
     let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
         "",
-        "~> /:\n\tthis line is not in a header or bytecode block\n<~ /.\n",
+        ".section(root):\n\tthis line is not in a header or bytecode block\n.section(root).\n",
     ))
     .unwrap_err();
 
@@ -619,7 +661,7 @@ fn rejects_text_body_directly_inside_section() {
 fn rejects_text_child_section_indented_with_spaces() {
     let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
         "",
-        "~> /:\n  ~> cpu:\n  <~ cpu.\n<~ /.\n",
+        ".section(root):\n  .section(cpu):\n  .section(cpu).\n.section(root).\n",
     ))
     .unwrap_err();
 
@@ -630,7 +672,7 @@ fn rejects_text_child_section_indented_with_spaces() {
 fn rejects_text_header_indented_with_spaces() {
     let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
         "",
-        "~> /:\n  !>\n\t\troot header\n  <!\n<~ /.\n",
+        ".section(root):\n  .header(root):\n\t\troot header\n  .header(root).\n.section(root).\n",
     ))
     .unwrap_err();
 
@@ -832,7 +874,7 @@ fn path_components(path: &SectionPath) -> Vec<&str> {
 }
 
 fn text_file(context: &str, sections: &str) -> String {
-    format!("vhbc{VERSION}\n\n@>\n{context}<@\n\n{sections}")
+    format!("vhbc{VERSION}\n\n.global:\n{context}.global.\n\n{sections}")
 }
 
 fn write_string(bytes: &mut Vec<u8>, value: &str) {

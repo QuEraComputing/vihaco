@@ -261,41 +261,41 @@ The file begins with the text magic/version marker, then a global context block:
 ```text
 vhbc1
 
-@>
+.global:
 global context text
-<@
+.global.
 ```
 
-`vhbc1` is the text spelling of version 1. The context body is delegated to `C::from_bytes(context_text.as_bytes())`; custom text formats usually provide a custom `BytecodeContext` that interprets this block. The context start marker `@>` and end marker `<@` must be at indentation level 0.
+`vhbc1` is the text spelling of version 1. The context body is delegated to `C::from_text(context_text)`; custom text formats usually provide a custom `BytecodeContext` that interprets this block. The context start marker `.global:` and end marker `.global.` must be at indentation level 0.
 
-After the context comes the root section. Sections use `~> name:` to begin and `<~ name.` to end. The top-level section must be named `/` (`~> /:` and `<~ /.`), and it is parsed as `SectionPath::root()`. Direct child section names become path components.
+After the context comes the root section. Sections use `.section(name):` to begin and `.section(name).` to end. The top-level section must be named `root` (`.section(root):` and `.section(root).`), and it is parsed as `SectionPath::root()`. Direct child section names become path components.
 
 ```text
-~> /:
-	!>
+.section(root):
+	.header(root):
 		root header
-	<!
+	.header(root).
 
-	^>
+	.text(root):
 		root bytecode
-	<^
+	.text(root).
 
-	~> cpu:
-		^>
+	.section(cpu):
+		.text(cpu):
 			cpu bytecode
-		<^
-	<~ cpu.
-<~ /.
+		.text(cpu).
+	.section(cpu).
+.section(root).
 ```
 
 Inside a section:
 
-- `!>` / `<!` delimit the composite header text for `TextSectionView::header_text()`
-- `^>` / `<^` delimit the section bytecode text for `TextSectionView::text()`
+- `.header(name):` / `.header(name).` delimit the composite header text for `TextSectionView::header_text()`
+- `.text(name):` / `.text(name).` delimit the section bytecode text for `TextSectionView::text()`
 - child sections are nested directly inside their parent section
 - header, bytecode, and direct child section markers must be indented with exactly one tab more than their parent section
 - section end markers must use the same indentation as their matching section start marker
-- section names must be local names; `/` is rejected in a single marker name
+- section names must be local names; `/` is rejected in a child marker name
 
 The text parser preserves the original header and bytecode ranges, including their leading tabs. Generated header loading trims `section.header_text()` before calling `FromStr` for the `#[header]` field type. Generated program loading delegates to `ProgramLoader<I, C>`, which parses `section.text()` with `parse_instruction_stream::<I>()`; instruction types loaded this way must implement both `Instruction` and `vihaco_parser_core::Parse`.
 

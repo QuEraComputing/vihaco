@@ -151,10 +151,10 @@ where
         }
 
         let Some(context_begin) = cursor.next_significant() else {
-            return Err(eyre::eyre!("expected `@>`"));
+            return Err(eyre::eyre!("expected `.global:`"));
         };
         if context_begin.kind != LineKind::BeginContext {
-            return Err(text_line_error(context_begin, "expected `@>`"));
+            return Err(text_line_error(context_begin, "expected `.global:`"));
         }
         if context_begin.indent != 0 {
             return Err(text_line_error(
