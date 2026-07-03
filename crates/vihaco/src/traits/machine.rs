@@ -5,7 +5,7 @@ use eyre::Result;
 
 use super::Instruction;
 
-use crate::{frame::Frame, module::FunctionInfo};
+use crate::{binary::ConstantId, frame::Frame, module::FunctionInfo};
 
 pub trait ProgramCounter {
     type Instruction: Instruction;
@@ -89,8 +89,11 @@ pub trait FrameMemory: StackFrame + StackMemory {
 
 pub trait GetProgramGlobal {
     type Type;
+    type Value;
+
     fn get_function(&self, index: usize) -> Result<FunctionInfo<Self::Type>>;
     fn get_string(&self, index: usize) -> Result<&String>;
+    fn get_constant(&self, id: ConstantId) -> Result<&Self::Value>;
 }
 
 pub trait Stdout {

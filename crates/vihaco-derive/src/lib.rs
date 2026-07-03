@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: MIT
 
 mod attr_component;
+mod attr_composite;
 mod attr_observe;
 mod common;
 mod derive_instruction;
-mod derive_machine;
 mod derive_message;
 
 use proc_macro::TokenStream;
@@ -22,15 +22,10 @@ pub fn derive_message(input: TokenStream) -> TokenStream {
     derive_message::expand(input)
 }
 
-#[proc_macro_derive(Machine, attributes(device, program))]
-pub fn derive_machine(input: TokenStream) -> TokenStream {
-    derive_machine::expand(input)
-}
-
 #[proc_macro_attribute]
 pub fn composite(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let original = proc_macro2::TokenStream::from(item.clone());
-    let generated = proc_macro2::TokenStream::from(derive_machine::expand(item));
+    let generated = proc_macro2::TokenStream::from(attr_composite::expand(item));
     let mut sanitized: DeriveInput = match syn::parse2(original) {
         Ok(input) => input,
         Err(err) => return err.into_compile_error().into(),
@@ -42,7 +37,10 @@ pub fn composite(_attr: TokenStream, item: TokenStream) -> TokenStream {
         for field in &mut fields.named {
             field.attrs.retain(|attr| {
                 let path = attr.path();
-                !(path.is_ident("device") || path.is_ident("program"))
+                !(path.is_ident("device")
+                    || path.is_ident("program")
+                    || path.is_ident("loadable")
+                    || path.is_ident("header"))
             });
         }
     }

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-use vihaco::value::Value;
+use vihaco::program::Value;
 use vihaco::{
     frame::Frame,
     traits::{FrameMemory, StackFrame, StackMemory},

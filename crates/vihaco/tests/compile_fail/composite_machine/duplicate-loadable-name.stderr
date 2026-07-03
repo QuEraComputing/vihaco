@@ -1,0 +1,5 @@
+error: duplicate loadable section name `child` for fields `a` and `b`
+  --> tests/compile_fail/composite_machine/duplicate-loadable-name.rs:10:5
+   |
+10 |     b: Child,
+   |     ^

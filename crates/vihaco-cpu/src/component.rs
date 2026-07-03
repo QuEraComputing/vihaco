@@ -8,8 +8,8 @@ use crate::StepOutcome;
 use crate::data::CPU;
 use crate::instruction::Instruction;
 use vihaco::Effects;
-use vihaco::value::Value;
-use vihaco::{component, frame::Frame, traits::*, value::Type};
+use vihaco::program::{Type, Value};
+use vihaco::{component, frame::Frame, traits::*};
 
 impl Reset for CPU {
     fn reset(&mut self) {
