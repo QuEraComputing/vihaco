@@ -7,17 +7,71 @@ use std::{
     ops::Range,
 };
 
-use crate::binary::common::validate_local_section_name;
+use byteorder::{LittleEndian, ReadBytesExt};
 
 use super::{
-    context::BytecodeContext,
-    format::{
-        ChildSectionTableEntry, ChildSectionTableHeader, SectionBytecodeHeader, SectionFrame,
-    },
-    section::{SectionNode, SectionPath},
+    section::{validate_local_section_name, SectionNode, SectionPath},
+    ParsedFile,
 };
 
+pub const MAGIC: &[u8; 4] = b"VHBC";
+pub const VERSION: u16 = 1;
+pub const FLAGS: u16 = 0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BytecodeHeader {
+    context_len: usize,
+}
+
+impl BytecodeHeader {
+    const CONTEXT_LEN_SIZE: usize = 8;
+    const ENCODED_LEN: usize = 4 + 2 + 2 + Self::CONTEXT_LEN_SIZE;
+
+    fn read_from<R: Read>(reader: &mut R) -> eyre::Result<Self> {
+        let mut magic = [0; 4];
+        reader.read_exact(&mut magic)?;
+        if &magic != MAGIC {
+            return Err(eyre::eyre!("invalid bytecode magic"));
+        }
+
+        let version = reader.read_u16::<LittleEndian>()?;
+        if version != VERSION {
+            return Err(eyre::eyre!(
+                "unsupported bytecode version {} (expected {})",
+                version,
+                VERSION
+            ));
+        }
+
+        let flags = reader.read_u16::<LittleEndian>()?;
+        if flags != FLAGS {
+            return Err(eyre::eyre!("unsupported bytecode flags 0x{flags:04X}"));
+        }
+
+        Ok(Self {
+            context_len: read_usize_u64(reader, "program context length")?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SectionFrame {
+    section_len: usize,
+    composite_header_len: usize,
+}
+
 impl SectionFrame {
+    const SECTION_LEN_SIZE: usize = 8;
+    const HEADER_LEN_SIZE: usize = 8;
+    const ENCODED_LEN: usize = Self::SECTION_LEN_SIZE + Self::HEADER_LEN_SIZE;
+
+    fn read_from<R: Read>(reader: &mut R) -> eyre::Result<Self> {
+        Ok(Self {
+            section_len: read_usize_u64(reader, "section length")?,
+            composite_header_len: read_usize_u64(reader, "composite header length")?,
+        })
+    }
+
     fn read_at(bytes: &[u8], section_start: usize, path: &SectionPath) -> eyre::Result<Self> {
         let frame_end = checked_add(section_start, Self::ENCODED_LEN, "section frame end")?;
         let frame_bytes = bytes.get(section_start..frame_end).ok_or_else(|| {
@@ -31,26 +85,106 @@ impl SectionFrame {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct SectionParseInfo {
-    pub(super) start: usize,
-    pub(super) path: SectionPath,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SectionBytecodeHeader {
+    bytecode_len: usize,
 }
 
-/// Parse a section of a bytecode file.
-///
-/// The vihaco bytecode binary is organized so the structure of
-/// the section reads easily from this function.
-///
-/// All logic related to the parsing of the current section should
-/// come _before_ the parsing logic of its children.
-pub(super) fn parse_section<C>(
+impl SectionBytecodeHeader {
+    const BYTECODE_LEN_SIZE: usize = 8;
+    const ENCODED_LEN: usize = Self::BYTECODE_LEN_SIZE;
+
+    fn read_from<R: Read>(reader: &mut R) -> eyre::Result<Self> {
+        Ok(Self {
+            bytecode_len: read_usize_u64(reader, "bytecode length")?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ChildSectionTableHeader {
+    child_count: usize,
+}
+
+impl ChildSectionTableHeader {
+    const CHILD_COUNT_SIZE: usize = 4;
+    const ENCODED_LEN: usize = Self::CHILD_COUNT_SIZE;
+
+    fn read_from<R: Read>(reader: &mut R) -> eyre::Result<Self> {
+        Ok(Self {
+            child_count: reader.read_u32::<LittleEndian>()? as usize,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ChildSectionTableEntry {
+    local_name_string: u32,
+    section_offset: usize,
+}
+
+impl ChildSectionTableEntry {
+    const LOCAL_NAME_STRING_SIZE: usize = 4;
+    const SECTION_OFFSET_SIZE: usize = 8;
+    const ENCODED_LEN: usize = Self::LOCAL_NAME_STRING_SIZE + Self::SECTION_OFFSET_SIZE;
+
+    fn read_from<R: Read>(reader: &mut R) -> eyre::Result<Self> {
+        Ok(Self {
+            local_name_string: reader.read_u32::<LittleEndian>()?,
+            section_offset: read_usize_u64(reader, "child section offset")?,
+        })
+    }
+}
+
+pub fn parse_file<F>(bytes: &[u8], mut section_name: F) -> eyre::Result<ParsedFile>
+where
+    F: FnMut(u32) -> Option<String>,
+{
+    let context = context_range(bytes)?;
+
+    let root = parse_section(
+        bytes,
+        &mut section_name,
+        SectionParseInfo {
+            start: context.end,
+            path: SectionPath::root(),
+        },
+    )?;
+    if root.section.end != bytes.len() {
+        return Err(eyre::eyre!(
+            "bytecode length mismatch: root section describes {} bytes, file has {} bytes",
+            root.section.end,
+            bytes.len()
+        ));
+    }
+
+    Ok(ParsedFile { context, root })
+}
+
+pub fn context_range(bytes: &[u8]) -> eyre::Result<Range<usize>> {
+    let mut cursor = Cursor::new(bytes);
+    let header = BytecodeHeader::read_from(&mut cursor)?;
+    let context_start = BytecodeHeader::ENCODED_LEN;
+    let context_end = checked_add(context_start, header.context_len, "program context end")?;
+    if bytes.get(context_start..context_end).is_none() {
+        return Err(eyre::eyre!("program context is out of bounds"));
+    }
+    Ok(context_start..context_end)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SectionParseInfo {
+    start: usize,
+    path: SectionPath,
+}
+
+fn parse_section<F>(
     bytes: &[u8],
-    context: &C,
+    section_name: &mut F,
     info: SectionParseInfo,
 ) -> eyre::Result<SectionNode>
 where
-    C: BytecodeContext,
+    F: FnMut(u32) -> Option<String>,
 {
     let SectionParseInfo {
         start: section_start,
@@ -84,9 +218,6 @@ where
         frame.composite_header_len,
         "composite header end",
     )?;
-
-    // we generate a call to SectionView::parse_header<T: CompositeHeader>
-    // if the composite contains a `#[header]`
     let composite_header = composite_header_start..composite_header_end;
 
     let bytecode_header_start = composite_header.end;
@@ -157,7 +288,7 @@ where
         &mut child_table_cursor,
         child_table_header.child_count,
         &path,
-        context,
+        section_name,
     )?;
 
     let child_table_len = child_table_cursor.position() as usize;
@@ -172,7 +303,7 @@ where
     for child in child_section_entries {
         children.push(parse_child_section(
             bytes,
-            context,
+            section_name,
             ChildSectionParseInfo {
                 parent_path: &path,
                 parent_start: section_start,
@@ -193,37 +324,32 @@ where
     })
 }
 
-/// Represents a [`ChildSectionTableEntry`] with its name;
-/// we use this for error reporting.
 struct ResolvedChildSectionTableEntry {
     name: String,
     entry: ChildSectionTableEntry,
 }
 
-fn read_child_section_table<R, C>(
+fn read_child_section_table<R, F>(
     reader: &mut R,
     child_count: usize,
     parent_path: &SectionPath,
-    context: &C,
+    section_name: &mut F,
 ) -> eyre::Result<Vec<ResolvedChildSectionTableEntry>>
 where
     R: Read,
-    C: BytecodeContext,
+    F: FnMut(u32) -> Option<String>,
 {
     let mut children = Vec::with_capacity(child_count);
     let mut names = BTreeSet::new();
     for _ in 0..child_count {
         let entry = ChildSectionTableEntry::read_from(reader)?;
-        let child_name = context
-            .section_name(entry.local_name_string)
-            .ok_or_else(|| {
-                eyre::eyre!(
-                    "section `{}` references missing section name string {}",
-                    parent_path,
-                    entry.local_name_string
-                )
-            })?
-            .to_string();
+        let child_name = section_name(entry.local_name_string).ok_or_else(|| {
+            eyre::eyre!(
+                "section `{}` references missing section name string {}",
+                parent_path,
+                entry.local_name_string
+            )
+        })?;
         validate_local_section_name(parent_path, &child_name)?;
         if !names.insert(child_name.clone()) {
             return Err(eyre::eyre!(
@@ -241,11 +367,6 @@ where
     Ok(children)
 }
 
-/// The claimed ranges within a section.
-///
-/// This helper struct encapsulates the constraint that no ranges in a section's
-/// data should overlap. For example, child data cannot overlap with other child data
-/// or its parent's bytecode.
 struct ClaimedSectionRanges {
     ranges: Vec<(String, Range<usize>)>,
 }
@@ -287,15 +408,13 @@ struct ChildSectionParseInfo<'a> {
     child: ResolvedChildSectionTableEntry,
 }
 
-/// This performs all the logic related to validating a child's bounds against
-/// its parent's bounds, then recursively parses the child.
-fn parse_child_section<C>(
+fn parse_child_section<F>(
     bytes: &[u8],
-    context: &C,
+    section_name: &mut F,
     info: ChildSectionParseInfo<'_>,
 ) -> eyre::Result<SectionNode>
 where
-    C: BytecodeContext,
+    F: FnMut(u32) -> Option<String>,
 {
     let ChildSectionParseInfo {
         parent_path,
@@ -354,7 +473,7 @@ where
 
     parse_section(
         bytes,
-        context,
+        section_name,
         SectionParseInfo {
             start: child_start,
             path: child_path,
@@ -362,11 +481,16 @@ where
     )
 }
 
-pub(super) fn checked_add(lhs: usize, rhs: usize, label: &str) -> eyre::Result<usize> {
+pub fn checked_add(lhs: usize, rhs: usize, label: &str) -> eyre::Result<usize> {
     lhs.checked_add(rhs)
         .ok_or_else(|| eyre::eyre!("{label} overflows usize"))
 }
 
 fn ranges_overlap(lhs: &Range<usize>, rhs: &Range<usize>) -> bool {
     lhs.start < rhs.end && rhs.start < lhs.end
+}
+
+fn read_usize_u64<R: Read>(reader: &mut R, label: &str) -> eyre::Result<usize> {
+    usize::try_from(reader.read_u64::<LittleEndian>()?)
+        .map_err(|_| eyre::eyre!("{label} does not fit in usize"))
 }

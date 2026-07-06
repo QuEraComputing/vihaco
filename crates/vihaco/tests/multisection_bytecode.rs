@@ -5,9 +5,10 @@ use std::{io::Read, str::FromStr};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use vihaco::{
-    BytecodeContext, BytecodeFile, ConstantId, Effects, GeneratedComponent, GetProgramGlobal,
-    Instruction, LoadInput, LoadSection, ProgramLoader, Value,
-    binary::{FLAGS, MAGIC, VERSION},
+    BytecodeFile, BytecodeGlobalContext, BytecodeLoadInput, ConstantId, Effects, FLAGS,
+    GeneratedComponent, GetProgramGlobal, Instruction, LoadBytecodeSection, LoadOwnBytecodeSection,
+    LoadOwnSstSection, LoadSstSection, MAGIC, ProgramLoader, SectionNameResolver, SstFile,
+    SstGlobalContext, SstLoadInput, VERSION, Value,
     traits::{FromBytes, FromText, WriteBytes},
 };
 
@@ -76,12 +77,20 @@ struct TextContext {
     section_names: Vec<String>,
 }
 
-impl BytecodeContext for TextContext {
+impl SectionNameResolver for TextContext {
+    fn section_name(&self, index: u32) -> Option<&str> {
+        self.section_names.get(index as usize).map(String::as_str)
+    }
+}
+
+impl BytecodeGlobalContext for TextContext {
     fn from_bytes(bytes: &[u8]) -> eyre::Result<Self> {
         let text = std::str::from_utf8(bytes)?;
-        Self::from_text(text)
+        <Self as SstGlobalContext>::from_text(text)
     }
+}
 
+impl SstGlobalContext for TextContext {
     fn from_text(text: &str) -> eyre::Result<Self> {
         Ok(Self {
             section_names: text
@@ -91,10 +100,6 @@ impl BytecodeContext for TextContext {
                 .map(ToOwned::to_owned)
                 .collect(),
         })
-    }
-
-    fn section_name(&self, index: u32) -> Option<&str> {
-        self.section_names.get(index as usize).map(String::as_str)
     }
 }
 
@@ -136,18 +141,15 @@ impl GeneratedComponent for TextLoadedDevice {
     }
 }
 
-impl LoadSection for LoadedDevice {
-    fn load_section<'bc>(&mut self, input: LoadInput<'bc>) -> eyre::Result<()> {
-        self.program.load_section(input)
+impl LoadBytecodeSection for LoadedDevice {
+    fn load_bytecode_section<'bc>(&mut self, input: BytecodeLoadInput<'bc>) -> eyre::Result<()> {
+        self.program.load_bytecode_section(input)
     }
 }
 
-impl LoadSection<String, TextContext> for TextLoadedDevice {
-    fn load_section<'bc>(
-        &mut self,
-        input: LoadInput<'bc, String, TextContext>,
-    ) -> eyre::Result<()> {
-        self.program.load_section(input)
+impl LoadSstSection<TextContext> for TextLoadedDevice {
+    fn load_sst_section<'bc>(&mut self, input: SstLoadInput<'bc, TextContext>) -> eyre::Result<()> {
+        self.program.load_sst_section(input)
     }
 }
 
@@ -155,7 +157,6 @@ impl LoadSection<String, TextContext> for TextLoadedDevice {
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct Machine {
-    #[program]
     program: ProgramLoader<TestInst>,
 
     #[device(0x01)]
@@ -171,7 +172,6 @@ struct Machine {
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct NestedMachine {
-    #[program]
     program: ProgramLoader<TestInst>,
 
     #[device(0x01)]
@@ -197,7 +197,6 @@ impl GeneratedComponent for NestedMachine {
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct HostMachine {
-    #[program]
     program: ProgramLoader<TestInst>,
 
     #[device(0x01)]
@@ -209,10 +208,8 @@ struct HostMachine {
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct HeaderMachine {
-    #[header]
     info: TestHeader,
 
-    #[program]
     program: ProgramLoader<TestInst>,
 
     #[device(0x01)]
@@ -223,7 +220,6 @@ struct HeaderMachine {
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct TextMachine {
-    #[program]
     program: ProgramLoader<TextInst, TextContext>,
 
     #[device(0x01)]
@@ -239,7 +235,6 @@ struct TextMachine {
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct TextNestedMachine {
-    #[program]
     program: ProgramLoader<TextInst, TextContext>,
 
     #[device(0x01)]
@@ -265,7 +260,6 @@ impl GeneratedComponent for TextNestedMachine {
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct TextHostMachine {
-    #[program]
     program: ProgramLoader<TextInst, TextContext>,
 
     #[device(0x01)]
@@ -277,14 +271,86 @@ struct TextHostMachine {
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct TextHeaderMachine {
-    #[header]
     info: TestHeader,
 
-    #[program]
     program: ProgramLoader<TextInst, TextContext>,
 
     #[device(0x01)]
     device: TextLoadedDevice,
+}
+
+impl LoadOwnBytecodeSection for Machine {
+    fn load_own_bytecode_section<'bc>(
+        &mut self,
+        input: BytecodeLoadInput<'bc>,
+    ) -> eyre::Result<()> {
+        self.program.load_bytecode_section(input)
+    }
+}
+
+impl LoadOwnBytecodeSection for NestedMachine {
+    fn load_own_bytecode_section<'bc>(
+        &mut self,
+        input: BytecodeLoadInput<'bc>,
+    ) -> eyre::Result<()> {
+        self.program.load_bytecode_section(input)
+    }
+}
+
+impl LoadOwnBytecodeSection for HostMachine {
+    fn load_own_bytecode_section<'bc>(
+        &mut self,
+        input: BytecodeLoadInput<'bc>,
+    ) -> eyre::Result<()> {
+        self.program.load_bytecode_section(input)
+    }
+}
+
+impl LoadOwnBytecodeSection for HeaderMachine {
+    fn load_own_bytecode_section<'bc>(
+        &mut self,
+        input: BytecodeLoadInput<'bc>,
+    ) -> eyre::Result<()> {
+        self.info = input.section.decode_header()?;
+        self.program.load_bytecode_section(input)
+    }
+}
+
+impl LoadOwnSstSection<TextContext> for TextMachine {
+    fn load_own_sst_section<'bc>(
+        &mut self,
+        input: SstLoadInput<'bc, TextContext>,
+    ) -> eyre::Result<()> {
+        self.program.load_sst_section(input)
+    }
+}
+
+impl LoadOwnSstSection<TextContext> for TextNestedMachine {
+    fn load_own_sst_section<'bc>(
+        &mut self,
+        input: SstLoadInput<'bc, TextContext>,
+    ) -> eyre::Result<()> {
+        self.program.load_sst_section(input)
+    }
+}
+
+impl LoadOwnSstSection<TextContext> for TextHostMachine {
+    fn load_own_sst_section<'bc>(
+        &mut self,
+        input: SstLoadInput<'bc, TextContext>,
+    ) -> eyre::Result<()> {
+        self.program.load_sst_section(input)
+    }
+}
+
+impl LoadOwnSstSection<TextContext> for TextHeaderMachine {
+    fn load_own_sst_section<'bc>(
+        &mut self,
+        input: SstLoadInput<'bc, TextContext>,
+    ) -> eyre::Result<()> {
+        self.info = input.section.parse_header()?;
+        self.program.load_sst_section(input)
+    }
 }
 
 #[test]
@@ -296,11 +362,13 @@ fn binary_generated_loadable_routes_program_and_child_sections() {
         &[TestInst::Nop],
         vec![(CHILD_NAME, child), (DEFAULT_CHILD_NAME, default_child)],
     );
-    let file: BytecodeFile<Vec<u8>> =
+    let file: BytecodeFile =
         BytecodeFile::from_bytes(binary_file_bytes(context_bytes(), root)).unwrap();
 
     let mut machine = Machine::default();
-    machine.load_section(LoadInput::from(&file)).unwrap();
+    machine
+        .load_bytecode_section(BytecodeLoadInput::from(&file))
+        .unwrap();
 
     assert_eq!(machine.program.code, vec![TestInst::Nop]);
     assert_eq!(
@@ -353,7 +421,7 @@ fn text_generated_loadable_routes_program_and_child_sections() {
     );
 
     let mut machine = TextMachine::default();
-    machine.load_section(LoadInput::from(&file)).unwrap();
+    machine.load_sst_section(SstLoadInput::from(&file)).unwrap();
 
     assert_eq!(machine.program.code, vec![TextInst::Nop]);
     assert_eq!(machine.child.program.code, vec![TextInst::Alt]);
@@ -382,11 +450,13 @@ fn binary_generated_loadable_parses_marked_header() {
     let mut header = Vec::new();
     TestHeader { cores: 8 }.write_bytes(&mut header).unwrap();
     let root = binary_section_bytes(&header, &[TestInst::Nop], vec![]);
-    let file: BytecodeFile<Vec<u8>> =
+    let file: BytecodeFile =
         BytecodeFile::from_bytes(binary_file_bytes(context_bytes(), root)).unwrap();
 
     let mut machine = HeaderMachine::default();
-    machine.load_section(LoadInput::from(&file)).unwrap();
+    machine
+        .load_bytecode_section(BytecodeLoadInput::from(&file))
+        .unwrap();
 
     assert_eq!(machine.info, TestHeader { cores: 8 });
     assert_eq!(machine.program.code, vec![TestInst::Nop]);
@@ -407,7 +477,7 @@ fn text_generated_loadable_parses_marked_header() {
     );
 
     let mut machine = TextHeaderMachine::default();
-    machine.load_section(LoadInput::from(&file)).unwrap();
+    machine.load_sst_section(SstLoadInput::from(&file)).unwrap();
 
     assert_eq!(machine.info, TestHeader { cores: 8 });
     assert_eq!(machine.program.code, vec![TextInst::Nop]);
@@ -422,11 +492,13 @@ fn binary_generated_loadable_routes_three_level_section_tree() {
         vec![(LEAF_NAME, leaf)],
     );
     let root = binary_section_bytes(b"", &[TestInst::Nop], vec![(MIDDLE_NAME, middle)]);
-    let file: BytecodeFile<Vec<u8>> =
+    let file: BytecodeFile =
         BytecodeFile::from_bytes(binary_file_bytes(context_bytes(), root)).unwrap();
 
     let mut machine = HostMachine::default();
-    machine.load_section(LoadInput::from(&file)).unwrap();
+    machine
+        .load_bytecode_section(BytecodeLoadInput::from(&file))
+        .unwrap();
 
     assert_eq!(machine.program.code, vec![TestInst::Nop]);
     assert_eq!(
@@ -489,7 +561,7 @@ fn text_generated_loadable_routes_three_level_section_tree() {
     );
 
     let mut machine = TextHostMachine::default();
-    machine.load_section(LoadInput::from(&file)).unwrap();
+    machine.load_sst_section(SstLoadInput::from(&file)).unwrap();
 
     assert_eq!(machine.program.code, vec![TextInst::Nop]);
     assert_eq!(machine.middle.program.code, vec![TextInst::Alt]);
@@ -529,11 +601,13 @@ fn text_generated_loadable_routes_three_level_section_tree() {
 #[test]
 fn binary_generated_loadable_allows_missing_marked_children() {
     let root = binary_section_bytes(b"", &[TestInst::Nop], vec![]);
-    let file: BytecodeFile<Vec<u8>> =
+    let file: BytecodeFile =
         BytecodeFile::from_bytes(binary_file_bytes(context_bytes(), root)).unwrap();
     let mut machine = Machine::default();
 
-    machine.load_section(LoadInput::from(&file)).unwrap();
+    machine
+        .load_bytecode_section(BytecodeLoadInput::from(&file))
+        .unwrap();
 
     assert_eq!(machine.program.code, vec![TestInst::Nop]);
     assert!(machine.child.program.code.is_empty());
@@ -554,7 +628,7 @@ fn text_generated_loadable_allows_missing_marked_children() {
     );
     let mut machine = TextMachine::default();
 
-    machine.load_section(LoadInput::from(&file)).unwrap();
+    machine.load_sst_section(SstLoadInput::from(&file)).unwrap();
 
     assert_eq!(machine.program.code, vec![TextInst::Nop]);
     assert!(machine.child.program.code.is_empty());
@@ -567,11 +641,13 @@ fn text_generated_loadable_allows_missing_marked_children() {
 fn binary_generated_loadable_rejects_unexpected_direct_children() {
     let extra = binary_section_bytes(b"", &[], vec![]);
     let root = binary_section_bytes(b"", &[TestInst::Nop], vec![(EXTRA_NAME, extra)]);
-    let file: BytecodeFile<Vec<u8>> =
+    let file: BytecodeFile =
         BytecodeFile::from_bytes(binary_file_bytes(context_bytes(), root)).unwrap();
     let mut machine = Machine::default();
 
-    let err = machine.load_section(LoadInput::from(&file)).unwrap_err();
+    let err = machine
+        .load_bytecode_section(BytecodeLoadInput::from(&file))
+        .unwrap_err();
 
     assert!(err.to_string().contains("unexpected child section"));
 }
@@ -594,7 +670,9 @@ fn text_generated_loadable_rejects_unexpected_direct_children() {
     );
     let mut machine = TextMachine::default();
 
-    let err = machine.load_section(LoadInput::from(&file)).unwrap_err();
+    let err = machine
+        .load_sst_section(SstLoadInput::from(&file))
+        .unwrap_err();
 
     assert!(err.to_string().contains("unexpected child section"));
 }
@@ -612,15 +690,15 @@ fn binary_file_bytes(context: Vec<u8>, root: Vec<u8>) -> Vec<u8> {
     bytes
 }
 
-fn text_file(section_names: &[&str], sections: &str) -> BytecodeFile<String, TextContext> {
+fn text_file(section_names: &[&str], sections: &str) -> SstFile<TextContext> {
     let context = section_names.join("\n");
     let context = if context.is_empty() {
         String::new()
     } else {
         format!("{context}\n")
     };
-    BytecodeFile::<String, TextContext>::from_text(&format!(
-        "vhbc{VERSION}\n\n.global:\n{context}.global.\n\n{sections}"
+    SstFile::<TextContext>::from_text(&format!(
+        "sst v{VERSION}\n\n.global:\n{context}.global.\n\n{sections}"
     ))
     .unwrap()
 }

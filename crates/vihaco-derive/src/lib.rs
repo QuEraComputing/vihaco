@@ -37,10 +37,7 @@ pub fn composite(_attr: TokenStream, item: TokenStream) -> TokenStream {
         for field in &mut fields.named {
             field.attrs.retain(|attr| {
                 let path = attr.path();
-                !(path.is_ident("device")
-                    || path.is_ident("program")
-                    || path.is_ident("loadable")
-                    || path.is_ident("header"))
+                !(path.is_ident("device") || path.is_ident("loadable"))
             });
         }
     }

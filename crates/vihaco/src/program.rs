@@ -7,7 +7,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use chumsky::{error::Simple, extra, prelude::*};
 
 use crate::{
-    binary::{BytecodeContext, ConstantId},
+    binary::{BytecodeGlobalContext, ConstantId, SectionNameResolver, SstGlobalContext},
     module::{FunctionInfo, LabelInfo, Parameter, Signature, SourceSymbolInfo},
     traits::{FromBytes, FromText},
 };
@@ -91,19 +91,27 @@ where
     }
 }
 
-impl<V, Ty> BytecodeContext for ProgramContext<V, Ty>
+impl<V, Ty> SectionNameResolver for ProgramContext<V, Ty> {
+    fn section_name(&self, index: u32) -> Option<&str> {
+        self.strings.get(index as usize).map(String::as_str)
+    }
+}
+
+impl<V, Ty> BytecodeGlobalContext for ProgramContext<V, Ty>
 where
-    V: FromBytes + FromText,
-    Ty: FromBytes + FromText,
+    V: FromBytes,
+    Ty: FromBytes,
 {
     fn from_bytes(bytes: &[u8]) -> eyre::Result<Self> {
         ProgramContext::from_bytes(bytes)
     }
+}
 
-    fn section_name(&self, index: u32) -> Option<&str> {
-        self.strings.get(index as usize).map(String::as_str)
-    }
-
+impl<V, Ty> SstGlobalContext for ProgramContext<V, Ty>
+where
+    V: FromText,
+    Ty: FromText,
+{
     fn from_text(text: &str) -> eyre::Result<Self> {
         ProgramContext::from_text(text)
     }

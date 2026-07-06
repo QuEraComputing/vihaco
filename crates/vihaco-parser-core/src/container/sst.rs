@@ -6,18 +6,17 @@ use std::{collections::BTreeSet, ops::Range};
 use chumsky::{error::Simple, extra, prelude::*};
 use eyre::Result;
 
-use crate::binary::common::validate_local_section_name;
-
 use super::{
-    format::VERSION,
-    section::{SectionNode, SectionPath},
+    section::{validate_local_section_name, SectionNode, SectionPath},
+    ParsedFile,
 };
 
 type ParseExtra<'src> = extra::Err<Simple<'src, char>>;
 const ROOT_SECTION_NAME: &str = "root";
+pub const VERSION: u16 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum LineKind {
+enum LineKind {
     Version(u16),
     BeginContext,
     EndContext,
@@ -32,42 +31,74 @@ pub(super) enum LineKind {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct SourceLine {
-    pub(super) kind: LineKind,
-    pub(super) full: Range<usize>,
-    pub(super) indent: usize,
-    pub(super) number: usize,
+struct SourceLine {
+    kind: LineKind,
+    full: Range<usize>,
+    indent: usize,
+    number: usize,
 }
 
-pub(super) fn verify_version(version: u16) -> Result<()> {
+pub fn parse_file(text: &str) -> Result<ParsedFile> {
+    let lines = lex_lines(text)?;
+    let mut cursor = LineCursor::new(&lines);
+
+    let Some(version) = cursor.next_significant() else {
+        return Err(eyre::eyre!("expected `sst v{}`", VERSION));
+    };
+    if version.indent != 0 {
+        return Err(line_error(version, "version marker must not be indented"));
+    }
+    match &version.kind {
+        LineKind::Version(version) => verify_version(*version)?,
+        _ => return Err(line_error(version, format!("expected `sst v{}`", VERSION))),
+    }
+
+    let Some(context_begin) = cursor.next_significant() else {
+        return Err(eyre::eyre!("expected `.global:`"));
+    };
+    if context_begin.kind != LineKind::BeginContext {
+        return Err(line_error(context_begin, "expected `.global:`"));
+    }
+    if context_begin.indent != 0 {
+        return Err(line_error(
+            context_begin,
+            "context start must not be indented",
+        ));
+    }
+
+    let context_start = context_begin.full.end;
+    let context_end = consume_context(&mut cursor)?;
+
+    let Some(section_begin) = cursor.peek_significant() else {
+        return Err(eyre::eyre!("expected root section"));
+    };
+    let root = parse_section(
+        &mut cursor,
+        SstSectionParseInfo {
+            parent: None,
+            begin: section_begin,
+        },
+    )?;
+
+    if let Some(extra) = cursor.next_significant() {
+        return Err(line_error(extra, "unexpected content after root section"));
+    }
+
+    Ok(ParsedFile {
+        context: context_start..context_end,
+        root,
+    })
+}
+
+fn verify_version(version: u16) -> Result<()> {
     if version != VERSION {
         return Err(eyre::eyre!(
-            "unsupported bytecode version {} (expected {})",
+            "unsupported sst version {} (expected {})",
             version,
             VERSION
         ));
     }
     Ok(())
-}
-
-pub fn parse_instruction_stream<'src, I>(text: &'src str) -> Result<Vec<I>>
-where
-    I: crate::traits::Instruction + vihaco_parser_core::Parse<'src>,
-{
-    use chumsky::IterParser as _;
-
-    if text.trim().is_empty() {
-        return Ok(Vec::new());
-    }
-
-    <I as vihaco_parser_core::Parse<'src>>::parser()
-        .padded()
-        .repeated()
-        .collect::<Vec<_>>()
-        .then_ignore(end())
-        .parse(text)
-        .into_result()
-        .map_err(|errors| eyre::eyre!("failed to parse text instruction stream: {:?}", errors))
 }
 
 fn parse_line(line: &str) -> Result<LineKind> {
@@ -84,7 +115,9 @@ fn line_parser<'src>() -> impl Parser<'src, &'src str, LineKind, ParseExtra<'src
         .at_least(1)
         .collect::<String>();
 
-    let version = just("vhbc")
+    let version = just("sst")
+        .then_ignore(one_of(" \t").repeated().at_least(1))
+        .then_ignore(just('v'))
         .ignore_then(text::int(10).try_map(|version: &str, span| {
             version.parse::<u16>().map_err(|_| Simple::new(None, span))
         }))
@@ -150,7 +183,7 @@ fn format_parse_errors(errors: Vec<Simple<'_, char>>) -> eyre::Report {
     eyre::eyre!("{error}")
 }
 
-pub(super) fn lex_lines(text: &str) -> Result<Vec<SourceLine>> {
+fn lex_lines(text: &str) -> Result<Vec<SourceLine>> {
     let mut lines = Vec::new();
     let mut start = 0;
     for (index, line) in text.split_inclusive('\n').enumerate() {
@@ -197,23 +230,23 @@ pub(super) fn lex_lines(text: &str) -> Result<Vec<SourceLine>> {
     Ok(lines)
 }
 
-pub(super) struct LineCursor<'a> {
+struct LineCursor<'a> {
     lines: &'a [SourceLine],
     next: usize,
 }
 
 impl<'a> LineCursor<'a> {
-    pub(super) fn new(lines: &'a [SourceLine]) -> Self {
+    fn new(lines: &'a [SourceLine]) -> Self {
         Self { lines, next: 0 }
     }
 
-    pub(super) fn peek_significant(&self) -> Option<&'a SourceLine> {
+    fn peek_significant(&self) -> Option<&'a SourceLine> {
         self.lines[self.next..]
             .iter()
             .find(|line| line.kind != LineKind::Blank)
     }
 
-    pub(super) fn next_significant(&mut self) -> Option<&'a SourceLine> {
+    fn next_significant(&mut self) -> Option<&'a SourceLine> {
         while let Some(line) = self.lines.get(self.next) {
             self.next += 1;
             if line.kind != LineKind::Blank {
@@ -224,7 +257,7 @@ impl<'a> LineCursor<'a> {
     }
 }
 
-pub(super) fn consume_context(cursor: &mut LineCursor<'_>) -> Result<usize> {
+fn consume_context(cursor: &mut LineCursor<'_>) -> Result<usize> {
     while let Some(line) = cursor.next_significant() {
         if line.kind == LineKind::EndContext {
             ensure_indent(line, 0, "context end")?;
@@ -235,22 +268,22 @@ pub(super) fn consume_context(cursor: &mut LineCursor<'_>) -> Result<usize> {
     Err(eyre::eyre!("unterminated context; expected `.global.`"))
 }
 
-pub(super) struct TextSectionParseInfo<'a> {
-    pub(super) parent: Option<ParentSection<'a>>,
-    pub(super) begin: &'a SourceLine,
+struct SstSectionParseInfo<'a> {
+    parent: Option<ParentSection<'a>>,
+    begin: &'a SourceLine,
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct ParentSection<'a> {
-    pub(super) path: &'a SectionPath,
-    pub(super) indent: usize,
+struct ParentSection<'a> {
+    path: &'a SectionPath,
+    indent: usize,
 }
 
-pub(super) fn parse_section(
+fn parse_section(
     cursor: &mut LineCursor<'_>,
-    info: TextSectionParseInfo<'_>,
+    info: SstSectionParseInfo<'_>,
 ) -> Result<SectionNode> {
-    let TextSectionParseInfo { parent, begin } = info;
+    let SstSectionParseInfo { parent, begin } = info;
     let section_name = match &begin.kind {
         LineKind::BeginSection(name) => name.clone(),
         _ => return Err(line_error(begin, "expected section")),
@@ -361,7 +394,7 @@ pub(super) fn parse_section(
                 }
                 let child = parse_section(
                     cursor,
-                    TextSectionParseInfo {
+                    SstSectionParseInfo {
                         parent: Some(ParentSection {
                             path: &path,
                             indent: section_indent,
@@ -459,6 +492,6 @@ fn end_marker(label: &str, section_name: &str) -> String {
     }
 }
 
-pub(super) fn line_error(line: &SourceLine, message: impl std::fmt::Display) -> eyre::Report {
+fn line_error(line: &SourceLine, message: impl std::fmt::Display) -> eyre::Report {
     eyre::eyre!("line {}: {}", line.number, message)
 }

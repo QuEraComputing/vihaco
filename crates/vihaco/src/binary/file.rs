@@ -1,62 +1,23 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-use std::io::Cursor;
-
-use crate::binary::text::{
-    LineCursor, LineKind, TextSectionParseInfo, consume_context, lex_lines,
-    line_error as text_line_error, parse_section as parse_text_section, verify_version,
-};
 use crate::program::ProgramContext;
 
 use super::{
-    context::{BytecodeContext, ContextHandle},
-    format::BytecodeHeader,
-    parser::{SectionParseInfo, checked_add, parse_section},
-    section::{SectionNode, SectionPath, SectionView},
+    context::{BytecodeGlobalContext, ContextHandle, SstGlobalContext},
+    section::{BytecodeSectionView, SstSectionView},
 };
-
-/// We're sealing [`FileContents`] for two reasons:
-///
-/// 1. we don't want downstream authors to implement their own file content
-///    support (yet? maybe in the future we can expose an API), and
-/// 2. we don't want to use an enum for [`BytecodeFile`] when we know the
-///    type of our file's contents statically; when dealing with a
-///    [`BytecodeFile`] we'd have to constantly destruct
-///
-/// https://rust-lang.github.io/api-guidelines/future-proofing.html#sealed-traits-protect-against-downstream-implementations-c-sealed
-mod private {
-    pub trait Sealed {}
-
-    impl Sealed for Vec<u8> {}
-    impl Sealed for String {}
-}
-
-pub trait FileContents: private::Sealed {}
-
-impl FileContents for Vec<u8> {}
-impl FileContents for String {}
+use vihaco_parser_core::container::SectionNode;
 
 /// A parsed bytecode file.
-///
-/// This connects the raw bytes of the file with the parsed global context
-/// and the tree of section nodes.
 #[derive(Debug, Clone)]
-pub struct BytecodeFile<F = Vec<u8>, C = ProgramContext>
-where
-    F: FileContents,
-    C: BytecodeContext,
-{
-    contents: F,
+pub struct BytecodeFile<C = ProgramContext> {
+    contents: Vec<u8>,
     context: ContextHandle<C>,
     root: SectionNode,
 }
 
-impl<F, C> BytecodeFile<F, C>
-where
-    F: FileContents,
-    C: BytecodeContext,
-{
+impl<C> BytecodeFile<C> {
     pub fn context(&self) -> &C {
         self.context.get()
     }
@@ -65,133 +26,75 @@ where
         self.context.clone()
     }
 
-    /// The view of the root of the section tree.
-    pub fn root(&self) -> SectionView<'_, F, C> {
-        SectionView {
-            contents: &self.contents,
-            context: self.context.clone(),
-            node: &self.root,
-        }
+    /// The view of the root of the bytecode section tree.
+    pub fn root(&self) -> BytecodeSectionView<'_, C> {
+        BytecodeSectionView::from_parts(self.contents.as_slice(), self.context.clone(), &self.root)
     }
 }
 
-pub type BinaryBytecodeFile<C = ProgramContext> = BytecodeFile<Vec<u8>, C>;
-
-impl<C> BinaryBytecodeFile<C>
+impl<C> BytecodeFile<C>
 where
-    C: BytecodeContext,
+    C: BytecodeGlobalContext,
 {
-    /// The public entry point for the parsing of a bytecode file.
-    ///
-    /// This will automatically split a multi-section file into
-    /// each individual section node and send it to its corresponding
-    /// composite loader marked with `#[program]`.
-    pub fn from_bytes(bytes: Vec<u8>) -> eyre::Result<BinaryBytecodeFile<C>> {
-        let mut cursor = Cursor::new(bytes.as_slice());
-        let header = BytecodeHeader::read_from(&mut cursor)?;
-
-        let context_start = BytecodeHeader::ENCODED_LEN;
-        let context_end = checked_add(context_start, header.context_len, "program context end")?;
+    /// Parse a bytecode file from bytes.
+    pub fn from_bytes(bytes: Vec<u8>) -> eyre::Result<Self> {
+        let context_range = vihaco_parser_core::container::bytecode::context_range(&bytes)?;
         let context = C::from_bytes(
             bytes
-                .get(context_start..context_end)
+                .get(context_range)
                 .ok_or_else(|| eyre::eyre!("program context is out of bounds"))?,
         )?;
-        let root = parse_section(
-            &bytes,
-            &context,
-            SectionParseInfo {
-                start: context_end,
-                path: SectionPath::root(),
-            },
-        )?;
-        if root.section.end != bytes.len() {
-            return Err(eyre::eyre!(
-                "bytecode length mismatch: root section describes {} bytes, file has {} bytes",
-                root.section.end,
-                bytes.len()
-            ));
-        }
+        let parsed = vihaco_parser_core::container::bytecode::parse_file(&bytes, |index| {
+            context.section_name(index).map(ToOwned::to_owned)
+        })?;
 
         Ok(BytecodeFile {
             contents: bytes,
             context: ContextHandle::new(context),
-            root,
+            root: parsed.root,
         })
     }
 }
 
-pub type TextBytecodeFile<C = ProgramContext> = BytecodeFile<String, C>;
+/// A parsed SST file.
+#[derive(Debug, Clone)]
+pub struct SstFile<C = ProgramContext> {
+    contents: String,
+    context: ContextHandle<C>,
+    root: SectionNode,
+}
 
-impl<C> TextBytecodeFile<C>
+impl<C> SstFile<C> {
+    pub fn context(&self) -> &C {
+        self.context.get()
+    }
+
+    pub fn context_handle(&self) -> ContextHandle<C> {
+        self.context.clone()
+    }
+
+    /// The view of the root of the SST section tree.
+    pub fn root(&self) -> SstSectionView<'_, C> {
+        SstSectionView::from_parts(self.contents.as_str(), self.context.clone(), &self.root)
+    }
+}
+
+impl<C> SstFile<C>
 where
-    C: BytecodeContext,
+    C: SstGlobalContext,
 {
-    pub fn from_text(text: &str) -> eyre::Result<TextBytecodeFile<C>> {
-        let lines = lex_lines(text)?;
-        let mut cursor = LineCursor::new(&lines);
-
-        let Some(version) = cursor.next_significant() else {
-            return Err(eyre::eyre!("expected `vhbc{}`", super::format::VERSION));
-        };
-        if version.indent != 0 {
-            return Err(text_line_error(
-                version,
-                "version marker must not be indented",
-            ));
-        }
-        match &version.kind {
-            LineKind::Version(version) => verify_version(*version)?,
-            _ => {
-                return Err(text_line_error(
-                    version,
-                    format!("expected `vhbc{}`", super::format::VERSION),
-                ));
-            }
-        }
-
-        let Some(context_begin) = cursor.next_significant() else {
-            return Err(eyre::eyre!("expected `.global:`"));
-        };
-        if context_begin.kind != LineKind::BeginContext {
-            return Err(text_line_error(context_begin, "expected `.global:`"));
-        }
-        if context_begin.indent != 0 {
-            return Err(text_line_error(
-                context_begin,
-                "context start must not be indented",
-            ));
-        }
-
-        let context_start = context_begin.full.end;
-        let context_end = consume_context(&mut cursor)?;
+    /// Parse an SST file from text.
+    pub fn from_text(text: &str) -> eyre::Result<Self> {
+        let parsed = vihaco_parser_core::container::sst::parse_file(text)?;
         let context = C::from_text(
-            text.get(context_start..context_end)
+            text.get(parsed.context)
                 .ok_or_else(|| eyre::eyre!("program context is out of bounds"))?,
         )?;
 
-        let Some(section_begin) = cursor.peek_significant() else {
-            return Err(eyre::eyre!("expected root section"));
-        };
-        let root = parse_text_section(
-            &mut cursor,
-            TextSectionParseInfo {
-                parent: None,
-                begin: section_begin,
-            },
-        )?;
-
-        if let Some(extra) = cursor.next_significant() {
-            return Err(text_line_error(
-                extra,
-                "unexpected content after root section",
-            ));
-        }
-
-        Ok(BytecodeFile {
+        Ok(SstFile {
             contents: text.to_string(),
             context: ContextHandle::new(context),
-            root,
+            root: parsed.root,
         })
     }
 }

@@ -209,50 +209,16 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
     };
 
     let mut devices = Vec::new();
-    let mut program_field: Option<(syn::Ident, syn::Type)> = None;
-    let mut header_field: Option<(syn::Ident, syn::Type)> = None;
     let mut loadables = Vec::<SectionLoadField>::new();
 
     for field in fields {
         let field_ident = field.ident.expect("named field");
         let field_ty = field.ty;
         let mut is_device = false;
-        let mut is_program = false;
-        let mut is_header = false;
         let mut loadable_args = None;
         for attr in &field.attrs {
             let path = attr.path();
-            if path.is_ident("program") {
-                if let Some((existing, _)) = &program_field {
-                    return Err(syn::Error::new(
-                        field_ident.span(),
-                        format!(
-                            "duplicate program field `{}`; `{}` is already marked #[program]",
-                            field_ident, existing
-                        ),
-                    ));
-                }
-                is_program = true;
-                program_field = Some((field_ident.clone(), field_ty.clone()));
-            } else if path.is_ident("header") {
-                if !matches!(&attr.meta, syn::Meta::Path(_)) {
-                    return Err(syn::Error::new(
-                        attr.span(),
-                        "header attribute does not take arguments",
-                    ));
-                }
-                if let Some((existing, _)) = &header_field {
-                    return Err(syn::Error::new(
-                        field_ident.span(),
-                        format!(
-                            "duplicate header field `{}`; `{}` is already marked #[header]",
-                            field_ident, existing
-                        ),
-                    ));
-                }
-                is_header = true;
-                header_field = Some((field_ident.clone(), field_ty.clone()));
-            } else if path.is_ident("device") {
+            if path.is_ident("device") {
                 is_device = true;
                 let args = attr.parse_args::<DeviceArgs>()?;
                 devices.push((field_ident.clone(), field_ty.clone(), args));
@@ -270,30 +236,12 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
                 });
             }
         }
-        if is_header && (is_program || is_device || loadable_args.is_some()) {
-            return Err(syn::Error::new(
-                field_ident.span(),
-                format!(
-                    "field `{}` marked #[header] cannot also be marked #[program], #[device(...)] or #[loadable]",
-                    field_ident
-                ),
-            ));
-        }
         if let Some(args) = loadable_args {
             if !is_device {
                 return Err(syn::Error::new(
                     field_ident.span(),
                     format!(
                         "field `{}` marked #[loadable] must also be marked #[device(...)]",
-                        field_ident
-                    ),
-                ));
-            }
-            if is_program {
-                return Err(syn::Error::new(
-                    field_ident.span(),
-                    format!(
-                        "field `{}` cannot be both #[program] and #[loadable]",
                         field_ident
                     ),
                 ));
@@ -415,43 +363,16 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
         })
         .collect();
 
-    let program_impl = if let Some((ref field_name, ref field_ty)) = program_field {
-        quote! {
-            impl #impl_generics ::vihaco::traits::ProgramCounter for #ident #ty_generics #where_clause {
-                type Instruction = <#field_ty as ::vihaco::traits::ProgramCounter>::Instruction;
-
-                fn pc(&self) -> u32 {
-                    self.#field_name.pc()
-                }
-
-                fn pc_mut(&mut self) -> &mut u32 {
-                    self.#field_name.pc_mut()
-                }
-
-                fn get_instruction(&self, pc: u32) -> eyre::Result<&Self::Instruction> {
-                    self.#field_name.get_instruction(pc)
-                }
-            }
-        }
-    } else {
-        quote! {}
-    };
-
     let bc_lifetime = Lifetime::new("'__vihaco_bc", proc_macro2::Span::call_site());
     let loadable_context_param = format_ident!("__VihacoContext");
     let mut loadable_predicates = Vec::<TokenStream2>::new();
-    loadable_predicates.push(quote! { #loadable_context_param: ::vihaco::binary::BytecodeContext });
-    if let Some((_, header_ty)) = &header_field {
-        loadable_predicates.push(quote! { #header_ty: ::vihaco::binary::CompositeHeader });
-    }
-    if let Some((_, program_ty)) = &program_field {
-        loadable_predicates
-            .push(quote! { #program_ty: ::vihaco::loader::LoadSection<::std::vec::Vec<u8>, #loadable_context_param> });
-    }
+    loadable_predicates.push(
+        quote! { #ident #ty_generics: ::vihaco::loader::LoadOwnBytecodeSection<#loadable_context_param> },
+    );
     for loadable in &loadables {
         let ty = &loadable.ty;
         loadable_predicates
-            .push(quote! { #ty: ::vihaco::loader::LoadSection<::std::vec::Vec<u8>, #loadable_context_param> });
+            .push(quote! { #ty: ::vihaco::loader::LoadBytecodeSection<#loadable_context_param> });
     }
     let loadable_method_where = method_where_clause(&loadable_predicates);
 
@@ -470,33 +391,6 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
     let (loadable_impl_generics, _, loadable_where_clause) =
         loadable_impl_generics.split_for_impl();
 
-    let program_load = if let Some((field_name, field_ty)) = &program_field {
-        quote! {
-            <#field_ty as ::vihaco::loader::LoadSection<::std::vec::Vec<u8>, #loadable_context_param>>::load_section(
-                &mut self.#field_name,
-                input.clone(),
-            )?;
-        }
-    } else {
-        quote! {
-            if !input.section.bytecode().is_empty() {
-                return Err(::eyre::eyre!(
-                    "section `{}` has bytecode but `{}` has no #[program] field",
-                    input.section.display_path(),
-                    stringify!(#ident),
-                ));
-            }
-        }
-    };
-
-    let header_load = if let Some((field_name, field_ty)) = &header_field {
-        quote! {
-            self.#field_name = input.section.parse_header::<#field_ty>()?;
-        }
-    } else {
-        quote! {}
-    };
-
     let loadable_names: Vec<_> = loadables
         .iter()
         .map(|loadable| loadable.section_name.clone())
@@ -509,9 +403,9 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
             let name = &loadable.section_name;
             quote! {
                 if let ::std::option::Option::Some(__vihaco_child) = input.section.child(#name) {
-                    <#ty as ::vihaco::loader::LoadSection<::std::vec::Vec<u8>, #loadable_context_param>>::load_section(
+                    <#ty as ::vihaco::loader::LoadBytecodeSection<#loadable_context_param>>::load_bytecode_section(
                         &mut self.#field,
-                        ::vihaco::loader::LoadInput::from(__vihaco_child)
+                        ::vihaco::loader::BytecodeLoadInput::from(__vihaco_child)
                     )?;
                 }
             }
@@ -520,14 +414,16 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
 
     let loadable_impl = quote! {
         impl #impl_generics #ident #ty_generics #where_clause {
-            pub fn load_generated_sections<#bc_lifetime, #loadable_context_param>(
+            pub fn load_generated_bytecode_sections<#bc_lifetime, #loadable_context_param>(
                 &mut self,
-                input: ::vihaco::loader::LoadInput<#bc_lifetime, ::std::vec::Vec<u8>, #loadable_context_param>,
+                input: ::vihaco::loader::BytecodeLoadInput<#bc_lifetime, #loadable_context_param>,
             ) -> ::eyre::Result<()>
             #loadable_method_where
             {
-                #header_load
-                #program_load
+                ::vihaco::loader::LoadOwnBytecodeSection::<#loadable_context_param>::load_own_bytecode_section(
+                    self,
+                    input.clone(),
+                )?;
 
                 let __vihaco_expected_children: &[&str] = &[#(#loadable_names),*];
 
@@ -555,35 +451,27 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
             }
         }
 
-        impl #loadable_impl_generics ::vihaco::loader::LoadSection<::std::vec::Vec<u8>, #loadable_context_param>
+        impl #loadable_impl_generics ::vihaco::loader::LoadBytecodeSection<#loadable_context_param>
             for #ident #ty_generics
             #loadable_where_clause
         {
-            fn load_section<#bc_lifetime>(
+            fn load_bytecode_section<#bc_lifetime>(
                 &mut self,
-                input: ::vihaco::loader::LoadInput<#bc_lifetime, ::std::vec::Vec<u8>, #loadable_context_param>,
+                input: ::vihaco::loader::BytecodeLoadInput<#bc_lifetime, #loadable_context_param>,
             ) -> ::eyre::Result<()> {
-                self.load_generated_sections(input)
+                self.load_generated_bytecode_sections(input)
             }
         }
     };
 
     let mut text_loadable_predicates = Vec::<TokenStream2>::new();
-    text_loadable_predicates
-        .push(quote! { #loadable_context_param: ::vihaco::binary::BytecodeContext });
-    if let Some((_, header_ty)) = &header_field {
-        text_loadable_predicates.push(quote! { #header_ty: ::std::str::FromStr });
-        text_loadable_predicates
-            .push(quote! { <#header_ty as ::std::str::FromStr>::Err: ::std::fmt::Display });
-    }
-    if let Some((_, program_ty)) = &program_field {
-        text_loadable_predicates
-            .push(quote! { #program_ty: ::vihaco::loader::LoadSection<::std::string::String, #loadable_context_param> });
-    }
+    text_loadable_predicates.push(
+        quote! { #ident #ty_generics: ::vihaco::loader::LoadOwnSstSection<#loadable_context_param> },
+    );
     for loadable in &loadables {
         let ty = &loadable.ty;
         text_loadable_predicates
-            .push(quote! { #ty: ::vihaco::loader::LoadSection<::std::string::String, #loadable_context_param> });
+            .push(quote! { #ty: ::vihaco::loader::LoadSstSection<#loadable_context_param> });
     }
     let text_loadable_method_where = method_where_clause(&text_loadable_predicates);
 
@@ -602,45 +490,6 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
     let (text_loadable_impl_generics, _, text_loadable_where_clause) =
         text_loadable_impl_generics.split_for_impl();
 
-    let text_program_load = if let Some((field_name, field_ty)) = &program_field {
-        quote! {
-            <#field_ty as ::vihaco::loader::LoadSection<::std::string::String, #loadable_context_param>>::load_section(
-                &mut self.#field_name,
-                input.clone(),
-            )?;
-        }
-    } else {
-        quote! {
-            if !input.section.text().trim().is_empty() {
-                return Err(::eyre::eyre!(
-                    "section `{}` has bytecode but `{}` has no #[program] field",
-                    input.section.display_path(),
-                    stringify!(#ident),
-                ));
-            }
-        }
-    };
-
-    let text_header_load = if let Some((field_name, field_ty)) = &header_field {
-        quote! {
-            self.#field_name = input
-                .section
-                .header_text()
-                .trim()
-                .parse::<#field_ty>()
-                .map_err(|__vihaco_err| {
-                    ::eyre::eyre!(
-                        "failed to parse section `{}` header for `{}`: {}",
-                        input.section.display_path(),
-                        stringify!(#field_ty),
-                        __vihaco_err,
-                    )
-                })?;
-        }
-    } else {
-        quote! {}
-    };
-
     let text_child_loads: Vec<_> = loadables
         .iter()
         .map(|loadable| {
@@ -649,9 +498,9 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
             let name = &loadable.section_name;
             quote! {
                 if let ::std::option::Option::Some(__vihaco_child) = input.section.child(#name) {
-                    <#ty as ::vihaco::loader::LoadSection<::std::string::String, #loadable_context_param>>::load_section(
+                    <#ty as ::vihaco::loader::LoadSstSection<#loadable_context_param>>::load_sst_section(
                         &mut self.#field,
-                        ::vihaco::loader::LoadInput::from(__vihaco_child)
+                        ::vihaco::loader::SstLoadInput::from(__vihaco_child)
                     )?;
                 }
             }
@@ -660,14 +509,16 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
 
     let text_loadable_impl = quote! {
         impl #impl_generics #ident #ty_generics #where_clause {
-            pub fn load_generated_text_sections<#bc_lifetime, #loadable_context_param>(
+            pub fn load_generated_sst_sections<#bc_lifetime, #loadable_context_param>(
                 &mut self,
-                input: ::vihaco::loader::LoadInput<#bc_lifetime, ::std::string::String, #loadable_context_param>,
+                input: ::vihaco::loader::SstLoadInput<#bc_lifetime, #loadable_context_param>,
             ) -> ::eyre::Result<()>
             #text_loadable_method_where
             {
-                #text_header_load
-                #text_program_load
+                ::vihaco::loader::LoadOwnSstSection::<#loadable_context_param>::load_own_sst_section(
+                    self,
+                    input.clone(),
+                )?;
 
                 let __vihaco_expected_children: &[&str] = &[#(#loadable_names),*];
 
@@ -695,15 +546,15 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
             }
         }
 
-        impl #text_loadable_impl_generics ::vihaco::loader::LoadSection<::std::string::String, #loadable_context_param>
+        impl #text_loadable_impl_generics ::vihaco::loader::LoadSstSection<#loadable_context_param>
             for #ident #ty_generics
             #text_loadable_where_clause
         {
-            fn load_section<#bc_lifetime>(
+            fn load_sst_section<#bc_lifetime>(
                 &mut self,
-                input: ::vihaco::loader::LoadInput<#bc_lifetime, ::std::string::String, #loadable_context_param>,
+                input: ::vihaco::loader::SstLoadInput<#bc_lifetime, #loadable_context_param>,
             ) -> ::eyre::Result<()> {
-                self.load_generated_text_sections(input)
+                self.load_generated_sst_sections(input)
             }
         }
     };
@@ -731,7 +582,6 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
             }
         }
 
-        #program_impl
         #loadable_impl
         #text_loadable_impl
     })

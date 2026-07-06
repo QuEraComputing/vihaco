@@ -5,20 +5,30 @@ use std::sync::Arc;
 
 use crate::program::ProgramContext;
 
-/// The global context for a given bytecode file.
+/// Resolve section-name indexes stored in bytecode files.
 ///
-/// This should include all context needed for an entire section tree.
-/// Anything that should be shared across machines should be in a
-/// [`BytecodeContext`].
-pub trait BytecodeContext: Sized {
-    fn from_bytes(bytes: &[u8]) -> eyre::Result<Self>;
-
-    fn from_text(text: &str) -> eyre::Result<Self>;
-
+/// Bytecode child section entries store section names indirectly, so parsing a
+/// bytecode file needs a context object that can resolve those indexes.
+pub trait SectionNameResolver {
     fn section_name(&self, index: u32) -> Option<&str>;
 }
 
-/// The public handle for a bytecode context.
+/// A global context that can be decoded from bytecode.
+pub trait BytecodeGlobalContext: Sized + SectionNameResolver {
+    fn from_bytes(bytes: &[u8]) -> eyre::Result<Self>;
+}
+
+/// A global context that can be parsed from SST text.
+pub trait SstGlobalContext: Sized {
+    fn from_text(text: &str) -> eyre::Result<Self>;
+}
+
+/// A global context that supports both bytecode and SST representations.
+pub trait GlobalContext: BytecodeGlobalContext + SstGlobalContext {}
+
+impl<T> GlobalContext for T where T: BytecodeGlobalContext + SstGlobalContext {}
+
+/// The public handle for a global context.
 ///
 /// To avoid needing explicit lifetimes permeating throughout
 /// machine definitions, we wrap the context in an [`Arc`] to drop it

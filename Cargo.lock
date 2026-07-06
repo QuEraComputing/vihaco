@@ -663,7 +663,9 @@ dependencies = [
 name = "vihaco-parser-core"
 version = "0.1.1"
 dependencies = [
+ "byteorder",
  "chumsky",
+ "eyre",
 ]
 
 [[package]]

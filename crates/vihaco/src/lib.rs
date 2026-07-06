@@ -5,7 +5,7 @@ extern crate self as vihaco;
 
 #[doc(hidden)]
 pub mod __private;
-pub mod binary;
+mod binary;
 pub mod color;
 pub mod effect;
 pub mod frame;
@@ -27,15 +27,20 @@ pub mod value {
 }
 
 pub use binary::{
-    BinaryBytecodeFile, BinarySectionView, BytecodeContext, BytecodeFile, CompositeHeader,
-    ConstantId, ContextHandle, SectionPath, SectionView, TextBytecodeFile, TextSectionView,
+    BytecodeFile, BytecodeGlobalContext, BytecodeHeader, BytecodeSectionView, ConstantId,
+    ContextHandle, FLAGS, GlobalContext, MAGIC, SectionNameResolver, SectionPath, SstFile,
+    SstGlobalContext, SstHeader, SstSectionView, VERSION, WriteBytecodeHeader,
+    decode_instruction_stream, parse_instruction_stream,
 };
 pub use effect::Effects;
 pub use instruction_syntax::{
     CanonicalInstructionSyntax, CanonicalInstructionVariantSyntax, InstructionSugarSyntax,
     InstructionSugarVariantSyntax, OperandKind, SugarOperandKind,
 };
-pub use loader::{LoadInput, LoadSection, ModuleProgramLoader, ProgramLoader};
+pub use loader::{
+    BytecodeLoadInput, LoadBytecodeSection, LoadOwnBytecodeSection, LoadOwnSstSection,
+    LoadSstSection, ModuleProgramLoader, ProgramLoader, SstLoadInput,
+};
 pub use macros::{Instruction, Message, component, composite, observe};
 pub use program::{ProgramContext, ProgramGlobals, Type, Value};
 pub use runtime::{
@@ -47,9 +52,9 @@ pub use traits::{GetProgramGlobal, Reset};
 #[cfg(test)]
 mod public_api_tests {
     use crate::{
-        BytecodeContext, EffectSink, Effects, GeneratedComponent, LoadSection, ProgramGlobals,
-        Reset,
-        binary::ConstantId,
+        BytecodeGlobalContext, BytecodeHeader, ConstantId, EffectSink, Effects, GeneratedComponent,
+        GlobalContext, LoadBytecodeSection, LoadOwnBytecodeSection, ProgramGlobals, Reset,
+        SectionNameResolver, SstGlobalContext, SstHeader, WriteBytecodeHeader,
         instruction::{FromBytes, OpCode, WriteBytes},
         module::FunctionInfo,
         observer::stdio::StdoutEffect,
@@ -61,23 +66,46 @@ mod public_api_tests {
         fn reset(&mut self) {}
     }
 
+    impl LoadOwnBytecodeSection for PublicReset {
+        fn load_own_bytecode_section<'bc>(
+            &mut self,
+            _input: crate::BytecodeLoadInput<'bc>,
+        ) -> eyre::Result<()> {
+            Ok(())
+        }
+    }
+
     #[test]
     fn crate_root_exports_new_traits() {
         fn require_effect_sink<S: EffectSink<()>>() {}
         fn require_reset<T: Reset>() {}
         fn require_instruction<T: FromBytes + OpCode + WriteBytes>() {}
-        fn require_bytecode_context<T: BytecodeContext>() {}
+        fn require_bytecode_header<T: BytecodeHeader>() {}
+        fn require_sst_header<T: SstHeader>() {}
+        fn require_write_bytecode_header<T: WriteBytecodeHeader>() {}
+        fn require_section_name_resolver<T: SectionNameResolver>() {}
+        fn require_bytecode_global_context<T: BytecodeGlobalContext>() {}
+        fn require_sst_global_context<T: SstGlobalContext>() {}
+        fn require_global_context<T: GlobalContext>() {}
         fn require_program_globals<T: ProgramGlobals>() {}
-        fn require_load_section<T: LoadSection>() {}
+        fn require_load_own_bytecode_section<T: LoadOwnBytecodeSection>() {}
+        fn require_load_bytecode_section<T: LoadBytecodeSection>() {}
         fn require_stdout_effect(_effect: StdoutEffect) {}
         fn require_metadata(_metadata: crate::CompositeMetadata) {}
 
         require_effect_sink::<Vec<()>>();
         require_reset::<PublicReset>();
         require_instruction::<u32>();
-        require_bytecode_context::<crate::ProgramContext>();
+        require_bytecode_header::<u32>();
+        require_sst_header::<crate::Value>();
+        require_write_bytecode_header::<u32>();
+        require_section_name_resolver::<crate::ProgramContext>();
+        require_bytecode_global_context::<crate::ProgramContext>();
+        require_sst_global_context::<crate::ProgramContext>();
+        require_global_context::<crate::ProgramContext>();
         require_program_globals::<crate::ProgramContext>();
-        require_load_section::<crate::ProgramLoader<()>>();
+        require_load_own_bytecode_section::<PublicReset>();
+        require_load_bytecode_section::<crate::ProgramLoader<()>>();
         let _constant = ConstantId(0);
         let _function: Option<FunctionInfo<crate::Type>> = None;
         require_stdout_effect(StdoutEffect(String::new()));

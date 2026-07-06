@@ -1,16 +1,18 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-use super::format::{
-    ChildSectionTableEntry, ChildSectionTableHeader, SectionBytecodeHeader, SectionFrame,
-};
 use super::*;
-use crate::binary::file::{BinaryBytecodeFile, TextBytecodeFile};
+use crate::binary::file::{BytecodeFile, SstFile};
 use crate::module::{FunctionInfo, LabelInfo, Parameter, Signature, SourceSymbolInfo};
 use crate::program::{ProgramContext, Type, Value};
 use crate::traits::{FromBytes, FromText, WriteBytes};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::Read;
+
+const SECTION_FRAME_LEN: usize = 8 + 8;
+const SECTION_BYTECODE_HEADER_LEN: usize = 8;
+const CHILD_SECTION_TABLE_HEADER_LEN: usize = 4;
+const CHILD_SECTION_TABLE_ENTRY_LEN: usize = 4 + 8;
 
 #[derive(Debug, Clone, PartialEq, crate::Instruction)]
 enum TestInst {
@@ -63,17 +65,21 @@ struct TextContext {
     section_names: Vec<String>,
 }
 
-impl BytecodeContext for WrappedContext {
+impl SectionNameResolver for WrappedContext {
+    fn section_name(&self, index: u32) -> Option<&str> {
+        self.inner.section_name(index)
+    }
+}
+
+impl BytecodeGlobalContext for WrappedContext {
     fn from_bytes(bytes: &[u8]) -> eyre::Result<Self> {
         Ok(Self {
             inner: ProgramContext::from_bytes(bytes)?,
         })
     }
+}
 
-    fn section_name(&self, index: u32) -> Option<&str> {
-        self.inner.section_name(index)
-    }
-
+impl SstGlobalContext for WrappedContext {
     fn from_text(text: &str) -> eyre::Result<Self> {
         Ok(Self {
             inner: ProgramContext::from_text(text)?,
@@ -81,7 +87,13 @@ impl BytecodeContext for WrappedContext {
     }
 }
 
-impl BytecodeContext for TextContext {
+impl SectionNameResolver for TextContext {
+    fn section_name(&self, index: u32) -> Option<&str> {
+        self.section_names.get(index as usize).map(String::as_str)
+    }
+}
+
+impl BytecodeGlobalContext for TextContext {
     fn from_bytes(bytes: &[u8]) -> eyre::Result<Self> {
         let raw = std::str::from_utf8(bytes)?.to_string();
         let section_names = raw
@@ -92,11 +104,9 @@ impl BytecodeContext for TextContext {
             .collect();
         Ok(Self { raw, section_names })
     }
+}
 
-    fn section_name(&self, index: u32) -> Option<&str> {
-        self.section_names.get(index as usize).map(String::as_str)
-    }
-
+impl SstGlobalContext for TextContext {
     fn from_text(text: &str) -> eyre::Result<Self> {
         let raw = text.to_string();
         let section_names = raw
@@ -127,7 +137,7 @@ fn parses_binary_context_and_nested_sections() {
     let root = binary_section_bytes(root_header, &[], vec![(CPU_NAME, cpu)]);
     let file = binary_file_bytes(context, root);
 
-    let parsed: BinaryBytecodeFile = BinaryBytecodeFile::from_bytes(file).unwrap();
+    let parsed: BytecodeFile = BytecodeFile::from_bytes(file).unwrap();
 
     assert_eq!(parsed.context().constants, vec![Value::I64(42)]);
     assert_eq!(
@@ -150,7 +160,7 @@ fn parses_binary_context_and_nested_sections() {
     assert_eq!(cpu.display_path().to_string(), "cpu");
     assert_eq!(cpu.header_bytes(), b"cpu header");
     assert_eq!(
-        decode_instruction_stream::<TestInst>(cpu.bytecode()).unwrap(),
+        cpu.decode_instructions::<TestInst>().unwrap(),
         vec![TestInst::Load(ConstantId(0))]
     );
 
@@ -160,7 +170,7 @@ fn parses_binary_context_and_nested_sections() {
     assert_eq!(alu.display_path().to_string(), "cpu/alu");
     assert_eq!(alu.header_bytes(), b"alu header");
     assert_eq!(
-        decode_instruction_stream::<TestInst>(alu.bytecode()).unwrap(),
+        alu.decode_instructions::<TestInst>().unwrap(),
         vec![TestInst::Nop]
     );
 }
@@ -171,8 +181,8 @@ fn parses_binary_file_with_custom_context_representation() {
 
     let cpu = binary_section_bytes(b"", &[TestInst::Nop], vec![]);
     let root = binary_section_bytes(b"", &[], vec![(CPU_NAME, cpu)]);
-    let parsed: BinaryBytecodeFile<WrappedContext> =
-        BinaryBytecodeFile::from_bytes(binary_file_bytes(context_bytes(), root)).unwrap();
+    let parsed: BytecodeFile<WrappedContext> =
+        BytecodeFile::from_bytes(binary_file_bytes(context_bytes(), root)).unwrap();
 
     assert_eq!(parsed.context().inner.constants, vec![Value::I64(42)]);
     assert_eq!(
@@ -185,7 +195,7 @@ fn parses_binary_file_with_custom_context_representation() {
 fn parses_binary_context_with_custom_value_and_type_tables() {
     let context = custom_context_bytes();
     let root = binary_section_bytes(b"", &[], vec![]);
-    let parsed = BinaryBytecodeFile::<ProgramContext<CustomValue, CustomType>>::from_bytes(
+    let parsed = BytecodeFile::<ProgramContext<CustomValue, CustomType>>::from_bytes(
         binary_file_bytes(context, root),
     )
     .unwrap();
@@ -203,7 +213,7 @@ fn parses_binary_context_with_custom_value_and_type_tables() {
 }
 
 #[test]
-fn binary_parse_header_consumes_the_whole_header() {
+fn binary_decode_header_consumes_the_whole_header() {
     #[derive(Debug, PartialEq)]
     struct Header(u32);
 
@@ -231,10 +241,10 @@ fn binary_parse_header_consumes_the_whole_header() {
     let mut header = Vec::new();
     header.write_u32::<LittleEndian>(99).unwrap();
     let root = binary_section_bytes(&header, &[], vec![]);
-    let parsed: BinaryBytecodeFile =
-        BinaryBytecodeFile::from_bytes(binary_file_bytes(empty_context_bytes(), root)).unwrap();
+    let parsed: BytecodeFile =
+        BytecodeFile::from_bytes(binary_file_bytes(empty_context_bytes(), root)).unwrap();
 
-    assert_eq!(parsed.root().parse_header::<Header>().unwrap(), Header(99));
+    assert_eq!(parsed.root().decode_header::<Header>().unwrap(), Header(99));
 }
 
 #[test]
@@ -245,14 +255,14 @@ fn rejects_bad_binary_magic() {
     );
     bytes[0] = b'X';
 
-    let err = BinaryBytecodeFile::<ProgramContext<Value, Type>>::from_bytes(bytes).unwrap_err();
+    let err = BytecodeFile::<ProgramContext<Value, Type>>::from_bytes(bytes).unwrap_err();
     assert!(err.to_string().contains("invalid bytecode magic"));
 }
 
 #[test]
 fn rejects_binary_missing_section_name_string() {
     let root = raw_binary_section(b"", b"", vec![(0, b"")]);
-    let err = BinaryBytecodeFile::<ProgramContext<Value, Type>>::from_bytes(binary_file_bytes(
+    let err = BytecodeFile::<ProgramContext<Value, Type>>::from_bytes(binary_file_bytes(
         empty_context_bytes(),
         root,
     ))
@@ -267,7 +277,7 @@ fn rejects_binary_duplicate_child_names() {
     let child_b = binary_section_bytes(b"", &[], vec![]);
     let root = raw_binary_section(b"", b"", vec![(0, &child_a), (0, &child_b)]);
 
-    let err = BinaryBytecodeFile::<ProgramContext<Value, Type>>::from_bytes(binary_file_bytes(
+    let err = BytecodeFile::<ProgramContext<Value, Type>>::from_bytes(binary_file_bytes(
         context_with_strings(&["cpu"]),
         root,
     ))
@@ -280,7 +290,7 @@ fn rejects_binary_duplicate_child_names() {
 fn rejects_binary_out_of_bounds_child_section() {
     let root = raw_binary_section_with_entry_offsets(b"", b"", vec![(0, 999, b"")]);
 
-    let err = BinaryBytecodeFile::<ProgramContext<Value, Type>>::from_bytes(binary_file_bytes(
+    let err = BytecodeFile::<ProgramContext<Value, Type>>::from_bytes(binary_file_bytes(
         context_with_strings(&["cpu"]),
         root,
     ))
@@ -292,17 +302,17 @@ fn rejects_binary_out_of_bounds_child_section() {
 #[test]
 fn rejects_binary_overlapping_child_sections() {
     let child = binary_section_bytes(b"", &[], vec![]);
-    let child_offset = (SectionFrame::ENCODED_LEN
-        + SectionBytecodeHeader::ENCODED_LEN
-        + ChildSectionTableHeader::ENCODED_LEN
-        + (2 * ChildSectionTableEntry::ENCODED_LEN)) as u64;
+    let child_offset = (SECTION_FRAME_LEN
+        + SECTION_BYTECODE_HEADER_LEN
+        + CHILD_SECTION_TABLE_HEADER_LEN
+        + (2 * CHILD_SECTION_TABLE_ENTRY_LEN)) as u64;
     let root = raw_binary_section_with_entry_offsets(
         b"",
         b"",
         vec![(0, child_offset, &child), (1, child_offset, &[])],
     );
 
-    let err = BinaryBytecodeFile::<ProgramContext<Value, Type>>::from_bytes(binary_file_bytes(
+    let err = BytecodeFile::<ProgramContext<Value, Type>>::from_bytes(binary_file_bytes(
         context_with_strings(&["cpu", "gpu"]),
         root,
     ))
@@ -314,14 +324,12 @@ fn rejects_binary_overlapping_child_sections() {
 #[test]
 fn rejects_binary_bytecode_that_extends_past_section_end() {
     let mut root = Vec::new();
-    root.write_u64::<LittleEndian>(
-        (SectionFrame::ENCODED_LEN + SectionBytecodeHeader::ENCODED_LEN) as u64,
-    )
-    .unwrap();
+    root.write_u64::<LittleEndian>((SECTION_FRAME_LEN + SECTION_BYTECODE_HEADER_LEN) as u64)
+        .unwrap();
     root.write_u64::<LittleEndian>(0).unwrap();
     root.write_u64::<LittleEndian>(1).unwrap();
 
-    let err = BinaryBytecodeFile::<ProgramContext<Value, Type>>::from_bytes(binary_file_bytes(
+    let err = BytecodeFile::<ProgramContext<Value, Type>>::from_bytes(binary_file_bytes(
         empty_context_bytes(),
         root,
     ))
@@ -342,7 +350,7 @@ fn rejects_binary_instruction_stream_with_non_multiple_width() {
 
 #[test]
 fn parses_text_context_and_nested_sections() {
-    let parsed = TextBytecodeFile::<TextContext>::from_text(&text_file(
+    let parsed = SstFile::<TextContext>::from_text(&text_file(
         "",
         ".section(root):\n\
 \t.header(root):\n\
@@ -378,39 +386,37 @@ fn parses_text_context_and_nested_sections() {
     assert_eq!(root.local_name(), None);
     assert_eq!(root.display_path().to_string(), "<root>");
     assert_eq!(root.header_text(), "\t\troot header\n");
-    assert_eq!(root.text(), "\t\troot bytecode\n");
+    assert_eq!(root.sst(), "\t\troot bytecode\n");
 
     let cpu = root.child("cpu").unwrap();
     assert_eq!(path_components(cpu.path()), vec!["cpu"]);
     assert_eq!(cpu.local_name(), Some("cpu"));
     assert_eq!(cpu.display_path().to_string(), "cpu");
     assert_eq!(cpu.header_text(), "\t\t\tcpu header\n");
-    assert_eq!(cpu.text(), "\t\t\tcpu bytecode\n");
+    assert_eq!(cpu.sst(), "\t\t\tcpu bytecode\n");
 
     let alu = cpu.child("alu").unwrap();
     assert_eq!(path_components(alu.path()), vec!["cpu", "alu"]);
     assert_eq!(alu.local_name(), Some("alu"));
     assert_eq!(alu.display_path().to_string(), "cpu/alu");
     assert_eq!(alu.header_text(), "\t\t\t\talu header\n");
-    assert_eq!(alu.text(), "\t\t\t\talu bytecode\n");
+    assert_eq!(alu.sst(), "\t\t\t\talu bytecode\n");
 }
 
 #[test]
 fn parses_text_section_without_header_or_bytecode_as_empty_ranges() {
-    let parsed = TextBytecodeFile::<TextContext>::from_text(&text_file(
-        "",
-        ".section(root):\n.section(root).\n",
-    ))
-    .unwrap();
+    let parsed =
+        SstFile::<TextContext>::from_text(&text_file("", ".section(root):\n.section(root).\n"))
+            .unwrap();
 
     let root = parsed.root();
     assert_eq!(root.header_text(), "");
-    assert_eq!(root.text(), "");
+    assert_eq!(root.sst(), "");
 }
 
 #[test]
 fn parses_text_program_context_tables() {
-    let parsed: TextBytecodeFile = TextBytecodeFile::from_text(&text_file(
+    let parsed: SstFile = SstFile::from_text(&text_file(
         ".constants\n\
 i64 42\n\
 bool true\n\
@@ -549,11 +555,9 @@ fn 1 () -> (bool, i64) 0 12 24 4\n\
 
 #[test]
 fn rejects_text_root_section_with_non_root_name() {
-    let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
-        "",
-        ".section(other):\n.section(other).\n",
-    ))
-    .unwrap_err();
+    let err =
+        SstFile::<TextContext>::from_text(&text_file("", ".section(other):\n.section(other).\n"))
+            .unwrap_err();
 
     assert!(
         err.to_string()
@@ -563,19 +567,19 @@ fn rejects_text_root_section_with_non_root_name() {
 
 #[test]
 fn rejects_text_bad_version() {
-    let err = TextBytecodeFile::<TextContext>::from_text(&format!(
-        "vhbc{}\n.global:\n.global.\n.section(root):\n.section(root).\n",
+    let err = SstFile::<TextContext>::from_text(&format!(
+        "sst v{}\n.global:\n.global.\n.section(root):\n.section(root).\n",
         VERSION + 1
     ))
     .unwrap_err();
 
-    assert!(err.to_string().contains("unsupported bytecode version"));
+    assert!(err.to_string().contains("unsupported sst version"));
 }
 
 #[test]
 fn rejects_text_missing_context_end() {
-    let err = TextBytecodeFile::<TextContext>::from_text(
-        "vhbc1\n.global:\ncpu\n.section(root):\n.section(root).\n",
+    let err = SstFile::<TextContext>::from_text(
+        "sst v1\n.global:\ncpu\n.section(root):\n.section(root).\n",
     )
     .unwrap_err();
 
@@ -584,7 +588,7 @@ fn rejects_text_missing_context_end() {
 
 #[test]
 fn rejects_text_non_local_child_section_name() {
-    let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
+    let err = SstFile::<TextContext>::from_text(&text_file(
         "",
         ".section(root):\n\t.section(gpu/core):\n\t.section(gpu/core).\n.section(root).\n",
     ))
@@ -595,7 +599,7 @@ fn rejects_text_non_local_child_section_name() {
 
 #[test]
 fn rejects_text_duplicate_child_sections() {
-    let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
+    let err = SstFile::<TextContext>::from_text(&text_file(
         "cpu\n",
         ".section(root):\n\t.section(cpu):\n\t.section(cpu).\n\t.section(cpu):\n\t.section(cpu).\n.section(root).\n",
     ))
@@ -606,18 +610,16 @@ fn rejects_text_duplicate_child_sections() {
 
 #[test]
 fn rejects_text_mismatched_section_end_marker() {
-    let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
-        "",
-        ".section(root):\n.section(other).\n",
-    ))
-    .unwrap_err();
+    let err =
+        SstFile::<TextContext>::from_text(&text_file("", ".section(root):\n.section(other).\n"))
+            .unwrap_err();
 
     assert!(err.to_string().contains("mismatched marker `other`"));
 }
 
 #[test]
 fn rejects_text_header_marker_with_wrong_section_name() {
-    let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
+    let err = SstFile::<TextContext>::from_text(&text_file(
         "",
         ".section(root):\n\t.header(cpu):\n\t.header(cpu).\n.section(root).\n",
     ))
@@ -631,7 +633,7 @@ fn rejects_text_header_marker_with_wrong_section_name() {
 
 #[test]
 fn rejects_text_bytecode_end_marker_with_wrong_section_name() {
-    let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
+    let err = SstFile::<TextContext>::from_text(&text_file(
         "",
         ".section(root):\n\t.text(root):\n\t.text(cpu).\n.section(root).\n",
     ))
@@ -645,7 +647,7 @@ fn rejects_text_bytecode_end_marker_with_wrong_section_name() {
 
 #[test]
 fn rejects_text_body_directly_inside_section() {
-    let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
+    let err = SstFile::<TextContext>::from_text(&text_file(
         "",
         ".section(root):\n\tthis line is not in a header or bytecode block\n.section(root).\n",
     ))
@@ -659,7 +661,7 @@ fn rejects_text_body_directly_inside_section() {
 
 #[test]
 fn rejects_text_child_section_indented_with_spaces() {
-    let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
+    let err = SstFile::<TextContext>::from_text(&text_file(
         "",
         ".section(root):\n  .section(cpu):\n  .section(cpu).\n.section(root).\n",
     ))
@@ -670,7 +672,7 @@ fn rejects_text_child_section_indented_with_spaces() {
 
 #[test]
 fn rejects_text_header_indented_with_spaces() {
-    let err = TextBytecodeFile::<TextContext>::from_text(&text_file(
+    let err = SstFile::<TextContext>::from_text(&text_file(
         "",
         ".section(root):\n  .header(root):\n\t\troot header\n  .header(root).\n.section(root).\n",
     ))
@@ -797,9 +799,8 @@ fn binary_section_bytes(
 
 fn raw_binary_section(header: &[u8], bytecode: &[u8], children: Vec<(u32, &[u8])>) -> Vec<u8> {
     let child_table_len =
-        ChildSectionTableHeader::ENCODED_LEN + children.len() * ChildSectionTableEntry::ENCODED_LEN;
-    let bytecode_start =
-        SectionFrame::ENCODED_LEN + header.len() + SectionBytecodeHeader::ENCODED_LEN;
+        CHILD_SECTION_TABLE_HEADER_LEN + children.len() * CHILD_SECTION_TABLE_ENTRY_LEN;
+    let bytecode_start = SECTION_FRAME_LEN + header.len() + SECTION_BYTECODE_HEADER_LEN;
     let mut child_offset = bytecode_start + bytecode.len() + child_table_len;
     let section_len = child_offset + children.iter().map(|(_, child)| child.len()).sum::<usize>();
 
@@ -835,9 +836,8 @@ fn raw_binary_section_with_entry_offsets(
     children: Vec<(u32, u64, &[u8])>,
 ) -> Vec<u8> {
     let child_table_len =
-        ChildSectionTableHeader::ENCODED_LEN + children.len() * ChildSectionTableEntry::ENCODED_LEN;
-    let bytecode_start =
-        SectionFrame::ENCODED_LEN + header.len() + SectionBytecodeHeader::ENCODED_LEN;
+        CHILD_SECTION_TABLE_HEADER_LEN + children.len() * CHILD_SECTION_TABLE_ENTRY_LEN;
+    let bytecode_start = SECTION_FRAME_LEN + header.len() + SECTION_BYTECODE_HEADER_LEN;
     let section_len = bytecode_start
         + bytecode.len()
         + child_table_len
@@ -874,7 +874,7 @@ fn path_components(path: &SectionPath) -> Vec<&str> {
 }
 
 fn text_file(context: &str, sections: &str) -> String {
-    format!("vhbc{VERSION}\n\n.global:\n{context}.global.\n\n{sections}")
+    format!("sst v{VERSION}\n\n.global:\n{context}.global.\n\n{sections}")
 }
 
 fn write_string(bytes: &mut Vec<u8>, value: &str) {
