@@ -5,7 +5,7 @@ use crate::{
     binary::{
         BytecodeFile, BytecodeSectionView, ConstantId, ContextHandle, SstFile, SstSectionView,
     },
-    module::{Module, NoInfo},
+    module::{LocalModule, NoInfo},
     program::{ProgramContext, ProgramGlobals, Type, Value},
     traits::{self, GetProgramGlobal, ProgramCounter},
 };
@@ -107,14 +107,14 @@ pub trait LoadSstSection<C = ProgramContext> {
 
 #[derive(Debug, Clone)]
 pub struct ModuleProgramLoader<I, V = Value, Ty = Type, Info = NoInfo> {
-    pub module: Module<I, V, Ty, Info>,
+    pub module: LocalModule<I, V, Ty, Info>,
     pub pc: u32,
 }
 
 impl<I, V, Ty, Info: Default> Default for ModuleProgramLoader<I, V, Ty, Info> {
     fn default() -> Self {
         Self {
-            module: Module::default(),
+            module: LocalModule::default(),
             pc: 0,
         }
     }

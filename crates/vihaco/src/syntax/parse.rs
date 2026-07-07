@@ -13,6 +13,7 @@ use chumsky::extra;
 use chumsky::prelude::*;
 use vihaco_parser_core::Parse;
 
+use crate::SstFile;
 use crate::SstHeader;
 use crate::SstLoadInput;
 use crate::syntax::{BodyItem, Param, ParsedFunction, ParsedModule, RawForm, RawOperand, RawType};
@@ -247,6 +248,28 @@ where
     fn try_from(input: SstLoadInput<'bc>) -> eyre::Result<Self> {
         let header = input.section.parse_header::<H>()?;
         let text = input.section.sst();
+        let functions = functions::<I>()
+            .parse(text)
+            .into_result()
+            .map_err(|errors| eyre::eyre!("failed to parse SST functions: {:?}", errors))?;
+
+        Ok(Self { header, functions })
+    }
+}
+
+/// Useful utility to get a [`ParsedModule`] from an [`SstFile`]
+/// when you have a single section machine.
+impl<'bc, I, H> TryFrom<&'bc SstFile> for ParsedModule<I, H>
+where
+    H: SstHeader,
+    I: Instruction + vihaco_parser_core::Parse<'bc> + 'bc,
+{
+    type Error = eyre::Report;
+
+    fn try_from(input: &'bc SstFile) -> eyre::Result<Self> {
+        let root = input.root();
+        let header = root.parse_header::<H>()?;
+        let text = root.sst();
         let functions = functions::<I>()
             .parse(text)
             .into_result()
