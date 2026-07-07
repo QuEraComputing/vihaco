@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-use crate::program::ProgramContext;
-
 use super::{
     context::{BytecodeGlobalContext, ContextHandle, SstGlobalContext},
     section::{BytecodeSectionView, SstSectionView},
@@ -11,7 +9,7 @@ use vihaco_parser_core::container::SectionNode;
 
 /// A parsed bytecode file.
 #[derive(Debug, Clone)]
-pub struct BytecodeFile<C = ProgramContext> {
+pub struct BytecodeFile<C> {
     contents: Vec<u8>,
     context: ContextHandle<C>,
     root: SectionNode,

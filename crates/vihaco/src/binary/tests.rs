@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
-use crate::binary::NoHeader;
+use crate::binary::NoContext;
 use crate::binary::file::{BytecodeFile, SstFile};
 use crate::module::{FunctionInfo, LabelInfo, Parameter, Signature, SourceSymbolInfo};
 use crate::program::{ProgramContext, Type, Value};
@@ -134,7 +134,7 @@ fn parses_binary_context_and_nested_sections() {
     let root = binary_section_bytes(root_header, &[], vec![(CPU_NAME, cpu)]);
     let file = binary_file_bytes(context, root);
 
-    let parsed: BytecodeFile = BytecodeFile::from_bytes(file).unwrap();
+    let parsed: BytecodeFile<ProgramContext> = BytecodeFile::from_bytes(file).unwrap();
 
     assert_eq!(parsed.context().constants, vec![Value::I64(42)]);
     assert_eq!(
@@ -236,7 +236,7 @@ fn binary_decode_header_consumes_the_whole_header() {
     let mut header = Vec::new();
     header.write_u32::<LittleEndian>(99).unwrap();
     let root = binary_section_bytes(&header, &[], vec![]);
-    let parsed: BytecodeFile =
+    let parsed: BytecodeFile<ProgramContext> =
         BytecodeFile::from_bytes(binary_file_bytes(empty_context_bytes(), root)).unwrap();
 
     assert_eq!(parsed.root().decode_header::<Header>().unwrap(), Header(99));
@@ -410,23 +410,24 @@ fn parses_text_section_without_header_or_bytecode_as_empty_ranges() {
 }
 
 #[test]
-fn parses_text_file_with_default_no_header_context() {
-    let parsed: SstFile<NoHeader> =
-        SstFile::from_text(&text_file("", ".section(root):\n.section(root).\n")).unwrap();
+fn parses_text_file_with_no_context() {
+    let parsed: SstFile<NoContext> =
+        SstFile::<NoContext>::from_text(&text_file("", ".section(root):\n.section(root).\n"))
+            .unwrap();
 
-    assert_eq!(parsed.context(), &NoHeader);
+    assert_eq!(parsed.context(), &NoContext);
     assert!(parsed.root().path().is_root());
 }
 
 #[test]
-fn rejects_default_no_header_file_with_non_empty_global_section() {
+fn rejects_no_context_file_with_non_empty_global_section() {
     let err =
-        SstFile::<NoHeader>::from_text(&text_file("cpu\n", ".section(root):\n.section(root).\n"))
+        SstFile::<NoContext>::from_text(&text_file("cpu\n", ".section(root):\n.section(root).\n"))
             .unwrap_err();
 
     assert!(
         err.to_string()
-            .contains("NoHeader accepts only an empty global section")
+            .contains("NoContext accepts only an empty global section")
     );
 }
 

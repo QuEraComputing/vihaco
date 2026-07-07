@@ -402,10 +402,10 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
             let ty = &loadable.ty;
             let name = &loadable.section_name;
             quote! {
-                if let ::std::option::Option::Some(__vihaco_child) = input.section.child(#name) {
+                if let ::std::option::Option::Some(__vihaco_child) = section.child(#name) {
                     <#ty as ::vihaco::loader::LoadBytecodeSection<#loadable_context_param>>::load_bytecode_section(
                         &mut self.#field,
-                        ::vihaco::loader::BytecodeLoadInput::from(__vihaco_child)
+                        __vihaco_child,
                     )?;
                 }
             }
@@ -416,22 +416,22 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
         impl #impl_generics #ident #ty_generics #where_clause {
             pub fn load_generated_bytecode_sections<#bc_lifetime, #loadable_context_param>(
                 &mut self,
-                input: ::vihaco::loader::BytecodeLoadInput<#bc_lifetime, #loadable_context_param>,
+                section: ::vihaco::BytecodeSectionView<#bc_lifetime, #loadable_context_param>,
             ) -> ::eyre::Result<()>
             #loadable_method_where
             {
                 ::vihaco::loader::LoadOwnBytecodeSection::<#loadable_context_param>::load_own_bytecode_section(
                     self,
-                    input.clone(),
+                    section.clone(),
                 )?;
 
                 let __vihaco_expected_children: &[&str] = &[#(#loadable_names),*];
 
-                for __vihaco_child in input.section.children() {
+                for __vihaco_child in section.children() {
                     let __vihaco_child_name = __vihaco_child.local_name().ok_or_else(|| {
                         ::eyre::eyre!(
                             "section `{}` yielded a root section as a child",
-                            input.section.display_path(),
+                            section.display_path(),
                         )
                     })?;
                     if !__vihaco_expected_children
@@ -440,7 +440,7 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
                     {
                         return Err(::eyre::eyre!(
                             "section `{}` has unexpected child section `{}`",
-                            input.section.display_path(),
+                            section.display_path(),
                             __vihaco_child.display_path(),
                         ));
                     }
@@ -457,9 +457,9 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
         {
             fn load_bytecode_section<#bc_lifetime>(
                 &mut self,
-                input: ::vihaco::loader::BytecodeLoadInput<#bc_lifetime, #loadable_context_param>,
+                section: ::vihaco::BytecodeSectionView<#bc_lifetime, #loadable_context_param>,
             ) -> ::eyre::Result<()> {
-                self.load_generated_bytecode_sections(input)
+                self.load_generated_bytecode_sections(section)
             }
         }
     };
@@ -497,10 +497,10 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
             let ty = &loadable.ty;
             let name = &loadable.section_name;
             quote! {
-                if let ::std::option::Option::Some(__vihaco_child) = input.section.child(#name) {
+                if let ::std::option::Option::Some(__vihaco_child) = section.child(#name) {
                     <#ty as ::vihaco::loader::LoadSstSection<#loadable_context_param>>::load_sst_section(
                         &mut self.#field,
-                        ::vihaco::loader::SstLoadInput::from(__vihaco_child)
+                        __vihaco_child,
                     )?;
                 }
             }
@@ -511,22 +511,22 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
         impl #impl_generics #ident #ty_generics #where_clause {
             pub fn load_generated_sst_sections<#bc_lifetime, #loadable_context_param>(
                 &mut self,
-                input: ::vihaco::loader::SstLoadInput<#bc_lifetime, #loadable_context_param>,
+                section: ::vihaco::SstSectionView<#bc_lifetime, #loadable_context_param>,
             ) -> ::eyre::Result<()>
             #text_loadable_method_where
             {
                 ::vihaco::loader::LoadOwnSstSection::<#loadable_context_param>::load_own_sst_section(
                     self,
-                    input.clone(),
+                    section.clone(),
                 )?;
 
                 let __vihaco_expected_children: &[&str] = &[#(#loadable_names),*];
 
-                for __vihaco_child in input.section.children() {
+                for __vihaco_child in section.children() {
                     let __vihaco_child_name = __vihaco_child.local_name().ok_or_else(|| {
                         ::eyre::eyre!(
                             "section `{}` yielded a root section as a child",
-                            input.section.display_path(),
+                            section.display_path(),
                         )
                     })?;
                     if !__vihaco_expected_children
@@ -535,7 +535,7 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
                     {
                         return Err(::eyre::eyre!(
                             "section `{}` has unexpected child section `{}`",
-                            input.section.display_path(),
+                            section.display_path(),
                             __vihaco_child.display_path(),
                         ));
                     }
@@ -552,9 +552,9 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
         {
             fn load_sst_section<#bc_lifetime>(
                 &mut self,
-                input: ::vihaco::loader::SstLoadInput<#bc_lifetime, #loadable_context_param>,
+                section: ::vihaco::SstSectionView<#bc_lifetime, #loadable_context_param>,
             ) -> ::eyre::Result<()> {
-                self.load_generated_sst_sections(input)
+                self.load_generated_sst_sections(section)
             }
         }
     };

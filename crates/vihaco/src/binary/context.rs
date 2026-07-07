@@ -3,13 +3,11 @@
 
 use std::sync::Arc;
 
-use crate::program::ProgramContext;
-
 /// Marker context for SST files that do not carry global metadata.
 ///
-/// `NoHeader` accepts only an empty `.global:` section.
+/// `NoContext` accepts only an empty `.global:` section.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct NoHeader;
+pub struct NoContext;
 
 /// Resolve section-name indexes stored in bytecode files.
 ///
@@ -34,12 +32,14 @@ pub trait GlobalContext: BytecodeGlobalContext + SstGlobalContext {}
 
 impl<T> GlobalContext for T where T: BytecodeGlobalContext + SstGlobalContext {}
 
-impl SstGlobalContext for NoHeader {
+impl SstGlobalContext for NoContext {
     fn from_text(text: &str) -> eyre::Result<Self> {
         if text.trim().is_empty() {
             Ok(Self)
         } else {
-            Err(eyre::eyre!("NoHeader accepts only an empty global section"))
+            Err(eyre::eyre!(
+                "NoContext accepts only an empty global section"
+            ))
         }
     }
 }
@@ -50,7 +50,7 @@ impl SstGlobalContext for NoHeader {
 /// machine definitions, we wrap the context in an [`Arc`] to drop it
 /// automatically.
 #[derive(Debug)]
-pub struct ContextHandle<C = ProgramContext>(Arc<C>);
+pub struct ContextHandle<C>(Arc<C>);
 
 impl<C> Clone for ContextHandle<C> {
     fn clone(&self) -> Self {

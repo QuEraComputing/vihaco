@@ -209,14 +209,6 @@ impl<'bc, C> SstSectionView<'bc, C> {
         let header = H::from_text(text)?;
         Ok(header)
     }
-
-    /// Parse this section's SST body as an instruction stream.
-    pub fn parse_instructions<I>(&self) -> eyre::Result<Vec<I>>
-    where
-        I: Instruction + vihaco_parser_core::Parse<'bc>,
-    {
-        super::format::parse_instruction_stream(self.sst())
-    }
 }
 
 impl<C> std::fmt::Debug for SstSectionView<'_, C> {

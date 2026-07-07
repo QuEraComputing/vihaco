@@ -10,7 +10,7 @@ mod section;
 mod tests;
 
 pub use context::{
-    BytecodeGlobalContext, ContextHandle, GlobalContext, NoHeader, SectionNameResolver,
+    BytecodeGlobalContext, ContextHandle, GlobalContext, NoContext, SectionNameResolver,
     SstGlobalContext,
 };
 pub use file::{BytecodeFile, SstFile};

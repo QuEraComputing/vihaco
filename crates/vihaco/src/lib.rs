@@ -28,7 +28,7 @@ pub mod value {
 
 pub use binary::{
     BytecodeFile, BytecodeGlobalContext, BytecodeHeader, BytecodeSectionView, ConstantId,
-    ContextHandle, FLAGS, GlobalContext, MAGIC, NoHeader, SectionNameResolver, SectionPath,
+    ContextHandle, FLAGS, GlobalContext, MAGIC, NoContext, SectionNameResolver, SectionPath,
     SstFile, SstGlobalContext, SstHeader, SstSectionView, VERSION, WriteBytecodeHeader,
     decode_instruction_stream, parse_instruction_stream,
 };
@@ -38,8 +38,7 @@ pub use instruction_syntax::{
     InstructionSugarVariantSyntax, OperandKind, SugarOperandKind,
 };
 pub use loader::{
-    BytecodeLoadInput, LoadBytecodeSection, LoadOwnBytecodeSection, LoadOwnSstSection,
-    LoadSstSection, ModuleProgramLoader, ProgramLoader, SstLoadInput,
+    LoadBytecodeSection, LoadOwnBytecodeSection, LoadOwnSstSection, LoadSstSection, ProgramImage,
 };
 pub use macros::{Instruction, Message, component, composite, observe};
 pub use program::{ProgramContext, ProgramGlobals, Type, Value};
@@ -66,12 +65,21 @@ mod public_api_tests {
         fn reset(&mut self) {}
     }
 
-    impl LoadOwnBytecodeSection for PublicReset {
+    impl LoadOwnBytecodeSection<crate::ProgramContext> for PublicReset {
         fn load_own_bytecode_section<'bc>(
             &mut self,
-            _input: crate::BytecodeLoadInput<'bc>,
+            _section: crate::BytecodeSectionView<'bc, crate::ProgramContext>,
         ) -> eyre::Result<()> {
             Ok(())
+        }
+    }
+
+    impl LoadBytecodeSection<crate::ProgramContext> for PublicReset {
+        fn load_bytecode_section<'bc>(
+            &mut self,
+            section: crate::BytecodeSectionView<'bc, crate::ProgramContext>,
+        ) -> eyre::Result<()> {
+            self.load_own_bytecode_section(section)
         }
     }
 
@@ -98,8 +106,8 @@ mod public_api_tests {
         fn require_sst_global_context<T: SstGlobalContext>() {}
         fn require_global_context<T: GlobalContext>() {}
         fn require_program_globals<T: ProgramGlobals>() {}
-        fn require_load_own_bytecode_section<T: LoadOwnBytecodeSection>() {}
-        fn require_load_bytecode_section<T: LoadBytecodeSection>() {}
+        fn require_load_own_bytecode_section<T: LoadOwnBytecodeSection<crate::ProgramContext>>() {}
+        fn require_load_bytecode_section<T: LoadBytecodeSection<crate::ProgramContext>>() {}
         fn require_stdout_effect(_effect: StdoutEffect) {}
         fn require_metadata(_metadata: crate::CompositeMetadata) {}
 
@@ -112,11 +120,11 @@ mod public_api_tests {
         require_section_name_resolver::<crate::ProgramContext>();
         require_bytecode_global_context::<crate::ProgramContext>();
         require_sst_global_context::<crate::ProgramContext>();
-        require_sst_global_context::<crate::NoHeader>();
+        require_sst_global_context::<crate::NoContext>();
         require_global_context::<crate::ProgramContext>();
         require_program_globals::<crate::ProgramContext>();
         require_load_own_bytecode_section::<PublicReset>();
-        require_load_bytecode_section::<crate::ProgramLoader<()>>();
+        require_load_bytecode_section::<PublicReset>();
         let _constant = ConstantId(0);
         let _function: Option<FunctionInfo<crate::Type>> = None;
         require_stdout_effect(StdoutEffect(String::new()));
