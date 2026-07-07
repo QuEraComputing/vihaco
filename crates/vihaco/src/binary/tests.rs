@@ -411,7 +411,7 @@ fn parses_text_section_without_header_or_bytecode_as_empty_ranges() {
 
 #[test]
 fn parses_text_file_with_default_no_header_context() {
-    let parsed: SstFile =
+    let parsed: SstFile<NoHeader> =
         SstFile::from_text(&text_file("", ".section(root):\n.section(root).\n")).unwrap();
 
     assert_eq!(parsed.context(), &NoHeader);

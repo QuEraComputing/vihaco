@@ -40,7 +40,7 @@ impl<'bc, C> From<BytecodeSectionView<'bc, C>> for BytecodeLoadInput<'bc, C> {
 
 /// The input given to an SST-loadable machine.
 #[derive(Debug)]
-pub struct SstLoadInput<'bc, C = ProgramContext> {
+pub struct SstLoadInput<'bc, C> {
     pub section: SstSectionView<'bc, C>,
 }
 

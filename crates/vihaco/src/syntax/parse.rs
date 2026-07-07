@@ -238,14 +238,14 @@ where
     }
 }
 
-impl<'bc, I, H> TryFrom<SstLoadInput<'bc>> for ParsedModule<I, H>
+impl<'bc, I, H, C> TryFrom<SstLoadInput<'bc, C>> for ParsedModule<I, H>
 where
     H: SstHeader,
     I: Instruction + vihaco_parser_core::Parse<'bc> + 'bc,
 {
     type Error = eyre::Report;
 
-    fn try_from(input: SstLoadInput<'bc>) -> eyre::Result<Self> {
+    fn try_from(input: SstLoadInput<'bc, C>) -> eyre::Result<Self> {
         let header = input.section.parse_header::<H>()?;
         let text = input.section.sst();
         let functions = functions::<I>()
@@ -259,14 +259,14 @@ where
 
 /// Useful utility to get a [`ParsedModule`] from an [`SstFile`]
 /// when you have a single section machine.
-impl<'bc, I, H> TryFrom<&'bc SstFile> for ParsedModule<I, H>
+impl<'bc, I, H, C> TryFrom<&'bc SstFile<C>> for ParsedModule<I, H>
 where
     H: SstHeader,
     I: Instruction + vihaco_parser_core::Parse<'bc> + 'bc,
 {
     type Error = eyre::Report;
 
-    fn try_from(input: &'bc SstFile) -> eyre::Result<Self> {
+    fn try_from(input: &'bc SstFile<C>) -> eyre::Result<Self> {
         let root = input.root();
         let header = root.parse_header::<H>()?;
         let text = root.sst();
