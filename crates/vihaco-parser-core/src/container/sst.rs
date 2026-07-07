@@ -34,7 +34,6 @@ enum LineKind {
 struct SourceLine {
     kind: LineKind,
     full: Range<usize>,
-    indent: usize,
     number: usize,
 }
 
@@ -45,9 +44,6 @@ pub fn parse_file(text: &str) -> Result<ParsedFile> {
     let Some(version) = cursor.next_significant() else {
         return Err(eyre::eyre!("expected `sst v{}`", VERSION));
     };
-    if version.indent != 0 {
-        return Err(line_error(version, "version marker must not be indented"));
-    }
     match &version.kind {
         LineKind::Version(version) => verify_version(*version)?,
         _ => return Err(line_error(version, format!("expected `sst v{}`", VERSION))),
@@ -58,12 +54,6 @@ pub fn parse_file(text: &str) -> Result<ParsedFile> {
     };
     if context_begin.kind != LineKind::BeginContext {
         return Err(line_error(context_begin, "expected `.global:`"));
-    }
-    if context_begin.indent != 0 {
-        return Err(line_error(
-            context_begin,
-            "context start must not be indented",
-        ));
     }
 
     let context_start = context_begin.full.end;
@@ -196,16 +186,15 @@ fn lex_lines(text: &str) -> Result<Vec<SourceLine>> {
             }
         }
 
-        let indent = text[start..content_end]
+        let leading_tabs = text[start..content_end]
             .bytes()
             .take_while(|byte| *byte == b'\t')
             .count();
-        let line_start = start + indent;
+        let line_start = start + leading_tabs;
         lines.push(SourceLine {
             kind: parse_line(&text[line_start..content_end])
                 .map_err(|err| eyre::eyre!("line {}: {err}", index + 1))?,
             full: start..full_end,
-            indent,
             number: index + 1,
         });
         start = full_end;
@@ -213,16 +202,15 @@ fn lex_lines(text: &str) -> Result<Vec<SourceLine>> {
 
     if start < text.len() {
         let number = lines.len() + 1;
-        let indent = text[start..]
+        let leading_tabs = text[start..]
             .bytes()
             .take_while(|byte| *byte == b'\t')
             .count();
-        let line_start = start + indent;
+        let line_start = start + leading_tabs;
         lines.push(SourceLine {
             kind: parse_line(&text[line_start..])
                 .map_err(|err| eyre::eyre!("line {}: {err}", number))?,
             full: start..text.len(),
-            indent,
             number,
         });
     }
@@ -260,7 +248,6 @@ impl<'a> LineCursor<'a> {
 fn consume_context(cursor: &mut LineCursor<'_>) -> Result<usize> {
     while let Some(line) = cursor.next_significant() {
         if line.kind == LineKind::EndContext {
-            ensure_indent(line, 0, "context end")?;
             return Ok(line.full.start);
         }
     }
@@ -276,7 +263,6 @@ struct SstSectionParseInfo<'a> {
 #[derive(Clone, Copy)]
 struct ParentSection<'a> {
     path: &'a SectionPath,
-    indent: usize,
 }
 
 fn parse_section(
@@ -294,18 +280,11 @@ fn parse_section(
         .ok_or_else(|| eyre::eyre!("expected section"))?;
     debug_assert_eq!(consumed_begin.full, begin.full);
 
-    let section_indent = begin.indent;
-    match parent {
-        Some(parent) => ensure_indent(begin, parent.indent + 1, "child section")?,
-        None => {
-            ensure_indent(begin, 0, "root section")?;
-            if section_name != ROOT_SECTION_NAME {
-                return Err(line_error(
-                    begin,
-                    format!("root section must be named `{ROOT_SECTION_NAME}`"),
-                ));
-            }
-        }
+    if parent.is_none() && section_name != ROOT_SECTION_NAME {
+        return Err(line_error(
+            begin,
+            format!("root section must be named `{ROOT_SECTION_NAME}`"),
+        ));
     }
 
     let path = match parent {
@@ -328,7 +307,6 @@ fn parse_section(
 
         match &line.kind {
             LineKind::EndSection(name) => {
-                ensure_indent(line, section_indent, "section end")?;
                 if name != &section_name {
                     return Err(line_error(
                         line,
@@ -349,7 +327,6 @@ fn parse_section(
                 });
             }
             LineKind::BeginHeader(name) => {
-                ensure_indent(line, section_indent + 1, "header")?;
                 ensure_block_marker_name(line, "header", name, &section_name)?;
                 if header.is_some() {
                     return Err(line_error(
@@ -357,15 +334,9 @@ fn parse_section(
                         format!("section `{}` declares duplicate header", path),
                     ));
                 }
-                header = Some(consume_named_block(
-                    cursor,
-                    &section_name,
-                    "header",
-                    section_indent + 1,
-                )?);
+                header = Some(consume_named_block(cursor, &section_name, "header")?);
             }
             LineKind::BeginBytecode(name) => {
-                ensure_indent(line, section_indent + 1, "bytecode")?;
                 ensure_block_marker_name(line, "bytecode", name, &section_name)?;
                 if bytecode.is_some() {
                     return Err(line_error(
@@ -373,15 +344,9 @@ fn parse_section(
                         format!("section `{}` declares duplicate bytecode", path),
                     ));
                 }
-                bytecode = Some(consume_named_block(
-                    cursor,
-                    &section_name,
-                    "bytecode",
-                    section_indent + 1,
-                )?);
+                bytecode = Some(consume_named_block(cursor, &section_name, "bytecode")?);
             }
             LineKind::BeginSection(child_name) => {
-                ensure_indent(line, section_indent + 1, "child section")?;
                 validate_local_section_name(&path, child_name)?;
                 if !child_names.insert(child_name.clone()) {
                     return Err(line_error(
@@ -395,10 +360,7 @@ fn parse_section(
                 let child = parse_section(
                     cursor,
                     SstSectionParseInfo {
-                        parent: Some(ParentSection {
-                            path: &path,
-                            indent: section_indent,
-                        }),
+                        parent: Some(ParentSection { path: &path }),
                         begin: line,
                     },
                 )?;
@@ -421,7 +383,6 @@ fn consume_named_block(
     cursor: &mut LineCursor<'_>,
     section_name: &str,
     label: &str,
-    block_indent: usize,
 ) -> Result<Range<usize>> {
     let begin = cursor
         .next_significant()
@@ -430,7 +391,6 @@ fn consume_named_block(
 
     while let Some(line) = cursor.next_significant() {
         if let Some(marker_name) = block_end_marker_name(&line.kind, label) {
-            ensure_indent(line, block_indent, label)?;
             ensure_block_marker_name(line, label, marker_name, section_name)?;
             return Ok(start..line.full.start);
         }
@@ -465,19 +425,6 @@ fn ensure_block_marker_name(
             line,
             format!(
                 "{label} marker for section `{section_name}` uses mismatched name `{marker_name}`"
-            ),
-        ));
-    }
-    Ok(())
-}
-
-fn ensure_indent(line: &SourceLine, expected: usize, label: &str) -> Result<()> {
-    if line.indent != expected {
-        return Err(line_error(
-            line,
-            format!(
-                "{label} must be indented with {expected} tab(s), found {}",
-                line.indent
             ),
         ));
     }

@@ -654,25 +654,25 @@ fn rejects_text_body_directly_inside_section() {
 }
 
 #[test]
-fn rejects_text_child_section_indented_with_spaces() {
-    let err = SstFile::<TextContext>::from_text(&text_file(
+fn parses_text_child_section_indented_with_spaces() {
+    let parsed = SstFile::<TextContext>::from_text(&text_file(
         "",
         ".section(root):\n  .section(cpu):\n  .section(cpu).\n.section(root).\n",
     ))
-    .unwrap_err();
+    .unwrap();
 
-    assert!(err.to_string().contains("child section must be indented"));
+    assert!(parsed.root().child("cpu").is_some());
 }
 
 #[test]
-fn rejects_text_header_indented_with_spaces() {
-    let err = SstFile::<TextContext>::from_text(&text_file(
+fn parses_text_header_indented_with_spaces() {
+    let parsed = SstFile::<TextContext>::from_text(&text_file(
         "",
         ".section(root):\n  .header(root):\n\t\troot header\n  .header(root).\n.section(root).\n",
     ))
-    .unwrap_err();
+    .unwrap();
 
-    assert!(err.to_string().contains("header must be indented"));
+    assert_eq!(parsed.root().header_text(), "\t\troot header\n");
 }
 
 fn binary_file_bytes(context: Vec<u8>, root: Vec<u8>) -> Vec<u8> {
