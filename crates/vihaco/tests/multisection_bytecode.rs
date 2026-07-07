@@ -49,7 +49,7 @@ impl FromBytes for TestHeader {
 
 impl FromText for TestHeader {
     fn from_text(text: &str) -> eyre::Result<Self> {
-        Ok(text.parse()?)
+        Ok(text.trim().parse()?)
     }
 }
 
@@ -67,7 +67,7 @@ impl FromStr for TestHeader {
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         Ok(Self {
-            cores: text.parse()?,
+            cores: text.trim().parse()?,
         })
     }
 }

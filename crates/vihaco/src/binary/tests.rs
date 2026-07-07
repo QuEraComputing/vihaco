@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
+use crate::binary::NoHeader;
 use crate::binary::file::{BytecodeFile, SstFile};
 use crate::module::{FunctionInfo, LabelInfo, Parameter, Signature, SourceSymbolInfo};
 use crate::program::{ProgramContext, Type, Value};
@@ -409,8 +410,29 @@ fn parses_text_section_without_header_or_bytecode_as_empty_ranges() {
 }
 
 #[test]
+fn parses_text_file_with_default_no_header_context() {
+    let parsed: SstFile =
+        SstFile::from_text(&text_file("", ".section(root):\n.section(root).\n")).unwrap();
+
+    assert_eq!(parsed.context(), &NoHeader);
+    assert!(parsed.root().path().is_root());
+}
+
+#[test]
+fn rejects_default_no_header_file_with_non_empty_global_section() {
+    let err =
+        SstFile::<NoHeader>::from_text(&text_file("cpu\n", ".section(root):\n.section(root).\n"))
+            .unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("NoHeader accepts only an empty global section")
+    );
+}
+
+#[test]
 fn parses_text_program_context_tables() {
-    let parsed: SstFile = SstFile::from_text(&text_file(
+    let parsed: SstFile<ProgramContext> = SstFile::from_text(&text_file(
         ".constants\n\
 i64 42\n\
 bool true\n\

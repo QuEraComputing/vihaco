@@ -216,7 +216,7 @@ program context bytes
 root section bytes
 ```
 
-The program context contains the shared `Module` tables except `code` and `extra`: constants, strings, functions, labels, `main_function`, `file`, and source symbols. `vihaco::program::ProgramContext<V = Value, Ty = Type>` is the default context representation and is generic over the VM's constant value and type encodings. A binary bytecode file can also use a custom context type by implementing `GlobalContext`; generated composite loading is generic over that context type, so Rust infers it from `BytecodeFile<C>` / `BytecodeLoadInput<C>`. Section bytecode can refer to shared constants with `vihaco::ConstantId`, a `u32` newtype that implements the bytecode field traits.
+The program context contains the shared `Module` tables except `code` and `extra`: constants, strings, functions, labels, `main_function`, `file`, and source symbols. `vihaco::program::ProgramContext<V = Value, Ty = Type>` is the default binary context representation and is generic over the VM's constant value and type encodings. A binary bytecode file can also use a custom context type by implementing `GlobalContext`; generated composite loading is generic over that context type, so Rust infers it from `BytecodeFile<C>` / `BytecodeLoadInput<C>`. Section bytecode can refer to shared constants with `vihaco::ConstantId`, a `u32` newtype that implements the bytecode field traits.
 
 Each section is:
 
@@ -245,9 +245,12 @@ The section frame is part of every section, including the root section. The byte
 
 ### SST Multi-Section Bytecode
 
-SST uses `SstFile<C>`, `SstSectionView<'bc, C>`, `SstLoadInput<C>`, and generated `LoadSstSection<C>` machinery. The backing contents are the original SST and each section stores ranges into that string. Parse SST files with `SstFile::<C>::from_text(source)`:
+SST uses `SstFile<C = NoHeader>`, `SstSectionView<'bc, C>`, `SstLoadInput<C>`, and generated `LoadSstSection<C>` machinery. The backing contents are the original SST and each section stores ranges into that string. Use the default `SstFile` type for an empty global block, or `SstFile<C>` when you need a custom context:
 
 ```rust ignore
+let file: vihaco::SstFile =
+    vihaco::SstFile::from_text(source)?;
+
 let file: vihaco::SstFile<MyContext> =
     vihaco::SstFile::from_text(source)?;
 
@@ -265,7 +268,7 @@ global context text
 .global.
 ```
 
-`sst v1` is the text spelling of version 1. The context body is delegated to `C::from_text(context_text)`; custom SST formats usually provide a custom `GlobalContext` that interprets this block. The context start marker `.global:` and end marker `.global.` must be at indentation level 0.
+`sst v1` is the text spelling of version 1. With the default `NoHeader` context, the global block must be empty. For `SstFile<C>`, the context body is delegated to `C::from_text(context_text)`; custom SST formats usually provide a custom `SstGlobalContext` that interprets this block. The context start marker `.global:` and end marker `.global.` must be at indentation level 0.
 
 After the context comes the root section. Sections use `.section(name):` to begin and `.section(name).` to end. The top-level section must be named `root` (`.section(root):` and `.section(root).`), and it is parsed as `SectionPath::root()`. Direct child section names become path components.
 

@@ -4,7 +4,7 @@
 use crate::program::ProgramContext;
 
 use super::{
-    context::{BytecodeGlobalContext, ContextHandle, SstGlobalContext},
+    context::{BytecodeGlobalContext, ContextHandle, NoHeader, SstGlobalContext},
     section::{BytecodeSectionView, SstSectionView},
 };
 use vihaco_parser_core::container::SectionNode;
@@ -58,7 +58,7 @@ where
 
 /// A parsed SST file.
 #[derive(Debug, Clone)]
-pub struct SstFile<C = ProgramContext> {
+pub struct SstFile<C = NoHeader> {
     contents: String,
     context: ContextHandle<C>,
     root: SectionNode,

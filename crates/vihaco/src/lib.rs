@@ -28,8 +28,8 @@ pub mod value {
 
 pub use binary::{
     BytecodeFile, BytecodeGlobalContext, BytecodeHeader, BytecodeSectionView, ConstantId,
-    ContextHandle, FLAGS, GlobalContext, MAGIC, SectionNameResolver, SectionPath, SstFile,
-    SstGlobalContext, SstHeader, SstSectionView, VERSION, WriteBytecodeHeader,
+    ContextHandle, FLAGS, GlobalContext, MAGIC, NoHeader, SectionNameResolver, SectionPath,
+    SstFile, SstGlobalContext, SstHeader, SstSectionView, VERSION, WriteBytecodeHeader,
     decode_instruction_stream, parse_instruction_stream,
 };
 pub use effect::Effects;
@@ -112,6 +112,7 @@ mod public_api_tests {
         require_section_name_resolver::<crate::ProgramContext>();
         require_bytecode_global_context::<crate::ProgramContext>();
         require_sst_global_context::<crate::ProgramContext>();
+        require_sst_global_context::<crate::NoHeader>();
         require_global_context::<crate::ProgramContext>();
         require_program_globals::<crate::ProgramContext>();
         require_load_own_bytecode_section::<PublicReset>();
