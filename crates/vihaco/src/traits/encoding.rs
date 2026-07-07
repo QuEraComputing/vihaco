@@ -8,7 +8,7 @@ pub trait FromBytes {
 }
 
 pub trait FromText {
-    fn from_text<R: std::io::Read>(text: &mut R) -> eyre::Result<Self>
+    fn from_text(text: &str) -> eyre::Result<Self>
     where
         Self: Sized;
 }

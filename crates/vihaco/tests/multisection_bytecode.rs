@@ -48,10 +48,8 @@ impl FromBytes for TestHeader {
 }
 
 impl FromText for TestHeader {
-    fn from_text<R: Read>(text: &mut R) -> eyre::Result<Self> {
-        let mut buffer = String::new();
-        text.read_to_string(&mut buffer)?;
-        Ok(buffer.trim().parse()?)
+    fn from_text(text: &str) -> eyre::Result<Self> {
+        Ok(text.parse()?)
     }
 }
 

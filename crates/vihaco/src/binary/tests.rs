@@ -30,10 +30,8 @@ impl FromBytes for CustomValue {
 }
 
 impl FromText for CustomValue {
-    fn from_text<R: Read>(text: &mut R) -> eyre::Result<Self> {
-        let mut buffer = String::new();
-        text.read_to_string(&mut buffer)?;
-        Ok(Self(buffer.trim().parse()?))
+    fn from_text(text: &str) -> eyre::Result<Self> {
+        Ok(Self(text.parse()?))
     }
 }
 
@@ -47,10 +45,8 @@ impl FromBytes for CustomType {
 }
 
 impl FromText for CustomType {
-    fn from_text<R: Read>(text: &mut R) -> eyre::Result<Self> {
-        let mut buffer = String::new();
-        text.read_to_string(&mut buffer)?;
-        Ok(Self(buffer.trim().parse()?))
+    fn from_text(text: &str) -> eyre::Result<Self> {
+        Ok(Self(text.parse()?))
     }
 }
 
@@ -224,10 +220,8 @@ fn binary_decode_header_consumes_the_whole_header() {
     }
 
     impl FromText for Header {
-        fn from_text<R: Read>(text: &mut R) -> eyre::Result<Self> {
-            let mut buffer = String::new();
-            text.read_to_string(&mut buffer)?;
-            Ok(Header(buffer.trim().parse()?))
+        fn from_text(text: &str) -> eyre::Result<Self> {
+            Ok(Header(text.parse()?))
         }
     }
 

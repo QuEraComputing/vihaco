@@ -78,7 +78,7 @@ mod public_api_tests {
     struct PublicSstHeader;
 
     impl crate::traits::FromText for PublicSstHeader {
-        fn from_text<R: std::io::Read>(_text: &mut R) -> eyre::Result<Self> {
+        fn from_text(_text: &str) -> eyre::Result<Self> {
             Ok(Self)
         }
     }

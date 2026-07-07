@@ -493,8 +493,7 @@ fn string_literal<'src>() -> impl Parser<'src, &'src str, String, ContextParseEx
 }
 
 fn parse_text_entry<T: FromText>(text: &str) -> eyre::Result<T> {
-    let mut cursor = Cursor::new(text.as_bytes());
-    T::from_text(&mut cursor)
+    T::from_text(text)
 }
 
 fn normalize_context_text(text: &str) -> String {

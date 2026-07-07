@@ -206,15 +206,7 @@ impl<'bc, C> SstSectionView<'bc, C> {
     /// Parse the specified composite header from SST header text.
     pub fn parse_header<H: SstHeader>(&self) -> eyre::Result<H> {
         let text = self.header_text();
-        let mut cursor = Cursor::new(text);
-        let header = H::from_text(&mut cursor)?;
-        if cursor.position() as usize != text.len() {
-            return Err(eyre::eyre!(
-                "section `{}` header has {} trailing bytes",
-                self.display_path(),
-                text.len() - cursor.position() as usize
-            ));
-        }
+        let header = H::from_text(text)?;
         Ok(header)
     }
 
