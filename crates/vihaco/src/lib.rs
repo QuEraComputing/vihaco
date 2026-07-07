@@ -47,7 +47,7 @@ pub use runtime::{
     CompositeMetadata, EffectSink, GeneratedComponent, Message as MessageMarker, Observe,
     expect_exactly_one_effect,
 };
-pub use traits::{GetProgramGlobal, Reset};
+pub use traits::{FromBytes, FromText, GetProgramGlobal, Reset};
 
 #[cfg(test)]
 mod public_api_tests {
