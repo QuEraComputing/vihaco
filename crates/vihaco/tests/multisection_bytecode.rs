@@ -8,7 +8,7 @@ use vihaco::{
     BytecodeFile, BytecodeGlobalContext, BytecodeLoadInput, ConstantId, Effects, FLAGS,
     GeneratedComponent, GetProgramGlobal, Instruction, LoadBytecodeSection, LoadOwnBytecodeSection,
     LoadOwnSstSection, LoadSstSection, MAGIC, ProgramLoader, SectionNameResolver, SstFile,
-    SstGlobalContext, SstLoadInput, VERSION, Value,
+    SstGlobalContext, SstHeader, SstLoadInput, VERSION, Value,
     traits::{FromBytes, FromText, WriteBytes},
 };
 
@@ -54,6 +54,8 @@ impl FromText for TestHeader {
         Ok(buffer.trim().parse()?)
     }
 }
+
+impl SstHeader for TestHeader {}
 
 impl WriteBytes for TestHeader {
     fn write_bytes<W: std::io::Write>(&self, io: &mut W) -> eyre::Result<()> {

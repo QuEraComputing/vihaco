@@ -75,6 +75,16 @@ mod public_api_tests {
         }
     }
 
+    struct PublicSstHeader;
+
+    impl crate::traits::FromText for PublicSstHeader {
+        fn from_text<R: std::io::Read>(_text: &mut R) -> eyre::Result<Self> {
+            Ok(Self)
+        }
+    }
+
+    impl SstHeader for PublicSstHeader {}
+
     #[test]
     fn crate_root_exports_new_traits() {
         fn require_effect_sink<S: EffectSink<()>>() {}
@@ -97,7 +107,7 @@ mod public_api_tests {
         require_reset::<PublicReset>();
         require_instruction::<u32>();
         require_bytecode_header::<u32>();
-        require_sst_header::<crate::Value>();
+        require_sst_header::<PublicSstHeader>();
         require_write_bytecode_header::<u32>();
         require_section_name_resolver::<crate::ProgramContext>();
         require_bytecode_global_context::<crate::ProgramContext>();

@@ -13,7 +13,10 @@ use chumsky::extra;
 use chumsky::prelude::*;
 use vihaco_parser_core::Parse;
 
+use crate::SstHeader;
+use crate::SstLoadInput;
 use crate::syntax::{BodyItem, Param, ParsedFunction, ParsedModule, RawForm, RawOperand, RawType};
+use crate::traits::Instruction;
 
 type E<'src> = extra::Err<Simple<'src, char>>;
 
@@ -193,6 +196,17 @@ fn param_list<'src>() -> impl Parser<'src, &'src str, Vec<Param>, E<'src>> + Clo
     just('(').padded().then(just(')').padded()).to(Vec::new())
 }
 
+fn functions<'src, I>() -> impl Parser<'src, &'src str, Vec<ParsedFunction<I>>, E<'src>>
+where
+    I: Parse<'src> + 'src,
+{
+    skip()
+        .ignore_then(ParsedFunction::<I>::parser())
+        .repeated()
+        .collect::<Vec<_>>()
+        .then_ignore(skip())
+}
+
 impl<'src, I> Parse<'src> for ParsedFunction<I>
 where
     I: Parse<'src> + 'src,
@@ -223,29 +237,21 @@ where
     }
 }
 
-impl<'src, I, H> Parse<'src> for ParsedModule<I, H>
+impl<'bc, I, H> TryFrom<SstLoadInput<'bc>> for ParsedModule<I, H>
 where
-    I: Parse<'src> + 'src,
-    H: Parse<'src> + 'src,
+    H: SstHeader,
+    I: Instruction + vihaco_parser_core::Parse<'bc> + 'bc,
 {
-    fn parser() -> impl Parser<'src, &'src str, Self, E<'src>> {
-        // Each header line: `H::parser()` terminated by `;` and surrounded by
-        // skippable whitespace/comments.
-        let header_line = H::parser().then_ignore(just(';').padded());
+    type Error = eyre::Report;
 
-        let headers = skip()
-            .ignore_then(header_line)
-            .repeated()
-            .collect::<Vec<_>>();
+    fn try_from(input: SstLoadInput<'bc>) -> eyre::Result<Self> {
+        let header = input.section.parse_header::<H>()?;
+        let text = input.section.sst();
+        let functions = functions::<I>()
+            .parse(text)
+            .into_result()
+            .map_err(|errors| eyre::eyre!("failed to parse SST functions: {:?}", errors))?;
 
-        let functions = skip()
-            .ignore_then(ParsedFunction::<I>::parser())
-            .repeated()
-            .collect::<Vec<_>>()
-            .then_ignore(skip());
-
-        headers
-            .then(functions)
-            .map(|(headers, functions)| ParsedModule { headers, functions })
+        Ok(Self { header, functions })
     }
 }

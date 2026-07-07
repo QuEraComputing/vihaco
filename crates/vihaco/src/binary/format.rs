@@ -16,8 +16,6 @@ impl<T> BytecodeHeader for T where T: Sized + FromBytes {}
 
 pub trait SstHeader: Sized + FromText {}
 
-impl<T> SstHeader for T where T: Sized + FromText {}
-
 pub trait WriteBytecodeHeader: WriteBytes {}
 
 impl<T> WriteBytecodeHeader for T where T: WriteBytes {}

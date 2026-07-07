@@ -7,7 +7,7 @@
 /// enum (typically derives `Parse` via Item 5's `DeviceHeader`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParsedModule<I, H> {
-    pub headers: Vec<H>,
+    pub header: H,
     pub functions: Vec<ParsedFunction<I>>,
 }
 

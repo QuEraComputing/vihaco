@@ -35,14 +35,6 @@ mod tests {
         Print,
     }
 
-    #[derive(Debug, Clone, PartialEq, vihaco_parser::Parse)]
-    #[head = "device "]
-    enum StubHeader {
-        #[token = "version"]
-        #[delimiters(open = "", close = "", separator = "")]
-        Version(u32),
-    }
-
     #[test]
     fn parses_empty_function() {
         let src = "fn @main() {}";
@@ -100,21 +92,6 @@ mod tests {
             .into_result()
             .unwrap();
         assert_eq!(f.return_ty.as_ref().unwrap().0, "i64");
-    }
-
-    #[test]
-    fn parses_module_with_headers_and_function() {
-        let src = "\
-device version 1;
-fn @main() { halt }
-";
-        let m = ParsedModule::<StubInst, StubHeader>::parser()
-            .parse(src)
-            .into_result()
-            .unwrap();
-        assert_eq!(m.headers, vec![StubHeader::Version(1)]);
-        assert_eq!(m.functions.len(), 1);
-        assert_eq!(m.functions[0].body.len(), 1);
     }
 
     #[test]

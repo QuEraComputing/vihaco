@@ -1,12 +1,14 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+mod encoding;
 mod event_sink;
 mod instruction;
 mod machine;
 
+pub use encoding::{FromBytes, FromBytesWithOpcode, FromText, WriteBytes};
 pub use event_sink::EffectSink;
-pub use instruction::{FromBytes, FromBytesWithOpcode, FromText, Instruction, OpCode, WriteBytes};
+pub use instruction::{Instruction, OpCode};
 pub use machine::{FrameMemory, GetProgramGlobal, ProgramCounter, StackFrame, StackMemory, Stdout};
 
 pub trait Reset {
