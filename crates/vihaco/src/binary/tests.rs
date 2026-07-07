@@ -4,8 +4,6 @@
 use super::*;
 use crate::binary::NoContext;
 use crate::binary::file::{BytecodeFile, SstFile};
-use crate::module::{FunctionInfo, LabelInfo, Parameter, Signature, SourceSymbolInfo};
-use crate::program::{ProgramContext, Type, Value};
 use crate::traits::{FromBytes, FromText, WriteBytes};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::Read;
@@ -21,39 +19,14 @@ enum TestInst {
     Load(ConstantId),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct CustomValue(u8);
-
-impl FromBytes for CustomValue {
-    fn from_bytes<R: Read>(bytes: &mut R) -> eyre::Result<Self> {
-        Ok(Self(bytes.read_u8()?))
-    }
-}
-
-impl FromText for CustomValue {
-    fn from_text(text: &str) -> eyre::Result<Self> {
-        Ok(Self(text.parse()?))
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct CustomType(u8);
-
-impl FromBytes for CustomType {
-    fn from_bytes<R: Read>(bytes: &mut R) -> eyre::Result<Self> {
-        Ok(Self(bytes.read_u8()?))
-    }
-}
-
-impl FromText for CustomType {
-    fn from_text(text: &str) -> eyre::Result<Self> {
-        Ok(Self(text.parse()?))
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 struct WrappedContext {
-    inner: ProgramContext,
+    inner: SectionNameContext,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SectionNameContext {
+    section_names: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,10 +41,34 @@ impl SectionNameResolver for WrappedContext {
     }
 }
 
+impl SectionNameResolver for SectionNameContext {
+    fn section_name(&self, index: u32) -> Option<&str> {
+        self.section_names.get(index as usize).map(String::as_str)
+    }
+}
+
+impl BytecodeGlobalContext for SectionNameContext {
+    fn from_bytes(bytes: &[u8]) -> eyre::Result<Self> {
+        let mut cursor = bytes;
+        let count = cursor.read_u32::<LittleEndian>()? as usize;
+        let mut section_names = Vec::with_capacity(count);
+        for _ in 0..count {
+            section_names.push(read_string(&mut cursor)?);
+        }
+        if !cursor.is_empty() {
+            return Err(eyre::eyre!(
+                "section-name context has {} trailing bytes",
+                cursor.len()
+            ));
+        }
+        Ok(Self { section_names })
+    }
+}
+
 impl BytecodeGlobalContext for WrappedContext {
     fn from_bytes(bytes: &[u8]) -> eyre::Result<Self> {
         Ok(Self {
-            inner: ProgramContext::from_bytes(bytes)?,
+            inner: SectionNameContext::from_bytes(bytes)?,
         })
     }
 }
@@ -79,8 +76,16 @@ impl BytecodeGlobalContext for WrappedContext {
 impl SstGlobalContext for WrappedContext {
     fn from_text(text: &str) -> eyre::Result<Self> {
         Ok(Self {
-            inner: ProgramContext::from_text(text)?,
+            inner: <TextContext as SstGlobalContext>::from_text(text)?.into(),
         })
+    }
+}
+
+impl From<TextContext> for SectionNameContext {
+    fn from(context: TextContext) -> Self {
+        Self {
+            section_names: context.section_names,
+        }
     }
 }
 
@@ -134,15 +139,12 @@ fn parses_binary_context_and_nested_sections() {
     let root = binary_section_bytes(root_header, &[], vec![(CPU_NAME, cpu)]);
     let file = binary_file_bytes(context, root);
 
-    let parsed: BytecodeFile<ProgramContext> = BytecodeFile::from_bytes(file).unwrap();
+    let parsed: BytecodeFile<SectionNameContext> = BytecodeFile::from_bytes(file).unwrap();
 
-    assert_eq!(parsed.context().constants, vec![Value::I64(42)]);
     assert_eq!(
-        parsed.context().strings,
+        parsed.context().section_names,
         vec!["main".to_string(), "cpu".to_string(), "alu".to_string()]
     );
-    assert_eq!(parsed.context().main_function, Some(0));
-    assert_eq!(parsed.context().file, 7);
 
     let root = parsed.root();
     assert!(root.path().is_root());
@@ -181,31 +183,13 @@ fn parses_binary_file_with_custom_context_representation() {
     let parsed: BytecodeFile<WrappedContext> =
         BytecodeFile::from_bytes(binary_file_bytes(context_bytes(), root)).unwrap();
 
-    assert_eq!(parsed.context().inner.constants, vec![Value::I64(42)]);
+    assert_eq!(
+        parsed.context().inner.section_names,
+        vec!["main".to_string(), "cpu".to_string(), "alu".to_string()]
+    );
     assert_eq!(
         parsed.root().child("cpu").unwrap().local_name(),
         Some("cpu")
-    );
-}
-
-#[test]
-fn parses_binary_context_with_custom_value_and_type_tables() {
-    let context = custom_context_bytes();
-    let root = binary_section_bytes(b"", &[], vec![]);
-    let parsed = BytecodeFile::<ProgramContext<CustomValue, CustomType>>::from_bytes(
-        binary_file_bytes(context, root),
-    )
-    .unwrap();
-
-    assert_eq!(parsed.context().constants, vec![CustomValue(7)]);
-    assert_eq!(parsed.context().functions.len(), 1);
-    assert_eq!(
-        parsed.context().functions[0].signature.params[0].ty,
-        CustomType(3)
-    );
-    assert_eq!(
-        parsed.context().functions[0].signature.ret,
-        vec![CustomType(4)]
     );
 }
 
@@ -236,7 +220,7 @@ fn binary_decode_header_consumes_the_whole_header() {
     let mut header = Vec::new();
     header.write_u32::<LittleEndian>(99).unwrap();
     let root = binary_section_bytes(&header, &[], vec![]);
-    let parsed: BytecodeFile<ProgramContext> =
+    let parsed: BytecodeFile<SectionNameContext> =
         BytecodeFile::from_bytes(binary_file_bytes(empty_context_bytes(), root)).unwrap();
 
     assert_eq!(parsed.root().decode_header::<Header>().unwrap(), Header(99));
@@ -250,14 +234,14 @@ fn rejects_bad_binary_magic() {
     );
     bytes[0] = b'X';
 
-    let err = BytecodeFile::<ProgramContext<Value, Type>>::from_bytes(bytes).unwrap_err();
+    let err = BytecodeFile::<SectionNameContext>::from_bytes(bytes).unwrap_err();
     assert!(err.to_string().contains("invalid bytecode magic"));
 }
 
 #[test]
 fn rejects_binary_missing_section_name_string() {
     let root = raw_binary_section(b"", b"", vec![(0, b"")]);
-    let err = BytecodeFile::<ProgramContext<Value, Type>>::from_bytes(binary_file_bytes(
+    let err = BytecodeFile::<SectionNameContext>::from_bytes(binary_file_bytes(
         empty_context_bytes(),
         root,
     ))
@@ -272,7 +256,7 @@ fn rejects_binary_duplicate_child_names() {
     let child_b = binary_section_bytes(b"", &[], vec![]);
     let root = raw_binary_section(b"", b"", vec![(0, &child_a), (0, &child_b)]);
 
-    let err = BytecodeFile::<ProgramContext<Value, Type>>::from_bytes(binary_file_bytes(
+    let err = BytecodeFile::<SectionNameContext>::from_bytes(binary_file_bytes(
         context_with_strings(&["cpu"]),
         root,
     ))
@@ -285,7 +269,7 @@ fn rejects_binary_duplicate_child_names() {
 fn rejects_binary_out_of_bounds_child_section() {
     let root = raw_binary_section_with_entry_offsets(b"", b"", vec![(0, 999, b"")]);
 
-    let err = BytecodeFile::<ProgramContext<Value, Type>>::from_bytes(binary_file_bytes(
+    let err = BytecodeFile::<SectionNameContext>::from_bytes(binary_file_bytes(
         context_with_strings(&["cpu"]),
         root,
     ))
@@ -307,7 +291,7 @@ fn rejects_binary_overlapping_child_sections() {
         vec![(0, child_offset, &child), (1, child_offset, &[])],
     );
 
-    let err = BytecodeFile::<ProgramContext<Value, Type>>::from_bytes(binary_file_bytes(
+    let err = BytecodeFile::<SectionNameContext>::from_bytes(binary_file_bytes(
         context_with_strings(&["cpu", "gpu"]),
         root,
     ))
@@ -324,7 +308,7 @@ fn rejects_binary_bytecode_that_extends_past_section_end() {
     root.write_u64::<LittleEndian>(0).unwrap();
     root.write_u64::<LittleEndian>(1).unwrap();
 
-    let err = BytecodeFile::<ProgramContext<Value, Type>>::from_bytes(binary_file_bytes(
+    let err = BytecodeFile::<SectionNameContext>::from_bytes(binary_file_bytes(
         empty_context_bytes(),
         root,
     ))
@@ -428,145 +412,6 @@ fn rejects_no_context_file_with_non_empty_global_section() {
     assert!(
         err.to_string()
             .contains("NoContext accepts only an empty global section")
-    );
-}
-
-#[test]
-fn parses_text_program_context_tables() {
-    let parsed: SstFile<ProgramContext> = SstFile::from_text(&text_file(
-        ".constants\n\
-i64 42\n\
-bool true\n\
-str 4\n\
-fn 1\n\
-heap 0\n\
-\n\
-.strings\n\
-\"main\"\n\
-\"helper\"\n\
-\"x\"\n\
-\"flag\"\n\
-\"config.json\"\n\
-\"entry\"\n\
-\"loop\"\n\
-\"done\"\n\
-\"cpu\"\n\
-\n\
-.functions\n\
-fn 0 (2: i64, 3: bool) -> i64 2 0 12 4\n\
-fn 1 () -> (bool, i64) 0 12 24 4\n\
-\n\
-.labels\n\
-0 5\n\
-6 6\n\
-12 7\n\
-\n\
-.main 0\n\
-.file 4\n\
-\n\
-.source-symbols\n\
-0 \"cpu\"\n\
-1 \"memory\"\n\
-2 \"timer\"\n",
-        ".section(root):\n.section(root).\n",
-    ))
-    .unwrap();
-
-    assert_eq!(
-        parsed.context().constants,
-        vec![
-            Value::I64(42),
-            Value::Bool(true),
-            Value::String(4),
-            Value::FunctionRef(1),
-            Value::HeapRef(0),
-        ]
-    );
-    assert_eq!(
-        parsed.context().strings,
-        vec![
-            "main".to_string(),
-            "helper".to_string(),
-            "x".to_string(),
-            "flag".to_string(),
-            "config.json".to_string(),
-            "entry".to_string(),
-            "loop".to_string(),
-            "done".to_string(),
-            "cpu".to_string(),
-        ]
-    );
-    assert_eq!(
-        parsed.context().functions,
-        vec![
-            FunctionInfo {
-                name: 0,
-                signature: Signature {
-                    params: vec![
-                        Parameter {
-                            name: 2,
-                            ty: Type::I64,
-                        },
-                        Parameter {
-                            name: 3,
-                            ty: Type::Bool,
-                        },
-                    ],
-                    ret: vec![Type::I64],
-                },
-                local_count: 2,
-                start_address: 0,
-                end_address: 12,
-                file: 4,
-            },
-            FunctionInfo {
-                name: 1,
-                signature: Signature {
-                    params: vec![],
-                    ret: vec![Type::Bool, Type::I64],
-                },
-                local_count: 0,
-                start_address: 12,
-                end_address: 24,
-                file: 4,
-            },
-        ]
-    );
-    assert_eq!(
-        parsed.context().labels,
-        vec![
-            LabelInfo {
-                address: 0,
-                name: 5,
-            },
-            LabelInfo {
-                address: 6,
-                name: 6,
-            },
-            LabelInfo {
-                address: 12,
-                name: 7,
-            },
-        ]
-    );
-    assert_eq!(parsed.context().main_function, Some(0));
-    assert_eq!(parsed.context().file, 4);
-    assert_eq!(
-        parsed.context().source_symbols,
-        vec![
-            SourceSymbolInfo {
-                index: 0,
-                name: "cpu".to_string(),
-            },
-            SourceSymbolInfo {
-                index: 1,
-                name: "memory".to_string(),
-            },
-            SourceSymbolInfo {
-                index: 2,
-                name: "timer".to_string(),
-            },
-        ]
     );
 }
 
@@ -712,69 +557,7 @@ fn binary_file_bytes(context: Vec<u8>, root: Vec<u8>) -> Vec<u8> {
 }
 
 fn context_bytes() -> Vec<u8> {
-    let mut bytes = Vec::new();
-
-    bytes.write_u32::<LittleEndian>(1).unwrap();
-    Value::I64(42).write_bytes(&mut bytes).unwrap();
-
-    bytes.write_u32::<LittleEndian>(3).unwrap();
-    write_string(&mut bytes, "main");
-    write_string(&mut bytes, "cpu");
-    write_string(&mut bytes, "alu");
-
-    bytes.write_u32::<LittleEndian>(1).unwrap();
-    bytes.write_u32::<LittleEndian>(0).unwrap();
-    bytes.write_u32::<LittleEndian>(0).unwrap();
-    bytes.write_u32::<LittleEndian>(1).unwrap();
-    Type::I64.write_bytes(&mut bytes).unwrap();
-    bytes.write_u32::<LittleEndian>(0).unwrap();
-    bytes.write_u32::<LittleEndian>(0).unwrap();
-    bytes.write_u32::<LittleEndian>(1).unwrap();
-    bytes.write_u32::<LittleEndian>(7).unwrap();
-
-    bytes.write_u32::<LittleEndian>(1).unwrap();
-    bytes.write_u32::<LittleEndian>(0).unwrap();
-    bytes.write_u32::<LittleEndian>(0).unwrap();
-
-    bytes.write_u8(1).unwrap();
-    bytes.write_u32::<LittleEndian>(0).unwrap();
-    bytes.write_u32::<LittleEndian>(7).unwrap();
-
-    bytes.write_u32::<LittleEndian>(1).unwrap();
-    bytes.write_u32::<LittleEndian>(0).unwrap();
-    write_string(&mut bytes, "cpu");
-
-    bytes
-}
-
-fn custom_context_bytes() -> Vec<u8> {
-    let mut bytes = Vec::new();
-
-    bytes.write_u32::<LittleEndian>(1).unwrap();
-    bytes.write_u8(7).unwrap();
-
-    bytes.write_u32::<LittleEndian>(1).unwrap();
-    write_string(&mut bytes, "main");
-
-    bytes.write_u32::<LittleEndian>(1).unwrap();
-    bytes.write_u32::<LittleEndian>(0).unwrap();
-    bytes.write_u32::<LittleEndian>(1).unwrap();
-    bytes.write_u32::<LittleEndian>(0).unwrap();
-    bytes.write_u8(3).unwrap();
-    bytes.write_u32::<LittleEndian>(1).unwrap();
-    bytes.write_u8(4).unwrap();
-    bytes.write_u32::<LittleEndian>(2).unwrap();
-    bytes.write_u32::<LittleEndian>(11).unwrap();
-    bytes.write_u32::<LittleEndian>(22).unwrap();
-    bytes.write_u32::<LittleEndian>(5).unwrap();
-
-    bytes.write_u32::<LittleEndian>(0).unwrap();
-    bytes.write_u8(1).unwrap();
-    bytes.write_u32::<LittleEndian>(0).unwrap();
-    bytes.write_u32::<LittleEndian>(5).unwrap();
-    bytes.write_u32::<LittleEndian>(0).unwrap();
-
-    bytes
+    context_with_strings(&["main", "cpu", "alu"])
 }
 
 fn empty_context_bytes() -> Vec<u8> {
@@ -783,18 +566,12 @@ fn empty_context_bytes() -> Vec<u8> {
 
 fn context_with_strings(strings: &[&str]) -> Vec<u8> {
     let mut bytes = Vec::new();
-    bytes.write_u32::<LittleEndian>(0).unwrap();
     bytes
         .write_u32::<LittleEndian>(strings.len() as u32)
         .unwrap();
     for string in strings {
         write_string(&mut bytes, string);
     }
-    bytes.write_u32::<LittleEndian>(0).unwrap();
-    bytes.write_u32::<LittleEndian>(0).unwrap();
-    bytes.write_u8(0).unwrap();
-    bytes.write_u32::<LittleEndian>(0).unwrap();
-    bytes.write_u32::<LittleEndian>(0).unwrap();
     bytes
 }
 
@@ -897,4 +674,11 @@ fn text_file(context: &str, sections: &str) -> String {
 fn write_string(bytes: &mut Vec<u8>, value: &str) {
     bytes.write_u32::<LittleEndian>(value.len() as u32).unwrap();
     bytes.extend_from_slice(value.as_bytes());
+}
+
+fn read_string(bytes: &mut &[u8]) -> eyre::Result<String> {
+    let len = bytes.read_u32::<LittleEndian>()? as usize;
+    let mut value = vec![0; len];
+    bytes.read_exact(&mut value)?;
+    Ok(String::from_utf8(value)?)
 }

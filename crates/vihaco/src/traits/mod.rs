@@ -9,7 +9,7 @@ mod machine;
 pub use encoding::{FromBytes, FromBytesWithOpcode, FromText, WriteBytes};
 pub use event_sink::EffectSink;
 pub use instruction::{Instruction, OpCode};
-pub use machine::{FrameMemory, GetProgramGlobal, ProgramCounter, StackFrame, StackMemory, Stdout};
+pub use machine::{FrameMemory, GetProgramInfo, ProgramCounter, StackFrame, StackMemory, Stdout};
 
 pub trait Reset {
     /// reset the component state into initial state

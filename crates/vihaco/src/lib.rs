@@ -41,19 +41,19 @@ pub use loader::{
     LoadBytecodeSection, LoadOwnBytecodeSection, LoadOwnSstSection, LoadSstSection, ProgramImage,
 };
 pub use macros::{Instruction, Message, component, composite, observe};
-pub use program::{ProgramContext, ProgramGlobals, Type, Value};
+pub use program::{Type, Value};
 pub use runtime::{
     CompositeMetadata, EffectSink, GeneratedComponent, Message as MessageMarker, Observe,
     expect_exactly_one_effect,
 };
-pub use traits::{FromBytes, FromText, GetProgramGlobal, Reset};
+pub use traits::{FromBytes, FromText, GetProgramInfo, Reset};
 
 #[cfg(test)]
 mod public_api_tests {
     use crate::{
         BytecodeGlobalContext, BytecodeHeader, ConstantId, EffectSink, Effects, GeneratedComponent,
-        GlobalContext, LoadBytecodeSection, LoadOwnBytecodeSection, ProgramGlobals, Reset,
-        SectionNameResolver, SstGlobalContext, SstHeader, WriteBytecodeHeader,
+        GlobalContext, LoadBytecodeSection, LoadOwnBytecodeSection, Reset, SectionNameResolver,
+        SstGlobalContext, SstHeader, WriteBytecodeHeader,
         instruction::{FromBytes, OpCode, WriteBytes},
         module::FunctionInfo,
         observer::stdio::StdoutEffect,
@@ -65,19 +65,39 @@ mod public_api_tests {
         fn reset(&mut self) {}
     }
 
-    impl LoadOwnBytecodeSection<crate::ProgramContext> for PublicReset {
+    struct PublicContext;
+
+    impl SectionNameResolver for PublicContext {
+        fn section_name(&self, _index: u32) -> Option<&str> {
+            None
+        }
+    }
+
+    impl BytecodeGlobalContext for PublicContext {
+        fn from_bytes(_bytes: &[u8]) -> eyre::Result<Self> {
+            Ok(Self)
+        }
+    }
+
+    impl SstGlobalContext for PublicContext {
+        fn from_text(_text: &str) -> eyre::Result<Self> {
+            Ok(Self)
+        }
+    }
+
+    impl LoadOwnBytecodeSection<PublicContext> for PublicReset {
         fn load_own_bytecode_section<'bc>(
             &mut self,
-            _section: crate::BytecodeSectionView<'bc, crate::ProgramContext>,
+            _section: crate::BytecodeSectionView<'bc, PublicContext>,
         ) -> eyre::Result<()> {
             Ok(())
         }
     }
 
-    impl LoadBytecodeSection<crate::ProgramContext> for PublicReset {
+    impl LoadBytecodeSection<PublicContext> for PublicReset {
         fn load_bytecode_section<'bc>(
             &mut self,
-            section: crate::BytecodeSectionView<'bc, crate::ProgramContext>,
+            section: crate::BytecodeSectionView<'bc, PublicContext>,
         ) -> eyre::Result<()> {
             self.load_own_bytecode_section(section)
         }
@@ -105,9 +125,8 @@ mod public_api_tests {
         fn require_bytecode_global_context<T: BytecodeGlobalContext>() {}
         fn require_sst_global_context<T: SstGlobalContext>() {}
         fn require_global_context<T: GlobalContext>() {}
-        fn require_program_globals<T: ProgramGlobals>() {}
-        fn require_load_own_bytecode_section<T: LoadOwnBytecodeSection<crate::ProgramContext>>() {}
-        fn require_load_bytecode_section<T: LoadBytecodeSection<crate::ProgramContext>>() {}
+        fn require_load_own_bytecode_section<T: LoadOwnBytecodeSection<PublicContext>>() {}
+        fn require_load_bytecode_section<T: LoadBytecodeSection<PublicContext>>() {}
         fn require_stdout_effect(_effect: StdoutEffect) {}
         fn require_metadata(_metadata: crate::CompositeMetadata) {}
 
@@ -117,12 +136,11 @@ mod public_api_tests {
         require_bytecode_header::<u32>();
         require_sst_header::<PublicSstHeader>();
         require_write_bytecode_header::<u32>();
-        require_section_name_resolver::<crate::ProgramContext>();
-        require_bytecode_global_context::<crate::ProgramContext>();
-        require_sst_global_context::<crate::ProgramContext>();
+        require_section_name_resolver::<PublicContext>();
+        require_bytecode_global_context::<PublicContext>();
+        require_sst_global_context::<PublicContext>();
         require_sst_global_context::<crate::NoContext>();
-        require_global_context::<crate::ProgramContext>();
-        require_program_globals::<crate::ProgramContext>();
+        require_global_context::<PublicContext>();
         require_load_own_bytecode_section::<PublicReset>();
         require_load_bytecode_section::<PublicReset>();
         let _constant = ConstantId(0);

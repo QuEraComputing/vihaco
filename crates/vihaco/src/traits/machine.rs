@@ -87,7 +87,7 @@ pub trait FrameMemory: StackFrame + StackMemory {
     }
 }
 
-pub trait GetProgramGlobal {
+pub trait GetProgramInfo {
     type Type;
     type Value;
 

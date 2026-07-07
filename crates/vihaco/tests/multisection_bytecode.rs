@@ -6,11 +6,10 @@ use std::{io::Read, str::FromStr};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use vihaco::{
     BytecodeFile, BytecodeGlobalContext, BytecodeSectionView, ConstantId, Effects, FLAGS,
-    GeneratedComponent, GetProgramGlobal, Instruction, LoadBytecodeSection, LoadOwnBytecodeSection,
+    GeneratedComponent, GetProgramInfo, Instruction, LoadBytecodeSection, LoadOwnBytecodeSection,
     LoadOwnSstSection, LoadSstSection, MAGIC, ProgramImage, SectionNameResolver, SstFile,
     SstGlobalContext, SstHeader, SstSectionView, Type, VERSION, Value,
     module::LocalModule,
-    program::ProgramContext,
     syntax::{ParsedModule, Resolve},
     traits::{FromBytes, FromText, WriteBytes},
 };
@@ -106,14 +105,15 @@ impl<H> Resolve<TextInst, H> for TextResolver {
     }
 }
 
-type BytecodeProgram = ProgramImage<TestInst, ProgramContext>;
+type BytecodeProgram = ProgramImage<TestInst, TextContext>;
 type TextProgram = ProgramImage<TextInst, TextContext>;
 
 fn load_bytecode_program<'bc>(
     program: &mut BytecodeProgram,
-    section: BytecodeSectionView<'bc, ProgramContext>,
+    section: BytecodeSectionView<'bc, TextContext>,
 ) -> eyre::Result<()> {
     program.module.code = section.decode_instructions()?;
+    program.module.constants = vec![Value::I64(9)];
     program.context = Some(section.context_handle());
     program.pc = 0;
     Ok(())
@@ -200,10 +200,10 @@ impl GeneratedComponent for TextLoadedDevice {
     }
 }
 
-impl LoadBytecodeSection<ProgramContext> for LoadedDevice {
+impl LoadBytecodeSection<TextContext> for LoadedDevice {
     fn load_bytecode_section<'bc>(
         &mut self,
-        section: BytecodeSectionView<'bc, ProgramContext>,
+        section: BytecodeSectionView<'bc, TextContext>,
     ) -> eyre::Result<()> {
         load_bytecode_program(&mut self.program, section)
     }
@@ -346,37 +346,37 @@ struct TextHeaderMachine {
     device: TextLoadedDevice,
 }
 
-impl LoadOwnBytecodeSection<ProgramContext> for Machine {
+impl LoadOwnBytecodeSection<TextContext> for Machine {
     fn load_own_bytecode_section<'bc>(
         &mut self,
-        section: BytecodeSectionView<'bc, ProgramContext>,
+        section: BytecodeSectionView<'bc, TextContext>,
     ) -> eyre::Result<()> {
         load_bytecode_program(&mut self.program, section)
     }
 }
 
-impl LoadOwnBytecodeSection<ProgramContext> for NestedMachine {
+impl LoadOwnBytecodeSection<TextContext> for NestedMachine {
     fn load_own_bytecode_section<'bc>(
         &mut self,
-        section: BytecodeSectionView<'bc, ProgramContext>,
+        section: BytecodeSectionView<'bc, TextContext>,
     ) -> eyre::Result<()> {
         load_bytecode_program(&mut self.program, section)
     }
 }
 
-impl LoadOwnBytecodeSection<ProgramContext> for HostMachine {
+impl LoadOwnBytecodeSection<TextContext> for HostMachine {
     fn load_own_bytecode_section<'bc>(
         &mut self,
-        section: BytecodeSectionView<'bc, ProgramContext>,
+        section: BytecodeSectionView<'bc, TextContext>,
     ) -> eyre::Result<()> {
         load_bytecode_program(&mut self.program, section)
     }
 }
 
-impl LoadOwnBytecodeSection<ProgramContext> for HeaderMachine {
+impl LoadOwnBytecodeSection<TextContext> for HeaderMachine {
     fn load_own_bytecode_section<'bc>(
         &mut self,
-        section: BytecodeSectionView<'bc, ProgramContext>,
+        section: BytecodeSectionView<'bc, TextContext>,
     ) -> eyre::Result<()> {
         self.info = section.decode_header()?;
         load_bytecode_program(&mut self.program, section)
@@ -437,7 +437,7 @@ fn binary_generated_loadable_routes_program_and_child_sections() {
         &[TestInst::Nop],
         vec![(CHILD_NAME, child), (DEFAULT_CHILD_NAME, default_child)],
     );
-    let file: BytecodeFile<ProgramContext> =
+    let file: BytecodeFile<TextContext> =
         BytecodeFile::from_bytes(binary_file_bytes(context_bytes(), root)).unwrap();
 
     let mut machine = Machine::default();
@@ -535,7 +535,7 @@ fn binary_generated_loadable_parses_marked_header() {
     let mut header = Vec::new();
     TestHeader { cores: 8 }.write_bytes(&mut header).unwrap();
     let root = binary_section_bytes(&header, &[TestInst::Nop], vec![]);
-    let file: BytecodeFile<ProgramContext> =
+    let file: BytecodeFile<TextContext> =
         BytecodeFile::from_bytes(binary_file_bytes(context_bytes(), root)).unwrap();
 
     let mut machine = HeaderMachine::default();
@@ -577,7 +577,7 @@ fn binary_generated_loadable_routes_three_level_section_tree() {
         vec![(LEAF_NAME, leaf)],
     );
     let root = binary_section_bytes(b"", &[TestInst::Nop], vec![(MIDDLE_NAME, middle)]);
-    let file: BytecodeFile<ProgramContext> =
+    let file: BytecodeFile<TextContext> =
         BytecodeFile::from_bytes(binary_file_bytes(context_bytes(), root)).unwrap();
 
     let mut machine = HostMachine::default();
@@ -690,7 +690,7 @@ fn text_generated_loadable_routes_three_level_section_tree() {
 #[test]
 fn binary_generated_loadable_allows_missing_marked_children() {
     let root = binary_section_bytes(b"", &[TestInst::Nop], vec![]);
-    let file: BytecodeFile<ProgramContext> =
+    let file: BytecodeFile<TextContext> =
         BytecodeFile::from_bytes(binary_file_bytes(context_bytes(), root)).unwrap();
     let mut machine = Machine::default();
 
@@ -730,7 +730,7 @@ fn text_generated_loadable_allows_missing_marked_children() {
 fn binary_generated_loadable_rejects_unexpected_direct_children() {
     let extra = binary_section_bytes(b"", &[], vec![]);
     let root = binary_section_bytes(b"", &[TestInst::Nop], vec![(EXTRA_NAME, extra)]);
-    let file: BytecodeFile<ProgramContext> =
+    let file: BytecodeFile<TextContext> =
         BytecodeFile::from_bytes(binary_file_bytes(context_bytes(), root)).unwrap();
     let mut machine = Machine::default();
 
@@ -791,24 +791,7 @@ fn text_file(section_names: &[&str], sections: &str) -> SstFile<TextContext> {
 }
 
 fn context_bytes() -> Vec<u8> {
-    let mut bytes = Vec::new();
-
-    bytes.write_u32::<LittleEndian>(1).unwrap();
-    Value::I64(9).write_bytes(&mut bytes).unwrap();
-
-    bytes.write_u32::<LittleEndian>(5).unwrap();
-    write_string(&mut bytes, "child");
-    write_string(&mut bytes, "default_child");
-    write_string(&mut bytes, "extra");
-    write_string(&mut bytes, "middle");
-    write_string(&mut bytes, "leaf");
-    bytes.write_u32::<LittleEndian>(0).unwrap();
-    bytes.write_u32::<LittleEndian>(0).unwrap();
-    bytes.write_u8(0).unwrap();
-    bytes.write_u32::<LittleEndian>(0).unwrap();
-    bytes.write_u32::<LittleEndian>(0).unwrap();
-
-    bytes
+    b"child\ndefault_child\nextra\nmiddle\nleaf\n".to_vec()
 }
 
 fn binary_section_bytes(
@@ -851,9 +834,4 @@ fn binary_section_bytes(
         bytes.extend_from_slice(&child);
     }
     bytes
-}
-
-fn write_string(bytes: &mut Vec<u8>, value: &str) {
-    bytes.write_u32::<LittleEndian>(value.len() as u32).unwrap();
-    bytes.extend_from_slice(value.as_bytes());
 }

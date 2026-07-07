@@ -133,13 +133,13 @@ pub struct CpuHeader {
 #[derive(Default)]
 pub struct CpuMachine {
     info: CpuHeader,
-    program: vihaco::ProgramImage<CpuInst, vihaco::ProgramContext>,
+    program: vihaco::ProgramImage<CpuInst, MyContext>,
 }
 
-impl vihaco::LoadOwnBytecodeSection<vihaco::ProgramContext> for CpuMachine {
+impl vihaco::LoadOwnBytecodeSection<MyContext> for CpuMachine {
     fn load_own_bytecode_section<'a>(
         &mut self,
-        section: vihaco::BytecodeSectionView<'a, vihaco::ProgramContext>,
+        section: vihaco::BytecodeSectionView<'a, MyContext>,
     ) -> eyre::Result<()> {
         self.info = section.decode_header::<CpuHeader>()?;
         self.program.module.code = section.decode_instructions()?;
@@ -155,7 +155,7 @@ For SST, parse the section into `vihaco::syntax::ParsedModule` with `ParsedModul
 For structural composites that only route child sections, make that no-op explicit:
 
 ```rust ignore
-impl<C: vihaco::GlobalContext> vihaco::LoadOwnBytecodeSection<C> for Machine {
+impl<C> vihaco::LoadOwnBytecodeSection<C> for Machine {
     fn load_own_bytecode_section<'a>(
         &mut self,
         _section: vihaco::BytecodeSectionView<'a, C>,
@@ -198,15 +198,14 @@ The read-side bytecode API lives in `vihaco` and `vihaco::loader`.
 
 ```rust ignore
 fn load_machine<'bc>(
-    file: &'bc vihaco::BytecodeFile<vihaco::ProgramContext>,
+    file: &'bc vihaco::BytecodeFile<MyContext>,
 ) -> eyre::Result<Machine> {
     let mut machine = Machine::default();
     machine.load_bytecode_section(file.root())?;
     Ok(machine)
 }
 
-let file: vihaco::BytecodeFile<vihaco::ProgramContext> =
-    vihaco::BytecodeFile::from_bytes(bytes)?;
+let file: vihaco::BytecodeFile<MyContext> = vihaco::BytecodeFile::from_bytes(bytes)?;
 let machine = load_machine(&file)?;
 ```
 
@@ -216,12 +215,12 @@ The v1 file layout is:
 VHBC magic
 u16 version = 1
 u16 flags = 0
-u64 program_context_len
-program context bytes
+u64 global_context_len
+global context bytes
 root section bytes
 ```
 
-The program context contains the shared `Module` tables except `code` and `extra`: constants, strings, functions, labels, `main_function`, `file`, and source symbols. `vihaco::program::ProgramContext<V = Value, Ty = Type>` is the default binary context representation and is generic over the VM's constant value and type encodings. A binary bytecode file can also use a custom context type by implementing `GlobalContext`; generated composite loading is generic over that context type, so Rust infers it from `BytecodeFile<C>` / `BytecodeSectionView<C>`. Section bytecode can refer to shared constants with `vihaco::ConstantId`, a `u32` newtype that implements the bytecode field traits.
+The bytecode global context is interpreted by the file's `C: BytecodeGlobalContext`. For bytecode, `C` must also implement `SectionNameResolver`, because child section table entries store local section names indirectly by ID. SST global contexts only implement `SstGlobalContext`; section names are present directly in the text. Program tables such as constants, functions, labels, entrypoints, and source symbols are architecture-specific and should live in a section header, `Module` fields, `Module::extra`, or a custom loader-owned data structure.
 
 Each section is:
 
@@ -310,7 +309,7 @@ Inside a section:
 
 The SST parser preserves the original header and bytecode ranges, including their leading tabs. Load section programs by mapping the section to `ParsedModule::<I, H>::parse_section(section)`, then run your `Resolve` impl to produce the runtime `Module`. Instruction types loaded this way must implement both `Instruction` and `vihaco_parser_core::Parse`.
 
-`ProgramImage<I, C, V = Value, Ty = Type, Info = NoInfo>` is the standard in-memory program image. Machines load binary bytecode into it by decoding `section.bytecode()` with `BytecodeSectionView::decode_instructions::<I>()` and storing the section's cloned `ContextHandle<C>`. For SST, resolve a `ParsedModule` into the image's `module`. `ProgramImage` implements `ProgramCounter` and exposes functions, strings, and constants through `GetProgramGlobal`, using the loaded context when present and its local module otherwise.
+`ProgramImage<I, C, V = Value, Ty = Type, Info = NoInfo>` is the standard in-memory program image. Machines load binary bytecode into it by decoding `section.bytecode()` with `BytecodeSectionView::decode_instructions::<I>()` and, when useful, storing the section's cloned `ContextHandle<C>`. For SST, resolve a `ParsedModule` into the image's `module`. `ProgramImage` implements `ProgramCounter` and exposes functions, strings, and constants through `GetProgramInfo` from its own `module` fields.
 
 ## Effect Continuation Is Hand-Written
 

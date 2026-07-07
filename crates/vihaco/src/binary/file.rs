@@ -40,7 +40,7 @@ where
         let context = C::from_bytes(
             bytes
                 .get(context_range)
-                .ok_or_else(|| eyre::eyre!("program context is out of bounds"))?,
+                .ok_or_else(|| eyre::eyre!("global context is out of bounds"))?,
         )?;
         let parsed = vihaco_parser_core::container::bytecode::parse_file(&bytes, |index| {
             context.section_name(index).map(ToOwned::to_owned)
@@ -86,7 +86,7 @@ where
         let parsed = vihaco_parser_core::container::sst::parse_file(text)?;
         let context = C::from_text(
             text.get(parsed.context)
-                .ok_or_else(|| eyre::eyre!("program context is out of bounds"))?,
+                .ok_or_else(|| eyre::eyre!("global context is out of bounds"))?,
         )?;
 
         Ok(SstFile {

@@ -49,7 +49,7 @@ impl BytecodeHeader {
         }
 
         Ok(Self {
-            context_len: read_usize_u64(reader, "program context length")?,
+            context_len: read_usize_u64(reader, "global context length")?,
         })
     }
 }
@@ -165,9 +165,9 @@ pub fn context_range(bytes: &[u8]) -> eyre::Result<Range<usize>> {
     let mut cursor = Cursor::new(bytes);
     let header = BytecodeHeader::read_from(&mut cursor)?;
     let context_start = BytecodeHeader::ENCODED_LEN;
-    let context_end = checked_add(context_start, header.context_len, "program context end")?;
+    let context_end = checked_add(context_start, header.context_len, "global context end")?;
     if bytes.get(context_start..context_end).is_none() {
-        return Err(eyre::eyre!("program context is out of bounds"));
+        return Err(eyre::eyre!("global context is out of bounds"));
     }
     Ok(context_start..context_end)
 }

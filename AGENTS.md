@@ -107,7 +107,7 @@ self-contained component you can use directly or copy as a starting point.
   `Vec<BodyItem<I>>` into `Vec<I>`.
 - **`runtime/` + `traits/`** — the host-VM interfaces a CPU-like component
   implements: `ProgramCounter`, `StackMemory`, `StackFrame`, `FrameMemory`,
-  `GetProgramGlobal`, `Stdout` (`traits/machine.rs`), plus `Reset` and the
+  `GetProgramInfo`, `Stdout` (`traits/machine.rs`), plus `Reset` and the
   `EffectSink` / `Observe` machinery (`#[observe]`, `observer/stdio.rs`).
 - **`value.rs`** — the runtime `Value` enum (`I64`/`U64`/`F64`/`Bool`/
   `FunctionRef`/`HeapRef`/interned `String`…) and `Type`.

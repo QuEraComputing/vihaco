@@ -4,8 +4,8 @@
 use crate::{
     binary::{BytecodeSectionView, ConstantId, ContextHandle, SstSectionView},
     module::{LocalModule, NoInfo},
-    program::{ProgramGlobals, Type, Value},
-    traits::{self, GetProgramGlobal, ProgramCounter},
+    program::{Type, Value},
+    traits::{self, GetProgramInfo, ProgramCounter},
 };
 
 /// Allow a machine to load the bytecode data owned directly by its section.
@@ -122,53 +122,40 @@ impl<I: traits::Instruction, C, V, Ty, Info> ProgramCounter for ProgramImage<I, 
     }
 }
 
-impl<I: traits::Instruction, C, V, Ty, Info> GetProgramGlobal for ProgramImage<I, C, V, Ty, Info>
+impl<I: traits::Instruction, C, V, Ty, Info> GetProgramInfo for ProgramImage<I, C, V, Ty, Info>
 where
     Ty: Clone,
-    C: ProgramGlobals<Type = Ty, Value = V>,
 {
     type Type = Ty;
     type Value = V;
 
     fn get_function(&self, index: usize) -> eyre::Result<crate::module::FunctionInfo<Self::Type>> {
-        if let Some(context) = &self.context {
-            context.get().get_function(index)
-        } else {
-            self.module.functions.get(index).cloned().ok_or_else(|| {
-                eyre::eyre!(format!(
-                    "function index out of bounds: {} (max {})",
-                    index,
-                    self.module.functions.len()
-                ))
-            })
-        }
+        self.module.functions.get(index).cloned().ok_or_else(|| {
+            eyre::eyre!(format!(
+                "function index out of bounds: {} (max {})",
+                index,
+                self.module.functions.len()
+            ))
+        })
     }
 
     fn get_string(&self, index: usize) -> eyre::Result<&String> {
-        if let Some(context) = &self.context {
-            context.get().get_string(index)
-        } else {
-            self.module.strings.get(index).ok_or_else(|| {
-                eyre::eyre!(format!(
-                    "string index out of bounds: {} (max {})",
-                    index,
-                    self.module.strings.len()
-                ))
-            })
-        }
+        self.module.strings.get(index).ok_or_else(|| {
+            eyre::eyre!(format!(
+                "string index out of bounds: {} (max {})",
+                index,
+                self.module.strings.len()
+            ))
+        })
     }
 
     fn get_constant(&self, id: ConstantId) -> eyre::Result<&Self::Value> {
-        if let Some(context) = &self.context {
-            context.get().get_constant(id)
-        } else {
-            self.module.constants.get(id.0 as usize).ok_or_else(|| {
-                eyre::eyre!(format!(
-                    "constant index out of bounds: {} (max {})",
-                    id.0,
-                    self.module.constants.len()
-                ))
-            })
-        }
+        self.module.constants.get(id.0 as usize).ok_or_else(|| {
+            eyre::eyre!(format!(
+                "constant index out of bounds: {} (max {})",
+                id.0,
+                self.module.constants.len()
+            ))
+        })
     }
 }
