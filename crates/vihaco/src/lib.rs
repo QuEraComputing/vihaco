@@ -30,7 +30,7 @@ pub use binary::{
     BytecodeFile, BytecodeGlobalContext, BytecodeHeader, BytecodeSectionView, ConstantId,
     ContextHandle, FLAGS, GlobalContext, MAGIC, NoContext, SectionNameResolver, SectionPath,
     SstFile, SstGlobalContext, SstHeader, SstSectionView, VERSION, WriteBytecodeHeader,
-    decode_instruction_stream, parse_instruction_stream,
+    decode_instruction_stream,
 };
 pub use effect::Effects;
 pub use instruction_syntax::{

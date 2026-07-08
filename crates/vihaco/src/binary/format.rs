@@ -4,7 +4,6 @@
 use std::io::{Cursor, Read};
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use chumsky::{IterParser, Parser, primitive::end};
 
 use crate::traits::{FromBytes, FromText, Instruction, OpCode, WriteBytes};
 
@@ -91,22 +90,4 @@ pub fn decode_instruction_stream<I: Instruction>(bytes: &[u8]) -> eyre::Result<V
         code.push(I::from_bytes(&mut cursor)?);
     }
     Ok(code)
-}
-
-pub fn parse_instruction_stream<'src, I>(text: &'src str) -> eyre::Result<Vec<I>>
-where
-    I: Instruction + vihaco_parser_core::Parse<'src>,
-{
-    if text.trim().is_empty() {
-        return Ok(Vec::new());
-    }
-
-    <I as vihaco_parser_core::Parse<'src>>::parser()
-        .padded()
-        .repeated()
-        .collect::<Vec<_>>()
-        .then_ignore(end())
-        .parse(text)
-        .into_result()
-        .map_err(|errors| eyre::eyre!("failed to parse SST instruction stream: {:?}", errors))
 }

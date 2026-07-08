@@ -16,6 +16,6 @@ pub use context::{
 pub use file::{BytecodeFile, SstFile};
 pub use format::{
     BytecodeHeader, ConstantId, FLAGS, MAGIC, SstHeader, VERSION, WriteBytecodeHeader,
-    decode_instruction_stream, parse_instruction_stream,
+    decode_instruction_stream,
 };
 pub use section::{BytecodeSectionView, SectionPath, SstSectionView};
