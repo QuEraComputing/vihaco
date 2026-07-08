@@ -404,6 +404,24 @@ fn parses_text_file_with_no_context() {
 }
 
 #[test]
+fn parses_text_file_with_no_context_and_no_global_section() {
+    let parsed: SstFile<NoContext> =
+        SstFile::<NoContext>::from_text("sst v1\n\n.section(root):\n.section(root).\n").unwrap();
+
+    assert_eq!(parsed.context(), &NoContext);
+    assert!(parsed.root().path().is_root());
+}
+
+#[test]
+fn parses_text_file_with_empty_context_when_global_section_is_omitted() {
+    let parsed: SstFile<TextContext> =
+        SstFile::<TextContext>::from_text("sst v1\n\n.section(root):\n.section(root).\n").unwrap();
+
+    assert!(parsed.context().section_names.is_empty());
+    assert!(parsed.root().path().is_root());
+}
+
+#[test]
 fn rejects_no_context_file_with_non_empty_global_section() {
     let err =
         SstFile::<NoContext>::from_text(&text_file("cpu\n", ".section(root):\n.section(root).\n"))

@@ -49,15 +49,25 @@ pub fn parse_file(text: &str) -> Result<ParsedFile> {
         _ => return Err(line_error(version, format!("expected `sst v{}`", VERSION))),
     }
 
-    let Some(context_begin) = cursor.next_significant() else {
-        return Err(eyre::eyre!("expected `.global:`"));
+    let Some(context_or_section) = cursor.peek_significant() else {
+        return Err(eyre::eyre!("expected `.global:` or root section"));
     };
-    if context_begin.kind != LineKind::BeginContext {
-        return Err(line_error(context_begin, "expected `.global:`"));
-    }
-
-    let context_start = context_begin.full.end;
-    let context_end = consume_context(&mut cursor)?;
+    let context = match context_or_section.kind {
+        LineKind::BeginContext => {
+            let context_begin = cursor
+                .next_significant()
+                .expect("peeked context line must exist");
+            let context_start = context_begin.full.end;
+            context_start..consume_context(&mut cursor)?
+        }
+        LineKind::BeginSection(_) => context_or_section.full.start..context_or_section.full.start,
+        _ => {
+            return Err(line_error(
+                context_or_section,
+                "expected `.global:` or root section",
+            ));
+        }
+    };
 
     let Some(section_begin) = cursor.peek_significant() else {
         return Err(eyre::eyre!("expected root section"));
@@ -74,10 +84,7 @@ pub fn parse_file(text: &str) -> Result<ParsedFile> {
         return Err(line_error(extra, "unexpected content after root section"));
     }
 
-    Ok(ParsedFile {
-        context: context_start..context_end,
-        root,
-    })
+    Ok(ParsedFile { context, root })
 }
 
 fn verify_version(version: u16) -> Result<()> {

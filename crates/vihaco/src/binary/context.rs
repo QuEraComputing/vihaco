@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 /// Marker context for SST files that do not carry global metadata.
 ///
-/// `NoContext` accepts only an empty `.global:` section.
+/// `NoContext` accepts an omitted or empty global section.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NoContext;
 
