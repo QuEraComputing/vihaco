@@ -1,0 +1,435 @@
+<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Composite structs are the composition root in vihaco — #[composite] generates the outer instruction enum and device metadata; message resolution and effect delivery are hand-written."><title>Defining a Composite — vihaco</title><script>
+      (() => {
+        // localStorage can throw when storage is blocked (hardened privacy
+        // settings, sandboxed frames); fall back to "auto" so the theme still
+        // applies before first paint.
+        let stored = "auto";
+        try { stored = localStorage.getItem("vihaco-theme") || "auto"; } catch (e) {}
+        const sysDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const resolved = stored === "auto" ? (sysDark ? "dark" : "light") : stored;
+        document.documentElement.setAttribute("data-theme", resolved);
+        document.documentElement.setAttribute("data-theme-pref", stored);
+      })();
+    </script><link rel="stylesheet" href="/vihaco/pr-preview/pr-39/_astro/Base.CrxhgeBX.css"></head> <body> <header class="masthead"> <div class="masthead-inner"> <a class="brand" href="/vihaco/pr-preview/pr-39/"> <span class="brand-mark" aria-hidden="true"></span> <span class="brand-mono">vihaco</span> <span class="brand-sub">/ virtual ISA &amp; machine framework</span> </a> <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Open navigation menu"> <span class="nav-toggle-bars" aria-hidden="true"></span> </button> <nav class="nav-links" id="primary-nav"> <a href="/vihaco/pr-preview/pr-39/">Overview</a><a href="/vihaco/pr-preview/pr-39/quickstart">Quick Start</a><a href="/vihaco/pr-preview/pr-39/guide" aria-current="page">Guides</a><a href="/vihaco/pr-preview/pr-39/reference">Reference</a> <div class="theme-toggle" role="group" aria-label="Theme"> <button type="button" data-theme-set="light" title="Light theme" aria-label="Light theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <circle cx="12" cy="12" r="4"></circle> <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path> </svg> </button> <button type="button" data-theme-set="dark" title="Dark theme" aria-label="Dark theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path> </svg> </button> <button type="button" data-theme-set="auto" title="Match system theme" aria-label="Auto (follow system)" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <rect x="3" y="4" width="18" height="13" rx="2"></rect> <path d="M8 21h8M12 17v4"></path> </svg> </button> </div> </nav> </div> </header> <main> <div class="page-shell page-shell--3col"> <details class="page-sections side-nav" aria-label="Guides"> <summary class="page-toc-label">Guides</summary> <ol> <li> <a href="/vihaco/pr-preview/pr-39/guide/instructions">Defining Instructions</a> </li><li> <a href="/vihaco/pr-preview/pr-39/guide/instructions-advanced">Advanced Instruction Usage</a> </li><li> <a href="/vihaco/pr-preview/pr-39/guide/parser">Parser Integration</a> </li><li> <a href="/vihaco/pr-preview/pr-39/guide/parser-advanced">Advanced Parser Customization</a> </li><li> <a href="/vihaco/pr-preview/pr-39/guide/messages">Using Messages</a> </li><li> <a href="/vihaco/pr-preview/pr-39/guide/components">Building Components</a> </li><li> <a href="/vihaco/pr-preview/pr-39/guide/observers">Observing Effects</a> </li><li> <a href="/vihaco/pr-preview/pr-39/guide/composites" aria-current="page">Defining a Composite</a> </li> </ol> </details> <div class="page-toc-content">  <article class="shell narrow guide-body"> <h1 id="defining-a-composite-with-vihaco">Defining A Composite With <code>vihaco</code></h1>
+<p>Composite structs are the composition root in <code>vihaco</code>.
+They own components, observers, and device codes, and they are where the
+generated wiring meets your hand-written runtime.</p>
+<p>This guide shows how to wire components and observers into a composite using the current macro surface.</p>
+<p>If you have not read the observer guide yet, read <a href="/vihaco/pr-preview/pr-39/guide/observers">Observing Effects With <code>#[observe]</code></a> first.
+For a focused guide to composite-side message resolution before component execution, read <a href="/vihaco/pr-preview/pr-39/guide/messages">Using Messages With <code>vihaco</code></a>.</p>
+<h2 id="a-small-composite">A Small Composite</h2>
+<p>Assume you already have:</p>
+<ul>
+<li>a component such as <code>Counter</code></li>
+<li>an effect type such as <code>StdoutEffect</code></li>
+<li>a type that observes that effect</li>
+</ul>
+<pre><code class="language-rust">use eyre::Result;
+use vihaco::{Effects, observe};
+
+#[derive(Debug, Clone)]
+pub struct StdoutEffect(pub String);
+
+#[derive(Debug, Default)]
+pub struct StdoutCollector {
+    lines: Vec&#x3C;String>,
+}
+
+#[observe(StdoutEffect)]
+impl StdoutCollector {
+    fn observe_stdout_effect(&#x26;mut self, effect: &#x26;StdoutEffect) -> Result&#x3C;Effects&#x3C;()>> {
+        self.lines.push(effect.0.clone());
+        Ok(Effects::none())
+    }
+}
+</code></pre>
+<p>Now you can compose a runtime root:</p>
+<pre><code class="language-rust">use vihaco::composite;
+
+#[composite]
+#[derive(Debug, Default)]
+pub struct CounterComposite {
+    #[device(0x00, alias = "count")]
+    counter: Counter,
+
+    // A plain observer field — the runtime delivers StdoutEffect to it.
+    stdout: StdoutCollector,
+}
+</code></pre>
+<h2 id="what-composite-generates">What <code>#[composite]</code> Generates</h2>
+<p><code>#[composite]</code> is transitional scaffolding that generates the repetitive composition glue from the <code>#[device(...)]</code> fields:</p>
+<ul>
+<li>
+<p><strong>An outer instruction enum</strong> named <code>&#x3C;StructName>Instruction</code>, with one variant per device field. Each variant is the PascalCase of the field name and wraps that component’s instruction type. For <code>CounterComposite</code> above the macro emits, roughly:</p>
+<pre><code class="language-rust">#[derive(Debug, Clone, Instruction)]
+pub enum CounterCompositeInstruction {
+    Counter(&#x3C;Counter as GeneratedComponent>::Instruction),
+}
+</code></pre>
+</li>
+<li>
+<p><strong>Composite metadata</strong> — an <code>impl GeneratedMachine</code> whose <code>metadata()</code> returns a <code>CompositeMetadata</code> listing each device’s code and field name, plus the source-symbol aliases (so a loader can map a name like <code>"counter"</code> to its device code).</p>
+</li>
+<li>
+<p><strong>An optional program counter</strong> — if one field is marked <code>#[program]</code>, the macro also implements <code>ProgramCounter</code> for the composite, delegating <code>pc</code> / <code>pc_mut</code> / <code>get_instruction</code> to that field.</p>
+</li>
+</ul>
+<p>The <code>#[device]</code> and <code>#[program]</code> attributes are stripped from the struct the macro emits, so they don’t leak into your type.</p>
+<p>The long-term model is still explicit Rust composition. The macro is convenience for the device dispatch and metadata, not the semantic center of the design — message resolution and effect delivery stay in hand-written runtime code.</p>
+<h2 id="the-field-attributes">The Field Attributes</h2>
+<h3 id="devicecode-alias--"><code>#[device(CODE, alias = "…")]</code></h3>
+<p>Associates a component field with a device code and optional source aliases.</p>
+<pre><code class="language-rust">#[device(0x00, alias = "count")]
+counter: Counter,
+</code></pre>
+<ul>
+<li><code>CODE</code> is a <code>u8</code> device code; it must be unique across the composite (a duplicate is a compile error).</li>
+<li><code>alias = "…"</code> registers a source-symbol alias for the field; you can repeat it for multiple aliases. The field name itself is always registered as a source symbol, and every name (field or alias) must be unique across the composite.</li>
+</ul>
+<p>The field type must implement <code>GeneratedComponent</code> (which <code>#[component(...)]</code> provides). The device code and aliases are what a loader uses to validate source symbols and route instructions when a composite loads a module.</p>
+<h3 id="program"><code>#[program]</code></h3>
+<p>Marks the field that owns the program counter. When present, the composite gets a <code>ProgramCounter</code> impl delegating to that field:</p>
+<pre><code class="language-rust">#[composite]
+#[derive(Default)]
+pub struct Machine {
+    #[program]
+    #[device(0x00, alias = "cpu")]
+    cpu: Cpu,
+
+    #[device(0x01, alias = "signal")]
+    signal: SignalGenerator,
+}
+</code></pre>
+<p>Here <code>Machine</code> drives its instruction pointer through the <code>cpu</code> field.</p>
+<h3 id="header"><code>#[header]</code></h3>
+<p>Marks the field that should receive the section’s typed composite header during generated bytecode loading.</p>
+<pre><code class="language-rust">#[derive(Default)]
+pub struct CpuHeader {
+    cores: u32,
+}
+
+#[composite]
+#[derive(Default)]
+pub struct CpuMachine {
+    #[header]
+    info: CpuHeader,
+
+    #[program]
+    program: vihaco::ProgramLoader&#x3C;CpuInst>,
+}
+</code></pre>
+<p>For binary bytecode, the field type must implement <code>CompositeHeader</code>, which has a blanket impl for types implementing <code>FromBytes + WriteBytes</code>. Generated binary loading parses <code>input.section.header_bytes()</code> with <code>BinarySectionView::parse_header::&#x3C;CpuHeader>()</code> and assigns the result to the field before loading the program or child sections. For text bytecode, generated loading trims <code>input.section.header_text()</code> and parses it with <code>FromStr</code>, so the header type must also implement <code>FromStr</code> when you load <code>TextBytecodeFile&#x3C;C></code>. Composites without a <code>#[header]</code> field generate no header parsing code, no header trait bound, and no runtime header check.</p>
+<h3 id="loadable"><code>#[loadable]</code></h3>
+<p>Marks a device field that should receive its own direct child section when loading v1 multi-section bytecode. The device owns its loader internally; the generated composite loader only routes the section to the marked device’s <code>LoadSection</code> impl.</p>
+<pre><code class="language-rust">#[composite]
+#[derive(Default)]
+pub struct Machine {
+    #[program]
+    program: vihaco::ProgramLoader&#x3C;CpuInst>,
+
+    #[device(0x01)]
+    #[loadable("signal")]
+    signal: SignalMachine,
+}
+</code></pre>
+<p><code>#[loadable]</code> must be used on a <code>#[device(...)]</code> field whose type implements <code>LoadSection</code> for the bytecode representation you are loading as well as <code>GeneratedComponent</code>. Binary bytecode delegates through <code>LoadSection&#x3C;Vec&#x3C;u8>, C></code>; text bytecode delegates through <code>LoadSection&#x3C;String, C></code>. The attribute uses the field name as the local section name. <code>#[loadable("name")]</code> overrides it. Names must be non-empty direct child names, so they cannot contain <code>/</code>.</p>
+<p>Section identity is represented as a <code>SectionPath</code>, which is a vector of resolved local section names. The root section is <code>SectionPath::root()</code> with zero components. A root child named <code>cpu</code> has the path <code>cpu</code>; a child named <code>alu</code> inside that section has <code>cpu/alu</code>. Generated loading asks the current section for direct children by local name, so the same composite can be loaded at the root or under another parent section.</p>
+<p>Manual loaders can inspect a whole section subtree with <code>SectionView::walk()</code>, which yields the current section followed by its descendants in depth-first order. <code>SectionView::descendants()</code> uses the same order but skips the current section. To walk an entire file, use <code>BytecodeFile::sections()</code>.</p>
+<p>The generated loader is strict:</p>
+<ul>
+<li>every <code>#[loadable]</code> device field must have exactly one matching direct child section</li>
+<li>every direct child section must correspond to a <code>#[loadable]</code> device field</li>
+<li>if the composite has no <code>#[program]</code> field, its own section bytecode must be empty</li>
+<li>composite headers are parsed by the macro only when the composite has a <code>#[header]</code> field; manual loaders can still inspect binary headers through <code>BinarySectionView::header_bytes()</code> / <code>BinarySectionView::parse_header::&#x3C;H>()</code>, or text headers through <code>TextSectionView::header_text()</code></li>
+</ul>
+<h2 id="multi-section-bytecode">Multi-Section Bytecode</h2>
+<p>The read-side bytecode API lives in <code>vihaco::binary</code> and <code>vihaco::loader</code>.</p>
+<pre><code class="language-rust">fn load_machine&#x3C;'bc>(file: &#x26;'bc vihaco::BinaryBytecodeFile) -> eyre::Result&#x3C;Machine> {
+    let mut machine = Machine::default();
+    machine.load_section(vihaco::LoadInput::from(file))?;
+    Ok(machine)
+}
+
+let file: vihaco::BinaryBytecodeFile = vihaco::BinaryBytecodeFile::from_bytes(bytes)?;
+let machine = load_machine(&#x26;file)?;
+</code></pre>
+<p>The v1 file layout is:</p>
+<pre><code class="language-text">VHBC magic
+u16 version = 1
+u16 flags = 0
+u64 program_context_len
+program context bytes
+root section bytes
+</code></pre>
+<p>The program context contains the shared <code>Module</code> tables except <code>code</code> and <code>extra</code>: constants, strings, functions, labels, <code>main_function</code>, <code>file</code>, and source symbols. <code>vihaco::program::ProgramContext&#x3C;V = Value, Ty = Type></code> is the default context representation and is generic over the VM’s constant value and type encodings. A binary bytecode file can also use a custom context type by implementing <code>BytecodeContext</code>; generated composite loading is generic over that context type, so Rust infers it from <code>BinaryBytecodeFile&#x3C;C></code> / <code>LoadInput&#x3C;Vec&#x3C;u8>, C></code>. Section bytecode can refer to shared constants with <code>vihaco::ConstantId</code>, a <code>u32</code> newtype that implements the bytecode field traits.</p>
+<p>Each section is:</p>
+<pre><code class="language-text">section frame:
+u64 section_len
+u64 header_len
+composite header bytes
+section bytecode header:
+u64 bytecode_len
+bytecode bytes
+child section table header:
+u32 child_count
+child table entries
+child section bytes
+</code></pre>
+<p>Each child table entry stores:</p>
+<pre><code class="language-text">u32 local_name_string
+u64 section_offset
+</code></pre>
+<p>The section frame is part of every section, including the root section. The bytecode header starts after the composite header, and the section’s bytecode immediately follows that length. Child-related metadata comes after the parent bytecode. <code>local_name_string</code> is resolved through <code>BytecodeContext::section_name</code> and represents the child’s local section name. The parser builds each child’s <code>SectionPath</code> by appending that resolved name to the parent path. Child section offsets are relative to the start of the containing section.</p>
+<h3 id="text-multi-section-bytecode">Text Multi-Section Bytecode</h3>
+<p>Text bytecode uses <code>TextBytecodeFile&#x3C;C></code>, <code>TextSectionView&#x3C;'bc, C></code>, <code>LoadInput&#x3C;String, C></code>, and generated <code>LoadSection&#x3C;String, C></code> machinery. The backing contents are the original source text and each section stores ranges into that string. Parse text files with <code>TextBytecodeFile::&#x3C;C>::from_text(source)</code>:</p>
+<pre><code class="language-rust">let file: vihaco::TextBytecodeFile&#x3C;MyContext> =
+    vihaco::TextBytecodeFile::from_text(source)?;
+
+let mut machine = Machine::default();
+machine.load_section(vihaco::LoadInput::from(&#x26;file))?;
+</code></pre>
+<p>The file begins with the text magic/version marker, then a global context block:</p>
+<pre><code class="language-text">vhbc1
+
+.global:
+global context text
+.global.
+</code></pre>
+<p><code>vhbc1</code> is the text spelling of version 1. The context body is delegated to <code>C::from_text(context_text)</code>; custom text formats usually provide a custom <code>BytecodeContext</code> that interprets this block. The context start marker <code>.global:</code> and end marker <code>.global.</code> must be at indentation level 0.</p>
+<p>After the context comes the root section. Sections use <code>.section(name):</code> to begin and <code>.section(name).</code> to end. The top-level section must be named <code>root</code> (<code>.section(root):</code> and <code>.section(root).</code>), and it is parsed as <code>SectionPath::root()</code>. Direct child section names become path components.</p>
+<pre><code class="language-text">.section(root):
+	.header(root):
+		root header
+	.header(root).
+
+	.text(root):
+		root bytecode
+	.text(root).
+
+	.section(cpu):
+		.text(cpu):
+			cpu bytecode
+		.text(cpu).
+	.section(cpu).
+.section(root).
+</code></pre>
+<p>Inside a section:</p>
+<ul>
+<li><code>.header(name):</code> / <code>.header(name).</code> delimit the composite header text for <code>TextSectionView::header_text()</code></li>
+<li><code>.text(name):</code> / <code>.text(name).</code> delimit the section bytecode text for <code>TextSectionView::text()</code></li>
+<li>child sections are nested directly inside their parent section</li>
+<li>header, bytecode, and direct child section markers must be indented with exactly one tab more than their parent section</li>
+<li>section end markers must use the same indentation as their matching section start marker</li>
+<li>section names must be local names; <code>/</code> is rejected in a child marker name</li>
+</ul>
+<p>The text parser preserves the original header and bytecode ranges, including their leading tabs. Generated header loading trims <code>section.header_text()</code> before calling <code>FromStr</code> for the <code>#[header]</code> field type. Generated program loading delegates to <code>ProgramLoader&#x3C;I, C></code>, which parses <code>section.text()</code> with <code>parse_instruction_stream::&#x3C;I>()</code>; instruction types loaded this way must implement both <code>Instruction</code> and <code>vihaco_parser_core::Parse</code>.</p>
+<p><code>ProgramLoader&#x3C;I, C = ProgramContext, Info = NoInfo></code> is the standard loader for section program streams. For binary bytecode it decodes <code>section.bytecode()</code> with <code>decode_instruction_stream::&#x3C;I>()</code>; for text bytecode it parses <code>section.text()</code> with <code>parse_instruction_stream::&#x3C;I>()</code>. In both cases it stores a cloned <code>ContextHandle&#x3C;C></code>, implements <code>ProgramCounter</code>, and exposes functions, strings, and constants through <code>GetProgramGlobal</code> when <code>C: ProgramGlobals</code>.</p>
+<h2 id="effect-continuation-is-hand-written">Effect Continuation Is Hand-Written</h2>
+<p><code>#[composite]</code> generates the instruction enum and metadata, but it does <strong>not</strong> auto-deliver effects to observers. Continuing effects is something the runtime does explicitly: execute a component, then hand each returned effect to the types that observe it by calling their <code>Observe</code> impls.</p>
+<pre><code class="language-rust">use vihaco::{GeneratedComponent, Observe};
+
+impl CounterComposite {
+    fn print(&#x26;mut self, msg: PrintPrefix) -> eyre::Result&#x3C;()> {
+        // Counter executes Print and returns a StdoutEffect.
+        let effects = self.counter.execute_generated(CounterInst::Print, msg)?;
+        // Deliver each effect to the observer that handles it.
+        for effect in effects {
+            Observe::&#x3C;StdoutEffect>::observe(&#x26;mut self.stdout, &#x26;effect)?;
+        }
+        Ok(())
+    }
+}
+</code></pre>
+<p>Conventions to follow when you write that delivery:</p>
+<ul>
+<li>components return <code>Effects&#x3C;T></code></li>
+<li>the runtime continues those effects to all matching observer fields</li>
+<li>both standalone observers and components that also observe receive effects through the same <code>Observe::observe</code> call</li>
+<li>follow-up effects continue depth-first</li>
+<li><code>Effects::Many(...)</code> is continued left-to-right</li>
+<li>if an observer needs more data, stage it into a richer effect instead of relying on delivery context</li>
+</ul>
+<h2 id="hand-written-runtimes">Hand-Written Runtimes</h2>
+<p>Not every runtime uses a generic step loop. Hand-written runtimes often call <code>execute_generated(...)</code> directly, extract the returned effects, and then interpret or re-deliver them themselves.</p>
+<p>The common pattern is:</p>
+<ul>
+<li>use <code>effect = StepOutcome</code> when a component’s direct output is control flow</li>
+<li>define a runtime-local sum-effect enum when a step needs to mix control flow with other follow-up values</li>
+<li>continue that runtime-local effect set in one place, forwarding observer-facing effects as needed</li>
+</ul>
+<h2 id="design-guidance">Design Guidance</h2>
+<ul>
+<li>Keep the composite struct explicit and readable.</li>
+<li>Put <code>#[observe]</code> on the type that actually consumes the effect.</li>
+<li>Use <code>#[device(...)]</code> aliases that match your source model.</li>
+<li>Mark the instruction-pointer-owning field with <code>#[program]</code> when the composite drives an instruction pointer.</li>
+<li>Prefer staged effect types over hidden cross-component observer context.</li>
+<li>Let generated code own the device dispatch and metadata; keep effect delivery and message resolution in one clear place in your runtime.</li>
+</ul>
+<h2 id="what-comes-next">What Comes Next</h2>
+<p>At this point you have the core authoring model:</p>
+<ul>
+<li>components execute instructions</li>
+<li><code>#[observe]</code> reacts to delivered effects</li>
+<li>composites generate the device wiring; the runtime resolves messages and continues effects</li>
+</ul>
+<p>From here, the next useful step is to apply the same structure to your own domain types and source model.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/pr-preview/pr-39/guide/observers" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Observing Effects</span> </a> <span class="section-pager-link section-pager-next section-pager-empty" aria-hidden="true"></span> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#a-small-composite" data-toc-link="#a-small-composite">A Small Composite</a></li><li><a href="#what-composite-generates" data-toc-link="#what-composite-generates">What #[composite] Generates</a></li><li><a href="#the-field-attributes" data-toc-link="#the-field-attributes">The Field Attributes</a></li><li><a href="#multi-section-bytecode" data-toc-link="#multi-section-bytecode">Multi-Section Bytecode</a></li><li><a href="#effect-continuation-is-hand-written" data-toc-link="#effect-continuation-is-hand-written">Effect Continuation Is Hand-Written</a></li><li><a href="#hand-written-runtimes" data-toc-link="#hand-written-runtimes">Hand-Written Runtimes</a></li><li><a href="#design-guidance" data-toc-link="#design-guidance">Design Guidance</a></li><li><a href="#what-comes-next" data-toc-link="#what-comes-next">What Comes Next</a></li> </ol> </details> </div> </main> <script>
+        // Scroll-spy: mark the TOC link for the section currently in view.
+        (() => {
+          const links = Array.from(document.querySelectorAll(".page-toc [data-toc-link]"));
+          if (!links.length) return;
+          const targets = links
+            .map((a) => {
+              const href = a.getAttribute("data-toc-link") || "";
+              const id = href.startsWith("#") ? href.slice(1) : null;
+              const el = id ? document.getElementById(id) : null;
+              return el ? { link: a, el } : null;
+            })
+            .filter(Boolean);
+          if (!targets.length) return;
+          const ANCHOR = 120;
+          function update() {
+            let activeIdx = 0;
+            for (let i = 0; i < targets.length; i++) {
+              const top = targets[i].el.getBoundingClientRect().top;
+              if (top - ANCHOR <= 0) activeIdx = i;
+              else break;
+            }
+            for (let i = 0; i < targets.length; i++) {
+              targets[i].link.setAttribute("aria-current", i === activeIdx ? "true" : "false");
+            }
+          }
+          update();
+          window.addEventListener("scroll", update, { passive: true });
+          window.addEventListener("resize", update);
+        })();
+      </script> <script>
+      // Mobile navigation drawer + responsive open-state for the sidebar TOCs.
+      (() => {
+        const mq = window.matchMedia("(min-width: 901px)");
+        const sideNavs = document.querySelectorAll("details.side-nav");
+        function syncSideNavs() {
+          for (const d of sideNavs) {
+            if (mq.matches) d.setAttribute("open", "");
+            else d.removeAttribute("open");
+          }
+        }
+        syncSideNavs();
+        mq.addEventListener("change", syncSideNavs);
+
+        const toggle = document.querySelector(".nav-toggle");
+        const nav = document.getElementById("primary-nav");
+        if (toggle && nav) {
+          function setOpen(open) {
+            toggle.setAttribute("aria-expanded", open ? "true" : "false");
+            toggle.setAttribute("aria-label", open ? "Close navigation menu" : "Open navigation menu");
+            nav.toggleAttribute("data-open", open);
+          }
+          toggle.addEventListener("click", () => {
+            const open = toggle.getAttribute("aria-expanded") !== "true";
+            setOpen(open);
+          });
+          nav.addEventListener("click", (e) => {
+            if (e.target && e.target.closest && e.target.closest("a")) setOpen(false);
+          });
+          const mqNav = window.matchMedia("(min-width: 721px)");
+          mqNav.addEventListener("change", () => setOpen(false));
+        }
+      })();
+    </script> <script>
+      // Inject a copy button into every <pre> block.
+      (() => {
+        const COPY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+        const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+        for (const pre of document.querySelectorAll("pre")) {
+          if (pre.querySelector(".copy-btn")) continue;
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "copy-btn";
+          btn.setAttribute("aria-label", "Copy code to clipboard");
+          btn.innerHTML = COPY_SVG + "<span>Copy</span>";
+          pre.appendChild(btn);
+          btn.addEventListener("click", async () => {
+            const code = pre.querySelector("code");
+            let raw;
+            if (code) {
+              raw = code.innerText;
+            } else {
+              const clone = pre.cloneNode(true);
+              for (const el of clone.querySelectorAll(".copy-btn")) el.remove();
+              raw = clone.innerText;
+            }
+            const text = raw.replace(/\n$/, "");
+            try {
+              await navigator.clipboard.writeText(text);
+            } catch {
+              const ta = document.createElement("textarea");
+              ta.value = text;
+              ta.style.position = "fixed";
+              ta.style.opacity = "0";
+              document.body.appendChild(ta);
+              ta.select();
+              try { document.execCommand("copy"); } catch {}
+              document.body.removeChild(ta);
+            }
+            btn.dataset.state = "copied";
+            btn.innerHTML = CHECK_SVG + "<span>Copied</span>";
+            setTimeout(() => {
+              btn.removeAttribute("data-state");
+              btn.innerHTML = COPY_SVG + "<span>Copy</span>";
+            }, 1500);
+          });
+        }
+      })();
+    </script> <script>
+      // Theme switcher: light / dark / auto, persisted in localStorage.
+      (() => {
+        const root = document.documentElement;
+        const mql = window.matchMedia("(prefers-color-scheme: dark)");
+        const buttons = document.querySelectorAll(".theme-toggle button[data-theme-set]");
+        // localStorage may be unavailable (blocked storage); degrade gracefully
+        // so the toggle still themes the page for the current session.
+        const readPref = () => {
+          try { return localStorage.getItem("vihaco-theme") || "auto"; } catch (e) { return "auto"; }
+        };
+        function apply(pref) {
+          const resolved = pref === "auto" ? (mql.matches ? "dark" : "light") : pref;
+          root.setAttribute("data-theme", resolved);
+          root.setAttribute("data-theme-pref", pref);
+          try { localStorage.setItem("vihaco-theme", pref); } catch (e) {}
+          for (const b of buttons) {
+            b.setAttribute("aria-pressed", b.dataset.themeSet === pref ? "true" : "false");
+          }
+        }
+        apply(readPref());
+        for (const b of buttons) b.addEventListener("click", () => apply(b.dataset.themeSet));
+        mql.addEventListener("change", () => {
+          if (readPref() === "auto") apply("auto");
+        });
+      })();
+    </script> <button type="button" class="back-to-top" aria-label="Back to top" hidden> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M12 19V5"></path> <path d="m5 12 7-7 7 7"></path> </svg> </button> <script>
+      (() => {
+        const btn = document.querySelector(".back-to-top");
+        if (!btn) return;
+        const threshold = () => Math.max(window.innerHeight * 1.2, 600);
+        function sync() {
+          btn.toggleAttribute("hidden", !(window.scrollY > threshold()));
+        }
+        btn.addEventListener("click", () => {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+          const brand = document.querySelector(".brand");
+          if (brand && brand.focus) brand.focus({ preventScroll: true });
+        });
+        window.addEventListener("scroll", sync, { passive: true });
+        window.addEventListener("resize", sync);
+        sync();
+      })();
+    </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
+          documentation generated <time>2026-07-15</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
+      (() => {
+        if (typeof hljs === "undefined") return;
+        for (const el of document.querySelectorAll("pre code[class*='language-']")) {
+          hljs.highlightElement(el);
+        }
+      })();
+    </script> </body> </html>

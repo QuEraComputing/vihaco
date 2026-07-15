@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["FLAGS","MAGIC","VERSION"],"fn":["decode_instruction_stream","parse_instruction_stream"],"struct":["BytecodeFile","ConstantId","ContextHandle","SectionPath","SectionView"],"trait":["BytecodeContext","CompositeHeader","FileContents"],"type":["BinaryBytecodeFile","BinarySectionView","TextBytecodeFile","TextSectionView"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"attr":["component","composite","observe"],"derive":["Instruction","Message"],"macro":[["show",1],["show_instruction",1]],"mod":["binary","color","effect","frame","instruction","instruction_syntax","loader","machine","macros","metadata","module","observer","program","runtime","syntax","value"],"trait":["GetProgramGlobal","Reset"]};
