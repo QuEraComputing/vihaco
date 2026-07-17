@@ -19,22 +19,22 @@
 </ul>
 <p>Almost every real source module needs all three.</p>
 <h2 id="the-two-pass-design">The two-pass design</h2>
-<p>A source module contains:</p>
+<p>A source section contains:</p>
 <ul>
-<li>Device headers (<code>device tone 0, 32;</code>).</li>
+<li>A section header (<code>SstSectionView::header_text()</code> parsed as your <code>H: SstHeader</code>).</li>
 <li>Function blocks (<code>fn @main() -> i64 { ... }</code>).</li>
 <li>Inside each function: canonical instructions (<code>signal::Play</code>), sugar (<code>poly addr 0.0 0.2 0.0 0.0</code>), symbolic operands (<code>br @body</code>, <code>const.str "hi"</code>), labels (<code>@entry:</code>).</li>
 </ul>
 <p>Parsing alone can’t produce a runtime <code>Module&#x3C;I, V, Ty, Info></code> directly: sugar expands into multiple instructions, strings need interning into the module’s string table, labels need a forward-reference table. The pipeline splits that work in two:</p>
 <ol>
-<li><strong>Parse pass</strong> — <code>&#x3C;ParsedModule&#x3C;I, H> as Parse>::parser()</code> consumes the source into a lossless intermediate shape. Canonical instructions become <code>BodyItem::Direct(I)</code>; anything else becomes <code>BodyItem::Raw(RawForm)</code>.</li>
-<li><strong>Resolve pass</strong> — your <code>Resolve</code> impl walks the <code>ParsedModule</code>, applies headers to a device-info value, expands sugar, interns strings, and produces a final <code>Module</code>.</li>
+<li><strong>Parse pass</strong> — <code>ParsedModule::&#x3C;I, H>::parse_section(section)</code> consumes one <code>SstSectionView</code> into a lossless intermediate shape. Canonical instructions become <code>BodyItem::Direct(I)</code>; anything else becomes <code>BodyItem::Raw(RawForm)</code>.</li>
+<li><strong>Resolve pass</strong> — your <code>Resolve</code> impl walks the <code>ParsedModule</code>, applies the section header to a device-info value, expands sugar, interns strings, and produces a final <code>Module</code>.</li>
 </ol>
 <p>Each consumer crate owns the resolver. Parsing has no consumer-specific state.</p>
 <h2 id="the-intermediate-types">The intermediate types</h2>
 <p><code>vihaco::syntax</code> exposes everything you need.</p>
 <pre><code class="language-rust">pub struct ParsedModule&#x3C;I, H> {
-    pub headers: Vec&#x3C;H>,
+    pub header: H,
     pub functions: Vec&#x3C;ParsedFunction&#x3C;I>>,
 }
 
@@ -68,48 +68,32 @@ pub enum RawOperand {
 }
 </code></pre>
 <p>The parser is whitespace- and comment-aware: blank lines, indentation, and <code>//</code>-to-end-of-line comments are skipped between items.</p>
-<p><code>ParsedModule</code> derives nothing — its <code>Parse</code> impl is hand-written in <code>vihaco::syntax::parse</code> and works for any <code>I: Parse</code> and <code>H: Parse</code>.</p>
-<h2 id="step-1-define-the-header-enum">Step 1: define the header enum</h2>
-<p>Headers are derived just like instructions, with a <code>#[head = "device "]</code> prefix:</p>
-<pre><code class="language-rust">#[derive(Debug, Clone, PartialEq, vihaco_parser::Parse)]
-#[head = "device "]
-pub enum DeviceHeader {
-    #[token = "tone"]
-    #[delimiters(open = "", close = "", separator = ",")]
-    Tone(i64, i64),
-
-    #[token = "clock.resolution_ns"]
-    #[delimiters(open = "", close = "", separator = "")]
-    ClockResolutionNs(i64),
-
-    // Block-body header — `device grid { 1 1\n 5 1\n ... };`
-    #[token = "grid"]
-    #[delimiters(open = "{", close = "}", separator = "")]
-    Grid(#[parse_with = "vihaco::syntax::block_i64_pairs"] Vec&#x3C;(i64, i64)>),
-
-    #[token = "mask"]
-    #[delimiters(open = "{", close = "}", separator = "")]
-    Mask(#[parse_with = "vihaco::syntax::block_i64_flat"] Vec&#x3C;i64>),
+<p><code>ParsedModule</code> derives nothing — its section parser is hand-written in <code>vihaco::syntax::parse</code> and works for any <code>I: Parse</code> and <code>H: SstHeader</code>.</p>
+<h2 id="step-1-define-the-section-header">Step 1: define the section header</h2>
+<p>Section headers implement <code>FromText</code>; <code>SstHeader</code> is a marker trait over that conversion:</p>
+<pre><code class="language-rust">#[derive(Debug, Clone, PartialEq)]
+pub struct DeviceHeader {
+    pub core_count: u32,
 }
-</code></pre>
-<p>The <code>;</code> after each header is owned by the module parser, not the header derive.</p>
-<p><code>vihaco::syntax</code> ships two block-body helpers for common shapes:</p>
-<ul>
-<li><code>block_i64_flat()</code> parses whitespace-separated <code>i64</code>s inside <code>{ ... }</code>.</li>
-<li><code>block_i64_pairs()</code> parses rows of <code>i64 i64</code> inside <code>{ ... }</code>.</li>
-</ul>
-<p>When you need a richer block body, write your own <code>fn() -> impl Parser&#x3C;...></code> and point at it with <code>#[parse_with]</code>.</p>
-<h2 id="step-2-parse-a-module">Step 2: parse a module</h2>
-<pre><code class="language-rust">use chumsky::Parser as _;
-use vihaco::syntax::ParsedModule;
-use vihaco_parser_core::Parse;
 
-let parsed = ParsedModule::&#x3C;MyInstruction, MyHeader>::parser()
-    .parse(&#x26;source)
-    .into_result()
-    .map_err(|errs| eyre::eyre!("parse failed: {errs:?}"))?;
+impl vihaco::FromText for DeviceHeader {
+    fn from_text(text: &#x26;str) -> eyre::Result&#x3C;Self> {
+        Ok(Self {
+            core_count: text.trim().parse()?,
+        })
+    }
+}
+
+impl vihaco::SstHeader for DeviceHeader {}
 </code></pre>
-<p><code>parsed.headers</code> is <code>Vec&#x3C;MyHeader></code>. <code>parsed.functions[i].body</code> is <code>Vec&#x3C;BodyItem&#x3C;MyInstruction>></code>.</p>
+<h2 id="step-2-parse-a-module">Step 2: parse a module</h2>
+<pre><code class="language-rust">use vihaco::{NoContext, SstFile};
+use vihaco::syntax::ParsedModule;
+
+let file = SstFile::&#x3C;NoContext>::from_text(&#x26;source)?;
+let parsed = ParsedModule::&#x3C;MyInstruction, MyHeader>::parse_section(file.root())?;
+</code></pre>
+<p><code>parsed.header</code> is <code>MyHeader</code>. <code>parsed.functions[i].body</code> is <code>Vec&#x3C;BodyItem&#x3C;MyInstruction>></code>.</p>
 <h2 id="step-3-implement-resolve">Step 3: implement <code>Resolve</code></h2>
 <pre><code class="language-rust">use vihaco::syntax::{BodyItem, ParsedModule, Resolve};
 use vihaco::module::Module;
@@ -135,9 +119,7 @@ impl Resolve&#x3C;MyInstruction, MyHeader> for MyResolver {
         parsed: ParsedModule&#x3C;MyInstruction, MyHeader>,
     ) -> eyre::Result&#x3C;Self::Module> {
         let mut info = MyDeviceInfo::default();
-        for header in parsed.headers {
-            apply_header(&#x26;mut info, header)?;
-        }
+        apply_header(&#x26;mut info, parsed.header)?;
 
         let mut code = Vec::new();
         for function in parsed.functions {
@@ -276,16 +258,12 @@ impl&#x3C;'src> Parse&#x3C;'src> for MachineInstruction {
 </code></pre>
 <p>The order matters: variants with overlapping prefixes (rare across devices, but still possible) must be tried longest-first.</p>
 <h2 id="the-full-pipeline-at-a-call-site">The full pipeline at a call site</h2>
-<pre><code class="language-rust">use chumsky::Parser as _;
+<pre><code class="language-rust">use vihaco::{NoContext, SstFile};
 use vihaco::syntax::{ParsedModule, Resolve};
-use vihaco_parser_core::Parse;
 
 let source = std::fs::read_to_string(path)?;
-
-let parsed = ParsedModule::&#x3C;MachineInstruction, DeviceHeader>::parser()
-    .parse(&#x26;source)
-    .into_result()
-    .map_err(|errs| eyre::eyre!("parse failed: {errs:?}"))?;
+let file = SstFile::&#x3C;NoContext>::from_text(&#x26;source)?;
+let parsed = ParsedModule::&#x3C;MachineInstruction, DeviceHeader>::parse_section(file.root())?;
 
 let module = MyResolver::new().resolve_module(parsed)?;
 
@@ -293,14 +271,14 @@ let mut machine = Machine::default();
 machine.load(&#x26;module)?;
 machine.run()?;
 </code></pre>
-<p>This is the shape a CLI <code>run</code> command uses: read the source, parse it into a <code>ParsedModule</code>, resolve it into a runtime <code>Module</code>, then load and run it.</p>
+<p>This is the shape a CLI <code>run</code> command uses: read the source, parse the SST container, map each loaded section to a <code>ParsedModule</code>, resolve it into a runtime <code>Module</code>, then load and run it.</p>
 <h2 id="when-youd-need-a-fully-custom-parser">When you’d need a fully custom parser</h2>
 <p>Two cases the derive can’t model directly:</p>
 <ol>
 <li><strong>Struct types</strong> — <code>ParsedFunction</code> is a struct, not an enum, so its <code>Parse</code> impl is hand-written. If you find yourself wanting <code>#[derive(Parse)]</code> on a struct, write the chumsky combinators directly instead.</li>
 <li><strong>Multi-segment overloads of the same mnemonic</strong> — for example, <code>br @t</code> (1 operand) vs <code>br @t, @f</code> (2 operands). These are emitted as a single <code>Raw</code> form and disambiguated in the resolver; you don’t need a custom parser, you need a smarter <code>lower_raw</code> arm.</li>
 </ol>
-<p>If you reach a third case, prefer adding a <code>#[parse_with]</code> helper or a tiny hand-written combinator over a bespoke <code>Parse</code> impl. The two-pass design keeps the parser side narrow on purpose.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/guide/parser" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Parser Integration</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/guide/messages" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Using Messages</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#the-two-pass-design" data-toc-link="#the-two-pass-design">The two-pass design</a></li><li><a href="#the-intermediate-types" data-toc-link="#the-intermediate-types">The intermediate types</a></li><li><a href="#step-1-define-the-header-enum" data-toc-link="#step-1-define-the-header-enum">Step 1: define the header enum</a></li><li><a href="#step-2-parse-a-module" data-toc-link="#step-2-parse-a-module">Step 2: parse a module</a></li><li><a href="#step-3-implement-resolve" data-toc-link="#step-3-implement-resolve">Step 3: implement Resolve</a></li><li><a href="#sugar-expansion" data-toc-link="#sugar-expansion">Sugar expansion</a></li><li><a href="#string-interning" data-toc-link="#string-interning">String interning</a></li><li><a href="#symbolic-operands-labels-and-branches" data-toc-link="#symbolic-operands-labels-and-branches">Symbolic operands: labels and branches</a></li><li><a href="#hand-writing-parse-for-composite-enums" data-toc-link="#hand-writing-parse-for-composite-enums">Hand-writing Parse for composite enums</a></li><li><a href="#the-full-pipeline-at-a-call-site" data-toc-link="#the-full-pipeline-at-a-call-site">The full pipeline at a call site</a></li><li><a href="#when-youd-need-a-fully-custom-parser" data-toc-link="#when-youd-need-a-fully-custom-parser">When you’d need a fully custom parser</a></li> </ol> </details> </div> </main> <script>
+<p>If you reach a third case, prefer adding a <code>#[parse_with]</code> helper or a tiny hand-written combinator over a bespoke <code>Parse</code> impl. The two-pass design keeps the parser side narrow on purpose.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/guide/parser" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Parser Integration</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/guide/messages" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Using Messages</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#the-two-pass-design" data-toc-link="#the-two-pass-design">The two-pass design</a></li><li><a href="#the-intermediate-types" data-toc-link="#the-intermediate-types">The intermediate types</a></li><li><a href="#step-1-define-the-section-header" data-toc-link="#step-1-define-the-section-header">Step 1: define the section header</a></li><li><a href="#step-2-parse-a-module" data-toc-link="#step-2-parse-a-module">Step 2: parse a module</a></li><li><a href="#step-3-implement-resolve" data-toc-link="#step-3-implement-resolve">Step 3: implement Resolve</a></li><li><a href="#sugar-expansion" data-toc-link="#sugar-expansion">Sugar expansion</a></li><li><a href="#string-interning" data-toc-link="#string-interning">String interning</a></li><li><a href="#symbolic-operands-labels-and-branches" data-toc-link="#symbolic-operands-labels-and-branches">Symbolic operands: labels and branches</a></li><li><a href="#hand-writing-parse-for-composite-enums" data-toc-link="#hand-writing-parse-for-composite-enums">Hand-writing Parse for composite enums</a></li><li><a href="#the-full-pipeline-at-a-call-site" data-toc-link="#the-full-pipeline-at-a-call-site">The full pipeline at a call site</a></li><li><a href="#when-youd-need-a-fully-custom-parser" data-toc-link="#when-youd-need-a-fully-custom-parser">When you’d need a fully custom parser</a></li> </ol> </details> </div> </main> <script>
         // Scroll-spy: mark the TOC link for the section currently in view.
         (() => {
           const links = Array.from(document.querySelectorAll(".page-toc [data-toc-link]"));
@@ -452,7 +430,7 @@ machine.run()?;
         sync();
       })();
     </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-07-03</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
+          documentation generated <time>2026-07-17</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

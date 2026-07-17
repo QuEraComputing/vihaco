@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["value"],"struct":["ProgramContext"],"trait":["ProgramGlobals"]};
+window.SIDEBAR_ITEMS = {"mod":["value"]};

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"macro":["show","show_instruction"],"struct":["Decorated"],"trait":["Themed"]};
+window.SIDEBAR_ITEMS = {"macro":[["show",1],["show_instruction",1]],"struct":["Decorated"],"trait":["Themed"]};
