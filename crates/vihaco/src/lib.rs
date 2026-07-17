@@ -5,7 +5,7 @@ extern crate self as vihaco;
 
 #[doc(hidden)]
 pub mod __private;
-pub mod binary;
+mod binary;
 pub mod color;
 pub mod effect;
 pub mod frame;
@@ -27,29 +27,33 @@ pub mod value {
 }
 
 pub use binary::{
-    BinaryBytecodeFile, BinarySectionView, BytecodeContext, BytecodeFile, CompositeHeader,
-    ConstantId, ContextHandle, SectionPath, SectionView, TextBytecodeFile, TextSectionView,
+    BytecodeFile, BytecodeGlobalContext, BytecodeHeader, BytecodeSectionView, ConstantId,
+    ContextHandle, FLAGS, GlobalContext, MAGIC, NoContext, SectionNameResolver, SectionPath,
+    SstFile, SstGlobalContext, SstHeader, SstSectionView, VERSION, WriteBytecodeHeader,
+    decode_instruction_stream,
 };
 pub use effect::Effects;
 pub use instruction_syntax::{
     CanonicalInstructionSyntax, CanonicalInstructionVariantSyntax, InstructionSugarSyntax,
     InstructionSugarVariantSyntax, OperandKind, SugarOperandKind,
 };
-pub use loader::{LoadInput, LoadSection, ModuleProgramLoader, ProgramLoader};
+pub use loader::{
+    LoadBytecodeSection, LoadOwnBytecodeSection, LoadOwnSstSection, LoadSstSection, ProgramImage,
+};
 pub use macros::{Instruction, Message, component, composite, observe};
-pub use program::{ProgramContext, ProgramGlobals, Type, Value};
+pub use program::{Type, Value};
 pub use runtime::{
     CompositeMetadata, EffectSink, GeneratedComponent, Message as MessageMarker, Observe,
     expect_exactly_one_effect,
 };
-pub use traits::{GetProgramGlobal, Reset};
+pub use traits::{FromBytes, FromText, GetProgramInfo, Reset};
 
 #[cfg(test)]
 mod public_api_tests {
     use crate::{
-        BytecodeContext, EffectSink, Effects, GeneratedComponent, LoadSection, ProgramGlobals,
-        Reset,
-        binary::ConstantId,
+        BytecodeGlobalContext, BytecodeHeader, ConstantId, EffectSink, Effects, GeneratedComponent,
+        GlobalContext, LoadBytecodeSection, LoadOwnBytecodeSection, Reset, SectionNameResolver,
+        SstGlobalContext, SstHeader, WriteBytecodeHeader,
         instruction::{FromBytes, OpCode, WriteBytes},
         module::FunctionInfo,
         observer::stdio::StdoutEffect,
@@ -61,23 +65,84 @@ mod public_api_tests {
         fn reset(&mut self) {}
     }
 
+    struct PublicContext;
+
+    impl SectionNameResolver for PublicContext {
+        fn section_name(&self, _index: u32) -> Option<&str> {
+            None
+        }
+    }
+
+    impl BytecodeGlobalContext for PublicContext {
+        fn from_bytes(_bytes: &[u8]) -> eyre::Result<Self> {
+            Ok(Self)
+        }
+    }
+
+    impl SstGlobalContext for PublicContext {
+        fn from_text(_text: &str) -> eyre::Result<Self> {
+            Ok(Self)
+        }
+    }
+
+    impl LoadOwnBytecodeSection<PublicContext> for PublicReset {
+        fn load_own_bytecode_section<'bc>(
+            &mut self,
+            _section: crate::BytecodeSectionView<'bc, PublicContext>,
+        ) -> eyre::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl LoadBytecodeSection<PublicContext> for PublicReset {
+        fn load_bytecode_section<'bc>(
+            &mut self,
+            section: crate::BytecodeSectionView<'bc, PublicContext>,
+        ) -> eyre::Result<()> {
+            self.load_own_bytecode_section(section)
+        }
+    }
+
+    struct PublicSstHeader;
+
+    impl crate::traits::FromText for PublicSstHeader {
+        fn from_text(_text: &str) -> eyre::Result<Self> {
+            Ok(Self)
+        }
+    }
+
+    impl SstHeader for PublicSstHeader {}
+
     #[test]
     fn crate_root_exports_new_traits() {
         fn require_effect_sink<S: EffectSink<()>>() {}
         fn require_reset<T: Reset>() {}
         fn require_instruction<T: FromBytes + OpCode + WriteBytes>() {}
-        fn require_bytecode_context<T: BytecodeContext>() {}
-        fn require_program_globals<T: ProgramGlobals>() {}
-        fn require_load_section<T: LoadSection>() {}
+        fn require_bytecode_header<T: BytecodeHeader>() {}
+        fn require_sst_header<T: SstHeader>() {}
+        fn require_write_bytecode_header<T: WriteBytecodeHeader>() {}
+        fn require_section_name_resolver<T: SectionNameResolver>() {}
+        fn require_bytecode_global_context<T: BytecodeGlobalContext>() {}
+        fn require_sst_global_context<T: SstGlobalContext>() {}
+        fn require_global_context<T: GlobalContext>() {}
+        fn require_load_own_bytecode_section<T: LoadOwnBytecodeSection<PublicContext>>() {}
+        fn require_load_bytecode_section<T: LoadBytecodeSection<PublicContext>>() {}
         fn require_stdout_effect(_effect: StdoutEffect) {}
         fn require_metadata(_metadata: crate::CompositeMetadata) {}
 
         require_effect_sink::<Vec<()>>();
         require_reset::<PublicReset>();
         require_instruction::<u32>();
-        require_bytecode_context::<crate::ProgramContext>();
-        require_program_globals::<crate::ProgramContext>();
-        require_load_section::<crate::ProgramLoader<()>>();
+        require_bytecode_header::<u32>();
+        require_sst_header::<PublicSstHeader>();
+        require_write_bytecode_header::<u32>();
+        require_section_name_resolver::<PublicContext>();
+        require_bytecode_global_context::<PublicContext>();
+        require_sst_global_context::<PublicContext>();
+        require_sst_global_context::<crate::NoContext>();
+        require_global_context::<PublicContext>();
+        require_load_own_bytecode_section::<PublicReset>();
+        require_load_bytecode_section::<PublicReset>();
         let _constant = ConstantId(0);
         let _function: Option<FunctionInfo<crate::Type>> = None;
         require_stdout_effect(StdoutEffect(String::new()));

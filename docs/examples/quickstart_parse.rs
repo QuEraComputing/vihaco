@@ -3,7 +3,7 @@ use vihaco::Instruction;
 use vihaco_parser_core::Parse;
 
 // The same enum can derive both `Instruction` (bytecode + runtime) and
-// `Parse` (source text). The two derives are orthogonal.
+// `Parse` (SST). The two derives are orthogonal.
 #[derive(Debug, Clone, PartialEq, Instruction, vihaco_parser::Parse)]
 pub enum CounterInst {
     Add(i64),

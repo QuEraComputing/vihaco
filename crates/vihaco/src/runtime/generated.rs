@@ -63,7 +63,7 @@ impl CompositeMetadata {
 
     pub fn validate_source_symbols<I, V, Ty, Info>(
         &self,
-        module: &crate::module::Module<I, V, Ty, Info>,
+        module: &crate::module::LocalModule<I, V, Ty, Info>,
     ) -> Result<()> {
         let unresolved: Vec<String> = module
             .source_symbols

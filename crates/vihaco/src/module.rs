@@ -3,20 +3,20 @@
 
 use crate::color::Themed;
 
+/// A module for a single section.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Module<I, V, Ty, Info = NoInfo> {
+pub struct LocalModule<I, V, Ty, Info = NoInfo> {
     pub code: Vec<I>,
     pub functions: Vec<FunctionInfo<Ty>>,
     pub labels: Vec<LabelInfo>,
     pub constants: Vec<V>,
     pub strings: Vec<String>,
     pub main_function: Option<u32>,
-    pub file: u32,
     pub source_symbols: Vec<SourceSymbolInfo>,
     pub extra: Info,
 }
 
-impl<I, V, Ty, Info> Default for Module<I, V, Ty, Info>
+impl<I, V, Ty, Info> Default for LocalModule<I, V, Ty, Info>
 where
     Info: Default,
 {
@@ -28,7 +28,6 @@ where
             constants: Vec::new(),
             strings: Vec::new(),
             main_function: None,
-            file: 0,
             source_symbols: Vec::new(),
             extra: Info::default(),
         }
@@ -78,7 +77,7 @@ impl std::fmt::Display for NoInfo {
     }
 }
 
-impl<I, V, Ty, Info> std::fmt::Display for Module<I, V, Ty, Info>
+impl<I, V, Ty, Info> std::fmt::Display for LocalModule<I, V, Ty, Info>
 where
     I: std::fmt::Display,
     V: std::fmt::Display,
@@ -157,7 +156,7 @@ mod tests {
 
     #[test]
     fn test_module() {
-        let mut module: Module<MockInst, u64, &str> = Module::default();
+        let mut module: LocalModule<MockInst, u64, &str> = LocalModule::default();
         module.code.push(MockInst::Push(42));
         module.code.push(MockInst::Push(42));
         module.code.push(MockInst::Add);

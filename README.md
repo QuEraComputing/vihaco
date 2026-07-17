@@ -14,7 +14,7 @@ vihaco is a framework for building small virtual machines. You define
 - the **instruction set** — an enum, with `#[derive(Instruction)]`;
 - the **components** that execute it — with `#[component]`;
 - the **effects** they emit; and
-- (optionally) a **parser** for source text — with `#[derive(Parse)]`,
+- (optionally) a **parser** for SST — with `#[derive(Parse)]`,
 
 all as ordinary Rust, then compose them into a machine. A component is one
 `execute(instruction, message) -> effects`:

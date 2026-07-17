@@ -17,16 +17,16 @@ Almost every real source module needs all three.
 
 ## The two-pass design
 
-A source module contains:
+A source section contains:
 
-- Device headers (`device tone 0, 32;`).
+- A section header (`SstSectionView::header_text()` parsed as your `H: SstHeader`).
 - Function blocks (`fn @main() -> i64 { ... }`).
 - Inside each function: canonical instructions (`signal::Play`), sugar (`poly addr 0.0 0.2 0.0 0.0`), symbolic operands (`br @body`, `const.str "hi"`), labels (`@entry:`).
 
 Parsing alone can't produce a runtime `Module<I, V, Ty, Info>` directly: sugar expands into multiple instructions, strings need interning into the module's string table, labels need a forward-reference table. The pipeline splits that work in two:
 
-1. **Parse pass** — `<ParsedModule<I, H> as Parse>::parser()` consumes the source into a lossless intermediate shape. Canonical instructions become `BodyItem::Direct(I)`; anything else becomes `BodyItem::Raw(RawForm)`.
-2. **Resolve pass** — your `Resolve` impl walks the `ParsedModule`, applies headers to a device-info value, expands sugar, interns strings, and produces a final `Module`.
+1. **Parse pass** — `ParsedModule::<I, H>::parse_section(section)` consumes one `SstSectionView` into a lossless intermediate shape. Canonical instructions become `BodyItem::Direct(I)`; anything else becomes `BodyItem::Raw(RawForm)`.
+2. **Resolve pass** — your `Resolve` impl walks the `ParsedModule`, applies the section header to a device-info value, expands sugar, interns strings, and produces a final `Module`.
 
 Each consumer crate owns the resolver. Parsing has no consumer-specific state.
 
@@ -36,7 +36,7 @@ Each consumer crate owns the resolver. Parsing has no consumer-specific state.
 
 ```rust ignore
 pub struct ParsedModule<I, H> {
-    pub headers: Vec<H>,
+    pub header: H,
     pub functions: Vec<ParsedFunction<I>>,
 }
 
@@ -72,58 +72,40 @@ pub enum RawOperand {
 
 The parser is whitespace- and comment-aware: blank lines, indentation, and `//`-to-end-of-line comments are skipped between items.
 
-`ParsedModule` derives nothing — its `Parse` impl is hand-written in `vihaco::syntax::parse` and works for any `I: Parse` and `H: Parse`.
+`ParsedModule` derives nothing — its section parser is hand-written in `vihaco::syntax::parse` and works for any `I: Parse` and `H: SstHeader`.
 
-## Step 1: define the header enum
+## Step 1: define the section header
 
-Headers are derived just like instructions, with a `#[head = "device "]` prefix:
+Section headers implement `FromText`; `SstHeader` is a marker trait over that conversion:
 
 ```rust
-#[derive(Debug, Clone, PartialEq, vihaco_parser::Parse)]
-#[head = "device "]
-pub enum DeviceHeader {
-    #[token = "tone"]
-    #[delimiters(open = "", close = "", separator = ",")]
-    Tone(i64, i64),
-
-    #[token = "clock.resolution_ns"]
-    #[delimiters(open = "", close = "", separator = "")]
-    ClockResolutionNs(i64),
-
-    // Block-body header — `device grid { 1 1\n 5 1\n ... };`
-    #[token = "grid"]
-    #[delimiters(open = "{", close = "}", separator = "")]
-    Grid(#[parse_with = "vihaco::syntax::block_i64_pairs"] Vec<(i64, i64)>),
-
-    #[token = "mask"]
-    #[delimiters(open = "{", close = "}", separator = "")]
-    Mask(#[parse_with = "vihaco::syntax::block_i64_flat"] Vec<i64>),
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeviceHeader {
+    pub core_count: u32,
 }
+
+impl vihaco::FromText for DeviceHeader {
+    fn from_text(text: &str) -> eyre::Result<Self> {
+        Ok(Self {
+            core_count: text.trim().parse()?,
+        })
+    }
+}
+
+impl vihaco::SstHeader for DeviceHeader {}
 ```
-
-The `;` after each header is owned by the module parser, not the header derive.
-
-`vihaco::syntax` ships two block-body helpers for common shapes:
-
-- `block_i64_flat()` parses whitespace-separated `i64`s inside `{ ... }`.
-- `block_i64_pairs()` parses rows of `i64 i64` inside `{ ... }`.
-
-When you need a richer block body, write your own `fn() -> impl Parser<...>` and point at it with `#[parse_with]`.
 
 ## Step 2: parse a module
 
 ```rust ignore
-use chumsky::Parser as _;
+use vihaco::{NoContext, SstFile};
 use vihaco::syntax::ParsedModule;
-use vihaco_parser_core::Parse;
 
-let parsed = ParsedModule::<MyInstruction, MyHeader>::parser()
-    .parse(&source)
-    .into_result()
-    .map_err(|errs| eyre::eyre!("parse failed: {errs:?}"))?;
+let file = SstFile::<NoContext>::from_text(&source)?;
+let parsed = ParsedModule::<MyInstruction, MyHeader>::parse_section(file.root())?;
 ```
 
-`parsed.headers` is `Vec<MyHeader>`. `parsed.functions[i].body` is `Vec<BodyItem<MyInstruction>>`.
+`parsed.header` is `MyHeader`. `parsed.functions[i].body` is `Vec<BodyItem<MyInstruction>>`.
 
 ## Step 3: implement `Resolve`
 
@@ -155,9 +137,7 @@ impl Resolve<MyInstruction, MyHeader> for MyResolver {
         parsed: ParsedModule<MyInstruction, MyHeader>,
     ) -> eyre::Result<Self::Module> {
         let mut info = MyDeviceInfo::default();
-        for header in parsed.headers {
-            apply_header(&mut info, header)?;
-        }
+        apply_header(&mut info, parsed.header)?;
 
         let mut code = Vec::new();
         for function in parsed.functions {
@@ -323,16 +303,12 @@ The order matters: variants with overlapping prefixes (rare across devices, but 
 ## The full pipeline at a call site
 
 ```rust ignore
-use chumsky::Parser as _;
+use vihaco::{NoContext, SstFile};
 use vihaco::syntax::{ParsedModule, Resolve};
-use vihaco_parser_core::Parse;
 
 let source = std::fs::read_to_string(path)?;
-
-let parsed = ParsedModule::<MachineInstruction, DeviceHeader>::parser()
-    .parse(&source)
-    .into_result()
-    .map_err(|errs| eyre::eyre!("parse failed: {errs:?}"))?;
+let file = SstFile::<NoContext>::from_text(&source)?;
+let parsed = ParsedModule::<MachineInstruction, DeviceHeader>::parse_section(file.root())?;
 
 let module = MyResolver::new().resolve_module(parsed)?;
 
@@ -341,7 +317,7 @@ machine.load(&module)?;
 machine.run()?;
 ```
 
-This is the shape a CLI `run` command uses: read the source, parse it into a `ParsedModule`, resolve it into a runtime `Module`, then load and run it.
+This is the shape a CLI `run` command uses: read the source, parse the SST container, map each loaded section to a `ParsedModule`, resolve it into a runtime `Module`, then load and run it.
 
 ## When you'd need a fully custom parser
 

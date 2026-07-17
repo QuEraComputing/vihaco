@@ -198,15 +198,13 @@ impl crate::traits::FromBytes for Type {
 }
 
 impl crate::traits::FromText for Type {
-    fn from_text<R: std::io::Read>(text: &mut R) -> eyre::Result<Self>
+    fn from_text(text: &str) -> eyre::Result<Self>
     where
         Self: Sized,
     {
-        let mut buffer = String::new();
-        text.read_to_string(&mut buffer)?;
         type_text_parser()
             .then_ignore(end())
-            .parse(buffer.trim())
+            .parse(text)
             .into_result()
             .map_err(format_value_parse_errors)
     }
@@ -276,15 +274,13 @@ impl crate::traits::FromBytes for Value {
 }
 
 impl crate::traits::FromText for Value {
-    fn from_text<R: std::io::Read>(text: &mut R) -> eyre::Result<Self>
+    fn from_text(text: &str) -> eyre::Result<Self>
     where
         Self: Sized,
     {
-        let mut buffer = String::new();
-        text.read_to_string(&mut buffer)?;
         value_text_parser()
             .then_ignore(end())
-            .parse(buffer.trim())
+            .parse(text)
             .into_result()
             .map_err(format_value_parse_errors)
     }

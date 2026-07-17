@@ -1,5 +1,0 @@
-error: field `header` marked #[header] cannot also be marked #[program], #[device(...)] or #[loadable]
- --> tests/compile_fail/composite_machine/header-with-device.rs:7:5
-  |
-7 |     header: HeaderDevice,
-  |     ^^^^^^

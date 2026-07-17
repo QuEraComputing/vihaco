@@ -3,28 +3,54 @@
 
 use std::sync::Arc;
 
-use crate::program::ProgramContext;
-
-/// The global context for a given bytecode file.
+/// Marker context for SST files that do not carry global metadata.
 ///
-/// This should include all context needed for an entire section tree.
-/// Anything that should be shared across machines should be in a
-/// [`BytecodeContext`].
-pub trait BytecodeContext: Sized {
-    fn from_bytes(bytes: &[u8]) -> eyre::Result<Self>;
+/// `NoContext` accepts an omitted or empty global section.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct NoContext;
 
-    fn from_text(text: &str) -> eyre::Result<Self>;
-
+/// Resolve section-name indexes stored in bytecode files.
+///
+/// Bytecode child section entries store section names indirectly, so parsing a
+/// bytecode file needs a context object that can resolve those indexes.
+pub trait SectionNameResolver {
     fn section_name(&self, index: u32) -> Option<&str>;
 }
 
-/// The public handle for a bytecode context.
+/// A global context that can be decoded from bytecode.
+pub trait BytecodeGlobalContext: Sized + SectionNameResolver {
+    fn from_bytes(bytes: &[u8]) -> eyre::Result<Self>;
+}
+
+/// A global context that can be parsed from SST text.
+pub trait SstGlobalContext: Sized {
+    fn from_text(text: &str) -> eyre::Result<Self>;
+}
+
+/// A global context that supports both bytecode and SST representations.
+pub trait GlobalContext: BytecodeGlobalContext + SstGlobalContext {}
+
+impl<T> GlobalContext for T where T: BytecodeGlobalContext + SstGlobalContext {}
+
+impl SstGlobalContext for NoContext {
+    fn from_text(text: &str) -> eyre::Result<Self> {
+        if text.trim().is_empty() {
+            Ok(Self)
+        } else {
+            Err(eyre::eyre!(
+                "NoContext accepts only an empty global section"
+            ))
+        }
+    }
+}
+
+/// The public handle for a global context.
 ///
 /// To avoid needing explicit lifetimes permeating throughout
 /// machine definitions, we wrap the context in an [`Arc`] to drop it
 /// automatically.
 #[derive(Debug)]
-pub struct ContextHandle<C = ProgramContext>(Arc<C>);
+pub struct ContextHandle<C>(Arc<C>);
 
 impl<C> Clone for ContextHandle<C> {
     fn clone(&self) -> Self {
