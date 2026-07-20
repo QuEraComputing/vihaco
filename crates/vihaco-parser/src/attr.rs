@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: MIT
 
 use proc_macro2::Span;
-use syn::{Attribute, Error, Fields, LitStr, Meta, Result, Variant, spanned::Spanned};
+use syn::{
+    Attribute, Error, Fields, LitStr, Meta, Result, Variant, meta::ParseNestedMeta,
+    spanned::Spanned,
+};
 
 // --- Enum-level ---
 
@@ -20,6 +23,11 @@ pub enum SyntaxClassAttr {
 
 pub struct EnumAttrs {
     pub head: Option<HeadAttr>,
+    pub syntax_class: Option<SyntaxClassAttr>,
+}
+
+pub struct StructAttrs {
+    pub pattern: Option<PatternInfo>,
     pub syntax_class: Option<SyntaxClassAttr>,
 }
 
@@ -82,30 +90,61 @@ impl EnumAttrs {
             }
 
             if attr.path().is_ident("syntax_class") {
-                attr.parse_nested_meta(|meta| {
-                    if meta.path.is_ident("instruction") {
-                        syntax_class = Some(SyntaxClassAttr::Instruction);
-                        return Ok(());
-                    }
-
-                    if meta.path.is_ident("type") {
-                        syntax_class = Some(SyntaxClassAttr::Type);
-                        return Ok(());
-                    }
-
-                    if meta.path.is_ident("value") {
-                        syntax_class = Some(SyntaxClassAttr::Value);
-                        return Ok(());
-                    }
-                    Err(Error::new(
-                        span,
-                        "invalid syntax class: expected #[syntax_class(class)], where class is instruction, type, or value"
-                    ))
-                })?;
+                attr.parse_nested_meta(|meta| parse_syntax_class(meta, &mut syntax_class, span))?;
             }
         }
 
         Ok(Self { head, syntax_class })
+    }
+}
+
+fn parse_syntax_class(
+    meta: ParseNestedMeta,
+    syntax_class: &mut Option<SyntaxClassAttr>,
+    span: Span,
+) -> Result<()> {
+    if meta.path.is_ident("instruction") {
+        *syntax_class = Some(SyntaxClassAttr::Instruction);
+        return Ok(());
+    }
+
+    if meta.path.is_ident("type") {
+        *syntax_class = Some(SyntaxClassAttr::Type);
+        return Ok(());
+    }
+
+    if meta.path.is_ident("value") {
+        *syntax_class = Some(SyntaxClassAttr::Value);
+        return Ok(());
+    }
+
+    Err(Error::new(
+        span,
+        "invalid syntax class: expected #[syntax_class(class)], where class is instruction, type, or value",
+    ))
+}
+
+impl StructAttrs {
+    pub fn from_attrs(attrs: &[Attribute]) -> Result<Self> {
+        let mut pattern = None;
+        let mut syntax_class = None;
+
+        for attr in attrs {
+            let span = attr.span();
+
+            if attr.path().is_ident("pattern") {
+                pattern = Some(pattern_attr(attr)?);
+            }
+
+            if attr.path().is_ident("syntax_class") {
+                attr.parse_nested_meta(|meta| parse_syntax_class(meta, &mut syntax_class, span))?;
+            }
+        }
+
+        Ok(Self {
+            pattern,
+            syntax_class,
+        })
     }
 }
 
@@ -128,6 +167,22 @@ fn string_attr(attr: &Attribute, attr_name: &str, attr_val: &str) -> Result<Stri
 
 pub struct PatternInfo(pub String, pub Span);
 
+fn pattern_attr(attr: &Attribute) -> Result<PatternInfo> {
+    let name_value = attr.meta.require_name_value()?;
+    let syn::Expr::Lit(syn::ExprLit {
+        lit: syn::Lit::Str(pattern_literal),
+        ..
+    }) = &name_value.value
+    else {
+        return Err(Error::new_spanned(
+            &name_value.value,
+            "#[pattern] requires a string value: #[pattern] = pattern",
+        ));
+    };
+
+    Ok(PatternInfo(pattern_literal.value(), pattern_literal.span()))
+}
+
 impl VariantAttrs {
     pub fn from_variant(variant: &Variant) -> Result<Self> {
         let mut token = None;
@@ -140,20 +195,7 @@ impl VariantAttrs {
             let span = attr.span();
 
             if attr.path().is_ident("pattern") {
-                let name_value = attr.meta.require_name_value()?;
-                let syn::Expr::Lit(syn::ExprLit {
-                    lit: syn::Lit::Str(pattern_literal),
-                    ..
-                }) = &name_value.value
-                else {
-                    return Err(Error::new_spanned(
-                        &name_value.value,
-                        "#[pattern] requires a string value: #[pattern] = pattern",
-                    ));
-                };
-                let pattern = pattern_literal.value();
-                let span = pattern_literal.span();
-                pattern_info = Some(PatternInfo(pattern, span));
+                pattern_info = Some(pattern_attr(attr)?);
                 continue;
             }
 

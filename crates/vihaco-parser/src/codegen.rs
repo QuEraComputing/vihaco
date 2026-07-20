@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 use crate::{
-    attr::{EnumAttrs, FieldAttrs, PatternInfo, SyntaxClassAttr, VariantAttrs},
+    attr::{EnumAttrs, FieldAttrs, PatternInfo, StructAttrs, SyntaxClassAttr, VariantAttrs},
     codegen::{
         BindingRef::{Field, Index},
         PatternAtom::{Binding, Literal, Token},
@@ -406,12 +406,14 @@ fn validate_pattern_named<'p, 'src>(
 
 enum PatternTarget {
     Variant { ident: Ident },
+    Struct { ident: Ident },
 }
 
 impl PatternTarget {
     fn ident(&self) -> &Ident {
         match self {
             PatternTarget::Variant { ident } => ident,
+            PatternTarget::Struct { ident } => ident,
         }
     }
 }
@@ -598,6 +600,7 @@ impl<'p> ValidatedPatternInfo<'p> {
 
         let constructor = match &self.target {
             PatternTarget::Variant { ident } => quote! { Self::#ident },
+            PatternTarget::Struct { ident } => quote! { #ident },
         };
 
         let map = if bindings.is_empty() {
@@ -757,13 +760,6 @@ fn compile_pattern_parser(
     }
 }
 
-struct EnumInfo<'src> {
-    data: &'src syn::DataEnum,
-    ident: &'src Ident,
-    attrs: &'src Vec<Attribute>,
-    generics: &'src Generics,
-}
-
 fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
     let enum_ident = &input.ident;
     let enum_attrs = EnumAttrs::from_attrs(input.attrs)?;
@@ -870,6 +866,62 @@ fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
     Ok(output.into())
 }
 
+struct ExpansionInfo<'src, T> {
+    data: &'src T,
+    ident: &'src Ident,
+    attrs: &'src [Attribute],
+    generics: &'src Generics,
+}
+
+type EnumInfo<'src> = ExpansionInfo<'src, syn::DataEnum>;
+type StructInfo<'src> = ExpansionInfo<'src, syn::DataStruct>;
+
+fn expand_struct(input: StructInfo) -> Result<TokenStream> {
+    let struct_ident = input.ident;
+    let struct_attrs = StructAttrs::from_attrs(input.attrs)?;
+    if struct_attrs.syntax_class.is_none() {
+        return Err(Error::new_spanned(
+            struct_ident,
+            "#[derive(Parse)] on a struct requires a #[syntax_class(...)] attribute",
+        ));
+    }
+
+    let src_lifetime = fresh_lifetime(input.generics, "__vihaco_src");
+
+    let pattern_compilation_info = PatternCompilationInfo {
+        fields: &input.data.fields,
+        pattern_info: struct_attrs.pattern,
+        target: PatternTarget::Struct {
+            ident: struct_ident.clone(),
+        },
+        class: struct_attrs.syntax_class,
+    };
+
+    let span = struct_ident.span();
+    let (ident, parser) = compile_pattern_parser(pattern_compilation_info, span, span)?;
+
+    let parser_generics = generics_with_lifetime(input.generics, &src_lifetime);
+    let (impl_generics, _, where_clause) = parser_generics.split_for_impl();
+    let (_, ty_generics, _) = input.generics.split_for_impl();
+
+    let output = quote! {
+        impl #impl_generics ::vihaco_parser_core::Parse<#src_lifetime> for #struct_ident #ty_generics #where_clause {
+            fn parser() -> impl ::chumsky::Parser<
+                #src_lifetime,
+                &#src_lifetime str,
+                Self,
+                ::chumsky::extra::Err<::chumsky::error::Simple<#src_lifetime, char>>,
+            > {
+                use ::chumsky::Parser as _;
+                #parser
+                #ident
+            }
+        }
+    };
+
+    Ok(output.into())
+}
+
 pub fn expand(input: DeriveInput) -> Result<TokenStream> {
     match &input.data {
         Data::Enum(e) => expand_enum(EnumInfo {
@@ -878,7 +930,12 @@ pub fn expand(input: DeriveInput) -> Result<TokenStream> {
             attrs: &input.attrs,
             generics: &input.generics,
         }),
-        //Data::Struct(s) => expand_struct(StructInfo { s }),
+        Data::Struct(s) => expand_struct(StructInfo {
+            data: s,
+            ident: &input.ident,
+            attrs: &input.attrs,
+            generics: &input.generics,
+        }),
         _ => Err(Error::new_spanned(
             &input,
             "#[derive(Parse)] is not supported on unions",

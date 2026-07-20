@@ -30,13 +30,16 @@ pub enum CPUValueSyntax {
 // the idea here will be to allow for vihaco_parser::Parse to derive
 // a parser from a struct using a declarative form
 // inspo: MLIR `assemblyFormat`
-/* #[derive(Parse)]
+#[derive(Parse)]
+#[syntax_class(value)]
 #[pattern = "$ty $value"]
 pub struct CPUConstSyntax {
     pub ty: CPUType,
     pub value: CPUConstValueSyntax,
-} */
+}
 
+#[derive(Parse)]
+#[syntax_class(value)]
 pub struct CPUConstValueSyntax(pub String);
 
 impl<T> From<T> for CPUConstValueSyntax
