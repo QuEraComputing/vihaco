@@ -216,10 +216,7 @@ impl<'p> PatternAtoms<'p, BindingRef<'p>> {
     }
 }
 
-impl<'p, F> UnparsedPatternInfo<'p, F>
-where
-    F: FieldShape,
-{
+impl<'p> UnparsedPatternInfo<'p> {
     fn parse(self) -> eyre::Result<ValidatedPatternInfo<'p>> {
         let tokens = pattern_syntax_parser()
             .parse(self.pattern)
@@ -258,10 +255,14 @@ where
         let parsed = ParsedPatternInfo {
             pattern,
             target: self.target,
-            fields: self.fields,
+            fields: &self.fields,
         };
 
-        F::validate_pattern(parsed)
+        match &self.fields {
+            Fields::Named(n) => validate_pattern_named(parsed, n),
+            Fields::Unnamed(u) => validate_pattern_unnamed(parsed, u),
+            Fields::Unit => validate_pattern_unit(parsed),
+        }
     }
 }
 
@@ -275,117 +276,132 @@ impl fmt::Display for SyntaxClassAttr {
     }
 }
 
-impl FieldShape for UnnamedFields<'_> {
-    fn validate_pattern<'p>(
-        parsed: ParsedPatternInfo<'p, Self>,
-    ) -> eyre::Result<ValidatedPatternInfo<'p>> {
-        let bindings: Vec<u32> = parsed.pattern.index_bindings().collect();
-        let num_indices = parsed.fields.count;
-        let mut has_n: Vec<bool> = vec![false; num_indices];
-
-        for i in bindings {
-            let Some(slot) = has_n.get_mut(i as usize) else {
-                return Err(eyre::eyre!("index {} is out of bounds", i));
-            };
-
-            // if we already found this i, then we have two indices
-            // with the same value in our pattern
-            if *slot {
-                return Err(eyre::eyre!("duplicate index {} in pattern", i));
-            }
-
-            *slot = true;
-        }
-
-        if let Some(false_slot) = has_n.iter().position(|&b| !b) {
-            return Err(eyre::eyre!(
-                "must include all indices from 0 to {}, missing {}",
-                num_indices,
-                false_slot
-            ));
-        }
-
-        let resolved = parsed.pattern.resolve(|b| match b {
-            Index(index) => {
-                let ty = *parsed
-                    .fields
-                    .types
-                    .get(index as usize)
-                    .ok_or_else(|| eyre::eyre!("index {} is out of bounds", index))?;
-                let binding = format_ident!("__vihaco_field_{index}");
-
-                Ok(ResolvedBinding {
-                    ty: ty.clone(),
-                    name: None,
-                    binding,
-                })
-            }
-            Field(_) => Err(eyre::eyre!("expected index binding for tuple fields")),
-        })?;
-
-        Ok(ValidatedPatternInfo {
-            pattern: resolved,
-            target: parsed.target,
-            constructor: ConstructorType::Unnamed,
-        })
-    }
+fn unnamed_types(fields: &FieldsUnnamed) -> Vec<&Type> {
+    fields.unnamed.iter().map(|f| &f.ty).collect()
 }
 
-impl FieldShape for NamedFields<'_> {
-    fn validate_pattern<'p>(
-        parsed: ParsedPatternInfo<'p, Self>,
-    ) -> eyre::Result<ValidatedPatternInfo<'p>> {
-        let bindings: Vec<&'p str> = parsed.pattern.field_bindings().collect();
-
-        let mut has_name: HashMap<String, bool> = parsed
-            .fields
-            .types
-            .keys()
-            .map(|t| (t.to_string(), false))
-            .collect();
-
-        for binding in bindings {
-            let Some(slot) = has_name.get_mut(binding) else {
-                return Err(eyre::eyre!(
-                    "binding name \"{}\" doesn't exist in field",
-                    binding
-                ));
-            };
-
-            if *slot {
-                return Err(eyre::eyre!("duplicate binding \"{}\" in pattern", binding));
-            }
-
-            *slot = true;
-        }
-
-        if let Some((name, _)) = has_name.iter().find(|(_, b)| !*b) {
-            return Err(eyre::eyre!("must include all fields, missing {name}"));
-        }
-
-        let resolved = parsed.pattern.resolve(|b| match b {
-            Field(name) => {
-                let ident = Ident::new(name, proc_macro2::Span::call_site());
-                let ty = *parsed.fields.types.get(&ident).ok_or_else(|| {
-                    eyre::eyre!("binding name \"{}\" doesn't exist in field", name)
-                })?;
-                let binding = format_ident!("__vihaco_field_{name}");
-
-                Ok(ResolvedBinding {
-                    ty: ty.clone(),
-                    name: Some(ident.clone()),
-                    binding,
-                })
-            }
-            Index(_) => Err(eyre::eyre!("expected field binding for named fields")),
-        })?;
-
-        Ok(ValidatedPatternInfo {
-            pattern: resolved,
-            target: parsed.target,
-            constructor: ConstructorType::Named,
+fn named_types(fields: &FieldsNamed) -> HashMap<&Ident, &Type> {
+    fields
+        .named
+        .iter()
+        .map(|f| {
+            (
+                f.ident
+                    .as_ref()
+                    .expect("fields must be named at this point"),
+                &f.ty,
+            )
         })
+        .collect()
+}
+
+fn validate_pattern_unnamed<'p, 'src>(
+    parsed: ParsedPatternInfo<'p, 'src>,
+    fields: &FieldsUnnamed,
+) -> eyre::Result<ValidatedPatternInfo<'p>> {
+    let bindings: Vec<u32> = parsed.pattern.index_bindings().collect();
+    let num_indices = parsed.fields.len();
+    let mut has_n: Vec<bool> = vec![false; num_indices];
+
+    for i in bindings {
+        let Some(slot) = has_n.get_mut(i as usize) else {
+            return Err(eyre::eyre!("index {} is out of bounds", i));
+        };
+
+        // if we already found this i, then we have two indices
+        // with the same value in our pattern
+        if *slot {
+            return Err(eyre::eyre!("duplicate index {} in pattern", i));
+        }
+
+        *slot = true;
     }
+
+    if let Some(false_slot) = has_n.iter().position(|&b| !b) {
+        return Err(eyre::eyre!(
+            "must include all indices from 0 to {}, missing {}",
+            num_indices,
+            false_slot
+        ));
+    }
+
+    let types = unnamed_types(fields);
+
+    let resolved = parsed.pattern.resolve(|b| match b {
+        Index(index) => {
+            let ty = *types
+                .get(index as usize)
+                .ok_or_else(|| eyre::eyre!("index {} is out of bounds", index))?;
+            let binding = format_ident!("__vihaco_field_{index}");
+
+            Ok(ResolvedBinding {
+                ty: ty.clone(),
+                name: None,
+                binding,
+            })
+        }
+        Field(_) => Err(eyre::eyre!("expected index binding for tuple fields")),
+    })?;
+
+    Ok(ValidatedPatternInfo {
+        pattern: resolved,
+        target: parsed.target,
+        constructor: ConstructorType::Unnamed,
+    })
+}
+
+fn validate_pattern_named<'p, 'src>(
+    parsed: ParsedPatternInfo<'p, 'src>,
+    fields: &FieldsNamed,
+) -> eyre::Result<ValidatedPatternInfo<'p>> {
+    let bindings: Vec<&'p str> = parsed.pattern.field_bindings().collect();
+
+    let types = named_types(fields);
+
+    let mut has_name: HashMap<String, bool> =
+        types.keys().map(|t| (t.to_string(), false)).collect();
+
+    for binding in bindings {
+        let Some(slot) = has_name.get_mut(binding) else {
+            return Err(eyre::eyre!(
+                "binding name \"{}\" doesn't exist in field",
+                binding
+            ));
+        };
+
+        if *slot {
+            return Err(eyre::eyre!("duplicate binding \"{}\" in pattern", binding));
+        }
+
+        *slot = true;
+    }
+
+    if let Some((name, _)) = has_name.iter().find(|(_, b)| !*b) {
+        return Err(eyre::eyre!("must include all fields, missing {name}"));
+    }
+
+    let resolved = parsed.pattern.resolve(|b| match b {
+        Field(name) => {
+            let ident = Ident::new(name, proc_macro2::Span::call_site());
+            let ty = *types
+                .get(&ident)
+                .ok_or_else(|| eyre::eyre!("binding name \"{}\" doesn't exist in field", name))?;
+            let binding = format_ident!("__vihaco_field_{name}");
+
+            Ok(ResolvedBinding {
+                ty: ty.clone(),
+                name: Some(ident.clone()),
+                binding,
+            })
+        }
+        Index(_) => Err(eyre::eyre!("expected field binding for named fields")),
+    })?;
+
+    Ok(ValidatedPatternInfo {
+        pattern: resolved,
+        target: parsed.target,
+        constructor: ConstructorType::Named,
+    })
 }
 
 enum PatternTarget {
@@ -400,83 +416,33 @@ impl PatternTarget {
     }
 }
 
-struct UnnamedFields<'src> {
-    count: usize,
-    types: Vec<&'src Type>,
+fn validate_pattern_unit<'p, 'src>(
+    parsed: ParsedPatternInfo<'p, 'src>,
+) -> eyre::Result<ValidatedPatternInfo<'p>> {
+    let resolved = parsed.pattern.resolve(|_| {
+        Err(eyre::eyre!(
+            "unit fields cannot have patterns with bindings"
+        ))
+    })?;
+
+    Ok(ValidatedPatternInfo {
+        pattern: resolved,
+        target: parsed.target,
+        constructor: ConstructorType::Unnamed,
+    })
 }
 
-impl<'src> From<&'src FieldsUnnamed> for UnnamedFields<'src> {
-    fn from(value: &'src FieldsUnnamed) -> Self {
-        let types: Vec<&'src Type> = value.unnamed.iter().map(|f| &f.ty).collect();
-
-        Self {
-            count: types.len(),
-            types,
-        }
-    }
-}
-
-struct NamedFields<'src> {
-    types: HashMap<&'src Ident, &'src Type>,
-}
-
-#[derive(Default)]
-struct UnitFields {}
-
-impl FieldShape for UnitFields {
-    fn validate_pattern<'p>(
-        parsed: ParsedPatternInfo<'p, Self>,
-    ) -> eyre::Result<ValidatedPatternInfo<'p>> {
-        let resolved = parsed.pattern.resolve(|_| {
-            Err(eyre::eyre!(
-                "unit fields cannot have patterns with bindings"
-            ))
-        })?;
-
-        Ok(ValidatedPatternInfo {
-            pattern: resolved,
-            target: parsed.target,
-            constructor: ConstructorType::Unnamed,
-        })
-    }
-}
-
-impl<'src> From<&'src FieldsNamed> for NamedFields<'src> {
-    fn from(value: &'src FieldsNamed) -> Self {
-        let types: HashMap<&'src Ident, &'src Type> = value
-            .named
-            .iter()
-            .map(|f| {
-                (
-                    f.ident
-                        .as_ref()
-                        .expect("fields must be named at this point"),
-                    &f.ty,
-                )
-            })
-            .collect();
-
-        Self { types }
-    }
-}
-
-trait FieldShape: Sized {
-    fn validate_pattern<'p>(
-        parsed: ParsedPatternInfo<'p, Self>,
-    ) -> eyre::Result<ValidatedPatternInfo<'p>>;
-}
-
-struct UnparsedPatternInfo<'p, Info: FieldShape> {
+struct UnparsedPatternInfo<'p> {
     pattern: &'p str,
     class: SyntaxClassAttr,
     target: PatternTarget,
-    fields: Info,
+    fields: syn::Fields,
 }
 
-struct ParsedPatternInfo<'p, Info: FieldShape> {
+struct ParsedPatternInfo<'p, 'src> {
     pattern: PatternAtoms<'p, BindingRef<'p>>,
     target: PatternTarget,
-    fields: Info,
+    fields: &'src syn::Fields,
 }
 
 struct ResolvedBinding {
@@ -774,50 +740,16 @@ fn compile_pattern_parser(
     };
 
     if let Some(PatternInfo(pattern, span)) = info.pattern_info {
-        // TODO: use dynamic dispatch
-        match &info.fields {
-            Fields::Named(n) => {
-                let fields = NamedFields::from(n);
-                let info = UnparsedPatternInfo {
-                    pattern: pattern.as_str(),
-                    class,
-                    target: info.target,
-                    fields,
-                };
+        let info = UnparsedPatternInfo {
+            pattern: pattern.as_str(),
+            class,
+            target: info.target,
+            fields: info.fields.clone(),
+        };
 
-                info.parse()
-                    .and_then(ValidatedPatternInfo::emit)
-                    .map_err(|err| Error::new(span, err.to_string()))
-            }
-
-            Fields::Unnamed(u) => {
-                let fields = UnnamedFields::from(u);
-                let info = UnparsedPatternInfo {
-                    pattern: pattern.as_str(),
-                    class,
-                    target: info.target,
-                    fields,
-                };
-
-                info.parse()
-                    .and_then(ValidatedPatternInfo::emit)
-                    .map_err(|err| Error::new(span, err.to_string()))
-            }
-
-            Fields::Unit => {
-                let fields = UnitFields::default();
-                let info = UnparsedPatternInfo {
-                    pattern: pattern.as_str(),
-                    class,
-                    target: info.target,
-                    fields,
-                };
-
-                info.parse()
-                    .and_then(ValidatedPatternInfo::emit)
-                    .map_err(|err| Error::new(span, err.to_string()))
-            }
-        }
+        info.parse()
+            .and_then(ValidatedPatternInfo::emit)
+            .map_err(|err| Error::new(span, err.to_string()))
     } else {
         let new_info = generate_pattern(info, variant_span)
             .map_err(|err| Error::new(variant_span, err.to_string()))?;
