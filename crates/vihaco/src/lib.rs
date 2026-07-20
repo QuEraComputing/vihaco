@@ -22,8 +22,9 @@ pub mod runtime;
 pub mod syntax;
 #[doc(hidden)]
 pub mod traits;
-pub mod value {
-    pub use crate::program::{Type, Value};
+pub mod value;
+pub mod value_cpu {
+    pub use crate::program::{CPUType, CPUValue};
 }
 
 pub use binary::{
@@ -41,7 +42,7 @@ pub use loader::{
     LoadBytecodeSection, LoadOwnBytecodeSection, LoadOwnSstSection, LoadSstSection, ProgramImage,
 };
 pub use macros::{Instruction, Message, component, composite, observe};
-pub use program::{Type, Value};
+pub use program::{CPUType, CPUValue};
 pub use runtime::{
     CompositeMetadata, EffectSink, GeneratedComponent, Message as MessageMarker, Observe,
     expect_exactly_one_effect,
@@ -132,7 +133,7 @@ mod public_api_tests {
 
         require_effect_sink::<Vec<()>>();
         require_reset::<PublicReset>();
-        require_instruction::<u32>();
+        require_instruction::<ConstantId>();
         require_bytecode_header::<u32>();
         require_sst_header::<PublicSstHeader>();
         require_write_bytecode_header::<u32>();
@@ -144,7 +145,7 @@ mod public_api_tests {
         require_load_own_bytecode_section::<PublicReset>();
         require_load_bytecode_section::<PublicReset>();
         let _constant = ConstantId(0);
-        let _function: Option<FunctionInfo<crate::Type>> = None;
+        let _function: Option<FunctionInfo<crate::CPUType>> = None;
         require_stdout_effect(StdoutEffect(String::new()));
         require_metadata(crate::CompositeMetadata {
             devices: &[],

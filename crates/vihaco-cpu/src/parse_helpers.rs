@@ -21,20 +21,20 @@
 use chumsky::error::Simple;
 use chumsky::extra;
 use chumsky::prelude::*;
-use vihaco::program::{Type, Value};
+use vihaco::program::{CPUType, CPUValue};
 use vihaco_parser_core::Parse;
 
 type E<'src> = extra::Err<Simple<'src, char>>;
 
 /// Parses `.<typename>` and returns the matching [`Type`]. Used for the typed
 /// arithmetic/comparison variants — `add.i64`, `lt.u64`, etc.
-pub fn cpu_type<'src>() -> impl Parser<'src, &'src str, Type, E<'src>> {
+pub fn cpu_type<'src>() -> impl Parser<'src, &'src str, CPUType, E<'src>> {
     just('.').ignore_then(choice((
-        just("i64").to(Type::I64),
-        just("u64").to(Type::U64),
-        just("u32").to(Type::U32),
-        just("f64").to(Type::F64),
-        just("bool").to(Type::Bool),
+        just("i64").to(CPUType::I64),
+        just("u64").to(CPUType::U64),
+        just("u32").to(CPUType::U32),
+        just("f64").to(CPUType::F64),
+        just("bool").to(CPUType::Bool),
     )))
 }
 
@@ -43,28 +43,28 @@ pub fn cpu_type<'src>() -> impl Parser<'src, &'src str, Type, E<'src>> {
 ///
 /// String, FunctionRef, and HeapRef variants of `Value` are intentionally
 /// excluded: they require the orchestrator's interner/symbol tables.
-pub fn cpu_const_value<'src>() -> impl Parser<'src, &'src str, Value, E<'src>> {
+pub fn cpu_const_value<'src>() -> impl Parser<'src, &'src str, CPUValue, E<'src>> {
     choice((
         just(".i64")
             .ignore_then(text::whitespace())
             .ignore_then(i64::parser())
-            .map(Value::I64),
+            .map(CPUValue::I64),
         just(".u64")
             .ignore_then(text::whitespace())
             .ignore_then(u64::parser())
-            .map(Value::U64),
+            .map(CPUValue::U64),
         just(".u32")
             .ignore_then(text::whitespace())
             .ignore_then(u32::parser())
-            .map(Value::U32),
+            .map(CPUValue::U32),
         just(".f64")
             .ignore_then(text::whitespace())
             .ignore_then(f64::parser())
-            .map(Value::F64),
+            .map(CPUValue::F64),
         just(".bool")
             .ignore_then(text::whitespace())
             .ignore_then(bool::parser())
-            .map(Value::Bool),
+            .map(CPUValue::Bool),
     ))
 }
 

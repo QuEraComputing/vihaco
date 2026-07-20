@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 use proc_macro2::Span;
-use syn::{spanned::Spanned, Attribute, Error, Fields, LitStr, Meta, Result, Variant};
+use syn::{Attribute, Error, Fields, LitStr, Meta, Result, Variant, spanned::Spanned};
 
 // --- Enum-level ---
 
@@ -11,8 +11,16 @@ pub enum HeadAttr {
     Custom(String), // #[head = "X::"]
 }
 
+#[derive(Clone, Copy)]
+pub enum SyntaxClassAttr {
+    Instruction,
+    Type,
+    Value,
+}
+
 pub struct EnumAttrs {
     pub head: Option<HeadAttr>,
+    pub syntax_class: Option<SyntaxClassAttr>,
 }
 
 // --- Variant-level ---
@@ -34,6 +42,7 @@ impl Default for DelimiterAttrs {
 }
 
 pub struct VariantAttrs {
+    pub pattern: Option<PatternInfo>,
     pub token: Option<String>,
     pub delimiters: DelimiterAttrs,
     pub delegate: bool,
@@ -49,9 +58,10 @@ pub struct FieldAttrs {
 impl EnumAttrs {
     pub fn from_attrs(attrs: &[Attribute]) -> Result<Self> {
         let mut head = None;
+        let mut syntax_class = None;
         for attr in attrs {
+            let span = attr.span();
             if attr.path().is_ident("head") {
-                let span = attr.span();
                 match &attr.meta {
                     Meta::Path(_) => {
                         head = Some(HeadAttr::Auto);
@@ -70,14 +80,58 @@ impl EnumAttrs {
                     _ => return Err(Error::new(span, "invalid #[head] syntax")),
                 }
             }
+
+            if attr.path().is_ident("syntax_class") {
+                attr.parse_nested_meta(|meta| {
+                    if meta.path.is_ident("instruction") {
+                        syntax_class = Some(SyntaxClassAttr::Instruction);
+                        return Ok(());
+                    }
+
+                    if meta.path.is_ident("type") {
+                        syntax_class = Some(SyntaxClassAttr::Type);
+                        return Ok(());
+                    }
+
+                    if meta.path.is_ident("value") {
+                        syntax_class = Some(SyntaxClassAttr::Value);
+                        return Ok(());
+                    }
+                    Err(Error::new(
+                        span,
+                        "invalid syntax class: expected #[syntax_class(class)], where class is instruction, type, or value"
+                    ))
+                })?;
+            }
         }
-        Ok(Self { head })
+
+        Ok(Self { head, syntax_class })
     }
 }
+
+fn string_attr(attr: &Attribute, attr_name: &str, attr_val: &str) -> Result<String> {
+    let nv = attr.meta.require_name_value()?;
+
+    if let syn::Expr::Lit(syn::ExprLit {
+        lit: syn::Lit::Str(s),
+        ..
+    }) = &nv.value
+    {
+        Ok(s.value())
+    } else {
+        Err(Error::new_spanned(
+            &nv.value,
+            format!("#[{attr_name}] requires a string value: #[{attr_name}] = {attr_val}"),
+        ))
+    }
+}
+
+pub struct PatternInfo(pub String, pub Span);
 
 impl VariantAttrs {
     pub fn from_variant(variant: &Variant) -> Result<Self> {
         let mut token = None;
+        let mut pattern_info = None;
         let mut delimiters = DelimiterAttrs::default();
         let mut delegate = false;
         let mut delegate_span = None;
@@ -85,21 +139,27 @@ impl VariantAttrs {
         for attr in &variant.attrs {
             let span = attr.span();
 
+            if attr.path().is_ident("pattern") {
+                let name_value = attr.meta.require_name_value()?;
+                let syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(pattern_literal),
+                    ..
+                }) = &name_value.value
+                else {
+                    return Err(Error::new_spanned(
+                        &name_value.value,
+                        "#[pattern] requires a string value: #[pattern] = pattern",
+                    ));
+                };
+                let pattern = pattern_literal.value();
+                let span = pattern_literal.span();
+                pattern_info = Some(PatternInfo(pattern, span));
+                continue;
+            }
+
             if attr.path().is_ident("token") {
-                if let Meta::NameValue(nv) = &attr.meta {
-                    if let syn::Expr::Lit(syn::ExprLit {
-                        lit: syn::Lit::Str(s),
-                        ..
-                    }) = &nv.value
-                    {
-                        token = Some(s.value());
-                        continue;
-                    }
-                }
-                return Err(Error::new(
-                    span,
-                    "#[token] requires a string value: #[token = \"name\"]",
-                ));
+                token = Some(string_attr(attr, "token", "name")?);
+                continue;
             }
 
             if attr.path().is_ident("delimiters") {
@@ -117,7 +177,7 @@ impl VariantAttrs {
                         other => {
                             return Err(
                                 meta.error(format!("unknown key `{other}` in #[delimiters]"))
-                            )
+                            );
                         }
                     }
                     Ok(())
@@ -183,6 +243,7 @@ impl VariantAttrs {
         }
 
         Ok(Self {
+            pattern: pattern_info,
             token,
             delimiters,
             delegate,

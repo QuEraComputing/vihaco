@@ -3,50 +3,31 @@
 
 use super::{FromBytes, WriteBytes};
 
-pub trait OpCode {
+pub trait ByteWidth {
     fn width() -> u32;
+}
+
+pub trait OpCode {
     fn opcode(&self) -> u8;
 }
 
-pub trait Instruction: Sized + OpCode + FromBytes + WriteBytes {}
+pub trait Instruction: Sized + ByteWidth + OpCode + FromBytes + WriteBytes {}
 
-impl<T> Instruction for T where T: Sized + OpCode + FromBytes + WriteBytes {}
+impl<T> Instruction for T where T: Sized + ByteWidth + OpCode + FromBytes + WriteBytes {}
 
-macro_rules! impl_scalar_opcode {
+macro_rules! impl_builtin_width {
     ($ty:ty, $width:expr) => {
-        impl OpCode for $ty {
+        impl ByteWidth for $ty {
             fn width() -> u32 {
                 $width
-            }
-
-            fn opcode(&self) -> u8 {
-                0
             }
         }
     };
 }
 
-impl_scalar_opcode!(u32, 4);
-impl_scalar_opcode!(u64, 8);
-impl_scalar_opcode!(i64, 8);
-impl_scalar_opcode!(f64, 8);
-
-impl OpCode for bool {
-    fn width() -> u32 {
-        1
-    }
-
-    fn opcode(&self) -> u8 {
-        0
-    }
-}
-
-impl OpCode for () {
-    fn width() -> u32 {
-        0
-    }
-
-    fn opcode(&self) -> u8 {
-        0
-    }
-}
+impl_builtin_width!(u32, 4);
+impl_builtin_width!(u64, 8);
+impl_builtin_width!(i64, 8);
+impl_builtin_width!(f64, 8);
+impl_builtin_width!(bool, 1);
+impl_builtin_width!((), 0);

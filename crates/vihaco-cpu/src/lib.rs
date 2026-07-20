@@ -10,7 +10,7 @@ pub mod parse_helpers;
 
 pub use component::CPUMessage;
 pub use data::CPU;
-pub use instruction::Instruction;
+pub use instruction::{Instruction, RawInstruction};
 pub use outcome::StepOutcome;
 
 #[cfg(test)]

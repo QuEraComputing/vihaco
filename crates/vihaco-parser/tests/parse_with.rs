@@ -3,7 +3,7 @@
 
 use chumsky::error::Simple;
 use chumsky::extra;
-use chumsky::{prelude::*, Parser};
+use chumsky::{Parser, prelude::*};
 use vihaco_parser::Parse;
 use vihaco_parser_core::Parse as ParseTrait;
 
@@ -24,8 +24,8 @@ mod parsers {
     use chumsky::error::Simple;
     use chumsky::extra;
     use chumsky::prelude::*;
-    pub fn custom_via_module<'src>(
-    ) -> impl Parser<'src, &'src str, Custom, extra::Err<Simple<'src, char>>> {
+    pub fn custom_via_module<'src>()
+    -> impl Parser<'src, &'src str, Custom, extra::Err<Simple<'src, char>>> {
         text::int(10).map(|s: &str| Custom(s.parse::<i64>().unwrap() * 3))
     }
 }

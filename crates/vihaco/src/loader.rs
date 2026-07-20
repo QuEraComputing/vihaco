@@ -4,7 +4,7 @@
 use crate::{
     binary::{BytecodeSectionView, ConstantId, ContextHandle, SstSectionView},
     module::{LocalModule, NoInfo},
-    program::{Type, Value},
+    program::{CPUType, CPUValue},
     traits::{self, GetProgramInfo, ProgramCounter},
 };
 
@@ -51,7 +51,7 @@ pub trait LoadSstSection<C> {
 }
 
 #[derive(Debug, Clone)]
-pub struct ProgramImage<I, C, V = Value, Ty = Type, Info = NoInfo> {
+pub struct ProgramImage<I, C, V = CPUValue, Ty = CPUType, Info = NoInfo> {
     pub module: LocalModule<I, V, Ty, Info>,
     pub context: Option<ContextHandle<C>>,
     pub pc: u32,
