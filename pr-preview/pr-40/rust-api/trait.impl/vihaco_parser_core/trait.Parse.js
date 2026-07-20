@@ -1,0 +1,9 @@
+(function() {
+    const implementors = Object.fromEntries([["vihaco",[["impl&lt;'__vihaco_src&gt; <a class=\"trait\" href=\"vihaco_parser_core/trait.Parse.html\" title=\"trait vihaco_parser_core::Parse\">Parse</a>&lt;'__vihaco_src&gt; for <a class=\"enum\" href=\"vihaco/program/value_cpu/enum.CPUType.html\" title=\"enum vihaco::program::value_cpu::CPUType\">CPUType</a>",0],["impl&lt;'__vihaco_src&gt; <a class=\"trait\" href=\"vihaco_parser_core/trait.Parse.html\" title=\"trait vihaco_parser_core::Parse\">Parse</a>&lt;'__vihaco_src&gt; for <a class=\"enum\" href=\"vihaco/program/value_cpu/enum.CPUValueSyntax.html\" title=\"enum vihaco::program::value_cpu::CPUValueSyntax\">CPUValueSyntax</a>",0],["impl&lt;'src, I&gt; <a class=\"trait\" href=\"vihaco_parser_core/trait.Parse.html\" title=\"trait vihaco_parser_core::Parse\">Parse</a>&lt;'src&gt; for <a class=\"struct\" href=\"vihaco/syntax/struct.ParsedFunction.html\" title=\"struct vihaco::syntax::ParsedFunction\">ParsedFunction</a>&lt;I&gt;<div class=\"where\">where\n    I: <a class=\"trait\" href=\"vihaco_parser_core/trait.Parse.html\" title=\"trait vihaco_parser_core::Parse\">Parse</a>&lt;'src&gt; + 'src,</div>",0]]],["vihaco_cpu",[["impl&lt;'__vihaco_src&gt; <a class=\"trait\" href=\"vihaco_parser_core/trait.Parse.html\" title=\"trait vihaco_parser_core::Parse\">Parse</a>&lt;'__vihaco_src&gt; for <a class=\"enum\" href=\"vihaco_cpu/enum.RawInstruction.html\" title=\"enum vihaco_cpu::RawInstruction\">RawInstruction</a>",0]]],["vihaco_parser_core",[]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":59,"fragment_lengths":[1125,314,26]}

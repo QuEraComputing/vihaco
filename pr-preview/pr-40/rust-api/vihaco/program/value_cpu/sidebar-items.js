@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CPUType","CPUValue","CPUValueSyntax"],"struct":["CPUConstValueSyntax"],"trait":["CPUResolutionContext"]};
