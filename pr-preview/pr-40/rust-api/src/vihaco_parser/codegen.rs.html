@@ -233,7 +233,7 @@
 <a href=#233 id=233 data-nosnippet>233</a>
 <a href=#234 id=234 data-nosnippet>234</a>        <span class="kw">let </span>pattern = PatternAtoms::try_new(tokens)<span class="question-mark">?</span>;
 <a href=#235 id=235 data-nosnippet>235</a>
-<a href=#236 id=236 data-nosnippet>236</a>        <span class="kw">if </span><span class="macro">matches!</span>(<span class="self">self</span>.class, SyntaxClassAttr::Instruction)
+<a href=#236 id=236 data-nosnippet>236</a>        <span class="kw">if </span><span class="macro">matches!</span>(<span class="self">self</span>.class, SyntaxClassAttr::Instruction { .. })
 <a href=#237 id=237 data-nosnippet>237</a>            &amp;&amp; !<span class="macro">matches!</span>(pattern.first(), Token(<span class="kw">_</span>))
 <a href=#238 id=238 data-nosnippet>238</a>        {
 <a href=#239 id=239 data-nosnippet>239</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
@@ -241,7 +241,7 @@
 <a href=#241 id=241 data-nosnippet>241</a>            </span>));
 <a href=#242 id=242 data-nosnippet>242</a>        }
 <a href=#243 id=243 data-nosnippet>243</a>
-<a href=#244 id=244 data-nosnippet>244</a>        <span class="kw">if </span>!<span class="macro">matches!</span>(<span class="self">self</span>.class, SyntaxClassAttr::Instruction)
+<a href=#244 id=244 data-nosnippet>244</a>        <span class="kw">if </span>!<span class="macro">matches!</span>(<span class="self">self</span>.class, SyntaxClassAttr::Instruction { .. })
 <a href=#245 id=245 data-nosnippet>245</a>            &amp;&amp; <span class="kw">let </span><span class="prelude-val">Some</span>(tok) = pattern.contains_token()
 <a href=#246 id=246 data-nosnippet>246</a>        {
 <a href=#247 id=247 data-nosnippet>247</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(<span class="macro">eyre::eyre!</span>(
@@ -269,7 +269,7 @@
 <a href=#269 id=269 data-nosnippet>269</a><span class="kw">impl </span>fmt::Display <span class="kw">for </span>SyntaxClassAttr {
 <a href=#270 id=270 data-nosnippet>270</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; fmt::Result {
 <a href=#271 id=271 data-nosnippet>271</a>        <span class="kw">match </span><span class="self">self </span>{
-<a href=#272 id=272 data-nosnippet>272</a>            <span class="self">Self</span>::Instruction =&gt; <span class="macro">write!</span>(f, <span class="string">"instruction"</span>),
+<a href=#272 id=272 data-nosnippet>272</a>            <span class="self">Self</span>::Instruction { .. } =&gt; <span class="macro">write!</span>(f, <span class="string">"instruction"</span>),
 <a href=#273 id=273 data-nosnippet>273</a>            <span class="self">Self</span>::Type =&gt; <span class="macro">write!</span>(f, <span class="string">"type"</span>),
 <a href=#274 id=274 data-nosnippet>274</a>            <span class="self">Self</span>::Value =&gt; <span class="macro">write!</span>(f, <span class="string">"value"</span>),
 <a href=#275 id=275 data-nosnippet>275</a>        }
@@ -695,7 +695,7 @@
 <a href=#695 id=695 data-nosnippet>695</a>    }
 <a href=#696 id=696 data-nosnippet>696</a>
 <a href=#697 id=697 data-nosnippet>697</a>    <span class="kw">let </span>name = info.target.ident().to_string().to_lowercase();
-<a href=#698 id=698 data-nosnippet>698</a>    <span class="kw">let </span>prefix = <span class="kw">if </span><span class="macro">matches!</span>(info.class, <span class="prelude-val">Some</span>(SyntaxClassAttr::Instruction)) {
+<a href=#698 id=698 data-nosnippet>698</a>    <span class="kw">let </span>prefix = <span class="kw">if </span><span class="macro">matches!</span>(info.class, <span class="prelude-val">Some</span>(SyntaxClassAttr::Instruction { .. })) {
 <a href=#699 id=699 data-nosnippet>699</a>        <span class="prelude-val">Some</span>(<span class="macro">format!</span>(<span class="string">"'{}"</span>, name))
 <a href=#700 id=700 data-nosnippet>700</a>    } <span class="kw">else </span>{
 <a href=#701 id=701 data-nosnippet>701</a>        <span class="prelude-val">None
@@ -758,7 +758,7 @@
 <a href=#758 id=758 data-nosnippet>758</a>    decl_span: Span,
 <a href=#759 id=759 data-nosnippet>759</a>    variant_span: Span,
 <a href=#760 id=760 data-nosnippet>760</a>) -&gt; <span class="prelude-ty">Result</span>&lt;(Ident, TokenStream2, <span class="prelude-ty">Option</span>&lt;String&gt;)&gt; {
-<a href=#761 id=761 data-nosnippet>761</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(class) = info.class <span class="kw">else </span>{
+<a href=#761 id=761 data-nosnippet>761</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(<span class="kw-2">ref </span>class) = info.class <span class="kw">else </span>{
 <a href=#762 id=762 data-nosnippet>762</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(Error::new(
 <a href=#763 id=763 data-nosnippet>763</a>            decl_span,
 <a href=#764 id=764 data-nosnippet>764</a>            <span class="string">"#[pattern] requires a #[syntax_class] on the enum definition"</span>,
@@ -768,7 +768,7 @@
 <a href=#768 id=768 data-nosnippet>768</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(PatternInfo(pattern, span)) = info.pattern_info {
 <a href=#769 id=769 data-nosnippet>769</a>        <span class="kw">let </span>info = UnparsedPatternInfo {
 <a href=#770 id=770 data-nosnippet>770</a>            pattern: pattern.as_str(),
-<a href=#771 id=771 data-nosnippet>771</a>            class,
+<a href=#771 id=771 data-nosnippet>771</a>            class: class.clone(),
 <a href=#772 id=772 data-nosnippet>772</a>            target: info.target,
 <a href=#773 id=773 data-nosnippet>773</a>            fields: info.fields.clone(),
 <a href=#774 id=774 data-nosnippet>774</a>        };
@@ -898,7 +898,7 @@
 <a href=#898 id=898 data-nosnippet>898</a>            target: PatternTarget::Variant {
 <a href=#899 id=899 data-nosnippet>899</a>                ident: variant.ident.clone(),
 <a href=#900 id=900 data-nosnippet>900</a>            },
-<a href=#901 id=901 data-nosnippet>901</a>            class: enum_attrs.syntax_class,
+<a href=#901 id=901 data-nosnippet>901</a>            class: enum_attrs.syntax_class.clone(),
 <a href=#902 id=902 data-nosnippet>902</a>        };
 <a href=#903 id=903 data-nosnippet>903</a>
 <a href=#904 id=904 data-nosnippet>904</a>        <span class="kw">let </span>ident_and_parser =
@@ -946,139 +946,161 @@
 <a href=#946 id=946 data-nosnippet>946</a>        <span class="macro">quote!</span> { ::chumsky::primitive::choice((#(#chunks),<span class="kw-2">*</span>)) }
 <a href=#947 id=947 data-nosnippet>947</a>    };
 <a href=#948 id=948 data-nosnippet>948</a>
-<a href=#949 id=949 data-nosnippet>949</a>    <span class="kw">let </span>output = <span class="macro">quote!</span> {
-<a href=#950 id=950 data-nosnippet>950</a>        <span class="kw">impl </span>#impl_generics ::vihaco_parser_core::Parse&lt;#src_lifetime&gt; <span class="kw">for </span>#enum_ident #ty_generics #where_clause {
-<a href=#951 id=951 data-nosnippet>951</a>            <span class="kw">fn </span>parser() -&gt; <span class="kw">impl </span>::chumsky::Parser&lt;
-<a href=#952 id=952 data-nosnippet>952</a>                #src_lifetime,
-<a href=#953 id=953 data-nosnippet>953</a>                <span class="kw-2">&amp;</span>#src_lifetime str,
-<a href=#954 id=954 data-nosnippet>954</a>                <span class="self">Self</span>,
-<a href=#955 id=955 data-nosnippet>955</a>                ::chumsky::extra::Err&lt;::chumsky::error::Simple&lt;#src_lifetime, char&gt;&gt;,
-<a href=#956 id=956 data-nosnippet>956</a>            &gt; {
-<a href=#957 id=957 data-nosnippet>957</a>                <span class="kw">use </span>::chumsky::Parser <span class="kw">as _</span>;
-<a href=#958 id=958 data-nosnippet>958</a>                #(#variant_bindings)*
-<a href=#959 id=959 data-nosnippet>959</a>                #or_chain
-<a href=#960 id=960 data-nosnippet>960</a>            }
-<a href=#961 id=961 data-nosnippet>961</a>        }
-<a href=#962 id=962 data-nosnippet>962</a>    };
-<a href=#963 id=963 data-nosnippet>963</a>
-<a href=#964 id=964 data-nosnippet>964</a>    <span class="prelude-val">Ok</span>(output.into())
-<a href=#965 id=965 data-nosnippet>965</a>}
-<a href=#966 id=966 data-nosnippet>966</a>
-<a href=#967 id=967 data-nosnippet>967</a><span class="kw">struct </span>ExpansionInfo&lt;<span class="lifetime">'src</span>, T&gt; {
-<a href=#968 id=968 data-nosnippet>968</a>    data: <span class="kw-2">&amp;</span><span class="lifetime">'src </span>T,
-<a href=#969 id=969 data-nosnippet>969</a>    ident: <span class="kw-2">&amp;</span><span class="lifetime">'src </span>Ident,
-<a href=#970 id=970 data-nosnippet>970</a>    attrs: <span class="kw-2">&amp;</span><span class="lifetime">'src </span>[Attribute],
-<a href=#971 id=971 data-nosnippet>971</a>    generics: <span class="kw-2">&amp;</span><span class="lifetime">'src </span>Generics,
-<a href=#972 id=972 data-nosnippet>972</a>}
-<a href=#973 id=973 data-nosnippet>973</a>
-<a href=#974 id=974 data-nosnippet>974</a><span class="kw">type </span>EnumInfo&lt;<span class="lifetime">'src</span>&gt; = ExpansionInfo&lt;<span class="lifetime">'src</span>, syn::DataEnum&gt;;
-<a href=#975 id=975 data-nosnippet>975</a><span class="kw">type </span>StructInfo&lt;<span class="lifetime">'src</span>&gt; = ExpansionInfo&lt;<span class="lifetime">'src</span>, syn::DataStruct&gt;;
-<a href=#976 id=976 data-nosnippet>976</a>
-<a href=#977 id=977 data-nosnippet>977</a><span class="kw">fn </span>expand_struct(input: StructInfo) -&gt; <span class="prelude-ty">Result</span>&lt;TokenStream&gt; {
-<a href=#978 id=978 data-nosnippet>978</a>    <span class="kw">let </span>struct_ident = input.ident;
-<a href=#979 id=979 data-nosnippet>979</a>    <span class="kw">let </span>struct_attrs = StructAttrs::from_attrs(input.attrs)<span class="question-mark">?</span>;
-<a href=#980 id=980 data-nosnippet>980</a>    <span class="kw">if </span>struct_attrs.syntax_class.is_none() {
-<a href=#981 id=981 data-nosnippet>981</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(pattern) = input
-<a href=#982 id=982 data-nosnippet>982</a>            .attrs
-<a href=#983 id=983 data-nosnippet>983</a>            .iter()
-<a href=#984 id=984 data-nosnippet>984</a>            .find(|attr| attr.path().is_ident(<span class="string">"pattern"</span>))
-<a href=#985 id=985 data-nosnippet>985</a>        {
-<a href=#986 id=986 data-nosnippet>986</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(Error::new(
-<a href=#987 id=987 data-nosnippet>987</a>                pattern.span(),
-<a href=#988 id=988 data-nosnippet>988</a>                <span class="string">"#[pattern] requires a #[syntax_class] on the struct definition"</span>,
-<a href=#989 id=989 data-nosnippet>989</a>            ));
-<a href=#990 id=990 data-nosnippet>990</a>        }
-<a href=#991 id=991 data-nosnippet>991</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(Error::new_spanned(
-<a href=#992 id=992 data-nosnippet>992</a>            struct_ident,
-<a href=#993 id=993 data-nosnippet>993</a>            <span class="string">"#[derive(Parse)] on a struct requires a #[syntax_class(...)] attribute"</span>,
-<a href=#994 id=994 data-nosnippet>994</a>        ));
-<a href=#995 id=995 data-nosnippet>995</a>    }
-<a href=#996 id=996 data-nosnippet>996</a>    reject_legacy_attributes_on_struct(<span class="kw-2">&amp;</span>input)<span class="question-mark">?</span>;
-<a href=#997 id=997 data-nosnippet>997</a>
-<a href=#998 id=998 data-nosnippet>998</a>    <span class="kw">let </span>src_lifetime = fresh_lifetime(input.generics, <span class="string">"__vihaco_src"</span>);
-<a href=#999 id=999 data-nosnippet>999</a>
-<a href=#1000 id=1000 data-nosnippet>1000</a>    <span class="kw">let </span>pattern_compilation_info = PatternCompilationInfo {
-<a href=#1001 id=1001 data-nosnippet>1001</a>        fields: <span class="kw-2">&amp;</span>input.data.fields,
-<a href=#1002 id=1002 data-nosnippet>1002</a>        pattern_info: struct_attrs.pattern,
-<a href=#1003 id=1003 data-nosnippet>1003</a>        target: PatternTarget::Struct {
-<a href=#1004 id=1004 data-nosnippet>1004</a>            ident: struct_ident.clone(),
-<a href=#1005 id=1005 data-nosnippet>1005</a>        },
-<a href=#1006 id=1006 data-nosnippet>1006</a>        class: struct_attrs.syntax_class,
-<a href=#1007 id=1007 data-nosnippet>1007</a>    };
+<a href=#949 id=949 data-nosnippet>949</a>    <span class="kw">let </span>parser = <span class="kw">match </span><span class="kw-2">&amp;</span>enum_attrs.syntax_class {
+<a href=#950 id=950 data-nosnippet>950</a>        <span class="prelude-val">Some</span>(SyntaxClassAttr::Instruction { head }) =&gt; {
+<a href=#951 id=951 data-nosnippet>951</a>            <span class="kw">let </span>head = <span class="macro">format!</span>(<span class="string">"{head}::"</span>);
+<a href=#952 id=952 data-nosnippet>952</a>            <span class="macro">quote!</span> {
+<a href=#953 id=953 data-nosnippet>953</a>                ::chumsky::primitive::just(#head)
+<a href=#954 id=954 data-nosnippet>954</a>                    .ignore_then(#or_chain)
+<a href=#955 id=955 data-nosnippet>955</a>            }
+<a href=#956 id=956 data-nosnippet>956</a>        }
+<a href=#957 id=957 data-nosnippet>957</a>        <span class="kw">_ </span>=&gt; or_chain,
+<a href=#958 id=958 data-nosnippet>958</a>    };
+<a href=#959 id=959 data-nosnippet>959</a>
+<a href=#960 id=960 data-nosnippet>960</a>    <span class="kw">let </span>output = <span class="macro">quote!</span> {
+<a href=#961 id=961 data-nosnippet>961</a>        <span class="kw">impl </span>#impl_generics ::vihaco_parser_core::Parse&lt;#src_lifetime&gt; <span class="kw">for </span>#enum_ident #ty_generics #where_clause {
+<a href=#962 id=962 data-nosnippet>962</a>            <span class="kw">fn </span>parser() -&gt; <span class="kw">impl </span>::chumsky::Parser&lt;
+<a href=#963 id=963 data-nosnippet>963</a>                #src_lifetime,
+<a href=#964 id=964 data-nosnippet>964</a>                <span class="kw-2">&amp;</span>#src_lifetime str,
+<a href=#965 id=965 data-nosnippet>965</a>                <span class="self">Self</span>,
+<a href=#966 id=966 data-nosnippet>966</a>                ::chumsky::extra::Err&lt;::chumsky::error::Simple&lt;#src_lifetime, char&gt;&gt;,
+<a href=#967 id=967 data-nosnippet>967</a>            &gt; {
+<a href=#968 id=968 data-nosnippet>968</a>                <span class="kw">use </span>::chumsky::Parser <span class="kw">as _</span>;
+<a href=#969 id=969 data-nosnippet>969</a>                #(#variant_bindings)*
+<a href=#970 id=970 data-nosnippet>970</a>                #parser
+<a href=#971 id=971 data-nosnippet>971</a>            }
+<a href=#972 id=972 data-nosnippet>972</a>        }
+<a href=#973 id=973 data-nosnippet>973</a>    };
+<a href=#974 id=974 data-nosnippet>974</a>
+<a href=#975 id=975 data-nosnippet>975</a>    <span class="prelude-val">Ok</span>(output.into())
+<a href=#976 id=976 data-nosnippet>976</a>}
+<a href=#977 id=977 data-nosnippet>977</a>
+<a href=#978 id=978 data-nosnippet>978</a><span class="kw">struct </span>ExpansionInfo&lt;<span class="lifetime">'src</span>, T&gt; {
+<a href=#979 id=979 data-nosnippet>979</a>    data: <span class="kw-2">&amp;</span><span class="lifetime">'src </span>T,
+<a href=#980 id=980 data-nosnippet>980</a>    ident: <span class="kw-2">&amp;</span><span class="lifetime">'src </span>Ident,
+<a href=#981 id=981 data-nosnippet>981</a>    attrs: <span class="kw-2">&amp;</span><span class="lifetime">'src </span>[Attribute],
+<a href=#982 id=982 data-nosnippet>982</a>    generics: <span class="kw-2">&amp;</span><span class="lifetime">'src </span>Generics,
+<a href=#983 id=983 data-nosnippet>983</a>}
+<a href=#984 id=984 data-nosnippet>984</a>
+<a href=#985 id=985 data-nosnippet>985</a><span class="kw">type </span>EnumInfo&lt;<span class="lifetime">'src</span>&gt; = ExpansionInfo&lt;<span class="lifetime">'src</span>, syn::DataEnum&gt;;
+<a href=#986 id=986 data-nosnippet>986</a><span class="kw">type </span>StructInfo&lt;<span class="lifetime">'src</span>&gt; = ExpansionInfo&lt;<span class="lifetime">'src</span>, syn::DataStruct&gt;;
+<a href=#987 id=987 data-nosnippet>987</a>
+<a href=#988 id=988 data-nosnippet>988</a><span class="kw">fn </span>expand_struct(input: StructInfo) -&gt; <span class="prelude-ty">Result</span>&lt;TokenStream&gt; {
+<a href=#989 id=989 data-nosnippet>989</a>    <span class="kw">let </span>struct_ident = input.ident;
+<a href=#990 id=990 data-nosnippet>990</a>    <span class="kw">let </span>struct_attrs = StructAttrs::from_attrs(input.attrs)<span class="question-mark">?</span>;
+<a href=#991 id=991 data-nosnippet>991</a>    <span class="kw">if </span>struct_attrs.syntax_class.is_none() {
+<a href=#992 id=992 data-nosnippet>992</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(pattern) = input
+<a href=#993 id=993 data-nosnippet>993</a>            .attrs
+<a href=#994 id=994 data-nosnippet>994</a>            .iter()
+<a href=#995 id=995 data-nosnippet>995</a>            .find(|attr| attr.path().is_ident(<span class="string">"pattern"</span>))
+<a href=#996 id=996 data-nosnippet>996</a>        {
+<a href=#997 id=997 data-nosnippet>997</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(Error::new(
+<a href=#998 id=998 data-nosnippet>998</a>                pattern.span(),
+<a href=#999 id=999 data-nosnippet>999</a>                <span class="string">"#[pattern] requires a #[syntax_class] on the struct definition"</span>,
+<a href=#1000 id=1000 data-nosnippet>1000</a>            ));
+<a href=#1001 id=1001 data-nosnippet>1001</a>        }
+<a href=#1002 id=1002 data-nosnippet>1002</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(Error::new_spanned(
+<a href=#1003 id=1003 data-nosnippet>1003</a>            struct_ident,
+<a href=#1004 id=1004 data-nosnippet>1004</a>            <span class="string">"#[derive(Parse)] on a struct requires a #[syntax_class(...)] attribute"</span>,
+<a href=#1005 id=1005 data-nosnippet>1005</a>        ));
+<a href=#1006 id=1006 data-nosnippet>1006</a>    }
+<a href=#1007 id=1007 data-nosnippet>1007</a>    reject_legacy_attributes_on_struct(<span class="kw-2">&amp;</span>input)<span class="question-mark">?</span>;
 <a href=#1008 id=1008 data-nosnippet>1008</a>
-<a href=#1009 id=1009 data-nosnippet>1009</a>    <span class="kw">let </span>span = struct_ident.span();
-<a href=#1010 id=1010 data-nosnippet>1010</a>    <span class="kw">let </span>(ident, parser, <span class="kw">_</span>) = compile_pattern_parser(pattern_compilation_info, span, span)<span class="question-mark">?</span>;
-<a href=#1011 id=1011 data-nosnippet>1011</a>
-<a href=#1012 id=1012 data-nosnippet>1012</a>    <span class="kw">let </span>parser_generics = generics_with_lifetime(input.generics, <span class="kw-2">&amp;</span>src_lifetime);
-<a href=#1013 id=1013 data-nosnippet>1013</a>    <span class="kw">let </span>(impl_generics, <span class="kw">_</span>, where_clause) = parser_generics.split_for_impl();
-<a href=#1014 id=1014 data-nosnippet>1014</a>    <span class="kw">let </span>(<span class="kw">_</span>, ty_generics, <span class="kw">_</span>) = input.generics.split_for_impl();
-<a href=#1015 id=1015 data-nosnippet>1015</a>
-<a href=#1016 id=1016 data-nosnippet>1016</a>    <span class="kw">let </span>output = <span class="macro">quote!</span> {
-<a href=#1017 id=1017 data-nosnippet>1017</a>        <span class="kw">impl </span>#impl_generics ::vihaco_parser_core::Parse&lt;#src_lifetime&gt; <span class="kw">for </span>#struct_ident #ty_generics #where_clause {
-<a href=#1018 id=1018 data-nosnippet>1018</a>            <span class="kw">fn </span>parser() -&gt; <span class="kw">impl </span>::chumsky::Parser&lt;
-<a href=#1019 id=1019 data-nosnippet>1019</a>                #src_lifetime,
-<a href=#1020 id=1020 data-nosnippet>1020</a>                <span class="kw-2">&amp;</span>#src_lifetime str,
-<a href=#1021 id=1021 data-nosnippet>1021</a>                <span class="self">Self</span>,
-<a href=#1022 id=1022 data-nosnippet>1022</a>                ::chumsky::extra::Err&lt;::chumsky::error::Simple&lt;#src_lifetime, char&gt;&gt;,
-<a href=#1023 id=1023 data-nosnippet>1023</a>            &gt; {
-<a href=#1024 id=1024 data-nosnippet>1024</a>                <span class="kw">use </span>::chumsky::Parser <span class="kw">as _</span>;
-<a href=#1025 id=1025 data-nosnippet>1025</a>                #parser
-<a href=#1026 id=1026 data-nosnippet>1026</a>                #ident
-<a href=#1027 id=1027 data-nosnippet>1027</a>            }
-<a href=#1028 id=1028 data-nosnippet>1028</a>        }
-<a href=#1029 id=1029 data-nosnippet>1029</a>    };
-<a href=#1030 id=1030 data-nosnippet>1030</a>
-<a href=#1031 id=1031 data-nosnippet>1031</a>    <span class="prelude-val">Ok</span>(output.into())
-<a href=#1032 id=1032 data-nosnippet>1032</a>}
-<a href=#1033 id=1033 data-nosnippet>1033</a>
-<a href=#1034 id=1034 data-nosnippet>1034</a><span class="kw">pub fn </span>expand(input: DeriveInput) -&gt; <span class="prelude-ty">Result</span>&lt;TokenStream&gt; {
-<a href=#1035 id=1035 data-nosnippet>1035</a>    <span class="kw">match </span><span class="kw-2">&amp;</span>input.data {
-<a href=#1036 id=1036 data-nosnippet>1036</a>        Data::Enum(e) =&gt; expand_enum(EnumInfo {
-<a href=#1037 id=1037 data-nosnippet>1037</a>            data: e,
-<a href=#1038 id=1038 data-nosnippet>1038</a>            ident: <span class="kw-2">&amp;</span>input.ident,
-<a href=#1039 id=1039 data-nosnippet>1039</a>            attrs: <span class="kw-2">&amp;</span>input.attrs,
-<a href=#1040 id=1040 data-nosnippet>1040</a>            generics: <span class="kw-2">&amp;</span>input.generics,
-<a href=#1041 id=1041 data-nosnippet>1041</a>        }),
-<a href=#1042 id=1042 data-nosnippet>1042</a>        Data::Struct(s) =&gt; expand_struct(StructInfo {
-<a href=#1043 id=1043 data-nosnippet>1043</a>            data: s,
-<a href=#1044 id=1044 data-nosnippet>1044</a>            ident: <span class="kw-2">&amp;</span>input.ident,
-<a href=#1045 id=1045 data-nosnippet>1045</a>            attrs: <span class="kw-2">&amp;</span>input.attrs,
-<a href=#1046 id=1046 data-nosnippet>1046</a>            generics: <span class="kw-2">&amp;</span>input.generics,
-<a href=#1047 id=1047 data-nosnippet>1047</a>        }),
-<a href=#1048 id=1048 data-nosnippet>1048</a>        <span class="kw">_ </span>=&gt; <span class="prelude-val">Err</span>(Error::new_spanned(
-<a href=#1049 id=1049 data-nosnippet>1049</a>            <span class="kw-2">&amp;</span>input,
-<a href=#1050 id=1050 data-nosnippet>1050</a>            <span class="string">"#[derive(Parse)] is not supported on unions"</span>,
-<a href=#1051 id=1051 data-nosnippet>1051</a>        )),
-<a href=#1052 id=1052 data-nosnippet>1052</a>    }
-<a href=#1053 id=1053 data-nosnippet>1053</a>}
-<a href=#1054 id=1054 data-nosnippet>1054</a>
-<a href=#1055 id=1055 data-nosnippet>1055</a><span class="kw">fn </span>generics_with_lifetime(generics: <span class="kw-2">&amp;</span>syn::Generics, src_lifetime: <span class="kw-2">&amp;</span>Lifetime) -&gt; syn::Generics {
-<a href=#1056 id=1056 data-nosnippet>1056</a>    <span class="kw">let </span><span class="kw-2">mut </span>generics = generics.clone();
-<a href=#1057 id=1057 data-nosnippet>1057</a>    generics.params.insert(
-<a href=#1058 id=1058 data-nosnippet>1058</a>        <span class="number">0</span>,
-<a href=#1059 id=1059 data-nosnippet>1059</a>        syn::GenericParam::Lifetime(syn::LifetimeParam::new(src_lifetime.clone())),
-<a href=#1060 id=1060 data-nosnippet>1060</a>    );
-<a href=#1061 id=1061 data-nosnippet>1061</a>
-<a href=#1062 id=1062 data-nosnippet>1062</a>    generics
-<a href=#1063 id=1063 data-nosnippet>1063</a>}
-<a href=#1064 id=1064 data-nosnippet>1064</a>
-<a href=#1065 id=1065 data-nosnippet>1065</a><span class="kw">fn </span>fresh_lifetime(generics: <span class="kw-2">&amp;</span>syn::Generics, base: <span class="kw-2">&amp;</span>str) -&gt; Lifetime {
-<a href=#1066 id=1066 data-nosnippet>1066</a>    <span class="kw">let </span>used: BTreeSet&lt;String&gt; = generics
-<a href=#1067 id=1067 data-nosnippet>1067</a>        .lifetimes()
-<a href=#1068 id=1068 data-nosnippet>1068</a>        .map(|param| param.lifetime.ident.to_string())
-<a href=#1069 id=1069 data-nosnippet>1069</a>        .collect();
-<a href=#1070 id=1070 data-nosnippet>1070</a>
-<a href=#1071 id=1071 data-nosnippet>1071</a>    <span class="kw">if </span>!used.contains(base) {
-<a href=#1072 id=1072 data-nosnippet>1072</a>        <span class="kw">return </span>Lifetime::new(<span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">"'{base}"</span>), proc_macro2::Span::call_site());
-<a href=#1073 id=1073 data-nosnippet>1073</a>    }
-<a href=#1074 id=1074 data-nosnippet>1074</a>
-<a href=#1075 id=1075 data-nosnippet>1075</a>    <span class="kw">for </span>suffix <span class="kw">in </span><span class="number">0usize</span>.. {
-<a href=#1076 id=1076 data-nosnippet>1076</a>        <span class="kw">let </span>candidate = <span class="macro">format!</span>(<span class="string">"{base}_{suffix}"</span>);
-<a href=#1077 id=1077 data-nosnippet>1077</a>        <span class="kw">if </span>!used.contains(<span class="kw-2">&amp;</span>candidate) {
-<a href=#1078 id=1078 data-nosnippet>1078</a>            <span class="kw">return </span>Lifetime::new(<span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">"'{candidate}"</span>), proc_macro2::Span::call_site());
-<a href=#1079 id=1079 data-nosnippet>1079</a>        }
-<a href=#1080 id=1080 data-nosnippet>1080</a>    }
-<a href=#1081 id=1081 data-nosnippet>1081</a>
-<a href=#1082 id=1082 data-nosnippet>1082</a>    <span class="macro">unreachable!</span>(<span class="string">"unbounded fresh lifetime search"</span>)
-<a href=#1083 id=1083 data-nosnippet>1083</a>}
+<a href=#1009 id=1009 data-nosnippet>1009</a>    <span class="kw">let </span>src_lifetime = fresh_lifetime(input.generics, <span class="string">"__vihaco_src"</span>);
+<a href=#1010 id=1010 data-nosnippet>1010</a>
+<a href=#1011 id=1011 data-nosnippet>1011</a>    <span class="kw">let </span>pattern_compilation_info = PatternCompilationInfo {
+<a href=#1012 id=1012 data-nosnippet>1012</a>        fields: <span class="kw-2">&amp;</span>input.data.fields,
+<a href=#1013 id=1013 data-nosnippet>1013</a>        pattern_info: struct_attrs.pattern,
+<a href=#1014 id=1014 data-nosnippet>1014</a>        target: PatternTarget::Struct {
+<a href=#1015 id=1015 data-nosnippet>1015</a>            ident: struct_ident.clone(),
+<a href=#1016 id=1016 data-nosnippet>1016</a>        },
+<a href=#1017 id=1017 data-nosnippet>1017</a>        class: struct_attrs.syntax_class.clone(),
+<a href=#1018 id=1018 data-nosnippet>1018</a>    };
+<a href=#1019 id=1019 data-nosnippet>1019</a>
+<a href=#1020 id=1020 data-nosnippet>1020</a>    <span class="kw">let </span>span = struct_ident.span();
+<a href=#1021 id=1021 data-nosnippet>1021</a>    <span class="kw">let </span>(ident, parser_binding, <span class="kw">_</span>) = compile_pattern_parser(pattern_compilation_info, span, span)<span class="question-mark">?</span>;
+<a href=#1022 id=1022 data-nosnippet>1022</a>
+<a href=#1023 id=1023 data-nosnippet>1023</a>    <span class="kw">let </span>parser_generics = generics_with_lifetime(input.generics, <span class="kw-2">&amp;</span>src_lifetime);
+<a href=#1024 id=1024 data-nosnippet>1024</a>    <span class="kw">let </span>(impl_generics, <span class="kw">_</span>, where_clause) = parser_generics.split_for_impl();
+<a href=#1025 id=1025 data-nosnippet>1025</a>    <span class="kw">let </span>(<span class="kw">_</span>, ty_generics, <span class="kw">_</span>) = input.generics.split_for_impl();
+<a href=#1026 id=1026 data-nosnippet>1026</a>
+<a href=#1027 id=1027 data-nosnippet>1027</a>    <span class="kw">let </span>parser = <span class="kw">match </span><span class="kw-2">&amp;</span>struct_attrs.syntax_class {
+<a href=#1028 id=1028 data-nosnippet>1028</a>        <span class="prelude-val">Some</span>(SyntaxClassAttr::Instruction { head }) =&gt; {
+<a href=#1029 id=1029 data-nosnippet>1029</a>            <span class="kw">let </span>head = <span class="macro">format!</span>(<span class="string">"{head}::"</span>);
+<a href=#1030 id=1030 data-nosnippet>1030</a>            <span class="macro">quote!</span> {
+<a href=#1031 id=1031 data-nosnippet>1031</a>                ::chumsky::primitive::just(#head)
+<a href=#1032 id=1032 data-nosnippet>1032</a>                    .ignore_then(#ident)
+<a href=#1033 id=1033 data-nosnippet>1033</a>            }
+<a href=#1034 id=1034 data-nosnippet>1034</a>        }
+<a href=#1035 id=1035 data-nosnippet>1035</a>        <span class="kw">_ </span>=&gt; <span class="macro">quote!</span> { #ident },
+<a href=#1036 id=1036 data-nosnippet>1036</a>    };
+<a href=#1037 id=1037 data-nosnippet>1037</a>
+<a href=#1038 id=1038 data-nosnippet>1038</a>    <span class="kw">let </span>output = <span class="macro">quote!</span> {
+<a href=#1039 id=1039 data-nosnippet>1039</a>        <span class="kw">impl </span>#impl_generics ::vihaco_parser_core::Parse&lt;#src_lifetime&gt; <span class="kw">for </span>#struct_ident #ty_generics #where_clause {
+<a href=#1040 id=1040 data-nosnippet>1040</a>            <span class="kw">fn </span>parser() -&gt; <span class="kw">impl </span>::chumsky::Parser&lt;
+<a href=#1041 id=1041 data-nosnippet>1041</a>                #src_lifetime,
+<a href=#1042 id=1042 data-nosnippet>1042</a>                <span class="kw-2">&amp;</span>#src_lifetime str,
+<a href=#1043 id=1043 data-nosnippet>1043</a>                <span class="self">Self</span>,
+<a href=#1044 id=1044 data-nosnippet>1044</a>                ::chumsky::extra::Err&lt;::chumsky::error::Simple&lt;#src_lifetime, char&gt;&gt;,
+<a href=#1045 id=1045 data-nosnippet>1045</a>            &gt; {
+<a href=#1046 id=1046 data-nosnippet>1046</a>                <span class="kw">use </span>::chumsky::Parser <span class="kw">as _</span>;
+<a href=#1047 id=1047 data-nosnippet>1047</a>                #parser_binding
+<a href=#1048 id=1048 data-nosnippet>1048</a>                #parser
+<a href=#1049 id=1049 data-nosnippet>1049</a>            }
+<a href=#1050 id=1050 data-nosnippet>1050</a>        }
+<a href=#1051 id=1051 data-nosnippet>1051</a>    };
+<a href=#1052 id=1052 data-nosnippet>1052</a>
+<a href=#1053 id=1053 data-nosnippet>1053</a>    <span class="prelude-val">Ok</span>(output.into())
+<a href=#1054 id=1054 data-nosnippet>1054</a>}
+<a href=#1055 id=1055 data-nosnippet>1055</a>
+<a href=#1056 id=1056 data-nosnippet>1056</a><span class="kw">pub fn </span>expand(input: DeriveInput) -&gt; <span class="prelude-ty">Result</span>&lt;TokenStream&gt; {
+<a href=#1057 id=1057 data-nosnippet>1057</a>    <span class="kw">match </span><span class="kw-2">&amp;</span>input.data {
+<a href=#1058 id=1058 data-nosnippet>1058</a>        Data::Enum(e) =&gt; expand_enum(EnumInfo {
+<a href=#1059 id=1059 data-nosnippet>1059</a>            data: e,
+<a href=#1060 id=1060 data-nosnippet>1060</a>            ident: <span class="kw-2">&amp;</span>input.ident,
+<a href=#1061 id=1061 data-nosnippet>1061</a>            attrs: <span class="kw-2">&amp;</span>input.attrs,
+<a href=#1062 id=1062 data-nosnippet>1062</a>            generics: <span class="kw-2">&amp;</span>input.generics,
+<a href=#1063 id=1063 data-nosnippet>1063</a>        }),
+<a href=#1064 id=1064 data-nosnippet>1064</a>        Data::Struct(s) =&gt; expand_struct(StructInfo {
+<a href=#1065 id=1065 data-nosnippet>1065</a>            data: s,
+<a href=#1066 id=1066 data-nosnippet>1066</a>            ident: <span class="kw-2">&amp;</span>input.ident,
+<a href=#1067 id=1067 data-nosnippet>1067</a>            attrs: <span class="kw-2">&amp;</span>input.attrs,
+<a href=#1068 id=1068 data-nosnippet>1068</a>            generics: <span class="kw-2">&amp;</span>input.generics,
+<a href=#1069 id=1069 data-nosnippet>1069</a>        }),
+<a href=#1070 id=1070 data-nosnippet>1070</a>        <span class="kw">_ </span>=&gt; <span class="prelude-val">Err</span>(Error::new_spanned(
+<a href=#1071 id=1071 data-nosnippet>1071</a>            <span class="kw-2">&amp;</span>input,
+<a href=#1072 id=1072 data-nosnippet>1072</a>            <span class="string">"#[derive(Parse)] is not supported on unions"</span>,
+<a href=#1073 id=1073 data-nosnippet>1073</a>        )),
+<a href=#1074 id=1074 data-nosnippet>1074</a>    }
+<a href=#1075 id=1075 data-nosnippet>1075</a>}
+<a href=#1076 id=1076 data-nosnippet>1076</a>
+<a href=#1077 id=1077 data-nosnippet>1077</a><span class="kw">fn </span>generics_with_lifetime(generics: <span class="kw-2">&amp;</span>syn::Generics, src_lifetime: <span class="kw-2">&amp;</span>Lifetime) -&gt; syn::Generics {
+<a href=#1078 id=1078 data-nosnippet>1078</a>    <span class="kw">let </span><span class="kw-2">mut </span>generics = generics.clone();
+<a href=#1079 id=1079 data-nosnippet>1079</a>    generics.params.insert(
+<a href=#1080 id=1080 data-nosnippet>1080</a>        <span class="number">0</span>,
+<a href=#1081 id=1081 data-nosnippet>1081</a>        syn::GenericParam::Lifetime(syn::LifetimeParam::new(src_lifetime.clone())),
+<a href=#1082 id=1082 data-nosnippet>1082</a>    );
+<a href=#1083 id=1083 data-nosnippet>1083</a>
+<a href=#1084 id=1084 data-nosnippet>1084</a>    generics
+<a href=#1085 id=1085 data-nosnippet>1085</a>}
+<a href=#1086 id=1086 data-nosnippet>1086</a>
+<a href=#1087 id=1087 data-nosnippet>1087</a><span class="kw">fn </span>fresh_lifetime(generics: <span class="kw-2">&amp;</span>syn::Generics, base: <span class="kw-2">&amp;</span>str) -&gt; Lifetime {
+<a href=#1088 id=1088 data-nosnippet>1088</a>    <span class="kw">let </span>used: BTreeSet&lt;String&gt; = generics
+<a href=#1089 id=1089 data-nosnippet>1089</a>        .lifetimes()
+<a href=#1090 id=1090 data-nosnippet>1090</a>        .map(|param| param.lifetime.ident.to_string())
+<a href=#1091 id=1091 data-nosnippet>1091</a>        .collect();
+<a href=#1092 id=1092 data-nosnippet>1092</a>
+<a href=#1093 id=1093 data-nosnippet>1093</a>    <span class="kw">if </span>!used.contains(base) {
+<a href=#1094 id=1094 data-nosnippet>1094</a>        <span class="kw">return </span>Lifetime::new(<span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">"'{base}"</span>), proc_macro2::Span::call_site());
+<a href=#1095 id=1095 data-nosnippet>1095</a>    }
+<a href=#1096 id=1096 data-nosnippet>1096</a>
+<a href=#1097 id=1097 data-nosnippet>1097</a>    <span class="kw">for </span>suffix <span class="kw">in </span><span class="number">0usize</span>.. {
+<a href=#1098 id=1098 data-nosnippet>1098</a>        <span class="kw">let </span>candidate = <span class="macro">format!</span>(<span class="string">"{base}_{suffix}"</span>);
+<a href=#1099 id=1099 data-nosnippet>1099</a>        <span class="kw">if </span>!used.contains(<span class="kw-2">&amp;</span>candidate) {
+<a href=#1100 id=1100 data-nosnippet>1100</a>            <span class="kw">return </span>Lifetime::new(<span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">"'{candidate}"</span>), proc_macro2::Span::call_site());
+<a href=#1101 id=1101 data-nosnippet>1101</a>        }
+<a href=#1102 id=1102 data-nosnippet>1102</a>    }
+<a href=#1103 id=1103 data-nosnippet>1103</a>
+<a href=#1104 id=1104 data-nosnippet>1104</a>    <span class="macro">unreachable!</span>(<span class="string">"unbounded fresh lifetime search"</span>)
+<a href=#1105 id=1105 data-nosnippet>1105</a>}
 </code></pre></div></section></main></body></html>
