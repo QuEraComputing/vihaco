@@ -321,9 +321,9 @@ This is the shape a CLI `run` command uses: read the source, parse the SST conta
 
 ## When you'd need a fully custom parser
 
-Two cases the derive can't model directly:
+Two cases still call for something beyond a generated pattern:
 
-1. **Struct types** — `ParsedFunction` is a struct, not an enum, so its `Parse` impl is hand-written. If you find yourself wanting `#[derive(Parse)]` on a struct, write the chumsky combinators directly instead.
+1. **Stateful or context-sensitive structs** — the [pattern generator](/guide/parser-patterns) supports ordinary tuple, named, and unit structs. A type such as `ParsedFunction`, whose grammar coordinates nested blocks and recovery behavior, is still better served by hand-written chumsky combinators.
 2. **Multi-segment overloads of the same mnemonic** — for example, `br @t` (1 operand) vs `br @t, @f` (2 operands). These are emitted as a single `Raw` form and disambiguated in the resolver; you don't need a custom parser, you need a smarter `lower_raw` arm.
 
 If you reach a third case, prefer adding a `#[parse_with]` helper or a tiny hand-written combinator over a bespoke `Parse` impl. The two-pass design keeps the parser side narrow on purpose.
