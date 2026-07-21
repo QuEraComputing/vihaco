@@ -36,8 +36,10 @@ A ready-made CPU/host component — a small stack machine with
 </dd> <dt><code>vihaco-parser</code> <span class="crate-tag">parser</span></dt> <dd>
 The <code>#[derive(Parse)]</code> proc-macro. It turns an instruction
         enum into a <a href="https://github.com/zesterer/chumsky">chumsky</a>
-parser, driven by <code>#[head]</code> / <code>#[token]</code> /
-<code>#[delimiters]</code> / <code>#[parse_with]</code> attributes.
+parser. New syntax uses declarative <code>#[syntax_class]</code> and
+<code>#[pattern]</code> attributes; the legacy <code>#[head]</code> /
+<code>#[token]</code> / <code>#[delimiters]</code> /
+<code>#[parse_with]</code> generator remains supported.
 </dd> <dt><code>vihaco-parser-core</code> <span class="crate-tag">parser</span></dt> <dd>
 The <code>Parse&lt;'src&gt;</code> trait and blanket impls for the
         primitives (<code>i64</code>, <code>u64</code>, <code>f64</code>,
@@ -154,7 +156,8 @@ fn main() {
 That is the whole instruction-level surface. Module-level orchestration —
       device headers, function bodies, sugar expansion, string interning, label
       resolution — is a two-pass <code>parse → resolve</code> pipeline covered
-      in <a href="/vihaco/pr-preview/pr-40/guide/parser">Parser Integration</a> and
+      in <a href="/vihaco/pr-preview/pr-40/guide/parser">Parser Integration</a>,
+<a href="/vihaco/pr-preview/pr-40/guide/parser-patterns">Pattern Parser Generator</a>, and
 <a href="/vihaco/pr-preview/pr-40/guide/parser-advanced">Advanced Parser Customization</a>.
 </p> <h2 id="next"><span class="sec-num">§ 6</span>Next steps</h2> <ul> <li>Work through the <a href="/vihaco/pr-preview/pr-40/guide">Guides</a> in order — they build the full authoring model from instructions up to composites.</li> <li>Browse the <a href="/vihaco/pr-preview/pr-40/reference">API Reference</a> (generated rustdoc).</li> <li>Read <code>vihaco-cpu</code> as a worked example of a non-trivial component.</li> </ul> <div class="qs-crosslink"> <div> <span class="label">Next</span>
 Ready for the full authoring model — instructions, messages, components, observers, composites?
