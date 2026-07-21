@@ -4,7 +4,7 @@
 use vihaco_parser::Parse;
 
 #[derive(Parse)]
-#[syntax_class(instruction)]
+#[syntax_class(instruction, head = "test")]
 enum Instruction {
     #[delimiters(open = "[", close = "]", separator = ",")]
     Pair(i64, bool),

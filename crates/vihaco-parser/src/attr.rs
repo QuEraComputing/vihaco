@@ -3,9 +3,16 @@
 
 use proc_macro2::Span;
 use syn::{
-    Attribute, Error, Fields, LitStr, Meta, Result, Variant, meta::ParseNestedMeta,
+    Attribute, Error, Fields, LitStr, Meta, Result, Token, Variant,
+    parse::{Parse, ParseStream},
     spanned::Spanned,
 };
+
+mod kw {
+    syn::custom_keyword!(head);
+    syn::custom_keyword!(instruction);
+    syn::custom_keyword!(value);
+}
 
 // --- Enum-level ---
 
@@ -14,11 +21,42 @@ pub enum HeadAttr {
     Custom(String), // #[head = "X::"]
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub enum SyntaxClassAttr {
-    Instruction,
+    Instruction { head: String },
     Type,
     Value,
+}
+
+impl Parse for SyntaxClassAttr {
+    fn parse(input: ParseStream<'_>) -> Result<Self> {
+        if input.peek(kw::instruction) {
+            input.parse::<kw::instruction>()?;
+
+            if input.is_empty() {
+                return Err(input.error("instruction syntax class must have `head` argument"));
+            }
+
+            input.parse::<Token![,]>()?;
+            input.parse::<kw::head>()?;
+            input.parse::<Token![=]>()?;
+            let head = input.parse::<LitStr>()?.value();
+
+            return Ok(Self::Instruction { head });
+        }
+
+        if input.peek(kw::value) {
+            input.parse::<kw::value>()?;
+            return Ok(Self::Value);
+        }
+
+        if input.peek(Token![type]) {
+            input.parse::<Token![type]>()?;
+            return Ok(Self::Type);
+        }
+
+        Err(input.error("expected `instruction`, `value`, or `type`"))
+    }
 }
 
 pub struct EnumAttrs {
@@ -90,38 +128,12 @@ impl EnumAttrs {
             }
 
             if attr.path().is_ident("syntax_class") {
-                attr.parse_nested_meta(|meta| parse_syntax_class(meta, &mut syntax_class, span))?;
+                syntax_class = Some(attr.parse_args()?);
             }
         }
 
         Ok(Self { head, syntax_class })
     }
-}
-
-fn parse_syntax_class(
-    meta: ParseNestedMeta,
-    syntax_class: &mut Option<SyntaxClassAttr>,
-    span: Span,
-) -> Result<()> {
-    if meta.path.is_ident("instruction") {
-        *syntax_class = Some(SyntaxClassAttr::Instruction);
-        return Ok(());
-    }
-
-    if meta.path.is_ident("type") {
-        *syntax_class = Some(SyntaxClassAttr::Type);
-        return Ok(());
-    }
-
-    if meta.path.is_ident("value") {
-        *syntax_class = Some(SyntaxClassAttr::Value);
-        return Ok(());
-    }
-
-    Err(Error::new(
-        span,
-        "invalid syntax class: expected #[syntax_class(class)], where class is instruction, type, or value",
-    ))
 }
 
 impl StructAttrs {
@@ -130,14 +142,12 @@ impl StructAttrs {
         let mut syntax_class = None;
 
         for attr in attrs {
-            let span = attr.span();
-
             if attr.path().is_ident("pattern") {
                 pattern = Some(pattern_attr(attr)?);
             }
 
             if attr.path().is_ident("syntax_class") {
-                attr.parse_nested_meta(|meta| parse_syntax_class(meta, &mut syntax_class, span))?;
+                syntax_class = Some(attr.parse_args()?);
             }
         }
 

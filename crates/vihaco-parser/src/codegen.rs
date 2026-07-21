@@ -233,7 +233,7 @@ impl<'p> UnparsedPatternInfo<'p> {
 
         let pattern = PatternAtoms::try_new(tokens)?;
 
-        if matches!(self.class, SyntaxClassAttr::Instruction)
+        if matches!(self.class, SyntaxClassAttr::Instruction { .. })
             && !matches!(pattern.first(), Token(_))
         {
             return Err(eyre::eyre!(
@@ -241,7 +241,7 @@ impl<'p> UnparsedPatternInfo<'p> {
             ));
         }
 
-        if !matches!(self.class, SyntaxClassAttr::Instruction)
+        if !matches!(self.class, SyntaxClassAttr::Instruction { .. })
             && let Some(tok) = pattern.contains_token()
         {
             return Err(eyre::eyre!(
@@ -269,7 +269,7 @@ impl<'p> UnparsedPatternInfo<'p> {
 impl fmt::Display for SyntaxClassAttr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Instruction => write!(f, "instruction"),
+            Self::Instruction { .. } => write!(f, "instruction"),
             Self::Type => write!(f, "type"),
             Self::Value => write!(f, "value"),
         }
@@ -695,7 +695,7 @@ fn generate_pattern<'src>(
     }
 
     let name = info.target.ident().to_string().to_lowercase();
-    let prefix = if matches!(info.class, Some(SyntaxClassAttr::Instruction)) {
+    let prefix = if matches!(info.class, Some(SyntaxClassAttr::Instruction { .. })) {
         Some(format!("'{}", name))
     } else {
         None
@@ -758,7 +758,7 @@ fn compile_pattern_parser(
     decl_span: Span,
     variant_span: Span,
 ) -> Result<(Ident, TokenStream2, Option<String>)> {
-    let Some(class) = info.class else {
+    let Some(ref class) = info.class else {
         return Err(Error::new(
             decl_span,
             "#[pattern] requires a #[syntax_class] on the enum definition",
@@ -768,7 +768,7 @@ fn compile_pattern_parser(
     if let Some(PatternInfo(pattern, span)) = info.pattern_info {
         let info = UnparsedPatternInfo {
             pattern: pattern.as_str(),
-            class,
+            class: class.clone(),
             target: info.target,
             fields: info.fields.clone(),
         };
@@ -898,7 +898,7 @@ fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
             target: PatternTarget::Variant {
                 ident: variant.ident.clone(),
             },
-            class: enum_attrs.syntax_class,
+            class: enum_attrs.syntax_class.clone(),
         };
 
         let ident_and_parser =
@@ -946,6 +946,17 @@ fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
         quote! { ::chumsky::primitive::choice((#(#chunks),*)) }
     };
 
+    let parser = match &enum_attrs.syntax_class {
+        Some(SyntaxClassAttr::Instruction { head }) => {
+            let head = format!("{head}::");
+            quote! {
+                ::chumsky::primitive::just(#head)
+                    .ignore_then(#or_chain)
+            }
+        }
+        _ => or_chain,
+    };
+
     let output = quote! {
         impl #impl_generics ::vihaco_parser_core::Parse<#src_lifetime> for #enum_ident #ty_generics #where_clause {
             fn parser() -> impl ::chumsky::Parser<
@@ -956,7 +967,7 @@ fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
             > {
                 use ::chumsky::Parser as _;
                 #(#variant_bindings)*
-                #or_chain
+                #parser
             }
         }
     };
@@ -1003,15 +1014,26 @@ fn expand_struct(input: StructInfo) -> Result<TokenStream> {
         target: PatternTarget::Struct {
             ident: struct_ident.clone(),
         },
-        class: struct_attrs.syntax_class,
+        class: struct_attrs.syntax_class.clone(),
     };
 
     let span = struct_ident.span();
-    let (ident, parser, _) = compile_pattern_parser(pattern_compilation_info, span, span)?;
+    let (ident, parser_binding, _) = compile_pattern_parser(pattern_compilation_info, span, span)?;
 
     let parser_generics = generics_with_lifetime(input.generics, &src_lifetime);
     let (impl_generics, _, where_clause) = parser_generics.split_for_impl();
     let (_, ty_generics, _) = input.generics.split_for_impl();
+
+    let parser = match &struct_attrs.syntax_class {
+        Some(SyntaxClassAttr::Instruction { head }) => {
+            let head = format!("{head}::");
+            quote! {
+                ::chumsky::primitive::just(#head)
+                    .ignore_then(#ident)
+            }
+        }
+        _ => quote! { #ident },
+    };
 
     let output = quote! {
         impl #impl_generics ::vihaco_parser_core::Parse<#src_lifetime> for #struct_ident #ty_generics #where_clause {
@@ -1022,8 +1044,8 @@ fn expand_struct(input: StructInfo) -> Result<TokenStream> {
                 ::chumsky::extra::Err<::chumsky::error::Simple<#src_lifetime, char>>,
             > {
                 use ::chumsky::Parser as _;
+                #parser_binding
                 #parser
-                #ident
             }
         }
     };

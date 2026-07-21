@@ -123,7 +123,7 @@ pub enum Instruction {
 }
 
 #[derive(Debug, PartialEq, vihaco_parser::Parse)]
-#[syntax_class(instruction)]
+#[syntax_class(instruction, head = "cpu")]
 pub enum RawInstruction {
     #[pattern = "'span $0 $1 $2"]
     Span(u32, u32, u32),
@@ -235,18 +235,21 @@ mod parse_tests {
 
     #[test]
     fn parses_explicit_pattern() {
-        assert_eq!(parse("span 0 1 2"), RawInstruction::Span(0, 1, 2));
+        assert_eq!(parse("cpu::span 0 1 2"), RawInstruction::Span(0, 1, 2));
     }
 
     #[test]
     fn parses_generated_instruction_pattern() {
-        assert_eq!(parse("sub f64"), RawInstruction::Sub(CPUType::F64));
-        assert_eq!(parse("bitand i64"), RawInstruction::BitAnd(CPUType::I64));
+        assert_eq!(parse("cpu::sub f64"), RawInstruction::Sub(CPUType::F64));
+        assert_eq!(
+            parse("cpu::bitand i64"),
+            RawInstruction::BitAnd(CPUType::I64)
+        );
     }
 
     #[test]
     fn rejects_missing_operands() {
-        assert!(RawInstruction::parser().parse("span 0 1").has_errors());
-        assert!(RawInstruction::parser().parse("add").has_errors());
+        assert!(RawInstruction::parser().parse("cpu::span 0 1").has_errors());
+        assert!(RawInstruction::parser().parse("cpu::add").has_errors());
     }
 }

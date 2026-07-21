@@ -14,7 +14,7 @@ struct Named {
 }
 
 #[derive(Parse, Debug, PartialEq)]
-#[syntax_class(instruction)]
+#[syntax_class(instruction, head = "test")]
 #[pattern = "'pair $0 $1"]
 struct Tuple(i64, bool);
 
@@ -38,7 +38,7 @@ fn named_struct() {
 fn tuple_struct() {
     assert_eq!(
         Tuple::parser()
-            .parse("pair 42 false")
+            .parse("test::pair 42 false")
             .into_result()
             .unwrap(),
         Tuple(42, false)
