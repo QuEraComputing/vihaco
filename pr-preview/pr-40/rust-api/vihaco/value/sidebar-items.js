@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"trait":["ResolutionContext","SyntacticValue","Type","Value"]};
+window.SIDEBAR_ITEMS = {};

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"trait":["ByteWidth","FromBytes","FromBytesWithOpcode","Instruction","OpCode","WriteBytes"]};
+window.SIDEBAR_ITEMS = {"trait":["FromBytes","FromBytesWithOpcode","Instruction","OpCode","WriteBytes"]};

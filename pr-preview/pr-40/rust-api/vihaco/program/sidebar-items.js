@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["value_cpu"]};
+window.SIDEBAR_ITEMS = {"mod":["value"]};
