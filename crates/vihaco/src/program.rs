@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-#[path = "value_cpu.rs"]
-pub mod value_cpu;
+#[path = "value.rs"]
+pub mod value;
 
-pub use value_cpu::{CPUType, CPUValue};
+pub use value::{Type, Value};

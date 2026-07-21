@@ -3,9 +3,9 @@
 
 use proc_macro2::Span;
 use syn::{
-    Attribute, Error, Fields, LitStr, Meta, Result, Token, Variant,
     parse::{Parse, ParseStream},
     spanned::Spanned,
+    Attribute, Error, Fields, LitStr, Meta, Result, Token, Variant,
 };
 
 mod kw {

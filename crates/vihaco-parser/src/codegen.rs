@@ -10,11 +10,10 @@ use crate::{
     },
 };
 use chumsky::{
-    IterParser, Parser,
     error::Rich,
     extra,
     primitive::{choice, just},
-    text,
+    text, IterParser, Parser,
 };
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
@@ -25,8 +24,8 @@ use std::{
     vec,
 };
 use syn::{
-    Attribute, Data, DeriveInput, Error, Fields, FieldsNamed, FieldsUnnamed, Generics, Ident,
-    Lifetime, Result, Type, ext::IdentExt, spanned::Spanned,
+    ext::IdentExt, spanned::Spanned, Attribute, Data, DeriveInput, Error, Fields, FieldsNamed,
+    FieldsUnnamed, Generics, Ident, Lifetime, Result, Type,
 };
 
 #[derive(PartialEq)]
@@ -97,8 +96,8 @@ impl<'p> PatternAtom<'p, BindingRef<'p>> {
     }
 }
 
-fn pattern_syntax_parser<'p>()
--> impl Parser<'p, &'p str, Vec<PatternAtom<'p, BindingRef<'p>>>, extra::Err<Rich<'p, char>>> {
+fn pattern_syntax_parser<'p>(
+) -> impl Parser<'p, &'p str, Vec<PatternAtom<'p, BindingRef<'p>>>, extra::Err<Rich<'p, char>>> {
     let ident = text::ascii::ident();
     let digits = text::int(10);
 
@@ -241,13 +240,13 @@ impl<'p> UnparsedPatternInfo<'p> {
             ));
         }
 
-        if !matches!(self.class, SyntaxClassAttr::Instruction { .. })
-            && let Some(tok) = pattern.contains_token()
-        {
-            return Err(eyre::eyre!(
-                "cannot have instruction syntax '{tok} in {} pattern",
-                self.class.to_string()
-            ));
+        if !matches!(self.class, SyntaxClassAttr::Instruction { .. }) {
+            if let Some(tok) = pattern.contains_token() {
+                return Err(eyre::eyre!(
+                    "cannot have instruction syntax '{tok} in {} pattern",
+                    self.class.to_string()
+                ));
+            }
         }
 
         pattern.validate_binding_style()?;

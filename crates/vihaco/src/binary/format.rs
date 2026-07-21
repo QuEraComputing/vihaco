@@ -5,7 +5,7 @@ use std::io::{Cursor, Read};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::traits::{ByteWidth, FromBytes, FromText, Instruction, OpCode, WriteBytes};
+use crate::traits::{FromBytes, FromText, Instruction, OpCode, WriteBytes};
 
 pub use vihaco_parser_core::container::bytecode::{FLAGS, MAGIC, VERSION};
 
@@ -50,14 +50,12 @@ impl WriteBytes for ConstantId {
 }
 
 impl OpCode for ConstantId {
-    fn opcode(&self) -> u8 {
-        0
-    }
-}
-
-impl ByteWidth for ConstantId {
     fn width() -> u32 {
         4
+    }
+
+    fn opcode(&self) -> u8 {
+        0
     }
 }
 

@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 use vihaco::Instruction;
-use vihaco::program::value_cpu::CPUValueSyntax;
-use vihaco::program::{CPUType, CPUValue};
+use vihaco::program::{Type, Value};
 
 /// `#[derive(Parse)]` notes:
 ///
@@ -21,12 +20,13 @@ use vihaco::program::{CPUType, CPUValue};
 ///   opcodes stay stable. The single exception: `IndirectCall` is moved
 ///   ahead of `Call` so the prefix-ordering check (`call` ⊂ `call_indirect`)
 ///   passes.
-#[derive(Debug, Clone, PartialEq, Instruction)]
+#[derive(Debug, Clone, PartialEq, Instruction, vihaco_parser::Parse)]
 #[instruction(width = 16)]
 pub enum Instruction {
     // no-ops
     /// span <file:file_id> <start:u32> <end:u32>
     /// `span 0 1 2` — three space-separated u32s.
+    #[delimiters(open = "", close = "", separator = " ")]
     Span(u32, u32, u32),
 
     /// Label definition.
@@ -34,8 +34,10 @@ pub enum Instruction {
 
     /// `func_start <name>` — marks function entry. `<name>` is symbolic and
     /// orchestrator-resolved; the unit variant carries no payload.
+    #[token = "func_start"]
     FunctionStart,
     /// `func_end <name>` — marks function exit (debug only).
+    #[token = "func_end"]
     FunctionEnd,
 
     /// `breakpoint`. Must precede `Branch` (whose token `br` would be a
@@ -44,20 +46,35 @@ pub enum Instruction {
 
     // control flows
     /// `br <target>` — symbolic. Deferred to orchestrator.
-    Branch(u32),
+    #[token = "br"]
+    #[delimiters(open = "", close = "", separator = "")]
+    Branch(#[parse_with = "crate::parse_helpers::never_u32"] u32),
 
     /// `cond_br <true_target>, <false_target>` — symbolic. Deferred.
-    ConditionalBranch(u32, u32),
+    #[token = "cond_br"]
+    #[delimiters(open = "", close = "", separator = ",")]
+    ConditionalBranch(
+        #[parse_with = "crate::parse_helpers::never_u32"] u32,
+        #[parse_with = "crate::parse_helpers::never_u32"] u32,
+    ),
 
     /// `ret` (bare) is the form real `.sst` uses; numeric `ret <n>` has no
     /// precedent so we defer. Orchestrator emits `Return(0)` for bare `ret`.
-    Return(u32),
+    #[token = "ret"]
+    #[delimiters(open = "", close = "", separator = "")]
+    Return(#[parse_with = "crate::parse_helpers::never_u32"] u32),
 
     /// `call_indirect`. **Must precede `Call`** for the prefix check.
+    #[token = "call_indirect"]
     IndirectCall,
 
     /// `call <arity>, <addr>` — symbolic addr. Deferred.
-    Call(u32, u32),
+    #[token = "call"]
+    #[delimiters(open = "", close = "", separator = ",")]
+    Call(
+        #[parse_with = "crate::parse_helpers::never_u32"] u32,
+        #[parse_with = "crate::parse_helpers::never_u32"] u32,
+    ),
 
     /// `halt` — stop execution.
     Halt,
@@ -68,44 +85,67 @@ pub enum Instruction {
 
     // memory operations
     /// `load.<type> <address>` — two fields with single-space separator.
-    Load(CPUType, u32),
-
+    #[delimiters(open = "", close = "", separator = " ")]
+    Load(#[parse_with = "crate::parse_helpers::cpu_type"] Type, u32),
     /// `store.<type> <address>`.
-    Store(CPUType, u32),
+    #[delimiters(open = "", close = "", separator = " ")]
+    Store(#[parse_with = "crate::parse_helpers::cpu_type"] Type, u32),
 
     /// `dup`.
     Dup,
 
     /// `heap_alloc <n>`.
+    #[token = "heap_alloc"]
+    #[delimiters(open = "", close = "", separator = "")]
     HeapAlloc(u32),
 
     /// `get_item`. Must precede `Ge` (token `ge` ⊂ `get_item`).
+    #[token = "get_item"]
     GetItem,
 
     /// `heap_dealloc` — pops a HeapRef and marks the slot dead, returning it
     /// to the free list for reuse by the next `heap_alloc`.
+    #[token = "heap_dealloc"]
     HeapDealloc,
 
     /// `const.<type> <literal>` — numeric/bool only here. `.str`/`.fn_ref`/
     /// `.heap_ref` are orchestrator-handled.
-    Const(CPUValue),
+    #[token = "const"]
+    #[delimiters(open = "", close = "", separator = "")]
+    Const(#[parse_with = "crate::parse_helpers::cpu_const_value"] Value),
 
     // arithmetic operations
-    Add(CPUType),
-    Sub(CPUType),
-    Mul(CPUType),
-    Div(CPUType),
-    Rem(CPUType),
-    Neg(CPUType),
+    #[delimiters(open = "", close = "", separator = "")]
+    Add(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
+    #[delimiters(open = "", close = "", separator = "")]
+    Sub(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
+    #[delimiters(open = "", close = "", separator = "")]
+    Mul(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
+    #[delimiters(open = "", close = "", separator = "")]
+    Div(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
+    #[delimiters(open = "", close = "", separator = "")]
+    Rem(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
+    #[delimiters(open = "", close = "", separator = "")]
+    Neg(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
 
     // integer / bitwise operations
-    Shl(CPUType),
-    Shr(CPUType),
-    Rol(CPUType),
-    Ror(CPUType),
-    BitAnd(CPUType),
-    BitOr(CPUType),
-    BitXor(CPUType),
+    #[delimiters(open = "", close = "", separator = "")]
+    Shl(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
+    #[delimiters(open = "", close = "", separator = "")]
+    Shr(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
+    #[delimiters(open = "", close = "", separator = "")]
+    Rol(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
+    #[delimiters(open = "", close = "", separator = "")]
+    Ror(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
+    #[token = "bitand"]
+    #[delimiters(open = "", close = "", separator = "")]
+    BitAnd(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
+    #[token = "bitor"]
+    #[delimiters(open = "", close = "", separator = "")]
+    BitOr(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
+    #[token = "bitxor"]
+    #[delimiters(open = "", close = "", separator = "")]
+    BitXor(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
 
     // boolean operations
     Not,
@@ -114,75 +154,21 @@ pub enum Instruction {
     Xor,
 
     // comparison operations
-    Eq(CPUType),
-    Ne(CPUType),
-    Lt(CPUType),
-    Gt(CPUType),
-    Le(CPUType),
-    Ge(CPUType),
+    #[delimiters(open = "", close = "", separator = "")]
+    Eq(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
+    #[delimiters(open = "", close = "", separator = "")]
+    Ne(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
+    #[delimiters(open = "", close = "", separator = "")]
+    Lt(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
+    #[delimiters(open = "", close = "", separator = "")]
+    Gt(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
+    #[delimiters(open = "", close = "", separator = "")]
+    Le(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
+    #[delimiters(open = "", close = "", separator = "")]
+    Ge(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
 }
 
-#[derive(Debug, PartialEq, vihaco_parser::Parse)]
-#[syntax_class(instruction, head = "cpu")]
-pub enum RawInstruction {
-    #[pattern = "'span $0 $1 $2"]
-    Span(u32, u32, u32),
-
-    #[pattern = "'br `@` $0"]
-    Branch(u32),
-
-    #[pattern = "'cond_br `@` $0 `,` `@` $1"]
-    ConditionalBranch(CPUValueSyntax, CPUValueSyntax),
-
-    #[pattern = "'ret $0"]
-    Return(u32),
-
-    #[pattern = "'call $0 `,` $1"]
-    Call(u32, CPUValueSyntax),
-
-    #[pattern = "'load $0 $1"]
-    Load(CPUType, u32),
-
-    #[pattern = "'store $0 $1"]
-    Store(CPUType, u32),
-
-    #[pattern = "'heap_alloc $0"]
-    HeapAlloc(u32),
-
-    #[pattern = "'const $0"]
-    Const(u32),
-
-    // arithmetic operations
-    #[pattern = "'add $0"]
-    Add(CPUType),
-    Sub(CPUType),
-    Mul(CPUType),
-    Div(CPUType),
-    Rem(CPUType),
-    Neg(CPUType),
-
-    Bar(u32, u32, u32),
-
-    // integer / bitwise operations
-    Shl(CPUType),
-    Shr(CPUType),
-    Rol(CPUType),
-    Ror(CPUType),
-    BitAnd(CPUType),
-    BitOr(CPUType),
-    BitXor(CPUType),
-
-    // boolean operations
-    // comparison operations
-    Eq(CPUType),
-    Ne(CPUType),
-    Lt(CPUType),
-    Gt(CPUType),
-    Le(CPUType),
-    Ge(CPUType),
-}
-
-impl<T: Into<CPUValue>> From<T> for Instruction {
+impl<T: Into<Value>> From<T> for Instruction {
     fn from(value: T) -> Self {
         Instruction::Const(value.into())
     }
@@ -220,36 +206,101 @@ impl vihaco::CanonicalInstructionSyntax for Instruction {
 }
 
 #[cfg(test)]
+#[allow(clippy::approx_constant)]
 mod parse_tests {
-    use super::RawInstruction;
+    use super::Instruction;
     use chumsky::Parser as _;
-    use vihaco::program::CPUType;
+    use vihaco::program::{Type, Value};
     use vihaco_parser_core::Parse;
 
-    fn parse(input: &str) -> RawInstruction {
-        RawInstruction::parser()
+    fn parse(input: &str) -> Instruction {
+        Instruction::parser()
             .parse(input)
             .into_result()
             .unwrap_or_else(|e| panic!("parse({input:?}) failed: {e:?}"))
     }
 
     #[test]
-    fn parses_explicit_pattern() {
-        assert_eq!(parse("cpu::span 0 1 2"), RawInstruction::Span(0, 1, 2));
+    fn parses_unit_variants() {
+        for (input, expected) in [
+            ("halt", Instruction::Halt),
+            ("print", Instruction::Print),
+            ("dup", Instruction::Dup),
+            ("breakpoint", Instruction::Breakpoint),
+            ("label", Instruction::Label),
+            ("func_start", Instruction::FunctionStart),
+            ("func_end", Instruction::FunctionEnd),
+            ("get_item", Instruction::GetItem),
+            ("not", Instruction::Not),
+            ("and", Instruction::And),
+            ("or", Instruction::Or),
+            ("xor", Instruction::Xor),
+            ("call_indirect", Instruction::IndirectCall),
+        ] {
+            assert_eq!(parse(input), expected, "input {input:?}");
+        }
     }
 
     #[test]
-    fn parses_generated_instruction_pattern() {
-        assert_eq!(parse("cpu::sub f64"), RawInstruction::Sub(CPUType::F64));
+    fn parses_typed_arith() {
+        assert_eq!(parse("add.i64"), Instruction::Add(Type::I64));
+        assert_eq!(parse("sub.f64"), Instruction::Sub(Type::F64));
+        assert_eq!(parse("mul.u32"), Instruction::Mul(Type::U32));
+        assert_eq!(parse("div.u64"), Instruction::Div(Type::U64));
+        assert_eq!(parse("lt.i64"), Instruction::Lt(Type::I64));
+        assert_eq!(parse("ge.f64"), Instruction::Ge(Type::F64));
+        assert_eq!(parse("bitand.i64"), Instruction::BitAnd(Type::I64));
+        assert_eq!(parse("shl.u64"), Instruction::Shl(Type::U64));
+    }
+
+    #[test]
+    fn parses_load_store() {
+        assert_eq!(parse("load.i64 7"), Instruction::Load(Type::I64, 7));
+        assert_eq!(parse("store.f64 42"), Instruction::Store(Type::F64, 42));
+    }
+
+    #[test]
+    fn parses_heap_alloc() {
+        assert_eq!(parse("heap_alloc 5"), Instruction::HeapAlloc(5));
+    }
+
+    #[test]
+    fn parses_span() {
+        assert_eq!(parse("span 0 1 2"), Instruction::Span(0, 1, 2));
+    }
+
+    #[test]
+    fn parses_const_numeric_flavors() {
+        assert_eq!(parse("const.i64 42"), Instruction::Const(Value::I64(42)));
+        assert_eq!(parse("const.u64 7"), Instruction::Const(Value::U64(7)));
+        assert_eq!(parse("const.u32 3"), Instruction::Const(Value::U32(3)));
         assert_eq!(
-            parse("cpu::bitand i64"),
-            RawInstruction::BitAnd(CPUType::I64)
+            parse("const.f64 3.14"),
+            Instruction::Const(Value::F64(3.14))
+        );
+        assert_eq!(
+            parse("const.bool true"),
+            Instruction::Const(Value::Bool(true))
         );
     }
 
     #[test]
-    fn rejects_missing_operands() {
-        assert!(RawInstruction::parser().parse("cpu::span 0 1").has_errors());
-        assert!(RawInstruction::parser().parse("cpu::add").has_errors());
+    fn defers_symbolic_branch_to_orchestrator() {
+        // `br @body` cannot be parsed by the derive — `never_u32` ensures this.
+        // The Module orchestrator (Item 4) handles the symbolic form.
+        assert!(Instruction::parser().parse("br @body").has_errors());
+        assert!(Instruction::parser().parse("cond_br @a, @b").has_errors());
+        assert!(Instruction::parser().parse("call @main, 0").has_errors());
+        assert!(Instruction::parser().parse("ret").has_errors());
+    }
+
+    #[test]
+    fn defers_const_string_to_orchestrator() {
+        // `const.str "hello"` requires interner state — handled by the orchestrator.
+        assert!(
+            Instruction::parser()
+                .parse("const.str \"hello\"")
+                .has_errors()
+        );
     }
 }

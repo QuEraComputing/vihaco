@@ -7,7 +7,7 @@ mod codegen;
 mod legacy_codegen;
 
 use proc_macro::TokenStream;
-use syn::{DeriveInput, parse_macro_input};
+use syn::{parse_macro_input, DeriveInput};
 
 #[proc_macro_derive(
     Parse,

@@ -5,10 +5,10 @@ use std::{io::Read, str::FromStr};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use vihaco::{
-    BytecodeFile, BytecodeGlobalContext, BytecodeSectionView, CPUType, CPUValue, ConstantId,
-    Effects, FLAGS, GeneratedComponent, GetProgramInfo, Instruction, LoadBytecodeSection,
-    LoadOwnBytecodeSection, LoadOwnSstSection, LoadSstSection, MAGIC, ProgramImage,
-    SectionNameResolver, SstFile, SstGlobalContext, SstHeader, SstSectionView, VERSION,
+    BytecodeFile, BytecodeGlobalContext, BytecodeSectionView, ConstantId, Effects, FLAGS,
+    GeneratedComponent, GetProgramInfo, Instruction, LoadBytecodeSection, LoadOwnBytecodeSection,
+    LoadOwnSstSection, LoadSstSection, MAGIC, ProgramImage, SectionNameResolver, SstFile,
+    SstGlobalContext, SstHeader, SstSectionView, Type, VERSION, Value,
     module::LocalModule,
     syntax::{ParsedModule, Resolve},
     traits::{FromBytes, FromText, WriteBytes},
@@ -89,7 +89,7 @@ impl SstHeader for NoHeader {}
 struct TextResolver;
 
 impl<H> Resolve<TextInst, H> for TextResolver {
-    type Module = LocalModule<TextInst, CPUValue, CPUType>;
+    type Module = LocalModule<TextInst, Value, Type>;
 
     fn resolve_module(&mut self, parsed: ParsedModule<TextInst, H>) -> eyre::Result<Self::Module> {
         let mut module = LocalModule::default();
@@ -113,7 +113,7 @@ fn load_bytecode_program<'bc>(
     section: BytecodeSectionView<'bc, TextContext>,
 ) -> eyre::Result<()> {
     program.module.code = section.decode_instructions()?;
-    program.module.constants = vec![CPUValue::I64(9)];
+    program.module.constants = vec![Value::I64(9)];
     program.context = Some(section.context_handle());
     program.pc = 0;
     Ok(())
@@ -471,7 +471,7 @@ fn binary_generated_loadable_routes_program_and_child_sections() {
     );
     assert_eq!(
         machine.program.get_constant(ConstantId(0)).unwrap(),
-        &CPUValue::I64(9)
+        &Value::I64(9)
     );
 }
 

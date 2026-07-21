@@ -8,7 +8,7 @@ use crate::StepOutcome;
 use crate::data::CPU;
 use crate::instruction::Instruction;
 use vihaco::Effects;
-use vihaco::program::{CPUType, CPUValue};
+use vihaco::program::{Type, Value};
 use vihaco::{component, frame::Frame, traits::*};
 
 impl Reset for CPU {
@@ -135,11 +135,11 @@ impl CPU {
     ) -> eyre::Result<StepOutcome> {
         let cond = self.stack.pop().ok_or(eyre::eyre!("stack underflow"))?;
         match cond {
-            CPUValue::Bool(true) => {
+            Value::Bool(true) => {
                 self.set_pending_pc(true_target);
                 Ok(StepOutcome::Continue)
             }
-            CPUValue::Bool(false) => {
+            Value::Bool(false) => {
                 self.set_pending_pc(false_target);
                 Ok(StepOutcome::Continue)
             }
@@ -155,7 +155,7 @@ impl CPU {
 
         // Collect return values before truncating
         let top = self.stack.len() - keep as usize;
-        let return_values: Vec<CPUValue> = self.stack[top..].to_vec();
+        let return_values: Vec<Value> = self.stack[top..].to_vec();
         self.stack.drain(frame.base..top);
 
         if self.get_frame().is_err() {
@@ -211,7 +211,7 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    fn op_load(&mut self, ty: CPUType, addr: u32) -> eyre::Result<StepOutcome> {
+    fn op_load(&mut self, ty: Type, addr: u32) -> eyre::Result<StepOutcome> {
         // addr should be local to frame.
         let value = self.get_local(addr as usize)?;
         if value.type_of() != ty {
@@ -226,11 +226,11 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_store(&mut self, ty: CPUType, addr: u32) -> Result<StepOutcome> {
-        let v: CPUValue = self.stack_pop()?;
+    pub fn op_store(&mut self, ty: Type, addr: u32) -> Result<StepOutcome> {
+        let v: Value = self.stack_pop()?;
         log::debug!("store value {:?} at addr {}", v, addr);
         if !v.is_undefined() && v.type_of() != ty {
-            return Err(eyre::eyre!("CPUType mismatch"));
+            return Err(eyre::eyre!("Type mismatch"));
         }
         *self.get_local_mut(addr as usize)? = v;
         Ok(StepOutcome::Continue)
@@ -248,9 +248,9 @@ impl CPU {
             return Err(eyre::eyre!("stack underflow"));
         }
         let start = self.stack.len() - n;
-        let values: Box<[CPUValue]> = self.stack.drain(start..).collect();
+        let values: Box<[Value]> = self.stack.drain(start..).collect();
         let heap_id = self.push_heap_object(values);
-        self.stack_push(CPUValue::HeapRef(heap_id));
+        self.stack_push(Value::HeapRef(heap_id));
         Ok(StepOutcome::Continue)
     }
 
@@ -271,19 +271,19 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_const(&mut self, v: CPUValue) -> Result<StepOutcome> {
+    pub fn op_const(&mut self, v: Value) -> Result<StepOutcome> {
         self.stack.push(v);
         Ok(StepOutcome::Continue)
     }
 
-    fn heap_index(value: CPUValue) -> Result<usize> {
+    fn heap_index(value: Value) -> Result<usize> {
         match value {
-            CPUValue::U32(index) => Ok(index as usize),
-            CPUValue::U64(index) => usize::try_from(index)
+            Value::U32(index) => Ok(index as usize),
+            Value::U64(index) => usize::try_from(index)
                 .map_err(|_| eyre::eyre!("heap index {} does not fit in usize", index)),
-            CPUValue::I64(index) if index >= 0 => usize::try_from(index)
+            Value::I64(index) if index >= 0 => usize::try_from(index)
                 .map_err(|_| eyre::eyre!("heap index {} does not fit in usize", index)),
-            CPUValue::I64(index) => Err(eyre::eyre!(
+            Value::I64(index) => Err(eyre::eyre!(
                 "heap index must be non-negative, got {}",
                 index
             )),
@@ -309,12 +309,12 @@ mod tests {
 
         GeneratedComponent::execute_generated(
             &mut cpu,
-            Instruction::Const(CPUValue::I64(7)),
+            Instruction::Const(Value::I64(7)),
             CPUMessage::None,
         )
         .unwrap();
 
-        assert_eq!(cpu.stack(), &vec![CPUValue::I64(7)]);
+        assert_eq!(cpu.stack(), &vec![Value::I64(7)]);
     }
 
     #[test]
@@ -339,12 +339,12 @@ mod tests {
             function: None,
             ret_pc: 0,
         });
-        cpu.stack_push(CPUValue::I64(7));
+        cpu.stack_push(Value::I64(7));
 
         let outcome = cpu.execute_instruction(Instruction::Return(1)).unwrap();
 
         assert_eq!(outcome, StepOutcome::Return);
-        assert_eq!(cpu.return_values(), &[CPUValue::I64(7)]);
+        assert_eq!(cpu.return_values(), &[Value::I64(7)]);
     }
 
     #[test]
@@ -388,9 +388,9 @@ mod tests {
         });
 
         // IndirectCall pops (top → bottom): target, arity, FunctionRef.
-        cpu.stack_push(CPUValue::FunctionRef(7));
-        cpu.stack_push(CPUValue::U32(0));
-        cpu.stack_push(CPUValue::U32(100));
+        cpu.stack_push(Value::FunctionRef(7));
+        cpu.stack_push(Value::U32(0));
+        cpu.stack_push(Value::U32(100));
 
         cpu.execute_instruction(Instruction::IndirectCall).unwrap();
         assert_eq!(cpu.take_pending_pc(), Some(100));
@@ -420,30 +420,30 @@ mod tests {
             function: None,
             ret_pc: 0,
         });
-        cpu.stack_push(CPUValue::I64(111)); // scratch — bottom of callee frame
-        cpu.stack_push(CPUValue::I64(222)); // scratch — middle
-        cpu.stack_push(CPUValue::I64(999)); // intended return value — top
+        cpu.stack_push(Value::I64(111)); // scratch — bottom of callee frame
+        cpu.stack_push(Value::I64(222)); // scratch — middle
+        cpu.stack_push(Value::I64(999)); // intended return value — top
 
         let outcome = cpu.execute_instruction(Instruction::Return(1)).unwrap();
         assert_eq!(outcome, StepOutcome::Continue);
 
-        assert_eq!(cpu.stack(), &vec![CPUValue::I64(999)],);
+        assert_eq!(cpu.stack(), &vec![Value::I64(999)],);
     }
 
     #[test]
     fn op_heap_alloc_preserves_natural_push_order_and_returns_heap_ref() {
         let mut cpu = CPU::default();
-        cpu.stack_push(CPUValue::I64(10));
-        cpu.stack_push(CPUValue::I64(20));
-        cpu.stack_push(CPUValue::I64(30));
+        cpu.stack_push(Value::I64(10));
+        cpu.stack_push(Value::I64(20));
+        cpu.stack_push(Value::I64(30));
 
         let outcome = cpu.execute_instruction(Instruction::HeapAlloc(3)).unwrap();
 
         assert_eq!(outcome, StepOutcome::Continue);
-        assert_eq!(cpu.stack(), &vec![CPUValue::HeapRef(0)]);
+        assert_eq!(cpu.stack(), &vec![Value::HeapRef(0)]);
         assert_eq!(
             cpu.heap.get(0).unwrap(),
-            &[CPUValue::I64(10), CPUValue::I64(20), CPUValue::I64(30)]
+            &[Value::I64(10), Value::I64(20), Value::I64(30)]
         );
     }
 
@@ -454,30 +454,30 @@ mod tests {
         let outcome = cpu.execute_instruction(Instruction::HeapAlloc(0)).unwrap();
 
         assert_eq!(outcome, StepOutcome::Continue);
-        assert_eq!(cpu.stack(), &vec![CPUValue::HeapRef(0)]);
-        assert_eq!(cpu.heap.get(0).unwrap(), &[] as &[CPUValue]);
+        assert_eq!(cpu.stack(), &vec![Value::HeapRef(0)]);
+        assert_eq!(cpu.heap.get(0).unwrap(), &[] as &[Value]);
     }
 
     #[test]
     fn op_get_item_reads_heap_value() {
         let mut cpu = CPU::default();
-        cpu.stack_push(CPUValue::I64(10));
-        cpu.stack_push(CPUValue::I64(20));
-        cpu.stack_push(CPUValue::I64(30));
+        cpu.stack_push(Value::I64(10));
+        cpu.stack_push(Value::I64(20));
+        cpu.stack_push(Value::I64(30));
         cpu.execute_instruction(Instruction::HeapAlloc(3)).unwrap();
-        cpu.stack_push(CPUValue::U32(1));
+        cpu.stack_push(Value::U32(1));
 
         let outcome = cpu.execute_instruction(Instruction::GetItem).unwrap();
 
         assert_eq!(outcome, StepOutcome::Continue);
-        assert_eq!(cpu.stack(), &vec![CPUValue::I64(20)]);
+        assert_eq!(cpu.stack(), &vec![Value::I64(20)]);
     }
 
     #[test]
     fn op_get_item_rejects_non_heap_refs() {
         let mut cpu = CPU::default();
-        cpu.stack_push(CPUValue::I64(7));
-        cpu.stack_push(CPUValue::U32(0));
+        cpu.stack_push(Value::I64(7));
+        cpu.stack_push(Value::U32(0));
 
         let err = cpu.execute_instruction(Instruction::GetItem).unwrap_err();
 
@@ -487,8 +487,8 @@ mod tests {
     #[test]
     fn op_get_item_rejects_invalid_heap_ids() {
         let mut cpu = CPU::default();
-        cpu.stack_push(CPUValue::HeapRef(99));
-        cpu.stack_push(CPUValue::U32(0));
+        cpu.stack_push(Value::HeapRef(99));
+        cpu.stack_push(Value::U32(0));
 
         let err = cpu.execute_instruction(Instruction::GetItem).unwrap_err();
 
@@ -498,9 +498,9 @@ mod tests {
     #[test]
     fn op_get_item_rejects_out_of_bounds_indices() {
         let mut cpu = CPU::default();
-        cpu.stack_push(CPUValue::I64(10));
+        cpu.stack_push(Value::I64(10));
         cpu.execute_instruction(Instruction::HeapAlloc(1)).unwrap();
-        cpu.stack_push(CPUValue::U32(3));
+        cpu.stack_push(Value::U32(3));
 
         let err = cpu.execute_instruction(Instruction::GetItem).unwrap_err();
 
@@ -510,7 +510,7 @@ mod tests {
     #[test]
     fn reset_clears_heap_allocations() {
         let mut cpu = CPU::default();
-        cpu.stack_push(CPUValue::I64(10));
+        cpu.stack_push(Value::I64(10));
         cpu.execute_instruction(Instruction::HeapAlloc(1)).unwrap();
 
         cpu.reset();
@@ -525,8 +525,8 @@ mod tests {
         assert_eq!(Instruction::Label.opcode(), 1);
         assert_eq!(Instruction::FunctionStart.opcode(), 2);
         assert_eq!(Instruction::HeapAlloc(1).opcode(), 15);
-        assert_eq!(Instruction::Const(CPUValue::I64(1)).opcode(), 18);
-        assert_eq!(Instruction::Ge(CPUType::I64).opcode(), 41);
+        assert_eq!(Instruction::Const(Value::I64(1)).opcode(), 18);
+        assert_eq!(Instruction::Ge(Type::I64).opcode(), 41);
     }
 
     #[test]
@@ -541,13 +541,13 @@ mod tests {
 
         let outcome = GeneratedComponent::execute_generated(
             &mut cpu,
-            Instruction::Const(CPUValue::I64(99)),
+            Instruction::Const(Value::I64(99)),
             CPUMessage::None,
         )
         .unwrap();
 
         assert_eq!(outcome, Effects::one(StepOutcome::Continue));
-        assert_eq!(cpu.stack(), &vec![CPUValue::I64(99)]);
+        assert_eq!(cpu.stack(), &vec![Value::I64(99)]);
     }
 
     #[test]
@@ -572,7 +572,7 @@ mod tests {
 
         assert_eq!(outcome, Effects::one(StepOutcome::Continue));
         // arity pushed first, then start_address
-        assert_eq!(cpu.stack(), &vec![CPUValue::U32(2), CPUValue::U32(42)]);
+        assert_eq!(cpu.stack(), &vec![Value::U32(2), Value::U32(42)]);
     }
 
     #[test]
@@ -584,7 +584,7 @@ mod tests {
             function: None,
             ret_pc: 0,
         });
-        cpu.stack_push(CPUValue::I64(42));
+        cpu.stack_push(Value::I64(42));
 
         let outcome = GeneratedComponent::execute_generated(
             &mut cpu,
@@ -606,7 +606,7 @@ mod tests {
             function: None,
             ret_pc: 0,
         });
-        cpu.stack_push(CPUValue::I64(42));
+        cpu.stack_push(Value::I64(42));
 
         let err =
             GeneratedComponent::execute_generated(&mut cpu, Instruction::Print, CPUMessage::None)
@@ -618,9 +618,9 @@ mod tests {
     #[test]
     fn op_heap_dealloc_marks_slot_dead() {
         let mut cpu = CPU::default();
-        cpu.stack_push(CPUValue::I64(42));
+        cpu.stack_push(Value::I64(42));
         cpu.execute_instruction(Instruction::HeapAlloc(1)).unwrap();
-        cpu.stack_push(CPUValue::HeapRef(0));
+        cpu.stack_push(Value::HeapRef(0));
 
         cpu.execute_instruction(Instruction::HeapDealloc).unwrap();
 
@@ -636,26 +636,26 @@ mod tests {
     #[test]
     fn op_heap_dealloc_slot_is_reused_on_next_alloc() {
         let mut cpu = CPU::default();
-        cpu.stack_push(CPUValue::I64(1));
+        cpu.stack_push(Value::I64(1));
         cpu.execute_instruction(Instruction::HeapAlloc(1)).unwrap();
         cpu.execute_instruction(Instruction::HeapDealloc).unwrap();
 
-        cpu.stack_push(CPUValue::I64(2));
+        cpu.stack_push(Value::I64(2));
         cpu.execute_instruction(Instruction::HeapAlloc(1)).unwrap();
 
-        assert_eq!(cpu.stack(), &vec![CPUValue::HeapRef(0)]);
-        assert_eq!(cpu.heap.get(0).unwrap(), &[CPUValue::I64(2)]);
+        assert_eq!(cpu.stack(), &vec![Value::HeapRef(0)]);
+        assert_eq!(cpu.heap.get(0).unwrap(), &[Value::I64(2)]);
     }
 
     #[test]
     fn op_heap_dealloc_rejects_double_free() {
         let mut cpu = CPU::default();
-        cpu.stack_push(CPUValue::I64(1));
+        cpu.stack_push(Value::I64(1));
         cpu.execute_instruction(Instruction::HeapAlloc(1)).unwrap();
-        cpu.stack_push(CPUValue::HeapRef(0));
+        cpu.stack_push(Value::HeapRef(0));
         cpu.execute_instruction(Instruction::HeapDealloc).unwrap();
 
-        cpu.stack_push(CPUValue::HeapRef(0));
+        cpu.stack_push(Value::HeapRef(0));
         let err = cpu
             .execute_instruction(Instruction::HeapDealloc)
             .unwrap_err();
@@ -666,7 +666,7 @@ mod tests {
     #[test]
     fn op_heap_dealloc_rejects_invalid_id() {
         let mut cpu = CPU::default();
-        cpu.stack_push(CPUValue::HeapRef(99));
+        cpu.stack_push(Value::HeapRef(99));
 
         let err = cpu
             .execute_instruction(Instruction::HeapDealloc)
@@ -678,9 +678,9 @@ mod tests {
     #[test]
     fn reset_clears_free_list() {
         let mut cpu = CPU::default();
-        cpu.stack_push(CPUValue::I64(1));
+        cpu.stack_push(Value::I64(1));
         cpu.execute_instruction(Instruction::HeapAlloc(1)).unwrap();
-        cpu.stack_push(CPUValue::HeapRef(0));
+        cpu.stack_push(Value::HeapRef(0));
         cpu.execute_instruction(Instruction::HeapDealloc).unwrap();
 
         cpu.reset();
@@ -691,12 +691,12 @@ mod tests {
 
 macro_rules! impl_op_num_binary {
     ($name:ident, $op:ident) => {
-        pub fn $name(&mut self, ty: CPUType) -> Result<StepOutcome> {
-            let lhs: CPUValue = self.stack_pop()?;
-            let rhs: CPUValue = self.stack_pop()?;
+        pub fn $name(&mut self, ty: Type) -> Result<StepOutcome> {
+            let lhs: Value = self.stack_pop()?;
+            let rhs: Value = self.stack_pop()?;
             if lhs.type_of() != ty {
                 return Err(eyre::eyre!(
-                    "CPUType mismatch, expected {} got {} for lhs",
+                    "Type mismatch, expected {} got {} for lhs",
                     ty,
                     lhs.type_of()
                 ));
@@ -704,17 +704,17 @@ macro_rules! impl_op_num_binary {
 
             if rhs.type_of() != ty {
                 return Err(eyre::eyre!(
-                    "CPUType mismatch, expected {} got {} for rhs",
+                    "Type mismatch, expected {} got {} for rhs",
                     ty,
                     rhs.type_of()
                 ));
             }
 
             let output = match (lhs, rhs) {
-                (CPUValue::I64(l), CPUValue::I64(r)) => CPUValue::I64(l.$op(r)),
-                (CPUValue::U32(l), CPUValue::U32(r)) => CPUValue::U32(l.$op(r)),
-                (CPUValue::U64(l), CPUValue::U64(r)) => CPUValue::U64(l.$op(r)),
-                (CPUValue::F64(l), CPUValue::F64(r)) => CPUValue::F64(l.$op(r)),
+                (Value::I64(l), Value::I64(r)) => Value::I64(l.$op(r)),
+                (Value::U32(l), Value::U32(r)) => Value::U32(l.$op(r)),
+                (Value::U64(l), Value::U64(r)) => Value::U64(l.$op(r)),
+                (Value::F64(l), Value::F64(r)) => Value::F64(l.$op(r)),
                 _ => {
                     return Err(eyre::eyre!(
                         "cannot {} {} and {}",
@@ -737,19 +737,19 @@ impl CPU {
     impl_op_num_binary!(op_div, div);
     impl_op_num_binary!(op_rem, rem);
 
-    pub fn op_neg(&mut self, ty: CPUType) -> Result<StepOutcome> {
-        let v: CPUValue = self.stack_pop()?;
+    pub fn op_neg(&mut self, ty: Type) -> Result<StepOutcome> {
+        let v: Value = self.stack_pop()?;
         if v.type_of() != ty {
             return Err(eyre::eyre!(format!(
-                "CPUType mismatch, expected {:?} got {:?}",
+                "Type mismatch, expected {:?} got {:?}",
                 ty,
                 v.type_of()
             )));
         }
 
         let output = match v {
-            CPUValue::I64(i) => CPUValue::I64(-i),
-            CPUValue::F64(f) => CPUValue::F64(-f),
+            Value::I64(i) => Value::I64(-i),
+            Value::F64(f) => Value::F64(-f),
             _ => return Err(eyre::eyre!(format!("cannot negate {}", v.type_of()))),
         };
         self.stack.push(output);
@@ -759,12 +759,12 @@ impl CPU {
 
 macro_rules! impl_op_shift {
     ($name:ident, $op:ident) => {
-        pub fn $name(&mut self, ty: CPUType) -> Result<StepOutcome> {
-            let rhs: CPUValue = self.stack_pop()?;
-            let lhs: CPUValue = self.stack_pop()?;
+        pub fn $name(&mut self, ty: Type) -> Result<StepOutcome> {
+            let rhs: Value = self.stack_pop()?;
+            let lhs: Value = self.stack_pop()?;
             if lhs.type_of() != ty {
                 return Err(eyre::eyre!(
-                    "CPUType mismatch, expected {} got {} for lhs",
+                    "Type mismatch, expected {} got {} for lhs",
                     ty,
                     lhs.type_of()
                 ));
@@ -772,15 +772,15 @@ macro_rules! impl_op_shift {
 
             if rhs.type_of() != ty {
                 return Err(eyre::eyre!(
-                    "CPUType mismatch, expected {} got {} for rhs",
+                    "Type mismatch, expected {} got {} for rhs",
                     ty,
                     rhs.type_of()
                 ));
             }
             let output = match (lhs, rhs) {
-                (CPUValue::I64(l), CPUValue::I64(r)) => CPUValue::I64(l.$op(r)),
-                (CPUValue::U32(l), CPUValue::U32(r)) => CPUValue::U32(l.$op(r)),
-                (CPUValue::U64(l), CPUValue::U64(r)) => CPUValue::U64(l.$op(r)),
+                (Value::I64(l), Value::I64(r)) => Value::I64(l.$op(r)),
+                (Value::U32(l), Value::U32(r)) => Value::U32(l.$op(r)),
+                (Value::U64(l), Value::U64(r)) => Value::U64(l.$op(r)),
                 _ => {
                     return Err(eyre::eyre!(format!(
                         "cannot {} {} and {}",
@@ -803,28 +803,28 @@ impl CPU {
 
 macro_rules! impl_op_rotate {
     ($name:ident, $op:ident) => {
-        pub fn $name(&mut self, ty: CPUType) -> Result<StepOutcome> {
-            let rhs: CPUValue = self.stack_pop()?;
-            let lhs: CPUValue = self.stack_pop()?;
+        pub fn $name(&mut self, ty: Type) -> Result<StepOutcome> {
+            let rhs: Value = self.stack_pop()?;
+            let lhs: Value = self.stack_pop()?;
             if lhs.type_of() != ty {
                 return Err(eyre::eyre!(
-                    "CPUType mismatch, expected {} got {} for lhs",
+                    "Type mismatch, expected {} got {} for lhs",
                     ty,
                     lhs.type_of()
                 ));
             }
 
-            if rhs.type_of() != CPUType::U32 {
+            if rhs.type_of() != Type::U32 {
                 return Err(eyre::eyre!(
-                    "CPUType mismatch, expected {} got {} for rhs",
-                    CPUType::U32,
+                    "Type mismatch, expected {} got {} for rhs",
+                    Type::U32,
                     rhs.type_of()
                 ));
             }
             let output = match (lhs, rhs) {
-                (CPUValue::I64(l), CPUValue::U32(r)) => CPUValue::I64(l.$op(r)),
-                (CPUValue::U32(l), CPUValue::U32(r)) => CPUValue::U32(l.$op(r)),
-                (CPUValue::U64(l), CPUValue::U32(r)) => CPUValue::U64(l.$op(r)),
+                (Value::I64(l), Value::U32(r)) => Value::I64(l.$op(r)),
+                (Value::U32(l), Value::U32(r)) => Value::U32(l.$op(r)),
+                (Value::U64(l), Value::U32(r)) => Value::U64(l.$op(r)),
                 _ => {
                     return Err(eyre::eyre!(format!(
                         "cannot {} {} and {}",
@@ -847,12 +847,12 @@ impl CPU {
 
 macro_rules! impl_op_bitwise {
     ($name:ident, $op:ident) => {
-        pub fn $name(&mut self, ty: CPUType) -> Result<StepOutcome> {
-            let rhs: CPUValue = self.stack_pop()?;
-            let lhs: CPUValue = self.stack_pop()?;
+        pub fn $name(&mut self, ty: Type) -> Result<StepOutcome> {
+            let rhs: Value = self.stack_pop()?;
+            let lhs: Value = self.stack_pop()?;
             if lhs.type_of() != ty {
                 return Err(eyre::eyre!(
-                    "CPUType mismatch, expected {} got {} for lhs",
+                    "Type mismatch, expected {} got {} for lhs",
                     ty,
                     lhs.type_of()
                 ));
@@ -860,15 +860,15 @@ macro_rules! impl_op_bitwise {
 
             if rhs.type_of() != ty {
                 return Err(eyre::eyre!(
-                    "CPUType mismatch, expected {} got {} for rhs",
+                    "Type mismatch, expected {} got {} for rhs",
                     ty,
                     rhs.type_of()
                 ));
             }
             let output = match (lhs, rhs) {
-                (CPUValue::I64(l), CPUValue::I64(r)) => CPUValue::I64(l.$op(r)),
-                (CPUValue::U32(l), CPUValue::U32(r)) => CPUValue::U32(l.$op(r)),
-                (CPUValue::U64(l), CPUValue::U64(r)) => CPUValue::U64(l.$op(r)),
+                (Value::I64(l), Value::I64(r)) => Value::I64(l.$op(r)),
+                (Value::U32(l), Value::U32(r)) => Value::U32(l.$op(r)),
+                (Value::U64(l), Value::U64(r)) => Value::U64(l.$op(r)),
                 _ => {
                     return Err(eyre::eyre!(format!(
                         "cannot {} {} and {}",
@@ -916,12 +916,12 @@ impl CPU {
 
 macro_rules! impl_eq {
     ($name:ident, $op:ident) => {
-        pub fn $name(&mut self, ty: CPUType) -> Result<StepOutcome> {
-            let rhs: CPUValue = self.stack_pop()?;
-            let lhs: CPUValue = self.stack_pop()?;
+        pub fn $name(&mut self, ty: Type) -> Result<StepOutcome> {
+            let rhs: Value = self.stack_pop()?;
+            let lhs: Value = self.stack_pop()?;
             if lhs.type_of() != ty {
                 return Err(eyre::eyre!(
-                    "CPUType mismatch, expected {} got {} for lhs",
+                    "Type mismatch, expected {} got {} for lhs",
                     ty,
                     lhs.type_of()
                 ));
@@ -929,7 +929,7 @@ macro_rules! impl_eq {
 
             if rhs.type_of() != ty {
                 return Err(eyre::eyre!(
-                    "CPUType mismatch, expected {} got {} for rhs",
+                    "Type mismatch, expected {} got {} for rhs",
                     ty,
                     rhs.type_of()
                 ));
@@ -948,12 +948,12 @@ impl CPU {
 
 macro_rules! impl_ordering {
     ($name:ident, $op:ident) => {
-        pub fn $name(&mut self, ty: CPUType) -> Result<StepOutcome> {
-            let rhs: CPUValue = self.stack_pop()?;
-            let lhs: CPUValue = self.stack_pop()?;
+        pub fn $name(&mut self, ty: Type) -> Result<StepOutcome> {
+            let rhs: Value = self.stack_pop()?;
+            let lhs: Value = self.stack_pop()?;
             if lhs.type_of() != ty {
                 return Err(eyre::eyre!(
-                    "CPUType mismatch, expected {} got {} for lhs",
+                    "Type mismatch, expected {} got {} for lhs",
                     ty,
                     lhs.type_of()
                 ));
@@ -961,18 +961,18 @@ macro_rules! impl_ordering {
 
             if rhs.type_of() != ty {
                 return Err(eyre::eyre!(
-                    "CPUType mismatch, expected {} got {} for rhs",
+                    "Type mismatch, expected {} got {} for rhs",
                     ty,
                     rhs.type_of()
                 ));
             }
 
             let output = match (lhs, rhs) {
-                (CPUValue::Bool(l), CPUValue::Bool(r)) => l.$op(&r),
-                (CPUValue::I64(l), CPUValue::I64(r)) => l.$op(&r),
-                (CPUValue::U32(l), CPUValue::U32(r)) => l.$op(&r),
-                (CPUValue::U64(l), CPUValue::U64(r)) => l.$op(&r),
-                (CPUValue::F64(l), CPUValue::F64(r)) => l.$op(&r),
+                (Value::Bool(l), Value::Bool(r)) => l.$op(&r),
+                (Value::I64(l), Value::I64(r)) => l.$op(&r),
+                (Value::U32(l), Value::U32(r)) => l.$op(&r),
+                (Value::U64(l), Value::U64(r)) => l.$op(&r),
+                (Value::F64(l), Value::F64(r)) => l.$op(&r),
                 _ => {
                     return Err(eyre::eyre!(format!(
                         "cannot compare {} and {}",

@@ -3,7 +3,7 @@
 
 use std::marker::PhantomData;
 
-use chumsky::{IterParser, Parser, primitive::just};
+use chumsky::{primitive::just, IterParser, Parser};
 use vihaco_parser::Parse;
 use vihaco_parser_core::Parse as ParseTrait;
 
@@ -18,8 +18,8 @@ where
 struct Operand(String);
 
 impl<'src> ParseTrait<'src> for Operand {
-    fn parser()
-    -> impl Parser<'src, &'src str, Self, chumsky::extra::Err<chumsky::error::Simple<'src, char>>>
+    fn parser(
+    ) -> impl Parser<'src, &'src str, Self, chumsky::extra::Err<chumsky::error::Simple<'src, char>>>
     {
         vihaco_parser_core::ident().map(Operand)
     }
@@ -312,8 +312,8 @@ fn instruction_list_rejects_a_bad_instruction_without_losing_neighbors() {
 struct Marker<'a>(PhantomData<&'a ()>);
 
 impl<'src, 'a> ParseTrait<'src> for Marker<'a> {
-    fn parser()
-    -> impl Parser<'src, &'src str, Self, chumsky::extra::Err<chumsky::error::Simple<'src, char>>>
+    fn parser(
+    ) -> impl Parser<'src, &'src str, Self, chumsky::extra::Err<chumsky::error::Simple<'src, char>>>
     {
         just("marker").to(Marker(PhantomData))
     }

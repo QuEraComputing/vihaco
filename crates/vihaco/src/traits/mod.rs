@@ -8,7 +8,7 @@ mod machine;
 
 pub use encoding::{FromBytes, FromBytesWithOpcode, FromText, WriteBytes};
 pub use event_sink::EffectSink;
-pub use instruction::{ByteWidth, Instruction, OpCode};
+pub use instruction::{Instruction, OpCode};
 pub use machine::{FrameMemory, GetProgramInfo, ProgramCounter, StackFrame, StackMemory, Stdout};
 
 pub trait Reset {

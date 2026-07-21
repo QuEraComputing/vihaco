@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+use vihaco::value::Value;
 use vihaco::{
-    CPUValue,
     frame::Frame,
     traits::{FrameMemory, StackFrame, StackMemory},
 };
@@ -11,14 +11,14 @@ use vihaco::{
 pub struct CPU {
     pub(crate) frames: Vec<Frame>,
     pub(crate) heap: Heap,
-    pub(crate) stack: Vec<CPUValue>,
+    pub(crate) stack: Vec<Value>,
     pub(crate) span: (u32, u32, u32),
     pub(crate) pending_pc: Option<u32>,
     pub(crate) current_pc: u32,
-    pub(crate) return_values: Vec<CPUValue>,
+    pub(crate) return_values: Vec<Value>,
 }
 
-type HeapSlot = Option<Box<[CPUValue]>>;
+type HeapSlot = Option<Box<[Value]>>;
 
 #[derive(Debug, Clone, Default)]
 pub struct Heap {
@@ -27,7 +27,7 @@ pub struct Heap {
 }
 
 impl Heap {
-    pub fn alloc(&mut self, values: Box<[CPUValue]>) -> u32 {
+    pub fn alloc(&mut self, values: Box<[Value]>) -> u32 {
         if let Some(id) = self.free_list.pop() {
             self.slots[id as usize] = Some(values);
             id
@@ -53,7 +53,7 @@ impl Heap {
         }
     }
 
-    pub fn get(&self, id: u32) -> eyre::Result<&[CPUValue]> {
+    pub fn get(&self, id: u32) -> eyre::Result<&[Value]> {
         match self.slots.get(id as usize) {
             Some(Some(v)) => Ok(v),
             Some(None) => Err(eyre::eyre!("heap object {} has been deallocated", id)),
@@ -73,7 +73,7 @@ impl Heap {
 }
 
 impl StackMemory for CPU {
-    type Value = CPUValue;
+    type Value = Value;
 
     fn stack(&self) -> &Vec<Self::Value> {
         &self.stack
@@ -157,7 +157,7 @@ impl FrameMemory for CPU {
         let len = self.stack.len();
 
         if len <= idx {
-            self.stack.resize(idx + 1, CPUValue::Undefined);
+            self.stack.resize(idx + 1, Value::Undefined);
         }
         self.stack
             .get_mut(idx)
@@ -166,11 +166,11 @@ impl FrameMemory for CPU {
 }
 
 impl CPU {
-    pub fn push_heap_object(&mut self, values: Box<[CPUValue]>) -> u32 {
+    pub fn push_heap_object(&mut self, values: Box<[Value]>) -> u32 {
         self.heap.alloc(values)
     }
 
-    pub fn heap_object(&self, id: u32) -> eyre::Result<&[CPUValue]> {
+    pub fn heap_object(&self, id: u32) -> eyre::Result<&[Value]> {
         self.heap.get(id)
     }
 
@@ -194,11 +194,11 @@ impl CPU {
         self.current_pc = pc;
     }
 
-    pub fn return_values(&self) -> &[CPUValue] {
+    pub fn return_values(&self) -> &[Value] {
         &self.return_values
     }
 
-    pub fn set_return_values(&mut self, values: Vec<CPUValue>) {
+    pub fn set_return_values(&mut self, values: Vec<Value>) {
         self.return_values = values;
     }
 }
