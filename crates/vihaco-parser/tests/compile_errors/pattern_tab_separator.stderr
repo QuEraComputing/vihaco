@@ -1,0 +1,5 @@
+error: invalid pattern: found '    ' expected identifier, ' ', or end of input
+ --> tests/compile_errors/pattern_tab_separator.rs:9:17
+  |
+9 |     #[pattern = "'load\t$0"]
+  |                 ^^^^^^^^^^^

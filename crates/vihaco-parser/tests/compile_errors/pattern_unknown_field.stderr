@@ -1,0 +1,5 @@
+error: binding name "other" doesn't exist in field
+ --> tests/compile_errors/pattern_unknown_field.rs:8:13
+  |
+8 | #[pattern = "$left $other"]
+  |             ^^^^^^^^^^^^^^

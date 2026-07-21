@@ -1,0 +1,5 @@
+error: `#[parse_with]` is a legacy parser attribute and cannot be combined with #[syntax_class]
+ --> tests/compile_errors/pattern_with_legacy_parse_with.rs:9:12
+  |
+9 |     Number(#[parse_with = "custom_parser"] i64),
+  |            ^

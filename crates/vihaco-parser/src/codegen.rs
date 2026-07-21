@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 use crate::{
-    attr::{EnumAttrs, FieldAttrs, PatternInfo, StructAttrs, SyntaxClassAttr, VariantAttrs},
+    attr::{EnumAttrs, PatternInfo, StructAttrs, SyntaxClassAttr, VariantAttrs},
     codegen::{
         BindingRef::{Field, Index},
         PatternAtom::{Binding, Literal, Token},
@@ -26,7 +26,7 @@ use std::{
 };
 use syn::{
     Attribute, Data, DeriveInput, Error, Fields, FieldsNamed, FieldsUnnamed, Generics, Ident,
-    Lifetime, Result, Type, spanned::Spanned,
+    Lifetime, Result, Type, ext::IdentExt, spanned::Spanned,
 };
 
 #[derive(PartialEq)]
@@ -299,6 +299,10 @@ fn validate_pattern_unnamed<'p, 'src>(
     parsed: ParsedPatternInfo<'p, 'src>,
     fields: &FieldsUnnamed,
 ) -> eyre::Result<ValidatedPatternInfo<'p>> {
+    if parsed.pattern.contains_any_field_binding() {
+        return Err(eyre::eyre!("expected index binding for tuple fields"));
+    }
+
     let bindings: Vec<u32> = parsed.pattern.index_bindings().collect();
     let num_indices = parsed.fields.len();
     let mut has_n: Vec<bool> = vec![false; num_indices];
@@ -338,6 +342,7 @@ fn validate_pattern_unnamed<'p, 'src>(
                 ty: ty.clone(),
                 name: None,
                 binding,
+                constructor_position: index as usize,
             })
         }
         Field(_) => Err(eyre::eyre!("expected index binding for tuple fields")),
@@ -354,12 +359,18 @@ fn validate_pattern_named<'p, 'src>(
     parsed: ParsedPatternInfo<'p, 'src>,
     fields: &FieldsNamed,
 ) -> eyre::Result<ValidatedPatternInfo<'p>> {
+    if parsed.pattern.contains_any_index_binding() {
+        return Err(eyre::eyre!("expected field binding for named fields"));
+    }
+
     let bindings: Vec<&'p str> = parsed.pattern.field_bindings().collect();
 
     let types = named_types(fields);
 
-    let mut has_name: HashMap<String, bool> =
-        types.keys().map(|t| (t.to_string(), false)).collect();
+    let mut has_name: HashMap<String, bool> = types
+        .keys()
+        .map(|ident| (ident.unraw().to_string(), false))
+        .collect();
 
     for binding in bindings {
         let Some(slot) = has_name.get_mut(binding) else {
@@ -382,16 +393,17 @@ fn validate_pattern_named<'p, 'src>(
 
     let resolved = parsed.pattern.resolve(|b| match b {
         Field(name) => {
-            let ident = Ident::new(name, proc_macro2::Span::call_site());
-            let ty = *types
-                .get(&ident)
+            let (ident, ty) = types
+                .iter()
+                .find(|(ident, _)| ident.unraw() == name)
                 .ok_or_else(|| eyre::eyre!("binding name \"{}\" doesn't exist in field", name))?;
             let binding = format_ident!("__vihaco_field_{name}");
 
             Ok(ResolvedBinding {
-                ty: ty.clone(),
-                name: Some(ident.clone()),
+                ty: (*ty).clone(),
+                name: Some((*ident).clone()),
                 binding,
+                constructor_position: 0,
             })
         }
         Index(_) => Err(eyre::eyre!("expected field binding for named fields")),
@@ -451,6 +463,7 @@ struct ResolvedBinding {
     ty: Type,
     name: Option<Ident>,
     binding: Ident,
+    constructor_position: usize,
 }
 
 enum ConstructorType {
@@ -474,6 +487,7 @@ enum ParserPart {
         parser: TokenStream2,
         name: Option<Ident>,
         binding: Ident,
+        constructor_position: usize,
     },
 }
 
@@ -493,13 +507,19 @@ fn build_parser_syntax_parts(
                     suppresses_trailing_whitespace: false,
                 });
             }
-            Binding(ResolvedBinding { ty, name, binding }) => {
+            Binding(ResolvedBinding {
+                ty,
+                name,
+                binding,
+                constructor_position,
+            }) => {
                 parts.push(ParserPart::Capture {
                     parser: quote! {
                         <#ty as ::vihaco_parser_core::Parse>::parser()
                     },
                     name,
                     binding,
+                    constructor_position,
                 });
             }
             Literal(literal) => {
@@ -528,7 +548,7 @@ impl<'p> ValidatedPatternInfo<'p> {
         let mut pattern = None::<TokenStream2>;
         let mut bindings = Vec::<Ident>::new();
         let mut previous_suppresses_trailing_whitespace = false;
-        let mut constructor_fields = Vec::<(Option<Ident>, Ident)>::new();
+        let mut constructor_fields = Vec::<(usize, Option<Ident>, Ident)>::new();
 
         let ws = quote! { .then_ignore(::chumsky::primitive::just(' ').repeated().at_least(1)) };
 
@@ -560,6 +580,7 @@ impl<'p> ValidatedPatternInfo<'p> {
                     parser,
                     name,
                     binding,
+                    constructor_position,
                 } => {
                     chain = Some(match chain {
                         Some(chain)
@@ -586,7 +607,7 @@ impl<'p> ValidatedPatternInfo<'p> {
                     previous_suppresses_trailing_whitespace = false;
 
                     bindings.push(binding.clone());
-                    constructor_fields.push((name, binding.clone()));
+                    constructor_fields.push((constructor_position, name, binding.clone()));
 
                     pattern = Some(match pattern {
                         Some(pattern) => quote! { (#pattern, #binding) },
@@ -609,7 +630,7 @@ impl<'p> ValidatedPatternInfo<'p> {
             let pattern = pattern.expect("capture pattern exists when bindings exist");
             match self.constructor {
                 ConstructorType::Named => {
-                    let fields = constructor_fields.iter().map(|(name, binding)| {
+                    let fields = constructor_fields.iter().map(|(_, name, binding)| {
                         let name = name
                             .as_ref()
                             .expect("named constructor bindings have field names");
@@ -618,7 +639,9 @@ impl<'p> ValidatedPatternInfo<'p> {
                     quote! { .map(|#pattern| #constructor { #(#fields),* }) }
                 }
                 ConstructorType::Unnamed => {
-                    quote! { .map(|#pattern| #constructor(#(#bindings),*)) }
+                    constructor_fields.sort_by_key(|(position, _, _)| *position);
+                    let fields = constructor_fields.iter().map(|(_, _, binding)| binding);
+                    quote! { .map(|#pattern| #constructor(#(#fields),*)) }
                 }
             }
         };
@@ -697,7 +720,7 @@ fn generate_pattern<'src>(
             let pattern = f
                 .named
                 .iter()
-                .map(|f| format!("${}", f.ident.as_ref().expect("they're named")))
+                .map(|f| format!("${}", f.ident.as_ref().expect("they're named").unraw()))
                 .collect::<Vec<_>>()
                 .join(" `,` ");
 
@@ -734,7 +757,7 @@ fn compile_pattern_parser(
     info: PatternCompilationInfo,
     decl_span: Span,
     variant_span: Span,
-) -> Result<(Ident, TokenStream2)> {
+) -> Result<(Ident, TokenStream2, Option<String>)> {
     let Some(class) = info.class else {
         return Err(Error::new(
             decl_span,
@@ -750,9 +773,14 @@ fn compile_pattern_parser(
             fields: info.fields.clone(),
         };
 
-        info.parse()
-            .and_then(ValidatedPatternInfo::emit)
-            .map_err(|err| Error::new(span, err.to_string()))
+        let validated = info
+            .parse()
+            .map_err(|err| Error::new(span, err.to_string()))?;
+        let instruction_token = validated.pattern.contains_token().map(str::to_owned);
+        let (ident, parser) = validated
+            .emit()
+            .map_err(|err| Error::new(span, err.to_string()))?;
+        Ok((ident, parser, instruction_token))
     } else {
         let new_info = generate_pattern(info, variant_span)
             .map_err(|err| Error::new(variant_span, err.to_string()))?;
@@ -760,10 +788,86 @@ fn compile_pattern_parser(
     }
 }
 
+const LEGACY_PARSER_ATTRIBUTES: &[&str] =
+    &["head", "token", "delimiters", "delegate", "parse_with"];
+
+fn reject_attributes(attrs: &[Attribute], incompatible: &[&str], message: &str) -> Result<()> {
+    if let Some(attr) = attrs
+        .iter()
+        .find(|attr| incompatible.iter().any(|name| attr.path().is_ident(name)))
+    {
+        let name = attr
+            .path()
+            .get_ident()
+            .expect("incompatible parser attributes have single-segment paths");
+        return Err(Error::new(attr.span(), format!("`#[{name}]` {message}")));
+    }
+
+    Ok(())
+}
+
+fn reject_legacy_attributes_on_enum(input: &EnumInfo<'_>) -> Result<()> {
+    let message = "is a legacy parser attribute and cannot be combined with #[syntax_class]";
+    reject_attributes(input.attrs, LEGACY_PARSER_ATTRIBUTES, message)?;
+
+    for variant in &input.data.variants {
+        reject_attributes(&variant.attrs, LEGACY_PARSER_ATTRIBUTES, message)?;
+        for field in &variant.fields {
+            reject_attributes(&field.attrs, LEGACY_PARSER_ATTRIBUTES, message)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn reject_pattern_attributes_on_legacy_enum(input: &EnumInfo<'_>) -> Result<()> {
+    fn reject_new_attributes(attrs: &[Attribute]) -> Result<()> {
+        if let Some(pattern) = attrs.iter().find(|attr| attr.path().is_ident("pattern")) {
+            return Err(Error::new(
+                pattern.span(),
+                "#[pattern] requires a #[syntax_class] on the enum definition",
+            ));
+        }
+
+        if let Some(syntax_class) = attrs
+            .iter()
+            .find(|attr| attr.path().is_ident("syntax_class"))
+        {
+            return Err(Error::new(
+                syntax_class.span(),
+                "#[syntax_class] must be placed on the enum definition",
+            ));
+        }
+
+        Ok(())
+    }
+
+    reject_new_attributes(input.attrs)?;
+    for variant in &input.data.variants {
+        reject_new_attributes(&variant.attrs)?;
+        for field in &variant.fields {
+            reject_new_attributes(&field.attrs)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn reject_legacy_attributes_on_struct(input: &StructInfo<'_>) -> Result<()> {
+    let message = "is a legacy parser attribute and cannot be combined with #[syntax_class]";
+    reject_attributes(input.attrs, LEGACY_PARSER_ATTRIBUTES, message)?;
+    for field in &input.data.fields {
+        reject_attributes(&field.attrs, LEGACY_PARSER_ATTRIBUTES, message)?;
+    }
+
+    Ok(())
+}
+
 fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
     let enum_ident = &input.ident;
     let enum_attrs = EnumAttrs::from_attrs(input.attrs)?;
     if enum_attrs.syntax_class.is_none() {
+        reject_pattern_attributes_on_legacy_enum(&input)?;
         return crate::legacy_codegen::expand_enum(
             input.data,
             input.ident,
@@ -771,6 +875,7 @@ fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
             input.generics,
         );
     }
+    reject_legacy_attributes_on_enum(&input)?;
     let src_lifetime = fresh_lifetime(input.generics, "__vihaco_src");
 
     let data = input.data;
@@ -783,26 +888,9 @@ fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
     }
 
     // Parse all variant attrs + compute tokens
-    let mut variant_data: Vec<(Ident, TokenStream2)> = vec![];
+    let mut variant_data: Vec<(Ident, TokenStream2, Option<String>)> = vec![];
     for variant in &data.variants {
         let vattrs = VariantAttrs::from_variant(variant)?;
-        let field_attrs: Vec<FieldAttrs> = variant
-            .fields
-            .iter()
-            .map(FieldAttrs::from_field)
-            .collect::<Result<_>>()?;
-
-        // Validate: #[parse_with] on a #[delegate] variant
-        if vattrs.delegate {
-            for fa in &field_attrs {
-                if fa.parse_with.is_some() {
-                    return Err(Error::new(
-                        vattrs.delegate_span.unwrap(),
-                        "#[delegate] cannot be combined with #[parse_with] on a field",
-                    ));
-                }
-            }
-        }
 
         let pattern_compilation_info = PatternCompilationInfo {
             fields: &variant.fields,
@@ -819,6 +907,12 @@ fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
         variant_data.push(ident_and_parser);
     }
 
+    // A parser such as `just("v2")` succeeds on the prefix of `v25`. Since
+    // end-of-input (or a list separator) lives outside the instruction parser,
+    // shorter alternatives must not shadow longer instruction tokens.
+    variant_data
+        .sort_by_key(|(_, _, token)| std::cmp::Reverse(token.as_ref().map_or(0, String::len)));
+
     let parser_generics = generics_with_lifetime(input.generics, &src_lifetime);
     let (impl_generics, _, where_clause) = parser_generics.split_for_impl();
     let (_, ty_generics, _) = input.generics.split_for_impl();
@@ -828,8 +922,8 @@ fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
     // chumsky's tuple `choice` is flat but only implemented up to 26 elements.
     // Above that, group variants into inner tuple choices and wrap those in an
     // outer tuple choice, keeping the type shallow without boxing.
-    let var_names: Vec<&Ident> = variant_data.iter().map(|(n, _)| n).collect();
-    let variant_bindings: Vec<&TokenStream2> = variant_data.iter().map(|(_, b)| b).collect();
+    let var_names: Vec<&Ident> = variant_data.iter().map(|(n, _, _)| n).collect();
+    let variant_bindings: Vec<&TokenStream2> = variant_data.iter().map(|(_, b, _)| b).collect();
     let or_chain = if variant_data.len() == 1 {
         // chumsky's `choice` is only impl'd for tuples of size 2..=26;
         // a single-variant enum just yields its sole binding directly.
@@ -841,8 +935,12 @@ fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
         let chunks: Vec<TokenStream2> = var_names
             .chunks(26)
             .map(|chunk| {
-                let parts = chunk.iter();
-                quote! { ::chumsky::primitive::choice((#(#parts),*)) }
+                if let [only] = chunk {
+                    quote! { #only }
+                } else {
+                    let parts = chunk.iter();
+                    quote! { ::chumsky::primitive::choice((#(#parts),*)) }
+                }
             })
             .collect();
         quote! { ::chumsky::primitive::choice((#(#chunks),*)) }
@@ -880,11 +978,22 @@ fn expand_struct(input: StructInfo) -> Result<TokenStream> {
     let struct_ident = input.ident;
     let struct_attrs = StructAttrs::from_attrs(input.attrs)?;
     if struct_attrs.syntax_class.is_none() {
+        if let Some(pattern) = input
+            .attrs
+            .iter()
+            .find(|attr| attr.path().is_ident("pattern"))
+        {
+            return Err(Error::new(
+                pattern.span(),
+                "#[pattern] requires a #[syntax_class] on the struct definition",
+            ));
+        }
         return Err(Error::new_spanned(
             struct_ident,
             "#[derive(Parse)] on a struct requires a #[syntax_class(...)] attribute",
         ));
     }
+    reject_legacy_attributes_on_struct(&input)?;
 
     let src_lifetime = fresh_lifetime(input.generics, "__vihaco_src");
 
@@ -898,7 +1007,7 @@ fn expand_struct(input: StructInfo) -> Result<TokenStream> {
     };
 
     let span = struct_ident.span();
-    let (ident, parser) = compile_pattern_parser(pattern_compilation_info, span, span)?;
+    let (ident, parser, _) = compile_pattern_parser(pattern_compilation_info, span, span)?;
 
     let parser_generics = generics_with_lifetime(input.generics, &src_lifetime);
     let (impl_generics, _, where_clause) = parser_generics.split_for_impl();

@@ -1,0 +1,5 @@
+error: invalid pattern: found end of input expected ''', '$', or '`'
+ --> tests/compile_errors/pattern_trailing_space.rs:9:17
+  |
+9 |     #[pattern = "'load "]
+  |                 ^^^^^^^^

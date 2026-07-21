@@ -1,0 +1,5 @@
+error: values without patterns must have at most one field
+ --> tests/compile_errors/pattern_value_multiple_fields_requires_explicit.rs:8:8
+  |
+8 | struct Value(i64, bool);
+  |        ^^^^^

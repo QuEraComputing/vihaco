@@ -1,0 +1,5 @@
+error: duplicate binding "left" in pattern
+ --> tests/compile_errors/pattern_duplicate_field.rs:8:13
+  |
+8 | #[pattern = "$left $left"]
+  |             ^^^^^^^^^^^^^
