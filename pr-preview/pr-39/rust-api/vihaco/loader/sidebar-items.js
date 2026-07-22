@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["LoadInput","ModuleProgramLoader","ProgramLoader"],"trait":["LoadSection"]};
+window.SIDEBAR_ITEMS = {"struct":["ProgramImage"],"trait":["LoadBytecodeSection","LoadOwnBytecodeSection","LoadOwnSstSection","LoadSstSection"]};

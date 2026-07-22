@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["impls"],"trait":["Parse"]};
+window.SIDEBAR_ITEMS = {"mod":["container","impls"],"trait":["Parse"]};
