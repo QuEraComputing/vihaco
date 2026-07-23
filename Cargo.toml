@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.2.0"
 license = "MIT"
 repository = "https://github.com/QuEraComputing/vihaco"
 authors = [
@@ -20,8 +20,8 @@ authors = [
 ]
 
 [workspace.dependencies]
-vihaco            = { version = "0.1.1", path = "crates/vihaco" }
-vihaco-cpu        = { version = "0.1.1", path = "crates/vihaco-cpu" }
-vihaco-derive     = { version = "0.1.1", path = "crates/vihaco-derive" }
-vihaco-parser     = { version = "0.1.1", path = "crates/vihaco-parser" }
-vihaco-parser-core = { version = "0.1.1", path = "crates/vihaco-parser-core" }
+vihaco            = { version = "0.2.0", path = "crates/vihaco" }
+vihaco-cpu        = { version = "0.2.0", path = "crates/vihaco-cpu" }
+vihaco-derive     = { version = "0.2.0", path = "crates/vihaco-derive" }
+vihaco-parser     = { version = "0.2.0", path = "crates/vihaco-parser" }
+vihaco-parser-core = { version = "0.2.0", path = "crates/vihaco-parser-core" }

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/QuEraComputing/vihaco/compare/vihaco-cpu-v0.1.1...vihaco-cpu-v0.2.0) - 2026-07-23
+
+### Other
+
+- Refactor multi-section implementation ([#37](https://github.com/QuEraComputing/vihaco/pull/37))
+- Multi-section bytecode support ([#31](https://github.com/QuEraComputing/vihaco/pull/31))
+
 ## [0.1.1](https://github.com/QuEraComputing/vihaco/releases/tag/vihaco-cpu-v0.1.1) - 2026-06-22
 
 ### Other
