@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["VERSION"],"fn":["parse_file"]};
