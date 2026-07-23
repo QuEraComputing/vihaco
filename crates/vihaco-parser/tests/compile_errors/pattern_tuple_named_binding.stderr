@@ -1,0 +1,5 @@
+error: expected index binding for tuple fields
+ --> tests/compile_errors/pattern_tuple_named_binding.rs:9:17
+  |
+9 |     #[pattern = "'pair $left $right"]
+  |                 ^^^^^^^^^^^^^^^^^^^^

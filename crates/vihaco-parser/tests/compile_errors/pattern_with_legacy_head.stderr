@@ -1,0 +1,5 @@
+error: `#[head]` is a legacy parser attribute and cannot be combined with #[syntax_class]
+ --> tests/compile_errors/pattern_with_legacy_head.rs:8:1
+  |
+8 | #[head]
+  | ^

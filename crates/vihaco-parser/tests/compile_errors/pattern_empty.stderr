@@ -1,0 +1,5 @@
+error: pattern cannot be empty
+ --> tests/compile_errors/pattern_empty.rs:9:17
+  |
+9 |     #[pattern = ""]
+  |                 ^^

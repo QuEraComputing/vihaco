@@ -1,0 +1,5 @@
+error: #[pattern] requires a #[syntax_class] on the enum definition
+ --> tests/compile_errors/pattern_without_syntax_class.rs:9:5
+  |
+9 |     #[pattern = "$0"]
+  |     ^

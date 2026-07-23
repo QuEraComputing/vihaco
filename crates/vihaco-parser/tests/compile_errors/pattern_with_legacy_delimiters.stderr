@@ -1,0 +1,5 @@
+error: `#[delimiters]` is a legacy parser attribute and cannot be combined with #[syntax_class]
+ --> tests/compile_errors/pattern_with_legacy_delimiters.rs:9:5
+  |
+9 |     #[delimiters(open = "[", close = "]", separator = ",")]
+  |     ^

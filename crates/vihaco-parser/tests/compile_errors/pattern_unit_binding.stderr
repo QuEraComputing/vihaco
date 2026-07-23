@@ -1,0 +1,5 @@
+error: unit fields cannot have patterns with bindings
+ --> tests/compile_errors/pattern_unit_binding.rs:8:13
+  |
+8 | #[pattern = "$0"]
+  |             ^^^^

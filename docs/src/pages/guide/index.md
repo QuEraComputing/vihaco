@@ -20,9 +20,12 @@ For the type-by-type API reference, see the generated [rustdoc](/reference).
    - [Advanced Instruction Usage](/guide/instructions-advanced)
      Explicit opcodes, explicit widths, and machine-level wrapper instructions.
 2. [Parser Integration for Component Instructions](/guide/parser)
-   The main parser-authoring workflow: `#[derive(vihaco_parser::Parse)]` on the
-   instruction enum, the head/token/delimiters/parse_with attributes, and the
-   `Parse` trait from `vihaco-parser-core`.
+   The `Parse` trait and the legacy parser attributes retained for existing
+   instruction enums.
+   - [Pattern Parser Generator](/guide/parser-patterns)
+     The recommended parser-authoring workflow for new syntax: declarative,
+     compile-time-checked patterns for instruction, value, and type enums and
+     structs.
    - [Advanced Parser Customization](/guide/parser-advanced)
      Module-level orchestration: device headers, the `ParsedModule` two-pass
      design, `Resolve` impls, sugar expansion, string interning, and label

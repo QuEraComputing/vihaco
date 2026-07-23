@@ -2,7 +2,7 @@
 layout: ../../layouts/Guide.astro
 title: Parser Integration
 slug: parser
-description: "Derive a chumsky parser for an instruction enum with #[derive(vihaco_parser::Parse)] — the head/token/delimiters/parse_with attributes and the Parse trait."
+description: "The Parse trait and legacy head/token/delimiters/parse_with generator, retained alongside the recommended pattern parser generator."
 ---
 
 # Parser Integration for Component Instructions
@@ -10,17 +10,28 @@ description: "Derive a chumsky parser for an instruction enum with #[derive(viha
 The parser pipeline has two layers:
 
 1. **`vihaco-parser-core`** — defines the `Parse<'src>` trait and supplies blanket impls for primitives (`i64`, `u64`, `f64`, `bool`, `String`, …). Every parser in the workspace is just a `Parse` impl.
-2. **`vihaco-parser`** — proc-macro crate. The `#[derive(Parse)]` derive turns an enum into a `chumsky::Parser` that tries each variant in declaration order.
+2. **`vihaco-parser`** — proc-macro crate. The `#[derive(Parse)]` derive turns an enum or struct into a `chumsky::Parser`.
 
 If you are new to instruction enums, read [Defining Instructions With `vihaco`](/guide/instructions) first. This guide picks up where instruction definitions end and teaches the parser how to accept your source syntax.
 
-For most new work the flow is:
+There are two derive generators. For new syntax, prefer the declarative
+[`#[syntax_class]` and `#[pattern]` generator](/guide/parser-patterns). It
+supports instruction, value, and type enums and structs, validates the pattern
+against the Rust fields, and generates conventional patterns when they are
+unambiguous.
+
+The legacy attribute generator remains supported for existing instruction
+enums and for cases that need per-field `#[parse_with]`, delegation, or custom
+delimiters. Its flow is:
 
 1. Add `#[derive(vihaco_parser::Parse)]` to your `#[derive(Instruction)]` enum.
 2. Annotate the enum with `#[head]` (optional) and each variant with `#[token]` / `#[delimiters]` / `#[parse_with]` as needed.
 3. Call `<MyInstruction as Parse>::parser()` to obtain a `chumsky::Parser`.
 
-That's the whole instruction-level integration. Module-level orchestration (headers, function bodies, sugar, labels) is covered in [Advanced Parser Customization](/guide/parser-advanced).
+The two generators cannot be mixed on one type. Adding `#[syntax_class(...)]`
+selects pattern generation; without it, an enum uses the legacy generator
+documented below. Module-level orchestration (headers, function bodies, sugar,
+labels) is covered in [Advanced Parser Customization](/guide/parser-advanced).
 
 ## The `Parse` trait
 

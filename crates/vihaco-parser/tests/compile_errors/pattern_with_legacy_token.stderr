@@ -1,0 +1,5 @@
+error: `#[token]` is a legacy parser attribute and cannot be combined with #[syntax_class]
+ --> tests/compile_errors/pattern_with_legacy_token.rs:9:5
+  |
+9 |     #[token = "stop"]
+  |     ^

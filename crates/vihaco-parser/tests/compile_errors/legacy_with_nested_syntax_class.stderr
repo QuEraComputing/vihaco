@@ -1,0 +1,5 @@
+error: #[syntax_class] must be placed on the enum definition
+ --> tests/compile_errors/legacy_with_nested_syntax_class.rs:9:5
+  |
+9 |     #[syntax_class(value)]
+  |     ^

@@ -1,0 +1,5 @@
+error: index 2 is out of bounds
+ --> tests/compile_errors/pattern_index_out_of_bounds.rs:9:17
+  |
+9 |     #[pattern = "'pair $0 $2"]
+  |                 ^^^^^^^^^^^^^

@@ -58,6 +58,9 @@ mod guide_instructions_advanced {}
 #[doc = include_str!("../../../docs/src/pages/guide/parser.md")]
 mod guide_parser {}
 
+#[doc = include_str!("../../../docs/src/pages/guide/parser-patterns.md")]
+mod guide_parser_patterns {}
+
 #[doc = include_str!("../../../docs/src/pages/guide/parser-advanced.md")]
 mod guide_parser_advanced {}
 

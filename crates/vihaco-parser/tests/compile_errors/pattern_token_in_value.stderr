@@ -1,0 +1,5 @@
+error: cannot have instruction syntax 'number in value pattern
+ --> tests/compile_errors/pattern_token_in_value.rs:9:17
+  |
+9 |     #[pattern = "'number $0"]
+  |                 ^^^^^^^^^^^^

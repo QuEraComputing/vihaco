@@ -59,8 +59,10 @@ const toc = [
       <dd>
         The <code>#[derive(Parse)]</code> proc-macro. It turns an instruction
         enum into a <a href="https://github.com/zesterer/chumsky">chumsky</a>
-        parser, driven by <code>#[head]</code> / <code>#[token]</code> /
-        <code>#[delimiters]</code> / <code>#[parse_with]</code> attributes.
+        parser. New syntax uses declarative <code>#[syntax_class]</code> and
+        <code>#[pattern]</code> attributes; the legacy <code>#[head]</code> /
+        <code>#[token]</code> / <code>#[delimiters]</code> /
+        <code>#[parse_with]</code> generator remains supported.
       </dd>
       <dt><code>vihaco-parser-core</code> <span class="crate-tag">parser</span></dt>
       <dd>
@@ -146,7 +148,8 @@ eyre               = "0.6"   # vihaco APIs return eyre::Result</code></pre>
       That is the whole instruction-level surface. Module-level orchestration —
       device headers, function bodies, sugar expansion, string interning, label
       resolution — is a two-pass <code>parse → resolve</code> pipeline covered
-      in <a href={`${base}/guide/parser`}>Parser Integration</a> and
+      in <a href={`${base}/guide/parser`}>Parser Integration</a>,
+      <a href={`${base}/guide/parser-patterns`}>Pattern Parser Generator</a>, and
       <a href={`${base}/guide/parser-advanced`}>Advanced Parser Customization</a>.
     </p>
 
