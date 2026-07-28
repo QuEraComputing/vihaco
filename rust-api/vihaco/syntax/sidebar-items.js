@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["BodyItem","RawOperand"],"mod":["parse","resolve"],"struct":["Param","ParsedFunction","ParsedModule","RawForm","RawType"]};
+window.SIDEBAR_ITEMS = {"mod":["parse","resolve"],"struct":["Param","ParsedFunction","ParsedModule","SurfaceType","SurfaceValue"],"trait":["SurfaceInstruction"]};
