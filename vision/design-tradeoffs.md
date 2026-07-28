@@ -96,6 +96,30 @@ This is the default because it places each responsibility at the narrowest stabl
 boundary. Pure operations remain available through stateless executors, and cross-component
 operations deliberately use message and effect staging.
 
+## Type and Value Ownership
+
+A framework-owned `Value` enum would make heterogeneous stacks convenient, but it would turn every
+machine's guest data model into a vihaco compatibility decision. Component-owned value universes
+have the opposite problem: values crossing a stack, arithmetic unit, heap, or channel boundary
+would lose one shared identity or require pervasive adapters.
+
+The selected model leaves semantic values and types with machine and library authors:
+
+- Vihaco supplies scalar parsing, generic containers, and byte-codec infrastructure.
+- Libraries define reusable domain products such as heap or channel identifiers.
+- A machine author may define a closed carrier when its architecture requires one.
+- Components are generic over, or explicitly support, those products.
+- A composite selects concrete compatible instantiations without generating a universal carrier.
+
+This supports both `Stack<i64>` and `Stack<MachineValue>` without privileging either architecture.
+It also lets multiple composites share one data-model crate.
+
+Cross-component wiring is exact by default. Automatically casting mismatched message and effect
+types would hide whether conversion is checked, saturating, wrapping, lossy, or a bit
+reinterpretation. Resolution may insert a conversion defined by the source language, but the
+resolved runtime path records that choice explicitly. See
+[`types-and-values.md`](./types-and-values.md).
+
 ## Observability and Debugging
 
 Direct component mutation means not every state change naturally appears in the effect stream. The

@@ -7,6 +7,12 @@ elsewhere cross the composite through messages and effects:
 > Native stack operations mutate their selected stack directly. Operations owned by another domain
 > obtain stack inputs through message resolution and return stack outputs through effect handling.
 
+`V` is selected by the machine author. It may be a scalar, library newtype, or author-defined
+heterogeneous carrier; the stack does not depend on a vihaco `Value` enum. The same policy applies
+to frame storage, heaps, and channels. Compatible routes share `V` or another exact Rust boundary
+type, while conversions use explicit instructions or handlers as defined in
+[`types-and-values.md`](./types-and-values.md).
+
 ## Native Stack Instructions
 
 Operations whose semantics are entirely stack-local naturally target the stack component:
@@ -45,6 +51,11 @@ A fused `stack::Add` remains a valid architecture-specific operation:
 Both forms may coexist under distinct names or modules. Their difference is architectural rather
 than ergonomic: one isolates arithmetic semantics, while the other owns an entire stack
 transition.
+
+For a heterogeneous `Stack<MachineValue>`, runtime message resolution may extract and validate
+typed operands such as `Operands<i64>` before calling the arithmetic component. Effect handling
+then wraps `ValueResult<i64>` back into the author-defined carrier. The reusable arithmetic
+component need not know the stack representation.
 
 ## Locals and Loads
 
@@ -115,4 +126,3 @@ program-counter placement determines their destination:
 
 This makes control-flow instructions reusable across different program, cursor, frame, and driver
 representations without allowing both the machine and driver to advance the same cursor.
-

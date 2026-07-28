@@ -45,6 +45,10 @@ pattern-derived parser:
 A missing language construct is addressed by extending the pattern generator, not by introducing a
 second parser or compatibility attribute system.
 
+`#[syntax_class(instruction, ...)]` identifies a surface instruction and may generate the
+framework's surface-instruction marker. That marker is independent of the runtime bytecode
+`Instruction` contract: parsing a source product must not require an opcode, byte width, or decoder.
+
 ## Value and Type Operands
 
 The `value` and `type` syntax classes let instruction fields delegate grammar to domain types:
@@ -69,6 +73,21 @@ values declare their pattern explicitly.
 
 The instruction pattern consequently remains structural: it binds fields, while each field type
 owns its grammar.
+
+These products are author-defined. Vihaco does not supply a semantic `SurfaceValue`,
+`SurfaceType`, runtime `Value`, or runtime `Type` that every machine must use. Parser core instead
+provides fallible scalar parsers and distinct lexical helpers that authors compose into their own
+products. Identifiers, symbols, quoted strings, and unresolved literal text remain different
+shapes rather than aliases for one catch-all `String`.
+
+A parsed function's parameter and return types likewise use an author-selected surface type:
+
+```text
+ParsedModule<MachineSurfaceInstruction, MachineSurfaceType, Header>
+```
+
+The complete ownership and runtime relationship is defined in
+[`types-and-values.md`](./types-and-values.md).
 
 ## Canonical Syntax Ownership
 
@@ -108,14 +127,17 @@ algorithm.
 ## Parsing Versus Resolution
 
 Pattern parsing and module resolution are consecutive but distinct boundaries. Parsing always
-constructs a surface instruction. `Resolve<SurfaceInstruction, Header>` then uses module-wide
-context to construct runtime instructions:
+constructs a surface instruction and author-defined module type products.
+`Resolve<SurfaceInstruction, SurfaceType, Header>` then uses module-wide context to construct
+runtime instructions, constants, and runtime type metadata:
 
 - Labels and symbolic branch targets require symbol resolution.
 - Interned strings require a module interner.
 - Sugar may expand one surface instruction into several runtime instructions.
 - Overloaded forms can be separate surface instruction types.
 - Machine-specific validation may depend on headers or other section metadata.
+- Surface literals require author-defined range and invariant checks.
+- Source-language coercions must lower to explicit conversions.
 
 The full distinction is:
 
@@ -124,17 +146,17 @@ pattern parsing:
     source text -> surface instruction
 
 module resolution:
-    ParsedModule<SurfaceInstruction, Header>
-        -> Resolve<SurfaceInstruction, Header>
-        -> Module<RuntimeInstruction, ...>
+    ParsedModule<SurfaceInstruction, SurfaceType, Header>
+        -> Resolve<SurfaceInstruction, SurfaceType, Header>
+        -> Module<RuntimeInstruction, Constant, RuntimeType, Info>
 
 runtime message resolution:
     runtime instruction + machine state -> Execute<I>::Message
 ```
 
 For `ConditionalBranch`, parsing preserves `@then` and `@otherwise` as source names. Module
-resolution replaces them with `usize` program indices. Runtime message resolution may later obtain
-the condition from the operand stack, but never resolves the labels again.
+resolution replaces them with fixed-width `InstructionIndex` values. Runtime message resolution
+may later obtain the condition from the operand stack, but never resolves the labels again.
 
 ## Naming the Three Instruction Concepts
 
@@ -149,7 +171,6 @@ A consistent naming direction is:
 - `SurfaceInstruction` for the types constructed by the pattern parser.
 - `Instruction` for an individual runtime operation.
 - `MachineInstruction` or `InstructionSet` for the generated runtime sum.
-- `Resolve<SurfaceInstruction, Header>` for module lowering.
+- `Resolve<SurfaceInstruction, SurfaceType, Header>` for module lowering.
 
 The exact identifiers remain an API decision; the three roles must remain visible.
-
