@@ -1,0 +1,5 @@
+error: invalid pattern: found ' ' expected ''', '$', or '`'
+ --> tests/compile_errors/pattern_repeated_space.rs:9:17
+  |
+9 |     #[pattern = "'load  $0"]
+  |                 ^^^^^^^^^^^

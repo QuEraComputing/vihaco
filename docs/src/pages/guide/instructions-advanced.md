@@ -102,7 +102,7 @@ use vihaco_cpu as cpu;
 
 #[derive(Debug, Clone, Instruction)]
 pub enum MachineInst {
-    Cpu(cpu::Instruction),
+    Cpu(cpu::RuntimeInstruction),
     Signal(SignalInst),
 }
 ```
@@ -138,7 +138,7 @@ That means:
 
 For example, imagine:
 
-- `cpu::Instruction` is `16` bytes wide
+- `cpu::RuntimeInstruction` is `16` bytes wide
 - `SignalInst` is `8` bytes wide
 
 Then the outer machine instruction width becomes `17` bytes:
@@ -170,7 +170,7 @@ This is what makes nested instruction composition deterministic:
 
 ## What Comes Next
 
-`#[derive(Instruction)]` covers bytecode and runtime semantics; source-text parsing is owned by an orthogonal `#[derive(vihaco_parser::Parse)]` on the same enum. See [Parser Integration for Component Instructions](/guide/parser) for the parser-side workflow and [Advanced Parser Customization](/guide/parser-advanced) for module-level orchestration (headers, sugar, labels).
+`#[derive(Instruction)]` covers bytecode and runtime semantics; source-text parsing is owned by an orthogonal `#[derive(vihaco_parser::Parse)]` on the same enum. See [Parser Integration for Component Instructions](/guide/parser) for the parser-side workflow and [Advanced Parser Customization](/guide/parser-advanced) for section headers, typed function bodies, and module resolution.
 
 After defining an instruction type, the next step is usually to attach it to a component impl with `#[component(...)]`.
 

@@ -6,7 +6,7 @@ use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Rem, Shl, Shr, Sub};
 
 use crate::StepOutcome;
 use crate::data::CPU;
-use crate::instruction::Instruction;
+use crate::instruction::RuntimeInstruction;
 use vihaco::Effects;
 use vihaco::program::{Type, Value};
 use vihaco::{component, frame::Frame, traits::*};
@@ -24,9 +24,9 @@ impl Reset for CPU {
 }
 
 impl CPU {
-    pub fn execute_instruction(&mut self, inst: Instruction) -> eyre::Result<StepOutcome> {
+    pub fn execute_instruction(&mut self, inst: RuntimeInstruction) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
-        use Instruction::*;
+        use RuntimeInstruction::*;
         match inst {
             Span(file, start, end) => self.op_span(file, start, end),
             Label | FunctionStart | FunctionEnd => Ok(StepOutcome::Continue),
@@ -83,14 +83,14 @@ pub enum CPUMessage {
     Print(String),
 }
 
-#[component(instruction = Instruction, message = CPUMessage, effect = StepOutcome)]
+#[component(instruction = RuntimeInstruction, message = CPUMessage, effect = StepOutcome)]
 impl CPU {
     fn execute(
         &mut self,
-        inst: Instruction,
+        inst: RuntimeInstruction,
         msg: CPUMessage,
     ) -> eyre::Result<Effects<StepOutcome>> {
-        use Instruction::*;
+        use RuntimeInstruction::*;
         match (inst, msg) {
             (Print, CPUMessage::Print(text)) => {
                 self.stack_pop()?;
@@ -309,7 +309,7 @@ mod tests {
 
         GeneratedComponent::execute_generated(
             &mut cpu,
-            Instruction::Const(Value::I64(7)),
+            RuntimeInstruction::Const(Value::I64(7)),
             CPUMessage::None,
         )
         .unwrap();
@@ -321,11 +321,13 @@ mod tests {
     fn execute_instruction_applies_control_flow_without_action() {
         let mut cpu = CPU::default();
 
-        let branch = cpu.execute_instruction(Instruction::Branch(9)).unwrap();
+        let branch = cpu
+            .execute_instruction(RuntimeInstruction::Branch(9))
+            .unwrap();
         assert_eq!(branch, StepOutcome::Continue);
         assert_eq!(cpu.take_pending_pc(), Some(9));
 
-        let halt = cpu.execute_instruction(Instruction::Halt).unwrap();
+        let halt = cpu.execute_instruction(RuntimeInstruction::Halt).unwrap();
         assert_eq!(halt, StepOutcome::Halt);
         assert_eq!(cpu.take_pending_pc(), None);
     }
@@ -341,7 +343,9 @@ mod tests {
         });
         cpu.stack_push(Value::I64(7));
 
-        let outcome = cpu.execute_instruction(Instruction::Return(1)).unwrap();
+        let outcome = cpu
+            .execute_instruction(RuntimeInstruction::Return(1))
+            .unwrap();
 
         assert_eq!(outcome, StepOutcome::Return);
         assert_eq!(cpu.return_values(), &[Value::I64(7)]);
@@ -363,13 +367,16 @@ mod tests {
 
         // Caller would be executing `call 0, 100` at some PC; op_call sets
         // pending_pc to the callee target.
-        cpu.execute_instruction(Instruction::Call(0, 100)).unwrap();
+        cpu.execute_instruction(RuntimeInstruction::Call(0, 100))
+            .unwrap();
         assert_eq!(cpu.take_pending_pc(), Some(100));
         assert_eq!(cpu.frames[1].ret_pc, 11);
 
         // Callee returns immediately. pending_pc should be restored to the
         // instruction after the call.
-        let outcome = cpu.execute_instruction(Instruction::Return(0)).unwrap();
+        let outcome = cpu
+            .execute_instruction(RuntimeInstruction::Return(0))
+            .unwrap();
         assert_eq!(outcome, StepOutcome::Continue);
         assert_eq!(cpu.take_pending_pc(), Some(11),);
     }
@@ -392,11 +399,14 @@ mod tests {
         cpu.stack_push(Value::U32(0));
         cpu.stack_push(Value::U32(100));
 
-        cpu.execute_instruction(Instruction::IndirectCall).unwrap();
+        cpu.execute_instruction(RuntimeInstruction::IndirectCall)
+            .unwrap();
         assert_eq!(cpu.take_pending_pc(), Some(100));
         assert_eq!(cpu.frames[1].ret_pc, 11);
 
-        let outcome = cpu.execute_instruction(Instruction::Return(0)).unwrap();
+        let outcome = cpu
+            .execute_instruction(RuntimeInstruction::Return(0))
+            .unwrap();
         assert_eq!(outcome, StepOutcome::Continue);
         assert_eq!(cpu.take_pending_pc(), Some(11));
     }
@@ -424,7 +434,9 @@ mod tests {
         cpu.stack_push(Value::I64(222)); // scratch — middle
         cpu.stack_push(Value::I64(999)); // intended return value — top
 
-        let outcome = cpu.execute_instruction(Instruction::Return(1)).unwrap();
+        let outcome = cpu
+            .execute_instruction(RuntimeInstruction::Return(1))
+            .unwrap();
         assert_eq!(outcome, StepOutcome::Continue);
 
         assert_eq!(cpu.stack(), &vec![Value::I64(999)],);
@@ -437,7 +449,9 @@ mod tests {
         cpu.stack_push(Value::I64(20));
         cpu.stack_push(Value::I64(30));
 
-        let outcome = cpu.execute_instruction(Instruction::HeapAlloc(3)).unwrap();
+        let outcome = cpu
+            .execute_instruction(RuntimeInstruction::HeapAlloc(3))
+            .unwrap();
 
         assert_eq!(outcome, StepOutcome::Continue);
         assert_eq!(cpu.stack(), &vec![Value::HeapRef(0)]);
@@ -451,7 +465,9 @@ mod tests {
     fn op_heap_alloc_supports_empty_heap_objects() {
         let mut cpu = CPU::default();
 
-        let outcome = cpu.execute_instruction(Instruction::HeapAlloc(0)).unwrap();
+        let outcome = cpu
+            .execute_instruction(RuntimeInstruction::HeapAlloc(0))
+            .unwrap();
 
         assert_eq!(outcome, StepOutcome::Continue);
         assert_eq!(cpu.stack(), &vec![Value::HeapRef(0)]);
@@ -464,10 +480,13 @@ mod tests {
         cpu.stack_push(Value::I64(10));
         cpu.stack_push(Value::I64(20));
         cpu.stack_push(Value::I64(30));
-        cpu.execute_instruction(Instruction::HeapAlloc(3)).unwrap();
+        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(3))
+            .unwrap();
         cpu.stack_push(Value::U32(1));
 
-        let outcome = cpu.execute_instruction(Instruction::GetItem).unwrap();
+        let outcome = cpu
+            .execute_instruction(RuntimeInstruction::GetItem)
+            .unwrap();
 
         assert_eq!(outcome, StepOutcome::Continue);
         assert_eq!(cpu.stack(), &vec![Value::I64(20)]);
@@ -479,7 +498,9 @@ mod tests {
         cpu.stack_push(Value::I64(7));
         cpu.stack_push(Value::U32(0));
 
-        let err = cpu.execute_instruction(Instruction::GetItem).unwrap_err();
+        let err = cpu
+            .execute_instruction(RuntimeInstruction::GetItem)
+            .unwrap_err();
 
         assert!(err.to_string().contains("HeapRef"));
     }
@@ -490,7 +511,9 @@ mod tests {
         cpu.stack_push(Value::HeapRef(99));
         cpu.stack_push(Value::U32(0));
 
-        let err = cpu.execute_instruction(Instruction::GetItem).unwrap_err();
+        let err = cpu
+            .execute_instruction(RuntimeInstruction::GetItem)
+            .unwrap_err();
 
         assert!(err.to_string().contains("heap"));
     }
@@ -499,10 +522,13 @@ mod tests {
     fn op_get_item_rejects_out_of_bounds_indices() {
         let mut cpu = CPU::default();
         cpu.stack_push(Value::I64(10));
-        cpu.execute_instruction(Instruction::HeapAlloc(1)).unwrap();
+        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
+            .unwrap();
         cpu.stack_push(Value::U32(3));
 
-        let err = cpu.execute_instruction(Instruction::GetItem).unwrap_err();
+        let err = cpu
+            .execute_instruction(RuntimeInstruction::GetItem)
+            .unwrap_err();
 
         assert!(err.to_string().contains("index"));
     }
@@ -511,7 +537,8 @@ mod tests {
     fn reset_clears_heap_allocations() {
         let mut cpu = CPU::default();
         cpu.stack_push(Value::I64(10));
-        cpu.execute_instruction(Instruction::HeapAlloc(1)).unwrap();
+        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
+            .unwrap();
 
         cpu.reset();
 
@@ -521,12 +548,12 @@ mod tests {
 
     #[test]
     fn cpu_instruction_opcodes_follow_variant_order_without_explicit_attributes() {
-        assert_eq!(Instruction::Span(0, 0, 0).opcode(), 0);
-        assert_eq!(Instruction::Label.opcode(), 1);
-        assert_eq!(Instruction::FunctionStart.opcode(), 2);
-        assert_eq!(Instruction::HeapAlloc(1).opcode(), 15);
-        assert_eq!(Instruction::Const(Value::I64(1)).opcode(), 18);
-        assert_eq!(Instruction::Ge(Type::I64).opcode(), 41);
+        assert_eq!(RuntimeInstruction::Span(0, 0, 0).opcode(), 0);
+        assert_eq!(RuntimeInstruction::Label.opcode(), 1);
+        assert_eq!(RuntimeInstruction::FunctionStart.opcode(), 2);
+        assert_eq!(RuntimeInstruction::HeapAlloc(1).opcode(), 15);
+        assert_eq!(RuntimeInstruction::Const(Value::I64(1)).opcode(), 18);
+        assert_eq!(RuntimeInstruction::Ge(Type::I64).opcode(), 41);
     }
 
     #[test]
@@ -541,7 +568,7 @@ mod tests {
 
         let outcome = GeneratedComponent::execute_generated(
             &mut cpu,
-            Instruction::Const(Value::I64(99)),
+            RuntimeInstruction::Const(Value::I64(99)),
             CPUMessage::None,
         )
         .unwrap();
@@ -562,7 +589,7 @@ mod tests {
 
         let outcome = GeneratedComponent::execute_generated(
             &mut cpu,
-            Instruction::Label,
+            RuntimeInstruction::Label,
             CPUMessage::FunctionInfo {
                 arity: 2,
                 start_address: 42,
@@ -588,7 +615,7 @@ mod tests {
 
         let outcome = GeneratedComponent::execute_generated(
             &mut cpu,
-            Instruction::Print,
+            RuntimeInstruction::Print,
             CPUMessage::Print("hello".into()),
         )
         .unwrap();
@@ -608,9 +635,12 @@ mod tests {
         });
         cpu.stack_push(Value::I64(42));
 
-        let err =
-            GeneratedComponent::execute_generated(&mut cpu, Instruction::Print, CPUMessage::None)
-                .unwrap_err();
+        let err = GeneratedComponent::execute_generated(
+            &mut cpu,
+            RuntimeInstruction::Print,
+            CPUMessage::None,
+        )
+        .unwrap_err();
 
         assert!(err.to_string().contains("Print requires"));
     }
@@ -619,10 +649,12 @@ mod tests {
     fn op_heap_dealloc_marks_slot_dead() {
         let mut cpu = CPU::default();
         cpu.stack_push(Value::I64(42));
-        cpu.execute_instruction(Instruction::HeapAlloc(1)).unwrap();
+        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
+            .unwrap();
         cpu.stack_push(Value::HeapRef(0));
 
-        cpu.execute_instruction(Instruction::HeapDealloc).unwrap();
+        cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
+            .unwrap();
 
         assert!(
             cpu.heap
@@ -637,11 +669,14 @@ mod tests {
     fn op_heap_dealloc_slot_is_reused_on_next_alloc() {
         let mut cpu = CPU::default();
         cpu.stack_push(Value::I64(1));
-        cpu.execute_instruction(Instruction::HeapAlloc(1)).unwrap();
-        cpu.execute_instruction(Instruction::HeapDealloc).unwrap();
+        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
+            .unwrap();
+        cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
+            .unwrap();
 
         cpu.stack_push(Value::I64(2));
-        cpu.execute_instruction(Instruction::HeapAlloc(1)).unwrap();
+        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
+            .unwrap();
 
         assert_eq!(cpu.stack(), &vec![Value::HeapRef(0)]);
         assert_eq!(cpu.heap.get(0).unwrap(), &[Value::I64(2)]);
@@ -651,13 +686,15 @@ mod tests {
     fn op_heap_dealloc_rejects_double_free() {
         let mut cpu = CPU::default();
         cpu.stack_push(Value::I64(1));
-        cpu.execute_instruction(Instruction::HeapAlloc(1)).unwrap();
+        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
+            .unwrap();
         cpu.stack_push(Value::HeapRef(0));
-        cpu.execute_instruction(Instruction::HeapDealloc).unwrap();
+        cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
+            .unwrap();
 
         cpu.stack_push(Value::HeapRef(0));
         let err = cpu
-            .execute_instruction(Instruction::HeapDealloc)
+            .execute_instruction(RuntimeInstruction::HeapDealloc)
             .unwrap_err();
 
         assert!(err.to_string().contains("double-free"));
@@ -669,7 +706,7 @@ mod tests {
         cpu.stack_push(Value::HeapRef(99));
 
         let err = cpu
-            .execute_instruction(Instruction::HeapDealloc)
+            .execute_instruction(RuntimeInstruction::HeapDealloc)
             .unwrap_err();
 
         assert!(err.to_string().contains("invalid heap object id"));
@@ -679,9 +716,11 @@ mod tests {
     fn reset_clears_free_list() {
         let mut cpu = CPU::default();
         cpu.stack_push(Value::I64(1));
-        cpu.execute_instruction(Instruction::HeapAlloc(1)).unwrap();
+        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
+            .unwrap();
         cpu.stack_push(Value::HeapRef(0));
-        cpu.execute_instruction(Instruction::HeapDealloc).unwrap();
+        cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
+            .unwrap();
 
         cpu.reset();
 

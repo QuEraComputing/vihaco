@@ -1,0 +1,5 @@
+error: invalid pattern: found ';' expected ',', '@', or identifier
+ --> tests/compile_errors/pattern_unsupported_symbol.rs:9:17
+  |
+9 |     #[pattern = "'load `;`"]
+  |                 ^^^^^^^^^^^

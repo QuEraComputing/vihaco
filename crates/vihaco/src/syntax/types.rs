@@ -3,16 +3,37 @@
 
 //! Parsed-syntax data shapes. See module docs in [`super`].
 
+pub trait SurfaceInstruction {}
+
+#[derive(vihaco_parser::Parse)]
+#[syntax_class(value)]
+pub struct SurfaceValue {
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, vihaco_parser::Parse)]
+#[syntax_class(type)]
+#[pattern = "$ty"]
+pub struct SurfaceType {
+    pub ty: String,
+}
+
 /// Parsed `.sst` module — pre-resolution. `H` is the consumer's device-header
 /// enum (typically derives `Parse` via Item 5's `DeviceHeader`).
 #[derive(Debug, Clone, PartialEq)]
-pub struct ParsedModule<I, H> {
+pub struct ParsedModule<I, H>
+where
+    I: SurfaceInstruction,
+{
     pub header: H,
     pub functions: Vec<ParsedFunction<I>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ParsedFunction<I> {
+pub struct ParsedFunction<I>
+where
+    I: SurfaceInstruction,
+{
     /// Function name with the leading `@` stripped (`@main` → `"main"`).
     pub name: String,
     /// Empty for the moment — `.sst` examples don't exercise parameters.
@@ -20,51 +41,12 @@ pub struct ParsedFunction<I> {
     pub params: Vec<Param>,
     /// Return type as a bare token (`i64`, `f64`, …). Resolver converts to
     /// `vihaco::Type`.
-    pub return_ty: Option<RawType>,
-    pub body: Vec<BodyItem<I>>,
+    pub return_ty: Option<SurfaceType>,
+    pub body: Vec<I>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
     pub name: String,
-    pub ty: RawType,
-}
-
-/// Bare type token — `"i64"`, `"f64"`, …. The resolver translates to
-/// [`crate::program::Type`].
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct RawType(pub String);
-
-/// One source-level body item. Resolved into zero-or-more `I` values.
-#[derive(Debug, Clone, PartialEq)]
-pub enum BodyItem<I> {
-    /// Canonical, derive-parsed instruction — `I::parser()` succeeded.
-    Direct(I),
-    /// Untyped source form — sugar (`poly <addr> 1.0`) or symbolic operand
-    /// (`br @label`, `const.str "hi"`) that needs interner / symbol-table
-    /// access. The consumer's [`super::Resolve`] impl expands it.
-    Raw(RawForm),
-}
-
-/// Untyped source form: a mnemonic followed by some operands. The shape is
-/// intentionally lossless — the resolver decides what each form means based
-/// on the mnemonic.
-#[derive(Debug, Clone, PartialEq)]
-pub struct RawForm {
-    pub mnemonic: String,
-    pub operands: Vec<RawOperand>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum RawOperand {
-    /// Bare token: `AOD0:T1:A`, `DIGI:0`, `i64`, dotted device names.
-    Ident(String),
-    Int(i64),
-    UInt(u64),
-    Float(f64),
-    Bool(bool),
-    /// Contents of `"…"` with escape sequences decoded.
-    StringLit(String),
-    /// `@name` form — the `@` is consumed; the name remains.
-    Symbol(String),
+    pub ty: SurfaceType,
 }

@@ -1,0 +1,5 @@
+error: #[derive(Parse)] on an enum requires a #[syntax_class(...)] attribute
+ --> tests/compile_errors/pattern_without_syntax_class.rs:7:6
+  |
+7 | enum Value {
+  |      ^^^^^

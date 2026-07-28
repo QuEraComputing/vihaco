@@ -1,0 +1,5 @@
+error: expected field binding for named fields
+ --> tests/compile_errors/pattern_named_index_binding.rs:8:13
+  |
+8 | #[pattern = "$0 $1"]
+  |             ^^^^^^^

@@ -1,0 +1,5 @@
+error: the first token in a pattern must be the instruction name preceded by a tick ("'")
+ --> tests/compile_errors/pattern_instruction_without_token.rs:9:17
+  |
+9 |     #[pattern = "`load` $0"]
+  |                 ^^^^^^^^^^^

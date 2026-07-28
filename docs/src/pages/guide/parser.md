@@ -2,183 +2,178 @@
 layout: ../../layouts/Guide.astro
 title: Parser Integration
 slug: parser
-description: "Derive a chumsky parser for an instruction enum with #[derive(vihaco_parser::Parse)] — the head/token/delimiters/parse_with attributes and the Parse trait."
+description: "Derive strict, typed chumsky parsers with syntax classes and declarative patterns."
 ---
 
 # Parser Integration for Component Instructions
 
-The parser pipeline has two layers:
+Source parsing has two crates:
 
-1. **`vihaco-parser-core`** — defines the `Parse<'src>` trait and supplies blanket impls for primitives (`i64`, `u64`, `f64`, `bool`, `String`, …). Every parser in the workspace is just a `Parse` impl.
-2. **`vihaco-parser`** — proc-macro crate. The `#[derive(Parse)]` derive turns an enum into a `chumsky::Parser` that tries each variant in declaration order.
+1. **`vihaco-parser-core`** defines `Parse<'src>` and implements it for common
+   primitive field types.
+2. **`vihaco-parser`** provides `#[derive(Parse)]`, which generates a
+   [chumsky](https://github.com/zesterer/chumsky) parser from
+   `#[syntax_class]` and `#[pattern]`.
 
-If you are new to instruction enums, read [Defining Instructions With `vihaco`](/guide/instructions) first. This guide picks up where instruction definitions end and teaches the parser how to accept your source syntax.
+The generated parser is strict: every accepted source form must be described
+by the Rust syntax type. Unknown or malformed input is an error.
 
-For most new work the flow is:
+If you are new to instruction enums, read
+[Defining Instructions With `vihaco`](/guide/instructions) first.
 
-1. Add `#[derive(vihaco_parser::Parse)]` to your `#[derive(Instruction)]` enum.
-2. Annotate the enum with `#[head]` (optional) and each variant with `#[token]` / `#[delimiters]` / `#[parse_with]` as needed.
-3. Call `<MyInstruction as Parse>::parser()` to obtain a `chumsky::Parser`.
+## A complete instruction parser
 
-That's the whole instruction-level integration. Module-level orchestration (headers, function bodies, sugar, labels) is covered in [Advanced Parser Customization](/guide/parser-advanced).
+```rust
+use chumsky::Parser as _;
+use vihaco::Instruction;
+use vihaco_parser::Parse;
+use vihaco_parser_core::Parse as ParseTrait;
+
+#[derive(Debug, Clone, PartialEq, Instruction, Parse)]
+#[instruction(width = 8)]
+#[syntax_class(instruction, head = "counter")]
+enum CounterInstruction {
+    #[pattern = "'add $0"]
+    Add(i64),
+    Print,
+}
+
+assert_eq!(
+    CounterInstruction::parser()
+        .parse("counter::add -5")
+        .into_result(),
+    Ok(CounterInstruction::Add(-5)),
+);
+assert_eq!(
+    CounterInstruction::parser()
+        .parse("counter::print")
+        .into_result(),
+    Ok(CounterInstruction::Print),
+);
+```
+
+The two derives are independent:
+
+- `Instruction` defines bytecode encoding and runtime opcode behavior.
+- `Parse` defines source syntax.
+
+`#[syntax_class(instruction, head = "counter")]` places every instruction in
+the `counter::` namespace. A unit variant receives a conventional lowercase
+pattern automatically. `#[pattern = "'add $0"]` spells out the mnemonic and
+binds the first tuple field.
 
 ## The `Parse` trait
 
 ```rust ignore
 pub trait Parse<'src>: Sized {
-    fn parser() -> impl chumsky::Parser<'src, &'src str, Self, extra::Err<Simple<'src, char>>>;
+    fn parser() -> impl chumsky::Parser<
+        'src,
+        &'src str,
+        Self,
+        chumsky::extra::Err<chumsky::error::Simple<'src, char>>,
+    >;
 }
 ```
 
-`vihaco-parser-core` already implements `Parse` for the common primitives:
+`vihaco-parser-core` implements `Parse` for common primitives:
 
 | Type | Accepted form |
 |---|---|
-| `u32`, `u64`, `usize` | Decimal digits (no sign) |
+| `u32`, `u64`, `usize` | Decimal digits without a sign |
 | `i32`, `i64` | Optional leading `-`, then digits |
-| `f32`, `f64` | Optional leading `-`, decimal, optional `.frac`, optional `e[+-]?digits` |
-| `bool` | `true` / `false` |
-| `String` | One-or-more non-whitespace chars (stops at whitespace) |
+| `f32`, `f64` | Optional `-`, decimal fraction, and exponent |
+| `bool` | `true` or `false` |
+| `String` | An identifier-shaped token, stopping at whitespace or structural punctuation |
 
-There is also a free function `vihaco_parser_core::ident()` returning a parser that accepts non-whitespace characters except the structural punctuation `, ; ( ) { } [ ]`. Use it via `#[parse_with]` (see below) when you want identifier-shaped input like `ch0:band1` or `gate:0`.
+The free `vihaco_parser_core::ident()` parser accepts non-whitespace characters
+except `, ; ( ) { } [ ]`. It is useful when hand-writing `Parse` for a local
+field type.
 
-## Step 1: derive `Parse` on the instruction enum
+## Syntax classes
 
-```rust ignore
-use vihaco::Instruction;
+Every derived parser declares exactly one syntax class:
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Instruction, vihaco_parser::Parse)]
-#[instruction(width = 8)]
-#[head = "signal::"]
-pub enum SignalInst {
-    Poly(Address),
-    Play,
-    Ramp(Address),
-    Gate(Address),
+| Attribute | Role |
+|---|---|
+| `#[syntax_class(instruction, head = "dialect")]` | A namespaced instruction such as `dialect::load` |
+| `#[syntax_class(value)]` | A value expression |
+| `#[syntax_class(type)]` | A type expression with an explicit pattern |
+
+Put the attribute on the enum or struct definition. Instruction heads omit the
+trailing `::`; the derive supplies it.
+
+## Patterns
+
+A pattern is a space-separated sequence of:
+
+- `'mnemonic` for an instruction token;
+- `$0`, `$1`, … for tuple fields;
+- `$field` for named fields; and
+- backtick literals such as `` `,` ``, `` `@` ``, or `` `before` ``.
+
+For example:
+
+```rust
+use chumsky::Parser as _;
+use vihaco_parser::Parse;
+use vihaco_parser_core::Parse as ParseTrait;
+
+#[derive(Debug, PartialEq, Parse)]
+#[syntax_class(instruction, head = "control")]
+enum ControlInstruction {
+    #[pattern = "'branch `@` $0"]
+    Branch(String),
+    #[pattern = "'select $0 `,` $1"]
+    Select(bool, u32),
 }
+
+assert_eq!(
+    ControlInstruction::parser()
+        .parse("control::branch @done")
+        .into_result(),
+    Ok(ControlInstruction::Branch("done".into())),
+);
+assert_eq!(
+    ControlInstruction::parser()
+        .parse("control::select true, 3")
+        .into_result(),
+    Ok(ControlInstruction::Select(true, 3)),
+);
 ```
 
-The two derives are orthogonal and coexist on every instruction enum:
+See [Pattern Parser Generator](/guide/parser-patterns) for the complete grammar,
+generated defaults, whitespace rules, validation, structs, and large enums.
 
-- `Instruction` owns opcode / bytecode / width / runtime semantics.
-- `Parse` owns source-text parsing.
+## Custom field syntax
 
-This enum's parser accepts `signal::Poly(ch0:band1)`, `signal::Play`, `signal::Ramp(ramp:0)`, `signal::Gate(gate:0)`. The exact form is determined by the attributes — covered next. (Here `Address` is a foreign address type; the `#[parse_with]` section below shows how a field whose syntax isn't a primitive `Parse` impl is parsed.)
-
-## Step 2: attributes
-
-### Enum-level
-
-| Attribute | Effect |
-|---|---|
-| *(none)* | Each variant's default token is the lowercase variant name (e.g. `Foo` → `"foo"`). |
-| `#[head]` | Prefix every variant's token with `"EnumName::"`. Variant casing is preserved (`Foo` → `"EnumName::Foo"`). |
-| `#[head = "X::"]` | Custom prefix string. |
-
-### Variant-level
-
-| Attribute | Effect |
-|---|---|
-| `#[token = "name"]` | Override the per-variant token. With `#[head]`, the result is `"<head><name>"`. |
-| `#[delimiters(open = "(", close = ")", separator = ",")]` | Override the delimiters surrounding the fields and the separator between them. All three keys are optional. Defaults shown. |
-| `#[delegate]` | Skip the variant's own token and delimiters; delegate directly to the inner type's `Parse::parser()`. Only valid on single-field tuple variants. |
-
-Setting `open = ""` (or `close = ""`) means *no delimiter at that position* — useful for bare forms like `ret`, `play 5`, `const.i64 -3`, or `add.i64`.
-
-### Field-level
-
-| Attribute | Effect |
-|---|---|
-| `#[parse_with = "path::to::fn"]` | Use the named function instead of `<T as Parse>::parser()` for this field. The function must have signature `fn() -> impl Parser<'src, &'src str, T, ...>`. |
-
-`#[parse_with]` covers two real cases:
-1. Foreign types where you can't write `impl Parse` (orphan rule).
-2. Operands whose syntax is richer than the type's primitive `Parse` impl — for example, a CPU `add.i64` parses `.i64` into a `vihaco::Type`, which has no useful primitive impl.
-
-## Step 3: use the generated parser
+Every pattern binding calls the field type's `Parse::parser()`. When a field
+needs custom syntax, define a local type and implement `Parse` for it. A
+newtype also solves Rust's orphan-rule restriction for foreign types.
 
 ```rust ignore
 use chumsky::Parser as _;
 use vihaco_parser_core::Parse;
 
-let got = SignalInst::parser()
-    .parse("signal::Poly(ch0:band1)")
-    .into_result()
-    .unwrap();
-assert!(matches!(got, SignalInst::Poly(_)));
-```
+struct Address(String);
 
-That's it for the instruction-level surface.
-
-## Worked example — CPU
-
-CPU instructions are mostly bare-form mnemonics with optional dot-qualified types:
-
-```rust ignore
-use vihaco::program::{Type, Value};
-use vihaco::Instruction;
-
-#[derive(Debug, Clone, PartialEq, Instruction, vihaco_parser::Parse)]
-pub enum Instruction {
-    /// `breakpoint`. Must precede `Branch` (whose token `br` would be a
-    /// prefix of `breakpoint`).
-    Breakpoint,
-
-    /// `br <target>` — symbolic; the orchestrator handles it via `never_u32`.
-    #[token = "br"]
-    #[delimiters(open = "", close = "", separator = "")]
-    Branch(#[parse_with = "crate::parse_helpers::never_u32"] u32),
-
-    Halt,
-    Print,
-    Dup,
-
-    /// `const.<type> <literal>` — numeric/bool only here; strings are deferred.
-    #[token = "const"]
-    #[delimiters(open = "", close = "", separator = "")]
-    Const(#[parse_with = "crate::parse_helpers::cpu_const_value"] Value),
-
-    /// `add.<type>` etc. `cpu_type` consumes `.i64` / `.f64` / … into a `Type`.
-    #[delimiters(open = "", close = "", separator = "")]
-    Add(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
+impl<'src> Parse<'src> for Address {
+    fn parser() -> impl chumsky::Parser<
+        'src,
+        &'src str,
+        Self,
+        chumsky::extra::Err<chumsky::error::Simple<'src, char>>,
+    > {
+        vihaco_parser_core::ident().map(Address)
+    }
 }
 ```
 
-The two `parse_helpers` functions are tiny chumsky combinators that live next to the enum:
-
-```rust ignore
-pub fn cpu_type<'src>() -> impl Parser<'src, &'src str, Type, E<'src>> {
-    just('.').ignore_then(choice((
-        just("i64").to(Type::I64),
-        just("u64").to(Type::U64),
-        just("f64").to(Type::F64),
-        just("bool").to(Type::Bool),
-    )))
-}
-```
-
-This is the canonical pattern for foreign-type operands: keep the helper next to the enum, point at it with `#[parse_with]`.
-
-## Variant ordering rules
-
-The derive tries variants in declaration order. Two rules matter:
-
-1. **Prefix rule** — if two token-bearing variants share a prefix, declare the longer one first. The derive emits a compile error if one variant's full token is a strict prefix of another that comes before it. Example: CPU declares `breakpoint` before `br`, and `call_indirect` before `call`.
-2. **`#[delegate]` rule** — `#[delegate]` variants must come *after* all token-bearing variants in the same enum (the derive enforces this). Use `#[delegate]` for "outer" enums that compose smaller `Parse`-deriving enums.
-
-## Deferred operands with `never_u32`
-
-Some operands can't be parsed at instruction level because they reference symbols (`@label`) or interner-managed state (`"strings"`) that the resolver owns. The convention is a "never succeeds" helper like:
-
-```rust ignore
-pub fn never_u32<'src>() -> impl Parser<'src, &'src str, u32, E<'src>> {
-    empty().try_map(|_, span| Err(Simple::new(None, span)))
-}
-```
-
-Wired in via `#[parse_with]`, this makes `Instruction::parser()` fail on the variant's mnemonic — the orchestrator's fallback path (next guide) captures the source line as a `RawForm` instead.
+If a whole type needs grammar beyond declarative patterns, implement `Parse`
+for that type with ordinary chumsky combinators.
 
 ## What comes next
 
-- For module-level orchestration (`ParsedModule`, device headers, function bodies, sugar expansion, labels, string interning), see [Advanced Parser Customization](/guide/parser-advanced).
-- To attach the instruction type to a component, see [Building Components With `vihaco`](/guide/components).
+- For section headers, functions, typed bodies, and `Resolve`, see
+  [Advanced Parser Customization](/guide/parser-advanced).
+- To attach an instruction type to a component, see
+  [Building Components With `vihaco`](/guide/components).

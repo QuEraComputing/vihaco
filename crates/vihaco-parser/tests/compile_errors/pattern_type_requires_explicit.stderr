@@ -1,0 +1,5 @@
+error: types must provide patterns
+ --> tests/compile_errors/pattern_type_requires_explicit.rs:8:8
+  |
+8 | struct Type(i64);
+  |        ^^^^

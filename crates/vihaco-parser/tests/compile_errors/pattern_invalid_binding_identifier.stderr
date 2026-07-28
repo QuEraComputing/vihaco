@@ -1,0 +1,5 @@
+error: invalid pattern: found '-' expected non-zero digit, or '0'
+ --> tests/compile_errors/pattern_invalid_binding_identifier.rs:9:17
+  |
+9 |     #[pattern = "'load $-field"]
+  |                 ^^^^^^^^^^^^^^^

@@ -1,0 +1,5 @@
+error: must include all indices from 0 to 2, missing 1
+ --> tests/compile_errors/pattern_missing_index.rs:9:17
+  |
+9 |     #[pattern = "'pair $0"]
+  |                 ^^^^^^^^^^

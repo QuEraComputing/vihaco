@@ -1,0 +1,5 @@
+error: cannot combine field and index bindings
+ --> tests/compile_errors/pattern_mixed_bindings.rs:9:17
+  |
+9 |     #[pattern = "'pair $0 $right"]
+  |                 ^^^^^^^^^^^^^^^^^

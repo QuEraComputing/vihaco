@@ -5,17 +5,18 @@ use vihaco_parser_core::Parse;
 // The same enum can derive both `Instruction` (bytecode + runtime) and
 // `Parse` (SST). The two derives are orthogonal.
 #[derive(Debug, Clone, PartialEq, Instruction, vihaco_parser::Parse)]
+#[syntax_class(instruction, head = "counter")]
 pub enum CounterInst {
+    #[pattern = "'add $0"]
     Add(i64),
     Print,
 }
 
 fn main() {
-    // The default token is the lowercase variant name; tuple fields are
-    // wrapped in `( )` by default. (Bare forms like `add 5` are opt-in via
-    // `#[delimiters(open = "", close = "", separator = "")]`.)
+    // The syntax class supplies the `counter::` namespace. Patterns bind
+    // source operands directly to Rust fields.
     let inst = CounterInst::parser()
-        .parse("add(5)")
+        .parse("counter::add 5")
         .into_result()
         .unwrap();
     assert_eq!(inst, CounterInst::Add(5));

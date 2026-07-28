@@ -1,5 +1,0 @@
-error: #[delimiters] cannot be used on a unit variant (no fields)
- --> tests/compile_errors/delimiters_on_unit.rs:4:5
-  |
-4 |     #[delimiters(open = "[", close = "]", separator = ",")]
-  |     ^

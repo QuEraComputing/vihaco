@@ -1,0 +1,5 @@
+error: duplicate index 0 in pattern
+ --> tests/compile_errors/pattern_duplicate_index.rs:9:17
+  |
+9 |     #[pattern = "'pair $0 $0"]
+  |                 ^^^^^^^^^^^^^

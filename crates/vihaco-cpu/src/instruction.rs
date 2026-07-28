@@ -3,30 +3,20 @@
 
 use vihaco::Instruction;
 use vihaco::program::{Type, Value};
+use vihaco::syntax::SurfaceValue;
 
-/// `#[derive(Parse)]` notes:
+/// Runtime bytecode instructions.
 ///
-/// - Real `.sst` syntax uses **dot-suffixed** types (`add.i64`, `load.i64 0`).
-///   The `parse_helpers::cpu_type` / `cpu_const_value` helpers consume the
-///   leading `.`; that's why the typed variants set `delimiters(open = "",
-///   close = "", separator = "")` and use `#[parse_with]` on the `Type` field.
-/// - `Const(Value::String/FunctionRef/HeapRef)`, `Branch(_)`,
-///   `ConditionalBranch(_, _)`, `Call(_, _)`, and bare `ret` use symbolic
-///   operands that need a shared interner / symbol table not available to a
-///   stateless `Parse` impl. Their `parse_with` helpers return `never_u32` so
-///   `Instruction::parser()` errors on those mnemonics — the Module
-///   orchestrator (Item 4 of the migration plan) intercepts them first.
-/// - Variant order is preserved from the pre-migration layout so derived
-///   opcodes stay stable. The single exception: `IndirectCall` is moved
-///   ahead of `Call` so the prefix-ordering check (`call` ⊂ `call_indirect`)
-///   passes.
-#[derive(Debug, Clone, PartialEq, Instruction, vihaco_parser::Parse)]
+/// Source text parses into the separate [`SurfaceInstruction`] enum below.
+/// Keeping the source and runtime forms separate lets patterns carry symbolic
+/// names and surface types until a resolver converts them to runtime values.
+/// Runtime variant order remains stable because it determines derived opcodes.
+#[derive(Debug, Clone, PartialEq, Instruction)]
 #[instruction(width = 16)]
-pub enum Instruction {
+pub enum RuntimeInstruction {
     // no-ops
     /// span <file:file_id> <start:u32> <end:u32>
     /// `span 0 1 2` — three space-separated u32s.
-    #[delimiters(open = "", close = "", separator = " ")]
     Span(u32, u32, u32),
 
     /// Label definition.
@@ -34,10 +24,8 @@ pub enum Instruction {
 
     /// `func_start <name>` — marks function entry. `<name>` is symbolic and
     /// orchestrator-resolved; the unit variant carries no payload.
-    #[token = "func_start"]
     FunctionStart,
     /// `func_end <name>` — marks function exit (debug only).
-    #[token = "func_end"]
     FunctionEnd,
 
     /// `breakpoint`. Must precede `Branch` (whose token `br` would be a
@@ -46,35 +34,20 @@ pub enum Instruction {
 
     // control flows
     /// `br <target>` — symbolic. Deferred to orchestrator.
-    #[token = "br"]
-    #[delimiters(open = "", close = "", separator = "")]
-    Branch(#[parse_with = "crate::parse_helpers::never_u32"] u32),
+    Branch(u32),
 
     /// `cond_br <true_target>, <false_target>` — symbolic. Deferred.
-    #[token = "cond_br"]
-    #[delimiters(open = "", close = "", separator = ",")]
-    ConditionalBranch(
-        #[parse_with = "crate::parse_helpers::never_u32"] u32,
-        #[parse_with = "crate::parse_helpers::never_u32"] u32,
-    ),
+    ConditionalBranch(u32, u32),
 
     /// `ret` (bare) is the form real `.sst` uses; numeric `ret <n>` has no
     /// precedent so we defer. Orchestrator emits `Return(0)` for bare `ret`.
-    #[token = "ret"]
-    #[delimiters(open = "", close = "", separator = "")]
-    Return(#[parse_with = "crate::parse_helpers::never_u32"] u32),
+    Return(u32),
 
     /// `call_indirect`. **Must precede `Call`** for the prefix check.
-    #[token = "call_indirect"]
     IndirectCall,
 
     /// `call <arity>, <addr>` — symbolic addr. Deferred.
-    #[token = "call"]
-    #[delimiters(open = "", close = "", separator = ",")]
-    Call(
-        #[parse_with = "crate::parse_helpers::never_u32"] u32,
-        #[parse_with = "crate::parse_helpers::never_u32"] u32,
-    ),
+    Call(u32, u32),
 
     /// `halt` — stop execution.
     Halt,
@@ -85,67 +58,43 @@ pub enum Instruction {
 
     // memory operations
     /// `load.<type> <address>` — two fields with single-space separator.
-    #[delimiters(open = "", close = "", separator = " ")]
-    Load(#[parse_with = "crate::parse_helpers::cpu_type"] Type, u32),
+    Load(Type, u32),
     /// `store.<type> <address>`.
-    #[delimiters(open = "", close = "", separator = " ")]
-    Store(#[parse_with = "crate::parse_helpers::cpu_type"] Type, u32),
+    Store(Type, u32),
 
     /// `dup`.
     Dup,
 
     /// `heap_alloc <n>`.
-    #[token = "heap_alloc"]
-    #[delimiters(open = "", close = "", separator = "")]
     HeapAlloc(u32),
 
     /// `get_item`. Must precede `Ge` (token `ge` ⊂ `get_item`).
-    #[token = "get_item"]
     GetItem,
 
     /// `heap_dealloc` — pops a HeapRef and marks the slot dead, returning it
     /// to the free list for reuse by the next `heap_alloc`.
-    #[token = "heap_dealloc"]
     HeapDealloc,
 
     /// `const.<type> <literal>` — numeric/bool only here. `.str`/`.fn_ref`/
     /// `.heap_ref` are orchestrator-handled.
-    #[token = "const"]
-    #[delimiters(open = "", close = "", separator = "")]
-    Const(#[parse_with = "crate::parse_helpers::cpu_const_value"] Value),
+    Const(Value),
 
     // arithmetic operations
-    #[delimiters(open = "", close = "", separator = "")]
-    Add(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
-    #[delimiters(open = "", close = "", separator = "")]
-    Sub(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
-    #[delimiters(open = "", close = "", separator = "")]
-    Mul(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
-    #[delimiters(open = "", close = "", separator = "")]
-    Div(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
-    #[delimiters(open = "", close = "", separator = "")]
-    Rem(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
-    #[delimiters(open = "", close = "", separator = "")]
-    Neg(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
+    Add(Type),
+    Sub(Type),
+    Mul(Type),
+    Div(Type),
+    Rem(Type),
+    Neg(Type),
 
     // integer / bitwise operations
-    #[delimiters(open = "", close = "", separator = "")]
-    Shl(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
-    #[delimiters(open = "", close = "", separator = "")]
-    Shr(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
-    #[delimiters(open = "", close = "", separator = "")]
-    Rol(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
-    #[delimiters(open = "", close = "", separator = "")]
-    Ror(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
-    #[token = "bitand"]
-    #[delimiters(open = "", close = "", separator = "")]
-    BitAnd(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
-    #[token = "bitor"]
-    #[delimiters(open = "", close = "", separator = "")]
-    BitOr(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
-    #[token = "bitxor"]
-    #[delimiters(open = "", close = "", separator = "")]
-    BitXor(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
+    Shl(Type),
+    Shr(Type),
+    Rol(Type),
+    Ror(Type),
+    BitAnd(Type),
+    BitOr(Type),
+    BitXor(Type),
 
     // boolean operations
     Not,
@@ -154,27 +103,158 @@ pub enum Instruction {
     Xor,
 
     // comparison operations
-    #[delimiters(open = "", close = "", separator = "")]
-    Eq(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
-    #[delimiters(open = "", close = "", separator = "")]
-    Ne(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
-    #[delimiters(open = "", close = "", separator = "")]
-    Lt(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
-    #[delimiters(open = "", close = "", separator = "")]
-    Gt(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
-    #[delimiters(open = "", close = "", separator = "")]
-    Le(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
-    #[delimiters(open = "", close = "", separator = "")]
-    Ge(#[parse_with = "crate::parse_helpers::cpu_type"] Type),
+    Eq(Type),
+    Ne(Type),
+    Lt(Type),
+    Gt(Type),
+    Le(Type),
+    Ge(Type),
 }
 
-impl<T: Into<Value>> From<T> for Instruction {
+#[derive(Debug, Clone, Copy, PartialEq, vihaco_parser::Parse)]
+#[syntax_class(type)]
+pub enum SurfaceType {
+    #[pattern = "`undef`"]
+    Undefined,
+    #[pattern = "`str`"]
+    String,
+    #[pattern = "`bool`"]
+    Bool,
+    #[pattern = "`i64`"]
+    I64,
+    #[pattern = "`u32`"]
+    U32,
+    #[pattern = "`u64`"]
+    U64,
+    #[pattern = "`f64`"]
+    F64,
+    #[pattern = "`fn_ref`"]
+    FunctionRef,
+    #[pattern = "`heap_ref`"]
+    HeapRef,
+}
+
+#[derive(vihaco_parser::Parse)]
+#[syntax_class(instruction, head = "cpu")]
+pub enum SurfaceInstruction {
+    // no-ops
+    /// span <file:file_id> <start:u32> <end:u32>
+    /// `span 0 1 2` — three space-separated u32s.
+    #[pattern = "'span $0 $1 $2"]
+    Span(u32, u32, u32),
+
+    /// Label definition.
+    Label,
+
+    /// `func_start <name>` — marks function entry. `<name>` is symbolic and
+    /// orchestrator-resolved; the unit variant carries no payload.
+    #[pattern = "'func_start"]
+    FunctionStart,
+    /// `func_end <name>` — marks function exit (debug only).
+    #[pattern = "'func_end"]
+    FunctionEnd,
+
+    /// `breakpoint`. Must precede `Branch` (whose token `br` would be a
+    /// prefix of `breakpoint`).
+    Breakpoint,
+
+    // control flows
+    /// `br <target>` — symbolic. Deferred to orchestrator.
+    #[pattern = "'br `@` $0"]
+    Branch(String),
+
+    /// `cond_br <true_target>, <false_target>` — symbolic. Deferred.
+    #[pattern = "'cond_br `@` $0 `,` `@` $1"]
+    ConditionalBranch(String, String),
+
+    /// `ret` (bare) is the form real `.sst` uses; numeric `ret <n>` has no
+    /// precedent so we defer. Orchestrator emits `Return(0)` for bare `ret`.
+    #[pattern = "'ret"]
+    Return,
+
+    /// `call_indirect`. **Must precede `Call`** for the prefix check.
+    #[pattern = "'call_indirect"]
+    IndirectCall,
+
+    /// `call <arity>, <addr>` — symbolic addr. Deferred.
+    Call(u32, String),
+
+    /// `halt` — stop execution.
+    Halt,
+
+    // traps / IO
+    /// `print` — write top-of-stack to stdout.
+    Print,
+
+    // memory operations
+    /// `load.<type> <address>` — two fields with single-space separator.
+    Load(SurfaceType, u32),
+
+    /// `store.<type> <address>`.
+    Store(SurfaceType, u32),
+
+    /// `dup`.
+    Dup,
+
+    /// `heap_alloc <n>`.
+    #[pattern = "'heap_alloc $0"]
+    HeapAlloc(u32),
+
+    /// `get_item`. Must precede `Ge` (token `ge` ⊂ `get_item`).
+    #[pattern = "'get_item"]
+    GetItem,
+
+    /// `heap_dealloc` — pops a HeapRef and marks the slot dead, returning it
+    /// to the free list for reuse by the next `heap_alloc`.
+    #[pattern = "'heap_dealloc"]
+    HeapDealloc,
+
+    /// `const.<type> <literal>` — numeric/bool only here. `.str`/`.fn_ref`/
+    /// `.heap_ref` are orchestrator-handled.
+    Const(SurfaceType, SurfaceValue),
+
+    // arithmetic operations
+    Add(SurfaceType),
+    Sub(SurfaceType),
+    Mul(SurfaceType),
+    Div(SurfaceType),
+    Rem(SurfaceType),
+    Neg(SurfaceType),
+
+    // integer / bitwise operations
+    Shl(SurfaceType),
+    Shr(SurfaceType),
+    Rol(SurfaceType),
+    Ror(SurfaceType),
+    #[pattern = "'bitand $0"]
+    BitAnd(SurfaceType),
+    #[pattern = "'bitor $0"]
+    BitOr(SurfaceType),
+    #[pattern = "'bitxor $0"]
+    BitXor(SurfaceType),
+
+    // boolean operations
+    Not,
+    And,
+    Or,
+    Xor,
+
+    // comparison operations
+    Eq(SurfaceType),
+    Ne(SurfaceType),
+    Lt(SurfaceType),
+    Gt(SurfaceType),
+    Le(SurfaceType),
+    Ge(SurfaceType),
+}
+
+impl<T: Into<Value>> From<T> for RuntimeInstruction {
     fn from(value: T) -> Self {
-        Instruction::Const(value.into())
+        RuntimeInstruction::Const(value.into())
     }
 }
 
-impl vihaco::CanonicalInstructionSyntax for Instruction {
+impl vihaco::CanonicalInstructionSyntax for RuntimeInstruction {
     fn variants() -> &'static [vihaco::CanonicalInstructionVariantSyntax] {
         &[
             vihaco::CanonicalInstructionVariantSyntax {
@@ -208,99 +288,176 @@ impl vihaco::CanonicalInstructionSyntax for Instruction {
 #[cfg(test)]
 #[allow(clippy::approx_constant)]
 mod parse_tests {
-    use super::Instruction;
+    use super::{SurfaceInstruction, SurfaceType};
     use chumsky::Parser as _;
-    use vihaco::program::{Type, Value};
     use vihaco_parser_core::Parse;
 
-    fn parse(input: &str) -> Instruction {
-        Instruction::parser()
+    fn parse(input: &str) -> SurfaceInstruction {
+        SurfaceInstruction::parser()
             .parse(input)
             .into_result()
             .unwrap_or_else(|e| panic!("parse({input:?}) failed: {e:?}"))
     }
 
+    fn parse_type(input: &str) -> SurfaceType {
+        SurfaceType::parser()
+            .parse(input)
+            .into_result()
+            .unwrap_or_else(|e| panic!("parse_type({input:?}) failed: {e:?}"))
+    }
+
+    macro_rules! assert_parses {
+        ($input:literal, $pattern:pat $(if $guard:expr)?) => {
+            assert!(
+                matches!(parse($input), $pattern $(if $guard)?),
+                "input {:?} parsed to the wrong variant or operands",
+                $input
+            );
+        };
+    }
+
     #[test]
     fn parses_unit_variants() {
+        assert_parses!("cpu::halt", SurfaceInstruction::Halt);
+        assert_parses!("cpu::print", SurfaceInstruction::Print);
+        assert_parses!("cpu::dup", SurfaceInstruction::Dup);
+        assert_parses!("cpu::breakpoint", SurfaceInstruction::Breakpoint);
+        assert_parses!("cpu::label", SurfaceInstruction::Label);
+        assert_parses!("cpu::func_start", SurfaceInstruction::FunctionStart);
+        assert_parses!("cpu::func_end", SurfaceInstruction::FunctionEnd);
+        assert_parses!("cpu::get_item", SurfaceInstruction::GetItem);
+        assert_parses!("cpu::not", SurfaceInstruction::Not);
+        assert_parses!("cpu::and", SurfaceInstruction::And);
+        assert_parses!("cpu::or", SurfaceInstruction::Or);
+        assert_parses!("cpu::xor", SurfaceInstruction::Xor);
+        assert_parses!("cpu::call_indirect", SurfaceInstruction::IndirectCall);
+        assert_parses!("cpu::ret", SurfaceInstruction::Return);
+    }
+
+    #[test]
+    fn parses_surface_types() {
         for (input, expected) in [
-            ("halt", Instruction::Halt),
-            ("print", Instruction::Print),
-            ("dup", Instruction::Dup),
-            ("breakpoint", Instruction::Breakpoint),
-            ("label", Instruction::Label),
-            ("func_start", Instruction::FunctionStart),
-            ("func_end", Instruction::FunctionEnd),
-            ("get_item", Instruction::GetItem),
-            ("not", Instruction::Not),
-            ("and", Instruction::And),
-            ("or", Instruction::Or),
-            ("xor", Instruction::Xor),
-            ("call_indirect", Instruction::IndirectCall),
+            ("undef", SurfaceType::Undefined),
+            ("str", SurfaceType::String),
+            ("bool", SurfaceType::Bool),
+            ("i64", SurfaceType::I64),
+            ("u32", SurfaceType::U32),
+            ("u64", SurfaceType::U64),
+            ("f64", SurfaceType::F64),
+            ("fn_ref", SurfaceType::FunctionRef),
+            ("heap_ref", SurfaceType::HeapRef),
         ] {
-            assert_eq!(parse(input), expected, "input {input:?}");
+            assert_eq!(parse_type(input), expected, "input {input:?}");
         }
     }
 
     #[test]
-    fn parses_typed_arith() {
-        assert_eq!(parse("add.i64"), Instruction::Add(Type::I64));
-        assert_eq!(parse("sub.f64"), Instruction::Sub(Type::F64));
-        assert_eq!(parse("mul.u32"), Instruction::Mul(Type::U32));
-        assert_eq!(parse("div.u64"), Instruction::Div(Type::U64));
-        assert_eq!(parse("lt.i64"), Instruction::Lt(Type::I64));
-        assert_eq!(parse("ge.f64"), Instruction::Ge(Type::F64));
-        assert_eq!(parse("bitand.i64"), Instruction::BitAnd(Type::I64));
-        assert_eq!(parse("shl.u64"), Instruction::Shl(Type::U64));
+    fn parses_typed_operations() {
+        assert_parses!("cpu::add i64", SurfaceInstruction::Add(SurfaceType::I64));
+        assert_parses!("cpu::sub f64", SurfaceInstruction::Sub(SurfaceType::F64));
+        assert_parses!("cpu::mul u32", SurfaceInstruction::Mul(SurfaceType::U32));
+        assert_parses!("cpu::div u64", SurfaceInstruction::Div(SurfaceType::U64));
+        assert_parses!("cpu::rem i64", SurfaceInstruction::Rem(SurfaceType::I64));
+        assert_parses!("cpu::neg f64", SurfaceInstruction::Neg(SurfaceType::F64));
+        assert_parses!("cpu::lt i64", SurfaceInstruction::Lt(SurfaceType::I64));
+        assert_parses!("cpu::eq i64", SurfaceInstruction::Eq(SurfaceType::I64));
+        assert_parses!("cpu::ne u64", SurfaceInstruction::Ne(SurfaceType::U64));
+        assert_parses!("cpu::gt u32", SurfaceInstruction::Gt(SurfaceType::U32));
+        assert_parses!("cpu::le f64", SurfaceInstruction::Le(SurfaceType::F64));
+        assert_parses!("cpu::ge f64", SurfaceInstruction::Ge(SurfaceType::F64));
+        assert_parses!(
+            "cpu::bitand i64",
+            SurfaceInstruction::BitAnd(SurfaceType::I64)
+        );
+        assert_parses!(
+            "cpu::bitor u64",
+            SurfaceInstruction::BitOr(SurfaceType::U64)
+        );
+        assert_parses!(
+            "cpu::bitxor u32",
+            SurfaceInstruction::BitXor(SurfaceType::U32)
+        );
+        assert_parses!("cpu::shl u64", SurfaceInstruction::Shl(SurfaceType::U64));
+        assert_parses!("cpu::shr i64", SurfaceInstruction::Shr(SurfaceType::I64));
+        assert_parses!("cpu::rol u32", SurfaceInstruction::Rol(SurfaceType::U32));
+        assert_parses!("cpu::ror u64", SurfaceInstruction::Ror(SurfaceType::U64));
     }
 
     #[test]
     fn parses_load_store() {
-        assert_eq!(parse("load.i64 7"), Instruction::Load(Type::I64, 7));
-        assert_eq!(parse("store.f64 42"), Instruction::Store(Type::F64, 42));
+        assert_parses!(
+            "cpu::load i64, 7",
+            SurfaceInstruction::Load(SurfaceType::I64, 7)
+        );
+        assert_parses!(
+            "cpu::store f64, 42",
+            SurfaceInstruction::Store(SurfaceType::F64, 42)
+        );
     }
 
     #[test]
     fn parses_heap_alloc() {
-        assert_eq!(parse("heap_alloc 5"), Instruction::HeapAlloc(5));
+        assert_parses!("cpu::heap_alloc 5", SurfaceInstruction::HeapAlloc(5));
     }
 
     #[test]
     fn parses_span() {
-        assert_eq!(parse("span 0 1 2"), Instruction::Span(0, 1, 2));
+        assert_parses!("cpu::span 0 1 2", SurfaceInstruction::Span(0, 1, 2));
     }
 
     #[test]
     fn parses_const_numeric_flavors() {
-        assert_eq!(parse("const.i64 42"), Instruction::Const(Value::I64(42)));
-        assert_eq!(parse("const.u64 7"), Instruction::Const(Value::U64(7)));
-        assert_eq!(parse("const.u32 3"), Instruction::Const(Value::U32(3)));
-        assert_eq!(
-            parse("const.f64 3.14"),
-            Instruction::Const(Value::F64(3.14))
+        assert_parses!(
+            "cpu::const i64, 42",
+            SurfaceInstruction::Const(SurfaceType::I64, value)
+                if value.value == "42"
         );
-        assert_eq!(
-            parse("const.bool true"),
-            Instruction::Const(Value::Bool(true))
+        assert_parses!(
+            "cpu::const u64, 7",
+            SurfaceInstruction::Const(SurfaceType::U64, value)
+                if value.value == "7"
+        );
+        assert_parses!(
+            "cpu::const u32, 3",
+            SurfaceInstruction::Const(SurfaceType::U32, value)
+                if value.value == "3"
+        );
+        assert_parses!(
+            "cpu::const f64, 3.14",
+            SurfaceInstruction::Const(SurfaceType::F64, value)
+                if value.value == "3.14"
+        );
+        assert_parses!(
+            "cpu::const bool, true",
+            SurfaceInstruction::Const(SurfaceType::Bool, value)
+                if value.value == "true"
         );
     }
 
     #[test]
-    fn defers_symbolic_branch_to_orchestrator() {
-        // `br @body` cannot be parsed by the derive — `never_u32` ensures this.
-        // The Module orchestrator (Item 4) handles the symbolic form.
-        assert!(Instruction::parser().parse("br @body").has_errors());
-        assert!(Instruction::parser().parse("cond_br @a, @b").has_errors());
-        assert!(Instruction::parser().parse("call @main, 0").has_errors());
-        assert!(Instruction::parser().parse("ret").has_errors());
+    fn parses_symbolic_control_flow() {
+        assert_parses!(
+            "cpu::br @body",
+            SurfaceInstruction::Branch(target) if target == "body"
+        );
+        assert_parses!(
+            "cpu::cond_br @then, @else",
+            SurfaceInstruction::ConditionalBranch(then_target, else_target)
+                if then_target == "then" && else_target == "else"
+        );
+        assert_parses!(
+            "cpu::call 2, main",
+            SurfaceInstruction::Call(2, target) if target == "main"
+        );
     }
 
     #[test]
-    fn defers_const_string_to_orchestrator() {
-        // `const.str "hello"` requires interner state — handled by the orchestrator.
+    fn rejects_legacy_runtime_instruction_syntax() {
         assert!(
-            Instruction::parser()
-                .parse("const.str \"hello\"")
+            SurfaceInstruction::parser()
+                .parse("const.i64 42")
                 .has_errors()
         );
+        assert!(SurfaceInstruction::parser().parse("br @body").has_errors());
     }
 }

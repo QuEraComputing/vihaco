@@ -1,0 +1,5 @@
+error: invalid pattern: found end of input expected any, or '`'
+ --> tests/compile_errors/pattern_unterminated_literal.rs:9:17
+  |
+9 |     #[pattern = "'load `comma"]
+  |                 ^^^^^^^^^^^^^^

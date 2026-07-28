@@ -16,6 +16,8 @@ proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["full", "extra-traits"] }
 vihaco-parser-core = { workspace = true }
+eyre = "0.6.12"
+chumsky = "0.10"
 
 [dev-dependencies]
 chumsky = "0.10"

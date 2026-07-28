@@ -15,7 +15,9 @@ use vihaco_parser_core::Parse;
 
 use crate::SstHeader;
 use crate::SstSectionView;
-use crate::syntax::{BodyItem, Param, ParsedFunction, ParsedModule, RawForm, RawOperand, RawType};
+use crate::syntax::types::SurfaceInstruction;
+use crate::syntax::types::SurfaceType;
+use crate::syntax::{Param, ParsedFunction, ParsedModule};
 use crate::traits::Instruction;
 
 type E<'src> = extra::Err<Simple<'src, char>>;
@@ -51,68 +53,6 @@ pub fn string_literal<'src>() -> impl Parser<'src, &'src str, String, E<'src>> +
 /// `@name` — leading `@` consumed; name is `ident()`-shaped.
 pub fn symbol_ref<'src>() -> impl Parser<'src, &'src str, String, E<'src>> + Clone {
     just('@').ignore_then(vihaco_parser_core::ident())
-}
-
-/// One operand: tries each shape in order. `Ident` is the catch-all and runs
-/// last so numeric literals get their typed shape.
-pub fn raw_operand<'src>() -> impl Parser<'src, &'src str, RawOperand, E<'src>> + Clone {
-    // Float: int `.` digits, optional `e[+-]?digits` for scientific notation.
-    // Required `.` distinguishes from ints; ints would otherwise match the
-    // leading-integer prefix.
-    let exp = || {
-        one_of("eE")
-            .then(one_of("+-").or_not())
-            .then(text::digits(10))
-    };
-    let float_lit = text::int(10)
-        .then(just('.').then(text::digits(10)))
-        .then(exp().or_not())
-        .to_slice()
-        .map(|s: &str| RawOperand::Float(s.parse().unwrap()));
-    let neg_float = just('-')
-        .then(text::int(10))
-        .then(just('.').then(text::digits(10)))
-        .then(exp().or_not())
-        .to_slice()
-        .map(|s: &str| RawOperand::Float(s.parse().unwrap()));
-    let neg_int = just('-')
-        .then(text::int(10))
-        .to_slice()
-        .map(|s: &str| RawOperand::Int(s.parse().unwrap()));
-    let uint_lit = text::int(10).map(|s: &str| RawOperand::UInt(s.parse().unwrap()));
-    let bool_lit = choice((
-        just("true").to(RawOperand::Bool(true)),
-        just("false").to(RawOperand::Bool(false)),
-    ));
-    let str_lit = string_literal().map(RawOperand::StringLit);
-    let sym = symbol_ref().map(RawOperand::Symbol);
-    let id = vihaco_parser_core::ident().map(RawOperand::Ident);
-
-    choice((
-        str_lit, sym, bool_lit, neg_float, float_lit, neg_int, uint_lit, id,
-    ))
-}
-
-/// `mnemonic operand (, operand)* ` — one source line's worth, sans
-/// terminator.
-pub fn raw_form<'src>() -> impl Parser<'src, &'src str, RawForm, E<'src>> + Clone {
-    let inline_ws = any()
-        .filter(|c: &char| c.is_whitespace() && *c != '\n')
-        .repeated();
-    let operand_sep = inline_ws.then(just(',').or_not()).then(inline_ws);
-    vihaco_parser_core::ident()
-        .then(
-            inline_ws
-                .ignore_then(raw_operand())
-                .separated_by(operand_sep.ignored())
-                .collect::<Vec<_>>(),
-        )
-        .map(|(mnemonic, operands)| RawForm { mnemonic, operands })
-}
-
-/// `RawType` is a bare identifier — `i64`, `f64`, …. Resolver translates.
-pub fn raw_type<'src>() -> impl Parser<'src, &'src str, RawType, E<'src>> + Clone {
-    vihaco_parser_core::ident().map(RawType)
 }
 
 /// Block-body helper: parse a sequence of whitespace-separated `i64`s as
@@ -161,36 +101,6 @@ pub fn block_i64_pairs<'src>() -> impl Parser<'src, &'src str, Vec<(i64, i64)>, 
         .then_ignore(ws)
 }
 
-/// Lookahead-only end-of-statement marker. A body item ends at a newline,
-/// `}`, or end-of-input — anything else means the canonical parse consumed
-/// only a prefix of a longer source line (e.g. matching the unit variant
-/// `fpga::Play` on `fpga::Play 5`, which is actually the sugar form).
-///
-/// `.rewind()` so we don't consume the terminator — the outer body parser's
-/// `skip()` handles whitespace/newlines between items.
-fn statement_end<'src>() -> impl Parser<'src, &'src str, (), E<'src>> + Clone {
-    let inline_ws = any()
-        .filter(|c: &char| c.is_whitespace() && *c != '\n')
-        .repeated();
-    let terminator = choice((just('\n').ignored(), just('}').ignored(), end())).rewind();
-    inline_ws.ignore_then(terminator)
-}
-
-/// Body item: try `I::parser()` first, but only accept it if the remainder of
-/// the line is empty (canonical form must own the whole statement). On
-/// failure, fall back to `raw_form()` which captures sugar and symbolic
-/// operand forms.
-pub fn body_item<'src, I>() -> impl Parser<'src, &'src str, BodyItem<I>, E<'src>>
-where
-    I: Parse<'src> + 'src,
-{
-    let direct = I::parser()
-        .then_ignore(statement_end())
-        .map(BodyItem::Direct);
-    let raw = raw_form().map(BodyItem::Raw);
-    direct.boxed().or(raw.boxed())
-}
-
 /// Parse `i64`/`f64`/etc. parameter list. Currently only accepts empty `()`.
 fn param_list<'src>() -> impl Parser<'src, &'src str, Vec<Param>, E<'src>> + Clone {
     just('(').padded().then(just(')').padded()).to(Vec::new())
@@ -198,7 +108,7 @@ fn param_list<'src>() -> impl Parser<'src, &'src str, Vec<Param>, E<'src>> + Clo
 
 fn functions<'src, I>() -> impl Parser<'src, &'src str, Vec<ParsedFunction<I>>, E<'src>>
 where
-    I: Parse<'src> + 'src,
+    I: SurfaceInstruction + Parse<'src> + 'src,
 {
     skip()
         .ignore_then(ParsedFunction::<I>::parser())
@@ -209,12 +119,15 @@ where
 
 impl<'src, I> Parse<'src> for ParsedFunction<I>
 where
-    I: Parse<'src> + 'src,
+    I: SurfaceInstruction + Parse<'src> + 'src,
 {
     fn parser() -> impl Parser<'src, &'src str, Self, E<'src>> {
-        let return_ty = just("->").padded().ignore_then(raw_type()).or_not();
+        let return_ty = just("->")
+            .padded()
+            .ignore_then(SurfaceType::parser())
+            .or_not();
         let body = skip()
-            .ignore_then(body_item::<I>())
+            .ignore_then(I::parser())
             .repeated()
             .collect::<Vec<_>>()
             .then_ignore(skip());
@@ -237,7 +150,10 @@ where
     }
 }
 
-impl<I, H> ParsedModule<I, H> {
+impl<I, H> ParsedModule<I, H>
+where
+    I: SurfaceInstruction,
+{
     /// Parse a source section into a pre-resolution module.
     pub fn parse_section<'src, C>(section: SstSectionView<'src, C>) -> eyre::Result<Self>
     where

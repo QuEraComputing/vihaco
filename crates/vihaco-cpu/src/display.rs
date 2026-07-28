@@ -1,12 +1,12 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-use crate::instruction::Instruction;
+use crate::instruction::RuntimeInstruction;
 use vihaco::color::{Themed, show_instruction};
 
-impl std::fmt::Display for Instruction {
+impl std::fmt::Display for RuntimeInstruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use Instruction::*;
+        use RuntimeInstruction::*;
         match self {
             Span(file, start, end) => {
                 show_instruction!(
