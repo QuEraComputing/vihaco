@@ -787,94 +787,26 @@ fn compile_pattern_parser(
     }
 }
 
-const LEGACY_PARSER_ATTRIBUTES: &[&str] =
-    &["head", "token", "delimiters", "delegate", "parse_with"];
-
-fn reject_attributes(attrs: &[Attribute], incompatible: &[&str], message: &str) -> Result<()> {
-    if let Some(attr) = attrs
-        .iter()
-        .find(|attr| incompatible.iter().any(|name| attr.path().is_ident(name)))
-    {
-        let name = attr
-            .path()
-            .get_ident()
-            .expect("incompatible parser attributes have single-segment paths");
-        return Err(Error::new(attr.span(), format!("`#[{name}]` {message}")));
-    }
-
-    Ok(())
-}
-
-fn reject_legacy_attributes_on_enum(input: &EnumInfo<'_>) -> Result<()> {
-    let message = "is a legacy parser attribute and cannot be combined with #[syntax_class]";
-    reject_attributes(input.attrs, LEGACY_PARSER_ATTRIBUTES, message)?;
-
-    for variant in &input.data.variants {
-        reject_attributes(&variant.attrs, LEGACY_PARSER_ATTRIBUTES, message)?;
-        for field in &variant.fields {
-            reject_attributes(&field.attrs, LEGACY_PARSER_ATTRIBUTES, message)?;
-        }
-    }
-
-    Ok(())
-}
-
-fn reject_pattern_attributes_on_legacy_enum(input: &EnumInfo<'_>) -> Result<()> {
-    fn reject_new_attributes(attrs: &[Attribute]) -> Result<()> {
-        if let Some(pattern) = attrs.iter().find(|attr| attr.path().is_ident("pattern")) {
-            return Err(Error::new(
-                pattern.span(),
-                "#[pattern] requires a #[syntax_class] on the enum definition",
-            ));
-        }
-
-        if let Some(syntax_class) = attrs
-            .iter()
-            .find(|attr| attr.path().is_ident("syntax_class"))
-        {
-            return Err(Error::new(
-                syntax_class.span(),
-                "#[syntax_class] must be placed on the enum definition",
-            ));
-        }
-
-        Ok(())
-    }
-
-    reject_new_attributes(input.attrs)?;
-    for variant in &input.data.variants {
-        reject_new_attributes(&variant.attrs)?;
-        for field in &variant.fields {
-            reject_new_attributes(&field.attrs)?;
-        }
-    }
-
-    Ok(())
-}
-
-fn reject_legacy_attributes_on_struct(input: &StructInfo<'_>) -> Result<()> {
-    let message = "is a legacy parser attribute and cannot be combined with #[syntax_class]";
-    reject_attributes(input.attrs, LEGACY_PARSER_ATTRIBUTES, message)?;
-    for field in &input.data.fields {
-        reject_attributes(&field.attrs, LEGACY_PARSER_ATTRIBUTES, message)?;
-    }
-
-    Ok(())
-}
-
 fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
     let enum_ident = &input.ident;
     let enum_attrs = EnumAttrs::from_attrs(input.attrs)?;
     if enum_attrs.syntax_class.is_none() {
-        reject_pattern_attributes_on_legacy_enum(&input)?;
-        return crate::legacy_codegen::expand_enum(
-            input.data,
-            input.ident,
-            input.attrs,
-            input.generics,
-        );
-    }
-    reject_legacy_attributes_on_enum(&input)?;
+        if let Some(pattern) = input
+            .attrs
+            .iter()
+            .find(|attr| attr.path().is_ident("pattern"))
+        {
+            return Err(Error::new(
+                pattern.span(),
+                "#[pattern] requires a #[syntax_class] on the variant definition",
+            ));
+        }
+        return Err(Error::new_spanned(
+            enum_ident,
+            "#[derive(Parse)] on an enum requires a #[syntax_class(...)] attribute",
+        ));
+    };
+
     let src_lifetime = fresh_lifetime(input.generics, "__vihaco_src");
 
     let data = input.data;
@@ -1003,7 +935,6 @@ fn expand_struct(input: StructInfo) -> Result<TokenStream> {
             "#[derive(Parse)] on a struct requires a #[syntax_class(...)] attribute",
         ));
     }
-    reject_legacy_attributes_on_struct(&input)?;
 
     let src_lifetime = fresh_lifetime(input.generics, "__vihaco_src");
 

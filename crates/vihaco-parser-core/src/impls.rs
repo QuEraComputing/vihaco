@@ -67,11 +67,7 @@ impl<'src> Parse<'src> for bool {
 
 impl<'src> Parse<'src> for String {
     fn parser() -> impl Parser<'src, &'src str, Self, E<'src>> {
-        any()
-            .filter(|c: &char| !c.is_whitespace())
-            .repeated()
-            .at_least(1)
-            .collect::<String>()
+        ident()
     }
 }
 

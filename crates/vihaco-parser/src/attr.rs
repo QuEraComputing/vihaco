@@ -5,7 +5,7 @@ use proc_macro2::Span;
 use syn::{
     parse::{Parse, ParseStream},
     spanned::Spanned,
-    Attribute, Error, Fields, LitStr, Meta, Result, Token, Variant,
+    Attribute, Error, Fields, LitStr, Result, Token, Variant,
 };
 
 mod kw {
@@ -15,11 +15,6 @@ mod kw {
 }
 
 // --- Enum-level ---
-
-pub enum HeadAttr {
-    Auto,           // #[head]
-    Custom(String), // #[head = "X::"]
-}
 
 #[derive(Clone)]
 pub enum SyntaxClassAttr {
@@ -60,7 +55,6 @@ impl Parse for SyntaxClassAttr {
 }
 
 pub struct EnumAttrs {
-    pub head: Option<HeadAttr>,
     pub syntax_class: Option<SyntaxClassAttr>,
 }
 
@@ -89,50 +83,18 @@ impl Default for DelimiterAttrs {
 
 pub struct VariantAttrs {
     pub pattern: Option<PatternInfo>,
-    pub token: Option<String>,
-    pub delimiters: DelimiterAttrs,
-    pub delegate: bool,
-    pub delegate_span: Option<Span>,
-}
-
-// --- Field-level ---
-
-pub struct FieldAttrs {
-    pub parse_with: Option<String>,
 }
 
 impl EnumAttrs {
     pub fn from_attrs(attrs: &[Attribute]) -> Result<Self> {
-        let mut head = None;
         let mut syntax_class = None;
         for attr in attrs {
-            let span = attr.span();
-            if attr.path().is_ident("head") {
-                match &attr.meta {
-                    Meta::Path(_) => {
-                        head = Some(HeadAttr::Auto);
-                    }
-                    Meta::NameValue(nv) => {
-                        if let syn::Expr::Lit(syn::ExprLit {
-                            lit: syn::Lit::Str(s),
-                            ..
-                        }) = &nv.value
-                        {
-                            head = Some(HeadAttr::Custom(s.value()));
-                        } else {
-                            return Err(Error::new(span, "#[head] value must be a string literal"));
-                        }
-                    }
-                    _ => return Err(Error::new(span, "invalid #[head] syntax")),
-                }
-            }
-
             if attr.path().is_ident("syntax_class") {
                 syntax_class = Some(attr.parse_args()?);
             }
         }
 
-        Ok(Self { head, syntax_class })
+        Ok(Self { syntax_class })
     }
 }
 
@@ -296,35 +258,6 @@ impl VariantAttrs {
 
         Ok(Self {
             pattern: pattern_info,
-            token,
-            delimiters,
-            delegate,
-            delegate_span,
         })
-    }
-}
-
-impl FieldAttrs {
-    pub fn from_field(field: &syn::Field) -> Result<Self> {
-        let mut parse_with = None;
-        for attr in &field.attrs {
-            if attr.path().is_ident("parse_with") {
-                if let Meta::NameValue(nv) = &attr.meta {
-                    if let syn::Expr::Lit(syn::ExprLit {
-                        lit: syn::Lit::Str(s),
-                        ..
-                    }) = &nv.value
-                    {
-                        parse_with = Some(s.value());
-                        continue;
-                    }
-                }
-                return Err(Error::new(
-                    attr.span(),
-                    "#[parse_with] requires a string path: #[parse_with = \"fn_name\"]",
-                ));
-            }
-        }
-        Ok(Self { parse_with })
     }
 }

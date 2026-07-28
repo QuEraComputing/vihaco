@@ -10,7 +10,7 @@ use vihaco::{
     LoadOwnSstSection, LoadSstSection, MAGIC, ProgramImage, SectionNameResolver, SstFile,
     SstGlobalContext, SstHeader, SstSectionView, Type, VERSION, Value,
     module::LocalModule,
-    syntax::{ParsedModule, Resolve},
+    syntax::{ParsedModule, Resolve, SurfaceInstruction},
     traits::{FromBytes, FromText, WriteBytes},
 };
 
@@ -31,10 +31,13 @@ enum TestInst {
 }
 
 #[derive(Debug, Clone, PartialEq, Instruction, vihaco_parser::Parse)]
+#[syntax_class(instruction, head = "test")]
 enum TextInst {
     Nop,
     Alt,
 }
+
+impl SurfaceInstruction for TextInst {}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct TestHeader {
@@ -94,12 +97,7 @@ impl<H> Resolve<TextInst, H> for TextResolver {
     fn resolve_module(&mut self, parsed: ParsedModule<TextInst, H>) -> eyre::Result<Self::Module> {
         let mut module = LocalModule::default();
         for function in parsed.functions {
-            module
-                .code
-                .extend(<TextResolver as Resolve<TextInst, H>>::resolve_body(
-                    self,
-                    function.body,
-                )?);
+            module.code.extend(function.body);
         }
         Ok(module)
     }
@@ -482,20 +480,20 @@ fn text_generated_loadable_routes_program_and_child_sections() {
         ".section(root):\n\
 \t.text(root):\n\
 \t\tfn @main() {\n\
-\t\t\tnop\n\
+\t\t\ttest::nop\n\
 \t\t}\n\
 \t.text(root).\n\
 \t.section(child):\n\
 \t\t.text(child):\n\
 \t\t\tfn @main() {\n\
-\t\t\t\talt\n\
+\t\t\t\ttest::alt\n\
 \t\t\t}\n\
 \t\t.text(child).\n\
 \t.section(child).\n\
 \t.section(default_child):\n\
 \t\t.text(default_child):\n\
 \t\t\tfn @main() {\n\
-\t\t\t\tnop\n\
+\t\t\t\ttest::nop\n\
 \t\t\t}\n\
 \t\t.text(default_child).\n\
 \t.section(default_child).\n\
@@ -555,7 +553,7 @@ fn text_generated_loadable_parses_marked_header() {
 \t.header(root).\n\
 \t.text(root):\n\
 \t\tfn @main() {\n\
-\t\t\tnop\n\
+\t\t\ttest::nop\n\
 \t\t}\n\
 \t.text(root).\n\
 .section(root).\n",
@@ -628,20 +626,20 @@ fn text_generated_loadable_routes_three_level_section_tree() {
         ".section(root):\n\
 \t.text(root):\n\
 \t\tfn @main() {\n\
-\t\t\tnop\n\
+\t\t\ttest::nop\n\
 \t\t}\n\
 \t.text(root).\n\
 \t.section(middle):\n\
 \t\t.text(middle):\n\
 \t\t\tfn @main() {\n\
-\t\t\t\talt\n\
+\t\t\t\ttest::alt\n\
 \t\t\t}\n\
 \t\t.text(middle).\n\
 \t\t.section(leaf):\n\
 \t\t\t.text(leaf):\n\
 \t\t\t\tfn @main() {\n\
-\t\t\t\t\tnop\n\
-\t\t\t\t\talt\n\
+\t\t\t\t\ttest::nop\n\
+\t\t\t\t\ttest::alt\n\
 \t\t\t\t}\n\
 \t\t\t.text(leaf).\n\
 \t\t.section(leaf).\n\
@@ -710,7 +708,7 @@ fn text_generated_loadable_allows_missing_marked_children() {
         ".section(root):\n\
 \t.text(root):\n\
 \t\tfn @main() {\n\
-\t\t\tnop\n\
+\t\t\ttest::nop\n\
 \t\t}\n\
 \t.text(root).\n\
 .section(root).\n",
@@ -746,7 +744,7 @@ fn text_generated_loadable_rejects_unexpected_direct_children() {
         ".section(root):\n\
 \t.text(root):\n\
 \t\tfn @main() {\n\
-\t\t\tnop\n\
+\t\t\ttest::nop\n\
 \t\t}\n\
 \t.text(root).\n\
 \t.section(child):\n\

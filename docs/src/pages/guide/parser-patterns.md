@@ -7,21 +7,16 @@ description: "Generate Parse implementations from declarative syntax patterns fo
 
 # Pattern Parser Generator
 
-The pattern generator is the recommended way to derive source parsers for new
-syntax types. A pattern describes the concrete spelling of a value and binds
-parts of that spelling to Rust fields. The derive validates the description at
-compile time, then emits an ordinary `vihaco_parser_core::Parse` implementation.
+The pattern generator derives source parsers for syntax types. A pattern
+describes the concrete spelling of a value and binds parts of that spelling to
+Rust fields. The derive validates the description at compile time, then emits
+an ordinary `vihaco_parser_core::Parse` implementation.
 
 Use two attributes:
 
 - `#[syntax_class(...)]` on the enum or struct selects the role of the syntax.
 - `#[pattern = "..."]` on an enum variant, or on a struct itself, overrides the
   generated pattern.
-
-The older `#[head]`, `#[token]`, `#[delimiters]`, `#[delegate]`, and
-`#[parse_with]` generator remains supported. It is documented in
-[Parser Integration](/guide/parser), but its attributes cannot be mixed with
-the pattern generator on one type.
 
 ## A complete instruction example
 
@@ -64,10 +59,8 @@ The `head` is a dialect namespace. The derive appends `::`, so
 `memory::load`.
 
 Every bound field is parsed with that field type's
-`vihaco_parser_core::Parse::parser()`. Pattern mode has no field-level
-`#[parse_with]` escape hatch: implement `Parse` for a local field type, wrap a
-foreign type in a local newtype, or use the legacy generator when a field needs
-a one-off custom parser.
+`vihaco_parser_core::Parse::parser()`. For custom field syntax, implement
+`Parse` for a local field type or wrap a foreign type in a local newtype.
 
 ## Syntax classes
 
@@ -221,23 +214,22 @@ in stages, so failures tend to describe the earliest broken contract:
 | Pattern syntax | Empty patterns; leading, trailing, or repeated spaces; tabs; malformed bindings; unsupported symbols; unterminated literals; indices larger than `u32`. |
 | Syntax class | Missing `#[syntax_class]`; instruction pattern not beginning with `'name`; instruction tokens in value/type patterns; implicit type patterns; implicit multi-field value patterns. |
 | Field mapping | Struct-style enum variants; mixed binding styles; named bindings on tuple fields; indexed bindings on named fields; missing, duplicate, unknown, or out-of-bounds fields; bindings on unit forms. |
-| Generator selection | Any legacy parser attribute combined with `#[syntax_class]`; `#[pattern]` used without a syntax class; `#[syntax_class]` placed on a variant or field instead of the type definition. |
+| Attribute placement | `#[pattern]` used without a syntax class; `#[syntax_class]` placed on a variant or field instead of the type definition. |
 
 The generated parser then relies on Rust's type checker to verify that every
 captured field type implements `Parse<'src>`.
 
-## Choosing between pattern and legacy generation
+## When a pattern is not enough
 
-Use patterns when the syntax can be expressed as exact mnemonics/keywords,
-typed field parsers, comma, and `@`. Patterns are especially useful when you
-want the source grammar visible in one string and checked against the Rust
-constructor.
+Patterns cover exact mnemonics and keywords, typed field parsers, comma, and
+`@`. They keep the source grammar visible in one string and checked against the
+Rust constructor.
 
-Use the legacy generator when a field needs `#[parse_with]`, a variant delegates
-to another parser, or delimiters outside the pattern grammar are required.
-Choose one generator for the entire enum or struct: placing
-`#[syntax_class(...)]` selects pattern generation, while omitting it selects
-legacy enum generation.
+When a field has richer syntax, implement `Parse` for a local field type. When
+the entire grammar needs recursion, nested delimiters, or context-sensitive
+coordination, implement `Parse` for the containing type with chumsky
+combinators.
 
-For module parsing, fallback raw forms, symbol resolution, and sugar expansion,
-continue to [Advanced Parser Customization](/guide/parser-advanced).
+For module parsing, typed function bodies, resolution, and explicit source
+sugar, continue to
+[Advanced Parser Customization](/guide/parser-advanced).

@@ -66,7 +66,7 @@ needs; there is no umbrella crate.
 |---|---|
 | [`vihaco`](crates/vihaco) | The framework: the `Instruction` / `Message` / `Effects` types and their derives, the `#[component]` / `#[observe]` / `#[composite]` macros, the module / syntax / runtime layers, and the `Value` / `Type` model. Re-exports the macros, so most projects depend only on this crate. |
 | [`vihaco-cpu`](crates/vihaco-cpu) | A ready-made CPU/host component — a small stack machine (constants, arithmetic, branches, halt, …) with a `StepOutcome` control-flow effect. Use directly, or as a reference for writing your own. |
-| [`vihaco-parser`](crates/vihaco-parser) | `#[derive(Parse)]` — turns an instruction enum into a [chumsky](https://github.com/zesterer/chumsky) parser via `#[head]` / `#[token]` / `#[delimiters]` / `#[parse_with]` attributes. |
+| [`vihaco-parser`](crates/vihaco-parser) | `#[derive(Parse)]` — turns instruction, value, and type enums or structs into [chumsky](https://github.com/zesterer/chumsky) parsers via `#[syntax_class]` and `#[pattern]`. |
 | [`vihaco-parser-core`](crates/vihaco-parser-core) | The `Parse<'src>` trait and primitive impls shared by the parser derive. |
 | [`vihaco-derive`](crates/vihaco-derive) | The procedural macros behind the derives (used via `vihaco`'s re-exports). |
 

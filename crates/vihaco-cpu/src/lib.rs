@@ -10,7 +10,7 @@ pub mod parse_helpers;
 
 pub use component::CPUMessage;
 pub use data::CPU;
-pub use instruction::Instruction;
+pub use instruction::{RuntimeInstruction, SurfaceInstruction};
 pub use outcome::StepOutcome;
 
 #[cfg(test)]
@@ -19,7 +19,7 @@ mod tests {
 
     #[test]
     fn cpu_instruction_derive_exposes_explicit_canonical_syntax_entries() {
-        let variants = <Instruction as vihaco::CanonicalInstructionSyntax>::variants();
+        let variants = <RuntimeInstruction as vihaco::CanonicalInstructionSyntax>::variants();
 
         let expect = [
             ("cpu::const_i64", &[vihaco::OperandKind::I64][..]),

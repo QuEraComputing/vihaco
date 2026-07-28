@@ -1,5 +1,5 @@
-error: #[pattern] requires a #[syntax_class] on the enum definition
- --> tests/compile_errors/pattern_without_syntax_class.rs:9:5
+error: #[derive(Parse)] on an enum requires a #[syntax_class(...)] attribute
+ --> tests/compile_errors/pattern_without_syntax_class.rs:7:6
   |
-9 |     #[pattern = "$0"]
-  |     ^
+7 | enum Value {
+  |      ^^^^^
