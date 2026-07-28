@@ -76,7 +76,7 @@ use vihaco_cpu as cpu;
 
 #[derive(Debug, Clone, Instruction)]
 pub enum MachineInst {
-    Cpu(cpu::Instruction),
+    Cpu(cpu::RuntimeInstruction),
     Signal(SignalInst),
 }
 </code></pre>
@@ -106,7 +106,7 @@ The nested instruction then becomes the payload of that outer variant.</p>
 </ul>
 <p>For example, imagine:</p>
 <ul>
-<li><code>cpu::Instruction</code> is <code>16</code> bytes wide</li>
+<li><code>cpu::RuntimeInstruction</code> is <code>16</code> bytes wide</li>
 <li><code>SignalInst</code> is <code>8</code> bytes wide</li>
 </ul>
 <p>Then the outer machine instruction width becomes <code>17</code> bytes:</p>
