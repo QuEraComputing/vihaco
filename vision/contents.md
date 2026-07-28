@@ -12,19 +12,22 @@ runtime execution:
 1. [`instruction-model.md`](./instruction-model.md) defines surface and runtime instruction
    products, `Instruction` and `Execute<I>`, component responsibilities, composite selection, and
    generated machine instruction sums.
-2. [`execution-pipeline.md`](./execution-pipeline.md) defines surface resolution and the
+2. [`types-and-values.md`](./types-and-values.md) defines author-owned data models, scalar parser
+   and encoding support, surface/runtime type and value staging, cross-component compatibility,
+   explicit conversion, and future bytecode encoding.
+3. [`execution-pipeline.md`](./execution-pipeline.md) defines surface resolution and the
    route-specific runtime stages of message resolution, component execution, and effect handling.
-3. [`runtime-drivers.md`](./runtime-drivers.md) defines step outcomes, program drivers, clock and
+4. [`runtime-drivers.md`](./runtime-drivers.md) defines step outcomes, program drivers, clock and
    driver roles, program-counter ownership, parking, resumption, and fault boundaries.
-4. [`stack-machine-policy.md`](./stack-machine-policy.md) applies the ownership model to native
+5. [`stack-machine-policy.md`](./stack-machine-policy.md) applies the ownership model to native
    stack operations, arithmetic, locals, heap allocation, printing, calls, and control flow.
-5. [`sst-resolution.md`](./sst-resolution.md) defines pattern-based SST parsing, surface-to-runtime
+6. [`sst-resolution.md`](./sst-resolution.md) defines pattern-based SST parsing, surface-to-runtime
    resolution, canonical syntax ownership, and the generated composite parser.
-6. [`macro-generation.md`](./macro-generation.md) separates what instruction, component,
+7. [`macro-generation.md`](./macro-generation.md) separates what instruction, component,
    composite, and effect-wiring macros generate from what machine authors write.
-7. [`design-tradeoffs.md`](./design-tradeoffs.md) records the alternatives considered and the
+8. [`design-tradeoffs.md`](./design-tradeoffs.md) records the alternatives considered and the
    architecture's observability, debugging, and error-model consequences.
-8. [`implementation-plan.md`](./implementation-plan.md) defines test coverage, migration phases,
+9. [`implementation-plan.md`](./implementation-plan.md) defines test coverage, migration phases,
    focused architecture fixtures, deferred questions, and acceptance criteria.
 
 ## Reference Machine and Timing

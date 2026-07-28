@@ -23,8 +23,10 @@ The model has the following properties:
 - Surface instructions describe SST syntax and are parsed exclusively by the pattern parser.
 - Runtime instructions contain fully resolved operands and are the only instructions executed by
   components.
-- The machine's `Resolve<SurfaceInstruction, Header>` implementation lowers surface instructions
-  into runtime instructions before execution.
+- Values and type descriptors are supplied by machine and library authors; vihaco core does not
+  impose a guest `Value` or `Type` enum.
+- The machine's `Resolve<SurfaceInstruction, SurfaceType, Header>` implementation lowers surface
+  instructions and module-level types into runtime products before execution.
 - Components remain the owners of state and the invariant-preserving operations over that state.
 - A component implements execution for each instruction it supports.
 - A composite explicitly selects the instructions that are part of its public instruction set.
@@ -40,7 +42,8 @@ The resulting ownership model is:
 | Decision | Owner |
 |---|---|
 | What syntax is accepted from SST? | Surface instruction types and their patterns |
-| How are labels, symbols, and sugar lowered? | The implementer of `Resolve<SurfaceInstruction, Header>` |
+| What values and types exist? | The selected author-defined data model |
+| How are types, labels, symbols, and sugar lowered? | The implementer of `Resolve<SurfaceInstruction, SurfaceType, Header>` |
 | What fully resolved data is stored for execution? | Runtime instruction types |
 | Which component knows how to execute it? | The selected component's `Execute<I>` implementation |
 | Is the instruction available in this machine? | The composite |
@@ -77,8 +80,12 @@ The architecture is intended to preserve the following properties:
 12. Surface instruction products use the checked pattern parser generator.
 13. Runtime instruction products never contain unresolved labels or other source-only data.
 14. A composite parser is constructed from only the selected surface instructions.
-15. `Resolve<SurfaceInstruction, Header>` is the explicit, type-checked bridge from parsed surface
-    modules to runtime modules.
+15. `Resolve<SurfaceInstruction, SurfaceType, Header>` is the explicit, type-checked bridge from
+    parsed surface modules to runtime modules.
+16. Components exchange identical author-defined boundary types or use an explicit conversion.
+
+The ownership and staging of value and type products are defined in
+[`types-and-values.md`](./types-and-values.md).
 
 ## Non-Goals
 
@@ -113,8 +120,8 @@ pub struct SurfaceConditionalBranch {
 
 // Runtime instruction: stored in the program image and executed.
 pub struct ConditionalBranch {
-    pub when_true: usize,
-    pub when_false: usize,
+    pub when_true: InstructionIndex,
+    pub when_false: InstructionIndex,
 }
 ```
 
@@ -158,7 +165,7 @@ pub enum MyMachineInstruction {
 ```
 
 The surface sum is parsed from SST. An implementation of
-`Resolve<MyMachineSurfaceInstruction, MyHeader>` produces a
+`Resolve<MyMachineSurfaceInstruction, MyMachineSurfaceType, MyHeader>` produces a
 `Module<MyMachineInstruction, ...>` containing runtime instructions for the program image. The
 runtime sum is dispatched during execution.
 
@@ -285,13 +292,15 @@ composite may route the same instruction type to two fields:
 
 ```rust
 pub enum MachineInstruction {
-    PushOperand(stack::Push<Value>),
-    PushCall(stack::Push<Value>),
+    PushOperand(stack::Push<MachineValue>),
+    PushCall(stack::Push<MachineValue>),
 }
 ```
 
-Both variants contain the same instruction type and may target the same `Stack<Value>` component
-type, but they target different instances and may have different message and effect policies.
+Here and below, `MachineValue` is an illustrative author-defined carrier rather than a vihaco core
+type. Both variants contain the same instruction type and may target the same
+`Stack<MachineValue>` component type, but they target different instances and may have different
+message and effect policies.
 
 The outer variant is therefore part of the route identity. The composite uses it to determine:
 
@@ -330,12 +339,12 @@ A runtime instruction contains the resolved information required by execution:
 
 ```rust
 pub struct Branch {
-    pub target: usize,
+    pub target: InstructionIndex,
 }
 
 pub struct Call {
     pub arity: u32,
-    pub target: usize,
+    pub target: InstructionIndex,
 }
 ```
 
@@ -344,7 +353,7 @@ Surface instruction types therefore:
 - Derive `vihaco_parser::Parse`.
 - Own their pattern and dialect head.
 - May contain labels, symbolic names, literals, and other source-level values.
-- Are inputs to `Resolve<SurfaceInstruction, Header>`.
+- Are inputs to `Resolve<SurfaceInstruction, SurfaceType, Header>`.
 - Are never executed by components.
 - Are not stored in the runtime program image.
 
@@ -377,6 +386,13 @@ Runtime instructions may contain resolved semantic configuration such as:
 
 Information that depends on live machine state belongs in the runtime message rather than either
 instruction representation.
+
+The types of those fields come from the instruction or data-model author. A runtime instruction
+may contain `i64`, `ChannelId`, an author-defined runtime type descriptor, or another resolved
+product; it does not depend on a framework `Value` or `Type` enum. Surface products similarly use
+the author's value and type parsers. Module-level function signatures receive their surface type
+as a separate parsed-module parameter, as described in
+[`types-and-values.md`](./types-and-values.md).
 
 ## Shape of a Component
 
@@ -445,11 +461,11 @@ For example:
 
 ```rust
 pub struct MyMachine {
-    operand_stack: Stack<Value>,
-    call_stack: Stack<Value>,
+    operand_stack: Stack<MachineValue>,
+    call_stack: Stack<MachineValue>,
     arithmetic: ArithmeticUnit,
-    heap: Heap<Value>,
-    channels: Channels<Value>,
+    heap: Heap<MachineValue>,
+    channels: Channels<MachineValue>,
     program: Executor,
     clock: ChildClock,
 }
@@ -461,11 +477,11 @@ composite declares its accepted surface instructions and executable runtime rout
 ```rust
 machine! {
     composite MyMachine {
-        operand_stack: Stack<Value>,
-        call_stack: Stack<Value>,
+        operand_stack: Stack<MachineValue>,
+        call_stack: Stack<MachineValue>,
         arithmetic: ArithmeticUnit,
-        heap: Heap<Value>,
-        channels: Channels<Value>,
+        heap: Heap<MachineValue>,
+        channels: Channels<MachineValue>,
         program: Executor,
         clock: ChildClock,
     }
@@ -551,4 +567,3 @@ chosen to make public. The parent may:
 - Treat the child as a resource or effect handler without exposing its runtime instructions.
 
 Containment never implies recursive instruction inheritance.
-

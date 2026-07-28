@@ -11,30 +11,33 @@ SST loading follows this path:
 ```text
 SST text
     -> pattern parser
-    -> ParsedModule<SurfaceInstruction, Header>
-    -> Resolve<SurfaceInstruction, Header>
-    -> Module<RuntimeInstruction, ...>
+    -> ParsedModule<SurfaceInstruction, SurfaceType, Header>
+    -> Resolve<SurfaceInstruction, SurfaceType, Header>
+    -> Module<RuntimeInstruction, Constant, RuntimeType, Info>
     -> runtime program image
 ```
 
-`Resolve<SurfaceInstruction, Header>` owns every transformation that requires module-wide source
-context:
+`SurfaceType`, `Constant`, and `RuntimeType` are author-defined products rather than vihaco enums.
+`Resolve<SurfaceInstruction, SurfaceType, Header>` owns every transformation that requires
+module-wide source context:
 
 - Building and consulting label tables.
-- Turning `@label` references into `usize` program indices.
+- Turning `@label` references into fixed-width `InstructionIndex` values.
 - Interning strings.
 - Expanding surface sugar into one or more runtime instructions.
 - Validating source-level types and declarations.
+- Interpreting typed or unresolved author-defined literals.
+- Selecting explicit conversions required by the source language.
 
 At the trait boundary, resolution consumes a parsed surface module and produces a runtime module:
 
 ```rust
-pub trait Resolve<S, H> {
+pub trait Resolve<S, Ty, H> {
     type Module;
 
     fn resolve_module(
         &mut self,
-        parsed: ParsedModule<S, H>,
+        parsed: ParsedModule<S, Ty, H>,
     ) -> eyre::Result<Self::Module>;
 }
 ```
@@ -111,9 +114,10 @@ but that is an explicit machine configuration rather than universal step behavio
 ### Stage 1: Message Resolution
 
 Runtime message resolution supplies the owned, execution-time information that is intentionally
-absent from the instruction. It is distinct from `Resolve<SurfaceInstruction, Header>`: module
-resolution transforms parsed source into a runtime program, while message resolution reads live
-machine state for an instruction that is already fully resolved.
+absent from the instruction. It is distinct from
+`Resolve<SurfaceInstruction, SurfaceType, Header>`: module resolution transforms parsed source
+into a runtime program, while message resolution reads live machine state for an instruction that
+is already fully resolved.
 
 The composite route owns this stage because only the composite knows:
 
@@ -295,8 +299,9 @@ outer machine instruction; it is not resolved globally from `Effect`.
 ##### Resolution Selects the Runtime Route
 
 The composite declaration defines the available runtime routes, and the composite macro gives each
-one a machine instruction variant. `Resolve<MachineSurfaceInstruction, Header>` selects among those
-variants while lowering surface instructions into the runtime module.
+one a machine instruction variant.
+`Resolve<MachineSurfaceInstruction, MachineSurfaceType, Header>` selects among those variants
+while lowering surface instructions into the runtime module.
 
 This separation allows one SST operation to select a machine-specific execution path after its
 source operands are resolved. A typed addition illustrates the distinction:
@@ -306,9 +311,12 @@ source operands are resolved. A typed addition illustrates the distinction:
 #[syntax_class(instruction, head = "arithmetic")]
 #[pattern = "'add $ty"]
 pub struct SurfaceAdd {
-    pub ty: SurfaceType,
+    pub ty: ArithmeticSurfaceType,
 }
 ```
+
+`ArithmeticSurfaceType` is supplied by the arithmetic or machine data-model author. It is not a
+vihaco core type.
 
 The same surface product parses both of these forms:
 
@@ -351,10 +359,10 @@ fn resolve_add(
     instruction: SurfaceAdd,
 ) -> eyre::Result<MyMachineInstruction> {
     match self.resolve_type(instruction.ty)? {
-        RuntimeType::Integer => Ok(MyMachineInstruction::IntegerAdd(
+        ArithmeticType::Integer => Ok(MyMachineInstruction::IntegerAdd(
             arithmetic::runtime::Add,
         )),
-        RuntimeType::Address => Ok(MyMachineInstruction::AddressAdd(
+        ArithmeticType::Address => Ok(MyMachineInstruction::AddressAdd(
             arithmetic::runtime::Add,
         )),
         ty => Err(eyre::eyre!("addition is not supported for {ty}")),
@@ -376,6 +384,17 @@ The parser does not select a component, and `Execute<Add>` does not inspect the 
 one. Resolution makes that architectural decision once, while it has source and type context. The
 resulting runtime route then carries the decision through execution and effect handling.
 
+##### Type Compatibility and Conversion
+
+Route wiring preserves Rust boundary types. Moving an effect or message from one component to
+another does not trigger a cast. A route whose producer emits `i64` cannot target a handler that
+requires `f64` unless the author selects a conversion instruction, component, or named handler.
+
+When the source language defines an implicit coercion, the module resolver makes it explicit in the
+runtime program or converts a source constant during resolution. Checked, saturating, wrapping,
+lossy, and bitwise conversions remain distinct operations. Generated dispatch and effect forwarding
+never choose conversion semantics.
+
 ##### Same Effect Type, Different Machine Semantics
 
 The same `Add` runtime instruction can therefore appear through two routes:
@@ -394,15 +413,16 @@ runtime_instructions {
 }
 ```
 
-Both routes contain the same runtime instruction type and produce `ValueResult<Value>`, but they
+Both routes contain the same runtime instruction type and produce
+`ValueResult<MachineValue>`, where `MachineValue` is an illustrative author-defined carrier. They
 execute on different component instances and apply their effects to different stacks:
 
 ```text
-IntegerAdd -> ValueResult<Value> -> operand_stack
-AddressAdd -> ValueResult<Value> -> address_stack
+IntegerAdd -> ValueResult<MachineValue> -> operand_stack
+AddressAdd -> ValueResult<MachineValue> -> address_stack
 ```
 
-A single `Handle<ValueResult<Value>> for MyMachine` implementation cannot distinguish these
+A single `Handle<ValueResult<MachineValue>> for MyMachine` implementation cannot distinguish these
 policies. The effect type intentionally describes the semantic result—an operation produced a
 value—without naming a destination in the composite. Adding the destination to `ValueResult` would
 couple the arithmetic component to a particular machine layout. Replacing it with a machine-wide
@@ -467,7 +487,7 @@ implementations for `IntegerAdd` and `AddressAdd` are equivalent to:
 
 ```rust
 impl HandleEffects<IntegerAddRoute> for MyMachine {
-    type Effect = ValueResult<Value>;
+    type Effect = ValueResult<MachineValue>;
     type Error = MachineFault;
 
     fn handle_effects(
@@ -482,7 +502,7 @@ impl HandleEffects<IntegerAddRoute> for MyMachine {
 }
 
 impl HandleEffects<AddressAddRoute> for MyMachine {
-    type Effect = ValueResult<Value>;
+    type Effect = ValueResult<MachineValue>;
     type Error = MachineFault;
 
     fn handle_effects(

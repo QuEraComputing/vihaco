@@ -84,6 +84,12 @@ of a particular mailbox, interconnect, clock, stack, or arithmetic implementatio
 ship with the vihaco project as useful libraries, but the framework must not contain special cases
 for their names or semantics.
 
+The first demo uses `i64` directly for its operand stacks, arithmetic messages/results, and channel
+payloads. It does not need a heterogeneous value enum or runtime type descriptor. This is a
+deliberate acceptance case for the author-defined data-model boundary: adding the demo must not
+reintroduce a vihaco `Value` or `Type`. Focused heap or mixed-value fixtures may define their own
+carrier independently. See [`types-and-values.md`](./types-and-values.md).
+
 The core requirement is more general:
 
 - A nested composite can emit an owned effect across its parent boundary.
@@ -128,7 +134,8 @@ handle:
 
 The arithmetic component does not know which CPU contains it, which stack supplied the values, or
 how long a local cycle lasts globally. The same instruction and component implementations execute
-in both CPUs.
+in both CPUs. In the first demo their shared boundary type is `i64`, so no cross-component cast is
+performed.
 
 Each arithmetic route initially costs one local cycle. Because the local clocks have different
 ratios, the same semantic operation has different global duration:
@@ -380,7 +387,7 @@ The demo should be assembled from reusable items rather than defining all behavi
 example:
 
 - A stack component with invariant-preserving operations.
-- Arithmetic runtime instructions and an arithmetic component implementing `add`, `sub`, and
+- Arithmetic runtime instructions and an `i64` arithmetic component implementing `add`, `sub`, and
   `mul`.
 - Surface instruction types and resolution support for those arithmetic operations.
 - A local clock component with a configurable local-cycle-to-global-tick ratio.
@@ -428,6 +435,8 @@ The demo is complete when:
 - Global time is monotonic and same-tick ordering is deterministic.
 - Arithmetic touches only each CPU's local stack.
 - Values cross CPUs only through typed effects and library-defined communication handlers.
+- Arithmetic and communication share `i64` directly; no framework value enum or implicit cast is
+  involved.
 - `recv` parks when no value is available and resumes without retaining a borrow.
 - A parked CPU does not execute its next instruction.
 - Both SST programs lower entirely to the selected runtime instruction sums.

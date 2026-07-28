@@ -1,4 +1,4 @@
-# Instruction Rewrite Verification and Migration
+# Instruction and Data-Model Rewrite Verification and Migration
 
 This document turns the architecture into test coverage, migration phases, implementation
 questions, and acceptance criteria.
@@ -20,18 +20,32 @@ Each surface instruction is tested for:
 - Preservation of unresolved names, labels, and symbolic operands.
 - Invalid source syntax rejection.
 
+### Surface Value and Type Tests
+
+Author-defined value and type products are tested for:
+
+- Composition from vihaco's scalar and lexical parsers.
+- Module parameter and return types using the author-selected surface type.
+- Typed literal variants rejecting invalid type/literal pairings where the grammar expresses the
+  pairing.
+- Unresolved literal text preserving the source needed by resolution.
+- Out-of-range scalar input returning a parse error without panicking.
+- A surface product participating in parsed modules without implementing runtime bytecode traits.
+
 ### Resolution Tests
 
-Each `Resolve<SurfaceInstruction, Header>` implementation is tested for:
+Each `Resolve<SurfaceInstruction, SurfaceType, Header>` implementation is tested for:
 
 - Successful lowering to the expected runtime instruction or instruction sequence.
 - Label and symbol replacement with the correct program-image indices.
 - Errors for missing, duplicate, or invalid targets.
 - Sugar expansion order.
 - Machine-specific validation that requires module context.
+- Author-defined surface type and literal lowering.
+- Explicit source-language conversion insertion.
 
 The `ConditionalBranch` reference case anchors the boundary: `@foo` survives parsing as a source
-label and becomes a `usize` program index only during module resolution.
+label and becomes a fixed-width `InstructionIndex` only during module resolution.
 
 ### Runtime Instruction Tests
 
@@ -74,10 +88,11 @@ Compile-fail coverage proves that invalid relationships cannot be generated. It 
 - Missing message wiring.
 - Missing effect handlers.
 - Incompatible message or effect types.
+- Cross-component value types that differ without an explicit adapter.
 - A suspending effect without a continuation-capable handler.
 - A selected surface instruction that does not implement `Parse`.
-- A machine surface sum with no applicable `Resolve<MachineSurfaceInstruction, Header>`
-  implementation.
+- A machine surface sum with no applicable
+  `Resolve<MachineSurfaceInstruction, MachineSurfaceType, Header>` implementation.
 - Attempting to route a surface instruction directly to component execution.
 - Invalid pattern field mappings and unsupported pattern literals.
 
@@ -97,23 +112,30 @@ End-to-end machines cover:
 - A nested composite exposing only selected operations.
 - Pattern parsing into a surface instruction, module resolution into a runtime instruction, and
   runtime message resolution before execution.
+- One machine using a scalar directly without defining a value enum.
+- One author-defined heterogeneous value carrier crossing stack, heap, and channel boundaries.
 
 ## Migration Plan
 
 Migration proceeds from the semantic relationships outward. Manual instruction and execution types
 establish the model first; generation follows only after the required relationships are concrete.
 
-### Phase 1: Establish the Two Instruction Levels
+### Phase 1: Establish Surface, Runtime, and Data-Model Boundaries
 
 1. Establish distinct surface and runtime instruction types.
 2. Decide the final names for surface instructions, runtime instructions, and their generated
    machine sums.
-3. Use the pattern parser generator for all instruction, value, and type surface syntax.
-4. Make `Resolve<SurfaceInstruction, Header>` the explicit lowering boundary.
-5. Add a reference branch instruction whose surface form contains labels and whose runtime form
-   contains resolved `usize` program indices.
-6. Test that the generated machine surface sum resolves into a module containing only variants from
-   the generated runtime sum.
+3. Remove vihaco's built-in guest `Value` and `Type` enums.
+4. Provide fallible `Parse` implementations for the supported scalar source forms.
+5. Distinguish identifier, symbol, quoted-string, and unresolved-literal helpers.
+6. Parameterize parsed function signatures over an author-selected surface type.
+7. Keep the surface-instruction marker independent of runtime instruction/bytecode traits.
+8. Use the pattern parser generator for all instruction, value, and type surface syntax.
+9. Make `Resolve<SurfaceInstruction, SurfaceType, Header>` the explicit lowering boundary.
+10. Add a reference branch instruction whose surface form contains labels and whose runtime form
+    contains resolved `InstructionIndex` values.
+11. Test that the generated machine surface sum resolves into a module containing only variants
+    from the generated runtime sum and author-defined constant/type products.
 
 ### Phase 2: Introduce Per-Instruction Component Execution
 
@@ -165,10 +187,12 @@ establish the model first; generation follows only after the required relationsh
 4. Move special field grammars into local value/type syntax types where practical.
 5. Represent sugar, interning inputs, labels, and other unresolved operands explicitly in surface
    instruction types.
-6. Implement `Resolve` to lower those forms into executable runtime instructions.
-7. Move component-local mutations to `Execute<I>` implementations.
-8. Move cross-component reads into runtime message resolution.
-9. Move cross-component writes and scheduling into effect handling.
+6. Replace old `Value`/`Type` dependencies with scalars, generics, library newtypes, or an
+   author-defined data model as appropriate.
+7. Implement `Resolve` to lower those forms into executable runtime instructions.
+8. Move component-local mutations to `Execute<I>` implementations.
+9. Move cross-component reads into runtime message resolution.
+10. Move cross-component writes and scheduling into effect handling.
 
 ### Phase 7: Remove Automatic Instruction Inheritance
 
@@ -176,6 +200,25 @@ establish the model first; generation follows only after the required relationsh
 2. Require explicit route selection for new composites.
 3. Deprecate the component-wide `GeneratedComponent::Instruction` association.
 4. Remove adapters after downstream code and documentation have migrated.
+
+### Phase 8: Establish Resolved Bytecode Encoding
+
+1. Separate surface parsing traits from runtime encoding and decoding traits.
+2. Implement portable codecs for supported fixed-width scalars and generic containers.
+3. Preserve one global context and the recursive section frame, local header, local payload, child
+   table, and child-offset structure.
+4. Add author-defined codec coverage for one scalar-only section and one heterogeneous data-model
+   section in the same file.
+5. Generate explicit stable route opcodes scoped to each section's machine runtime-instruction sum.
+6. Decide whether section schema identities live in fixed framing or author headers, and test
+   mismatches at the section path that selected the decoder.
+7. Encode variable-sized local instruction records with checked lengths and exact payload
+   consumption.
+8. Validate unique expected child names, parent-relative offsets, containment, and non-overlap.
+9. Reject `usize`, implicit Rust discriminants, invalid tags, invalid indices, and trailing payload
+   data at the wire boundary.
+10. Prove that recursive SST resolution and bytecode decoding establish equivalent per-section
+    invariants.
 
 ## Additional Architecture Coverage
 
@@ -213,6 +256,8 @@ Several API choices depend on evidence from the first implementation:
 6. Whether canonical dialect heads are always fixed by surface instruction types or may be wrapped
    by an explicit machine-local surface instruction type.
 7. Which validation belongs in pattern parsing and which belongs in `Resolve`.
+8. Whether repeated author data-model parameters justify a common packaging trait.
+9. Whether generic tooling eventually requires self-describing type schemas in bytecode.
 
 Borrow-specific APIs and macro shorthand follow the same rule: they are introduced in response to
 concrete compiler friction or repeated boilerplate, not as prerequisites for the architecture.
@@ -222,7 +267,8 @@ These questions do not change the central ownership decision:
 > Components own their state and per-instruction execution; composites own instruction admission,
 > route dispatch, cross-component dataflow, and effect routing; drivers own program iteration,
 > readiness, scheduling, and modeled time; either a driver or one modeled component owns
-> program-counter transitions.
+> program-counter transitions. Data-model authors own semantic values and types; vihaco supplies
+> scalar, staging, composition, and encoding infrastructure.
 
 ## Acceptance Criteria
 
@@ -238,8 +284,13 @@ The rewrite has established the architecture when all of the following are true:
 - The generated machine parser admits only selected surface instruction patterns.
 - Pattern parsing, `Resolve`, runtime message resolution, execution, and effect handling remain
   distinct stages.
+- Vihaco exports no required guest `Value` or `Type` enum.
+- Parsed function signatures use an author-selected surface type.
+- A scalar-only machine does not need to define a value enum.
+- Author-defined heterogeneous values can cross compatible component boundaries.
+- Mismatched boundary types require an explicit conversion instruction, adapter, or handler.
 - A surface `ConditionalBranch` can contain `@foo`, while its runtime counterpart contains only a
-  resolved `usize` program index.
+  resolved fixed-width `InstructionIndex`.
 - Runtime instructions contain no unresolved source labels, names, or sugar.
 - Only runtime instructions are dispatched to components.
 - Native stack mutation requires no artificial self-directed effect.
@@ -257,3 +308,7 @@ The rewrite has established the architecture when all of the following are true:
 - Compile errors identify the route and missing component/message/effect relationship.
 - Existing diagnostic-handler and loader concepts can integrate without becoming the semantic
   owner of instruction execution.
+- Bytecode round trips author-defined instructions, constants, and types without depending on Rust
+  layout, variant order, or pointer width.
+- One bytecode file can load a root composite and heterogeneous nested sections whose owners use
+  different instruction, constant, type, header, and opcode schemas.
