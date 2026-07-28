@@ -102,7 +102,7 @@ use vihaco_cpu as cpu;
 
 #[derive(Debug, Clone, Instruction)]
 pub enum MachineInst {
-    Cpu(cpu::Instruction),
+    Cpu(cpu::RuntimeInstruction),
     Signal(SignalInst),
 }
 ```
@@ -138,7 +138,7 @@ That means:
 
 For example, imagine:
 
-- `cpu::Instruction` is `16` bytes wide
+- `cpu::RuntimeInstruction` is `16` bytes wide
 - `SignalInst` is `8` bytes wide
 
 Then the outer machine instruction width becomes `17` bytes:
