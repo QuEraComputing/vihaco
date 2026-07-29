@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"trait":["FrameMemory","GetProgramGlobal","ProgramCounter","StackFrame","StackMemory","Stdout"]};
+window.SIDEBAR_ITEMS = {"trait":["FrameMemory","GetProgramInfo","ProgramCounter","StackFrame","StackMemory","Stdout"]};

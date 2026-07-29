@@ -95,8 +95,9 @@ Components consume a resolved <code>Message</code> and return typed
           separated.
 </p> </div> <div class="panel"> <span class="num">iii. Parsers for free</span> <h2>From source text to module</h2> <p> <code>#[derive(Parse)]</code> generates a
 <a href="https://github.com/zesterer/chumsky">chumsky</a> parser for
-          your instruction syntax; a two-pass resolver expands sugar, interns
-          strings, and resolves labels into a runtime module.
+          your instruction syntax from declarative, compile-time-checked
+          patterns. Module parsing produces typed function bodies for your
+          resolver.
 </p> </div> </section> <section class="install-tabs" aria-label="Install vihaco"> <h2 class="section-h"><span class="section-h-num">§</span>Install</h2> <p>
 vihaco is a Cargo workspace of focused crates. <code>vihaco</code> is
         the foundation — add the others as your project needs them. There is no
@@ -269,7 +270,7 @@ Continue to the
         sync();
       })();
     </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-07-09</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
+          documentation generated <time>2026-07-29</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

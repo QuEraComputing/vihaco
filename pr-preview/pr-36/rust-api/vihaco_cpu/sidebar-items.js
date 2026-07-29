@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["CPUMessage","Instruction","StepOutcome"],"mod":["parse_helpers"],"struct":["CPU"]};
+window.SIDEBAR_ITEMS = {"enum":["CPUMessage","RuntimeInstruction","StepOutcome","SurfaceInstruction"],"mod":["parse_helpers"],"struct":["CPU"]};
