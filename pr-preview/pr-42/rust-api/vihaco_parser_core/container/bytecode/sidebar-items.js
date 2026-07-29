@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["FLAGS","MAGIC","VERSION"],"fn":["checked_add","context_range","parse_file"]};
