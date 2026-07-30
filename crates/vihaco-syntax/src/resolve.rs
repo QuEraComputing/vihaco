@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: MIT
 
 //! The `Resolve` trait — bridge between [`super::ParsedModule`] and the
-//! runtime [`crate::module::Module`]. Each consumer implements this for its
+//! runtime `module::Module`. Each consumer implements this for its
 //! own instruction set, source type, and header type, holding whatever state
 //! is needed (label table, string interner, sugar expansion rules).
 
-use crate::{SurfaceInstruction, syntax::ParsedModule};
+use vihaco_parser::SurfaceInstruction;
+
+use crate::ParsedModule;
 
 /// Lower a parsed module to its resolved runtime form.
 ///

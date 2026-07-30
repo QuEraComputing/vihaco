@@ -12,10 +12,11 @@ use chumsky::extra;
 use chumsky::prelude::*;
 use vihaco_parser::{Ident, Parse, QuotedString};
 
-use crate::SstHeader;
-use crate::SstSectionView;
-use crate::SurfaceInstruction;
-use crate::syntax::{Param, ParsedFunction, ParsedModule};
+use vihaco_bytecode::SstHeader;
+use vihaco_bytecode::SstSectionView;
+use vihaco_parser::SurfaceInstruction;
+
+use crate::{Param, ParsedFunction, ParsedModule};
 
 type E<'src> = extra::Err<Simple<'src, char>>;
 

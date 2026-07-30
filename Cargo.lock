@@ -734,6 +734,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "vihaco-syntax"
+version = "0.2.0"
+dependencies = [
+ "chumsky",
+ "eyre",
+ "vihaco-bytecode",
+ "vihaco-parser",
+ "vihaco-parser-derive",
+]
+
+[[package]]
 name = "winapi-util"
 version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"

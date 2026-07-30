@@ -1,0 +1,17 @@
+[package]
+name = "vihaco-syntax"
+edition = "2024"
+description = "Typed SST parsing, Parsed* module shapes, and the Resolve trait for vihaco source text."
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+chumsky = { workspace = true }
+eyre = { workspace = true }
+vihaco-bytecode = { workspace = true }
+vihaco-parser = { workspace = true }
+
+[dev-dependencies]
+vihaco-parser-derive = { workspace = true }

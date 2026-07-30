@@ -11,6 +11,7 @@ members = [
     "crates/vihaco-module",
     "crates/vihaco-parser",
     "crates/vihaco-parser-derive",
+    "crates/vihaco-syntax",
 ]
 
 [workspace.package]
@@ -33,6 +34,7 @@ vihaco-derive     = { version = "0.2.0", path = "crates/vihaco-derive" }
 vihaco-module     = { version = "0.2.0", path = "crates/vihaco-module" }
 vihaco-parser     = { version = "0.2.0", path = "crates/vihaco-parser" }
 vihaco-parser-derive = { version = "0.2.0", path = "crates/vihaco-parser-derive" }
+vihaco-syntax     = { version = "0.2.0", path = "crates/vihaco-syntax" }
 
 # Shared third-party dependencies pinned once (see design/crate-split.md §8.1).
 byteorder = "1.5.0"
