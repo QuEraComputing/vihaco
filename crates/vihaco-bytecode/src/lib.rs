@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+extern crate self as vihaco_bytecode;
+
+mod container;
 mod context;
 mod file;
 mod format;

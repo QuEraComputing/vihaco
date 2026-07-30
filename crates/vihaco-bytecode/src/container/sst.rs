@@ -7,8 +7,8 @@ use chumsky::{error::Simple, extra, prelude::*};
 use eyre::Result;
 
 use super::{
-    section::{validate_local_section_name, SectionNode, SectionPath},
     ParsedFile,
+    section::{SectionNode, SectionPath, validate_local_section_name},
 };
 
 type ParseExtra<'src> = extra::Err<Simple<'src, char>>;

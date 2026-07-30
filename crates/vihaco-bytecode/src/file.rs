@@ -5,7 +5,7 @@ use super::{
     context::{BytecodeGlobalContext, ContextHandle, SstGlobalContext},
     section::{BytecodeSectionView, SstSectionView},
 };
-use vihaco_parser::container::SectionNode;
+use crate::container::SectionNode;
 
 /// A parsed bytecode file.
 #[derive(Debug, Clone)]
@@ -36,13 +36,13 @@ where
 {
     /// Parse a bytecode file from bytes.
     pub fn from_bytes(bytes: Vec<u8>) -> eyre::Result<Self> {
-        let context_range = vihaco_parser::container::bytecode::context_range(&bytes)?;
+        let context_range = crate::container::bytecode::context_range(&bytes)?;
         let context = C::from_bytes(
             bytes
                 .get(context_range)
                 .ok_or_else(|| eyre::eyre!("global context is out of bounds"))?,
         )?;
-        let parsed = vihaco_parser::container::bytecode::parse_file(&bytes, |index| {
+        let parsed = crate::container::bytecode::parse_file(&bytes, |index| {
             context.section_name(index).map(ToOwned::to_owned)
         })?;
 
@@ -83,7 +83,7 @@ where
 {
     /// Parse an SST file from text.
     pub fn from_text(text: &str) -> eyre::Result<Self> {
-        let parsed = vihaco_parser::container::sst::parse_file(text)?;
+        let parsed = crate::container::sst::parse_file(text)?;
         let context = C::from_text(
             text.get(parsed.context)
                 .ok_or_else(|| eyre::eyre!("global context is out of bounds"))?,

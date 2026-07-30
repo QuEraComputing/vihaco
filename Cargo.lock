@@ -626,6 +626,8 @@ dependencies = [
  "log",
  "smallvec",
  "trybuild",
+ "vihaco-abi",
+ "vihaco-bytecode",
  "vihaco-derive",
  "vihaco-parser",
  "vihaco-parser-derive",
@@ -650,6 +652,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "vihaco-bytecode"
+version = "0.2.0"
+dependencies = [
+ "byteorder",
+ "chumsky",
+ "eyre",
+ "vihaco-abi",
 ]
 
 [[package]]

@@ -3,15 +3,15 @@
 
 use std::io::Cursor;
 
-use crate::traits::Instruction;
+use vihaco_abi::traits::Instruction;
 
 use super::{
     context::ContextHandle,
     format::{BytecodeHeader, SstHeader},
 };
 
-use vihaco_parser::container::SectionNode;
-pub use vihaco_parser::container::SectionPath;
+use crate::container::SectionNode;
+pub use crate::container::SectionPath;
 
 /// A lightweight view into a parsed bytecode section.
 pub struct BytecodeSectionView<'bc, C> {

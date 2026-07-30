@@ -5,9 +5,9 @@ use std::io::{Cursor, Read};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::traits::{FromBytes, FromText, Instruction, OpCode, WriteBytes};
+use vihaco_abi::traits::{FromBytes, FromText, Instruction, OpCode, WriteBytes};
 
-pub use vihaco_parser::container::bytecode::{FLAGS, MAGIC, VERSION};
+pub use crate::container::bytecode::{FLAGS, MAGIC, VERSION};
 
 pub trait BytecodeHeader: Sized + FromBytes {}
 

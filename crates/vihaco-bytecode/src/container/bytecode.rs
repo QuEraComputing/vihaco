@@ -10,8 +10,8 @@ use std::{
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use super::{
-    section::{validate_local_section_name, SectionNode, SectionPath},
     ParsedFile,
+    section::{SectionNode, SectionPath, validate_local_section_name},
 };
 
 pub const MAGIC: &[u8; 4] = b"VHBC";

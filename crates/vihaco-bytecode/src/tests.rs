@@ -2,18 +2,19 @@
 // SPDX-License-Identifier: MIT
 
 use super::*;
-use crate::binary::NoContext;
-use crate::binary::file::{BytecodeFile, SstFile};
-use crate::traits::{FromBytes, FromText, WriteBytes};
+use crate::NoContext;
+use crate::file::{BytecodeFile, SstFile};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::Read;
+use vihaco_abi::Instruction;
+use vihaco_abi::traits::{FromBytes, FromText, WriteBytes};
 
 const SECTION_FRAME_LEN: usize = 8 + 8;
 const SECTION_BYTECODE_HEADER_LEN: usize = 8;
 const CHILD_SECTION_TABLE_HEADER_LEN: usize = 4;
 const CHILD_SECTION_TABLE_ENTRY_LEN: usize = 4 + 8;
 
-#[derive(Debug, Clone, PartialEq, crate::Instruction)]
+#[derive(Debug, Clone, PartialEq, Instruction)]
 enum TestInst {
     Nop,
     Load(ConstantId),

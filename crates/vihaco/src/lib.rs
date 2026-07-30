@@ -5,7 +5,7 @@ extern crate self as vihaco;
 
 #[doc(hidden)]
 pub mod __private;
-mod binary;
+use vihaco_bytecode as binary;
 pub mod color;
 // Foundation vocabulary now lives in `vihaco-abi`; re-export at the original
 // module paths so the public API is unchanged (see design/crate-split.md §7).
