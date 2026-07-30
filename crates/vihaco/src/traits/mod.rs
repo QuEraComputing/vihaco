@@ -6,3 +6,8 @@
 pub use vihaco_abi::traits::{
     EffectSink, FromBytes, FromBytesWithOpcode, FromText, Instruction, OpCode, Reset, WriteBytes,
 };
+// The host-VM traits moved to `vihaco-module`; re-export so `crate::traits::*`
+// (and the `crate::machine` shim) still resolve.
+pub use vihaco_module::host::{
+    FrameMemory, GetProgramInfo, ProgramCounter, StackFrame, StackMemory, Stdout,
+};

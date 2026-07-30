@@ -629,8 +629,10 @@ dependencies = [
  "vihaco-abi",
  "vihaco-bytecode",
  "vihaco-derive",
+ "vihaco-module",
  "vihaco-parser",
  "vihaco-parser-derive",
+ "vihaco-syntax",
 ]
 
 [[package]]
