@@ -6,6 +6,8 @@ use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::{ImplItem, ItemImpl, ReturnType, Token, Type};
 
+use crate::common::resolve_root;
+
 struct ComponentArgs {
     instruction: syn::Type,
     message: syn::Type,
@@ -57,6 +59,10 @@ impl Parse for ComponentArgs {
 pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = syn::parse_macro_input!(attr as ComponentArgs);
     let item_impl = syn::parse_macro_input!(item as ItemImpl);
+    let root = match resolve_root(&item_impl.attrs) {
+        Ok(root) => root,
+        Err(err) => return err.into_compile_error().into(),
+    };
     let instruction_ty = args.instruction;
     let message_ty = args.message;
 
@@ -209,7 +215,7 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
     quote! {
         #item_impl
 
-        impl #impl_generics ::vihaco::GeneratedComponent for #self_ty #where_clause {
+        impl #impl_generics #root::GeneratedComponent for #self_ty #where_clause {
             type Instruction = #instruction_ty;
             type Message = #message_ty;
             type Effect = #effect_ty;
@@ -218,7 +224,7 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
                 &mut self,
                 inst: Self::Instruction,
                 msg: Self::Message,
-            ) -> ::eyre::Result<::vihaco::Effects<Self::Effect>> {
+            ) -> ::eyre::Result<#root::Effects<Self::Effect>> {
                 self.execute(inst, msg)
             }
         }

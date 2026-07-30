@@ -19,10 +19,10 @@ smallvec = { workspace = true }
 vihaco-abi = { workspace = true }
 vihaco-bytecode = { workspace = true }
 vihaco-module = { workspace = true }
+vihaco-runtime = { workspace = true }
 vihaco-syntax = { workspace = true }
 vihaco-parser = { workspace = true }
 vihaco-parser-derive = { workspace = true }
-vihaco-derive = { workspace = true }
 
 [dev-dependencies]
 trybuild = "1.0"

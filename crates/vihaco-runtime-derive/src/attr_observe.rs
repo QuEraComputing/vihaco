@@ -12,6 +12,8 @@ use syn::{
     parse_macro_input,
 };
 
+use crate::common::resolve_root;
+
 struct ObserveEntry {
     event_type: syn::Path,
 }
@@ -193,6 +195,10 @@ fn expr_tokens_eq(lhs: &syn::Expr, rhs: &syn::Expr) -> bool {
 pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as ObserveArgs);
     let item_impl = parse_macro_input!(item as ItemImpl);
+    let root = match resolve_root(&item_impl.attrs) {
+        Ok(root) => root,
+        Err(err) => return err.into_compile_error().into(),
+    };
     let self_ty = &item_impl.self_ty;
 
     let mut trait_impls = Vec::new();
@@ -403,22 +409,22 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
                     let follow_up_call = if let Some(composite_effect) = &args.composite_effect {
                         if is_unit_follow_up {
                             quote! {
-                                let __follow_ups: ::vihaco::Effects<#local_effect_ty> =
-                                    ::std::convert::Into::<::vihaco::Effects<_>>::into(self.#method_ident(effect)?);
+                                let __follow_ups: #root::Effects<#local_effect_ty> =
+                                    ::std::convert::Into::<#root::Effects<_>>::into(self.#method_ident(effect)?);
                                 for () in __follow_ups {}
                             }
                         } else {
                             quote! {
                                 effects = effects.extend(
-                                    ::std::convert::Into::<::vihaco::Effects<_>>::into(self.#method_ident(effect)?)
+                                    ::std::convert::Into::<#root::Effects<_>>::into(self.#method_ident(effect)?)
                                         .map(::std::convert::Into::<#composite_effect>::into)
                                 );
                             }
                         }
                     } else {
                         quote! {
-                            let __follow_ups: ::vihaco::Effects<#local_effect_ty> =
-                                ::std::convert::Into::<::vihaco::Effects<_>>::into(self.#method_ident(effect)?);
+                            let __follow_ups: #root::Effects<#local_effect_ty> =
+                                ::std::convert::Into::<#root::Effects<_>>::into(self.#method_ident(effect)?);
                             for () in __follow_ups {}
                         }
                     };
@@ -451,15 +457,15 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
             .clone()
             .unwrap_or_else(|| syn::parse_quote!(()));
         trait_impls.push(quote! {
-            impl ::vihaco::Observe<#event_path> for #self_ty {
+            impl #root::Observe<#event_path> for #self_ty {
                 type Effect = #generated_effect_ty;
                 type Error = #error_ty;
 
                 fn observe(
                     &mut self,
                     effect: &#event_path,
-                ) -> ::std::result::Result<::vihaco::Effects<Self::Effect>, Self::Error> {
-                    let mut effects = ::vihaco::Effects::none();
+                ) -> ::std::result::Result<#root::Effects<Self::Effect>, Self::Error> {
+                    let mut effects = #root::Effects::none();
                     #( #follow_up_calls )*
                     Ok(effects)
                 }

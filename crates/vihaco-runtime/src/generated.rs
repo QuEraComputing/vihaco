@@ -33,20 +33,25 @@ pub fn expect_exactly_one_effect<E>(effects: Effects<E>) -> Result<E> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompositeMetadata {
-    pub devices: &'static [crate::metadata::DeviceMetadata],
-    pub source_symbol_aliases: &'static [crate::metadata::SourceSymbolAliasMetadata],
+    pub devices: &'static [vihaco_abi::metadata::DeviceMetadata],
+    pub source_symbol_aliases: &'static [vihaco_abi::metadata::SourceSymbolAliasMetadata],
 }
 
 impl CompositeMetadata {
-    pub fn devices(&self) -> &'static [crate::metadata::DeviceMetadata] {
+    pub fn devices(&self) -> &'static [vihaco_abi::metadata::DeviceMetadata] {
         self.devices
     }
 
-    pub fn device_by_name(&self, name: &str) -> Option<&'static crate::metadata::DeviceMetadata> {
+    pub fn device_by_name(
+        &self,
+        name: &str,
+    ) -> Option<&'static vihaco_abi::metadata::DeviceMetadata> {
         self.devices.iter().find(|device| device.name == name)
     }
 
-    pub fn source_symbol_aliases(&self) -> &'static [crate::metadata::SourceSymbolAliasMetadata] {
+    pub fn source_symbol_aliases(
+        &self,
+    ) -> &'static [vihaco_abi::metadata::SourceSymbolAliasMetadata] {
         self.source_symbol_aliases
     }
 
@@ -63,7 +68,7 @@ impl CompositeMetadata {
 
     pub fn validate_source_symbols<I, V, Ty, Info>(
         &self,
-        module: &crate::module::LocalModule<I, V, Ty, Info>,
+        module: &vihaco_module::module::LocalModule<I, V, Ty, Info>,
     ) -> Result<()> {
         let unresolved: Vec<String> = module
             .source_symbols

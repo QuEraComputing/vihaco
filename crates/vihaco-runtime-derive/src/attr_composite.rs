@@ -9,6 +9,8 @@ use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::{Data, DeriveInput, Fields, GenericParam, Lifetime, LitStr, Token};
 
+use crate::common::resolve_root;
+
 struct DeviceArgs {
     code: u8,
     aliases: Vec<syn::LitStr>,
@@ -187,6 +189,7 @@ pub fn expand(input: TokenStream) -> TokenStream {
 }
 
 fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
+    let root = resolve_root(&input.attrs)?;
     let ident = input.ident;
     let generics = input.generics;
     let data = match input.data {
@@ -335,7 +338,7 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
         .map(|(field, field_ty, _)| {
             let variant_ident = pascal_case(field);
             quote! {
-                #variant_ident(<#field_ty as ::vihaco::GeneratedComponent>::Instruction)
+                #variant_ident(<#field_ty as #root::GeneratedComponent>::Instruction)
             }
         })
         .collect();
@@ -345,16 +348,17 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
         .map(|(field, _, args)| {
             let name = field.to_string();
             let code = args.code;
-            quote! { ::vihaco::metadata::DeviceMetadata { code: #code, name: #name } }
+            quote! { #root::metadata::DeviceMetadata { code: #code, name: #name } }
         })
         .collect();
     let source_symbol_alias_entries: Vec<_> = devices
         .iter()
         .flat_map(|(_, _, args)| {
             let code = args.code;
+            let root = root.clone();
             args.aliases.iter().map(move |alias| {
                 quote! {
-                    ::vihaco::metadata::SourceSymbolAliasMetadata {
+                    #root::metadata::SourceSymbolAliasMetadata {
                         name: #alias,
                         device_code: #code,
                     }
@@ -367,12 +371,12 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
     let loadable_context_param = format_ident!("__VihacoContext");
     let mut loadable_predicates = Vec::<TokenStream2>::new();
     loadable_predicates.push(
-        quote! { #ident #ty_generics: ::vihaco::loader::LoadOwnBytecodeSection<#loadable_context_param> },
+        quote! { #ident #ty_generics: #root::loader::LoadOwnBytecodeSection<#loadable_context_param> },
     );
     for loadable in &loadables {
         let ty = &loadable.ty;
         loadable_predicates
-            .push(quote! { #ty: ::vihaco::loader::LoadBytecodeSection<#loadable_context_param> });
+            .push(quote! { #ty: #root::loader::LoadBytecodeSection<#loadable_context_param> });
     }
     let loadable_method_where = method_where_clause(&loadable_predicates);
 
@@ -403,7 +407,7 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
             let name = &loadable.section_name;
             quote! {
                 if let ::std::option::Option::Some(__vihaco_child) = section.child(#name) {
-                    <#ty as ::vihaco::loader::LoadBytecodeSection<#loadable_context_param>>::load_bytecode_section(
+                    <#ty as #root::loader::LoadBytecodeSection<#loadable_context_param>>::load_bytecode_section(
                         &mut self.#field,
                         __vihaco_child,
                     )?;
@@ -416,11 +420,11 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
         impl #impl_generics #ident #ty_generics #where_clause {
             pub fn load_generated_bytecode_sections<#bc_lifetime, #loadable_context_param>(
                 &mut self,
-                section: ::vihaco::BytecodeSectionView<#bc_lifetime, #loadable_context_param>,
+                section: #root::BytecodeSectionView<#bc_lifetime, #loadable_context_param>,
             ) -> ::eyre::Result<()>
             #loadable_method_where
             {
-                ::vihaco::loader::LoadOwnBytecodeSection::<#loadable_context_param>::load_own_bytecode_section(
+                #root::loader::LoadOwnBytecodeSection::<#loadable_context_param>::load_own_bytecode_section(
                     self,
                     section.clone(),
                 )?;
@@ -451,13 +455,13 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
             }
         }
 
-        impl #loadable_impl_generics ::vihaco::loader::LoadBytecodeSection<#loadable_context_param>
+        impl #loadable_impl_generics #root::loader::LoadBytecodeSection<#loadable_context_param>
             for #ident #ty_generics
             #loadable_where_clause
         {
             fn load_bytecode_section<#bc_lifetime>(
                 &mut self,
-                section: ::vihaco::BytecodeSectionView<#bc_lifetime, #loadable_context_param>,
+                section: #root::BytecodeSectionView<#bc_lifetime, #loadable_context_param>,
             ) -> ::eyre::Result<()> {
                 self.load_generated_bytecode_sections(section)
             }
@@ -466,12 +470,12 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
 
     let mut text_loadable_predicates = Vec::<TokenStream2>::new();
     text_loadable_predicates.push(
-        quote! { #ident #ty_generics: ::vihaco::loader::LoadOwnSstSection<#loadable_context_param> },
+        quote! { #ident #ty_generics: #root::loader::LoadOwnSstSection<#loadable_context_param> },
     );
     for loadable in &loadables {
         let ty = &loadable.ty;
         text_loadable_predicates
-            .push(quote! { #ty: ::vihaco::loader::LoadSstSection<#loadable_context_param> });
+            .push(quote! { #ty: #root::loader::LoadSstSection<#loadable_context_param> });
     }
     let text_loadable_method_where = method_where_clause(&text_loadable_predicates);
 
@@ -498,7 +502,7 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
             let name = &loadable.section_name;
             quote! {
                 if let ::std::option::Option::Some(__vihaco_child) = section.child(#name) {
-                    <#ty as ::vihaco::loader::LoadSstSection<#loadable_context_param>>::load_sst_section(
+                    <#ty as #root::loader::LoadSstSection<#loadable_context_param>>::load_sst_section(
                         &mut self.#field,
                         __vihaco_child,
                     )?;
@@ -511,11 +515,11 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
         impl #impl_generics #ident #ty_generics #where_clause {
             pub fn load_generated_sst_sections<#bc_lifetime, #loadable_context_param>(
                 &mut self,
-                section: ::vihaco::SstSectionView<#bc_lifetime, #loadable_context_param>,
+                section: #root::SstSectionView<#bc_lifetime, #loadable_context_param>,
             ) -> ::eyre::Result<()>
             #text_loadable_method_where
             {
-                ::vihaco::loader::LoadOwnSstSection::<#loadable_context_param>::load_own_sst_section(
+                #root::loader::LoadOwnSstSection::<#loadable_context_param>::load_own_sst_section(
                     self,
                     section.clone(),
                 )?;
@@ -546,13 +550,13 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
             }
         }
 
-        impl #text_loadable_impl_generics ::vihaco::loader::LoadSstSection<#loadable_context_param>
+        impl #text_loadable_impl_generics #root::loader::LoadSstSection<#loadable_context_param>
             for #ident #ty_generics
             #text_loadable_where_clause
         {
             fn load_sst_section<#bc_lifetime>(
                 &mut self,
-                section: ::vihaco::SstSectionView<#bc_lifetime, #loadable_context_param>,
+                section: #root::SstSectionView<#bc_lifetime, #loadable_context_param>,
             ) -> ::eyre::Result<()> {
                 self.load_generated_sst_sections(section)
             }
@@ -560,22 +564,22 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
     };
 
     Ok(quote! {
-        #[derive(Debug, Clone, ::vihaco::Instruction)]
+        #[derive(Debug, Clone, #root::Instruction)]
         pub enum #machine_instruction_ident #enum_generics {
             #( #machine_instruction_variants ),*
         }
 
-        impl #impl_generics ::vihaco::__private::GeneratedMachine for #ident #ty_generics #where_clause {
+        impl #impl_generics #root::__private::GeneratedMachine for #ident #ty_generics #where_clause {
             type Instruction = #machine_instruction_ident #enum_ty_generics;
 
-            fn metadata(&self) -> ::vihaco::CompositeMetadata {
-                static DEVICES: &[::vihaco::metadata::DeviceMetadata] = &[
+            fn metadata(&self) -> #root::CompositeMetadata {
+                static DEVICES: &[#root::metadata::DeviceMetadata] = &[
                     #( #device_entries ),*
                 ];
-                static SOURCE_SYMBOL_ALIASES: &[::vihaco::metadata::SourceSymbolAliasMetadata] = &[
+                static SOURCE_SYMBOL_ALIASES: &[#root::metadata::SourceSymbolAliasMetadata] = &[
                     #( #source_symbol_alias_entries ),*
                 ];
-                ::vihaco::CompositeMetadata {
+                #root::CompositeMetadata {
                     devices: DEVICES,
                     source_symbol_aliases: SOURCE_SYMBOL_ALIASES,
                 }

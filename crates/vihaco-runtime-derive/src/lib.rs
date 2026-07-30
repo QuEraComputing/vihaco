@@ -4,13 +4,14 @@
 mod attr_component;
 mod attr_composite;
 mod attr_observe;
+mod common;
 mod derive_message;
 
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Fields};
 
-#[proc_macro_derive(Message)]
+#[proc_macro_derive(Message, attributes(vihaco))]
 pub fn derive_message(input: TokenStream) -> TokenStream {
     derive_message::expand(input)
 }

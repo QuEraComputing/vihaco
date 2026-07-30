@@ -628,10 +628,10 @@ dependencies = [
  "trybuild",
  "vihaco-abi",
  "vihaco-bytecode",
- "vihaco-derive",
  "vihaco-module",
  "vihaco-parser",
  "vihaco-parser-derive",
+ "vihaco-runtime",
  "vihaco-syntax",
 ]
 
@@ -675,19 +675,8 @@ dependencies = [
  "eyre",
  "log",
  "vihaco",
- "vihaco-derive",
  "vihaco-parser",
  "vihaco-parser-derive",
-]
-
-[[package]]
-name = "vihaco-derive"
-version = "0.2.0"
-dependencies = [
- "convert_case",
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -698,7 +687,6 @@ dependencies = [
  "eyre",
  "vihaco",
  "vihaco-cpu",
- "vihaco-derive",
  "vihaco-parser",
  "vihaco-parser-derive",
 ]
@@ -733,6 +721,28 @@ dependencies = [
  "syn",
  "trybuild",
  "vihaco-parser",
+]
+
+[[package]]
+name = "vihaco-runtime"
+version = "0.2.0"
+dependencies = [
+ "eyre",
+ "vihaco-abi",
+ "vihaco-bytecode",
+ "vihaco-module",
+ "vihaco-runtime-derive",
+]
+
+[[package]]
+name = "vihaco-runtime-derive"
+version = "0.2.0"
+dependencies = [
+ "convert_case",
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
