@@ -23,5 +23,5 @@ vihaco-cpu = { workspace = true }
 vihaco-derive = { workspace = true }
 vihaco-parser = { workspace = true }
 vihaco-parser-core = { workspace = true }
-chumsky = "0.10"
-eyre = "0.6.12"
+chumsky = { workspace = true }
+eyre = { workspace = true }
