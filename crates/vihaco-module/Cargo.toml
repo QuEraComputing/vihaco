@@ -1,0 +1,14 @@
+[package]
+name = "vihaco-module"
+edition = "2024"
+description = "Loadable program model for vihaco: modules, program images/loader, host-VM traits, and colored output."
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+colored = "3.0.0"
+eyre = { workspace = true }
+vihaco-abi = { workspace = true }
+vihaco-bytecode = { workspace = true }

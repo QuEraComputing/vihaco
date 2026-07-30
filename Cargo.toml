@@ -8,6 +8,7 @@ members = [
     "crates/vihaco-cpu",
     "crates/vihaco-derive",
     "crates/vihaco-doctests",
+    "crates/vihaco-module",
     "crates/vihaco-parser",
     "crates/vihaco-parser-derive",
 ]
@@ -29,6 +30,7 @@ vihaco-abi-derive = { version = "0.2.0", path = "crates/vihaco-abi-derive" }
 vihaco-bytecode   = { version = "0.2.0", path = "crates/vihaco-bytecode" }
 vihaco-cpu        = { version = "0.2.0", path = "crates/vihaco-cpu" }
 vihaco-derive     = { version = "0.2.0", path = "crates/vihaco-derive" }
+vihaco-module     = { version = "0.2.0", path = "crates/vihaco-module" }
 vihaco-parser     = { version = "0.2.0", path = "crates/vihaco-parser" }
 vihaco-parser-derive = { version = "0.2.0", path = "crates/vihaco-parser-derive" }
 

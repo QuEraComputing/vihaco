@@ -3,9 +3,11 @@
 
 use eyre::Result;
 
-use super::Instruction;
+use vihaco_abi::frame::Frame;
+use vihaco_abi::traits::Instruction;
+use vihaco_bytecode::ConstantId;
 
-use crate::{ConstantId, frame::Frame, module::FunctionInfo};
+use crate::module::FunctionInfo;
 
 pub trait ProgramCounter {
     type Instruction: Instruction;

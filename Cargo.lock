@@ -702,6 +702,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "vihaco-module"
+version = "0.2.0"
+dependencies = [
+ "colored",
+ "eyre",
+ "vihaco-abi",
+ "vihaco-bytecode",
+]
+
+[[package]]
 name = "vihaco-parser"
 version = "0.2.0"
 dependencies = [
