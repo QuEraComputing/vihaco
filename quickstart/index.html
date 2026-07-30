@@ -29,21 +29,23 @@ The framework. The <code>Instruction</code> / <code>Message</code> /
         macros, so most projects depend only on this crate.
 </dd> <dt><code>vihaco-cpu</code> <span class="crate-tag">component</span></dt> <dd>
 A ready-made CPU/host component — a small stack machine with
-<code>cpu::Instruction</code> (constants, arithmetic, branches,
-<code>halt</code>, …) and the <code>StepOutcome</code> control-flow
-        effect. Use it directly, or as a reference for writing your own
-        components.
+<code>cpu::RuntimeInstruction</code> (constants, arithmetic, branches,
+<code>halt</code>, …), a pattern-derived
+<code>cpu::SurfaceInstruction</code>, and the
+<code>StepOutcome</code> control-flow effect. Use it directly, or as a
+        reference for writing your own components.
 </dd> <dt><code>vihaco-parser</code> <span class="crate-tag">parser</span></dt> <dd>
 The <code>#[derive(Parse)]</code> proc-macro. It turns an instruction
-        enum into a <a href="https://github.com/zesterer/chumsky">chumsky</a>
-parser from declarative <code>#[syntax_class]</code> and
+        enum or struct into a
+<a href="https://github.com/zesterer/chumsky">chumsky</a> parser from
+        declarative <code>#[syntax_class]</code> and
 <code>#[pattern]</code> attributes.
 </dd> <dt><code>vihaco-parser-core</code> <span class="crate-tag">parser</span></dt> <dd>
-The <code>Parse&lt;'src&gt;</code> trait and blanket impls for the
-        primitives (<code>i64</code>, <code>u64</code>, <code>f64</code>,
-<code>bool</code>, <code>String</code>, …), plus the
-<code>ident()</code> helper. Every parser in the workspace is a
-<code>Parse</code> impl.
+The <code>Parse&lt;'src&gt;</code> and
+<code>SurfaceInstruction</code> traits, plus parser implementations for
+        primitives, lexical types (<code>Ident</code>,
+<code>BareToken</code>, and <code>QuotedString</code>), vectors, and
+        tuples.
 </dd> <dt><code>vihaco-derive</code> <span class="crate-tag">internal</span></dt> <dd>
 The procedural macros behind <code>#[derive(Instruction)]</code>,
 <code>#[derive(Message)]</code>, <code>#[component]</code>,
@@ -125,9 +127,10 @@ fn main() -&gt; Result&lt;()&gt; {
 <code>Message</code>, how effects are delivered to observers — read
 <a href="/vihaco/guide/components">Building Components</a>.
 </p> <h2 id="parsing"><span class="sec-num">§ 5</span>Parsing source text</h2> <p>
-Source-text parsing is orthogonal to bytecode. The same enum can derive
-<code>vihaco_parser::Parse</code> alongside <code>Instruction</code>;
-      calling <code>parser()</code> gives you a chumsky parser:
+Source-text parsing is orthogonal to bytecode. A user-declared surface
+      enum derives <code>vihaco_parser::Parse</code> from its syntax class and
+      patterns. When the source and runtime representations match, that enum
+      can also derive <code>Instruction</code>:
 </p> <pre><code class="language-rust">use chumsky::Parser as _;
 use vihaco::Instruction;
 use vihaco_parser_core::Parse;
@@ -155,9 +158,9 @@ fn main() {
 That is the whole instruction-level surface. Module-level parsing adds
       device headers, typed function bodies, and application-specific
       resolution, covered in
-<a href="/vihaco/guide/parser">Parser Integration</a>,
-<a href="/vihaco/guide/parser-patterns">Pattern Parser Generator</a>, and
-<a href="/vihaco/guide/parser-advanced">Advanced Parser Customization</a>.
+<a href="/vihaco/guide/parser">Pattern Parser Integration</a>,
+<a href="/vihaco/guide/parser-patterns">Pattern Parser</a>, and
+<a href="/vihaco/guide/parser-advanced">Module Parsing and Resolution</a>.
 </p> <h2 id="next"><span class="sec-num">§ 6</span>Next steps</h2> <ul> <li>Work through the <a href="/vihaco/guide">Guides</a> in order — they build the full authoring model from instructions up to composites.</li> <li>Browse the <a href="/vihaco/reference">API Reference</a> (generated rustdoc).</li> <li>Read <code>vihaco-cpu</code> as a worked example of a non-trivial component.</li> </ul> <div class="qs-crosslink"> <div> <span class="label">Next</span>
 Ready for the full authoring model — instructions, messages, components, observers, composites?
 </div> <a href="/vihaco/guide">Open the Guides</a> </div> </article>  </div> </div> </main> <script>
@@ -312,7 +315,7 @@ Ready for the full authoring model — instructions, messages, components, obser
         sync();
       })();
     </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-07-29</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
+          documentation generated <time>2026-07-30</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["parse","resolve"],"struct":["Param","ParsedFunction","ParsedModule","SurfaceType","SurfaceValue"],"trait":["SurfaceInstruction"]};
+window.SIDEBAR_ITEMS = {"mod":["parse","resolve"],"struct":["Param","ParsedFunction","ParsedModule"],"trait":["SurfaceInstruction"]};

@@ -106,7 +106,7 @@ pub enum OuterInst {
 </ul>
 <h2 id="what-comes-next">What Comes Next</h2>
 <p>For explicit opcode assignment, explicit widths, and machine-level wrapper instructions, see <a href="/vihaco/guide/instructions-advanced">Advanced Instruction Usage</a>.</p>
-<p><code>#[derive(Instruction)]</code> covers bytecode and runtime semantics; source-text parsing is owned by an orthogonal <code>#[derive(vihaco_parser::Parse)]</code> on the same enum. See <a href="/vihaco/guide/parser">Parser Integration for Component Instructions</a> for the parser-side workflow and <a href="/vihaco/guide/parser-advanced">Advanced Parser Customization</a> for section headers, typed function bodies, and module resolution.</p>
+<p><code>#[derive(Instruction)]</code> covers bytecode and runtime semantics; source-text parsing is owned by an orthogonal <code>#[derive(vihaco_parser::Parse)]</code> on the same enum. See <a href="/vihaco/guide/parser">Pattern Parser Integration for Component Instructions</a> for the parser-side workflow and <a href="/vihaco/guide/parser-advanced">Module Parsing and Resolution</a> for section headers, typed function bodies, and module resolution.</p>
 <p>After defining an instruction type, the next step is usually to attach it to a component impl with <code>#[component(...)]</code>.</p>
 <p>See <a href="/vihaco/guide/components">Building Components With <code>vihaco</code></a> for the execution side of that model.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <span class="section-pager-link section-pager-prev section-pager-empty" aria-hidden="true"></span> <a class="section-pager-link section-pager-next" href="/vihaco/guide/instructions-advanced" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Advanced Instruction Usage</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#a-small-instruction-enum" data-toc-link="#a-small-instruction-enum">A Small Instruction Enum</a></li><li><a href="#how-width-is-chosen" data-toc-link="#how-width-is-chosen">How Width Is Chosen</a></li><li><a href="#practical-guidance" data-toc-link="#practical-guidance">Practical Guidance</a></li><li><a href="#what-comes-next" data-toc-link="#what-comes-next">What Comes Next</a></li> </ol> </details> </div> </main> <script>
         // Scroll-spy: mark the TOC link for the section currently in view.
@@ -260,7 +260,7 @@ pub enum OuterInst {
         sync();
       })();
     </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-07-29</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
+          documentation generated <time>2026-07-30</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

@@ -114,7 +114,7 @@ impl vihaco::LoadOwnBytecodeSection&#x3C;MyContext> for CpuMachine {
     }
 }
 </code></pre>
-<p>For SST, parse the section into <code>vihaco::syntax::ParsedModule</code> with <code>ParsedModule::&#x3C;I, H>::parse_section(section)</code>, then lower it with your <code>Resolve</code> impl into a <code>Module</code>/<code>ProgramImage</code>. If a composite drives an instruction pointer, implement <code>ProgramCounter</code> manually by delegating to the field that owns it.</p>
+<p>For SST, parse the section into <code>vihaco::syntax::ParsedModule</code> with <code>ParsedModule::&#x3C;I, Ty, H>::parse_section(section)</code>, then lower it with your <code>Resolve</code> impl into a <code>Module</code>/<code>ProgramImage</code>. <code>Ty</code> is the consumer-provided source type syntax. If a composite drives an instruction pointer, implement <code>ProgramCounter</code> manually by delegating to the field that owns it.</p>
 <p>For structural composites that only route child sections, make that no-op explicit:</p>
 <pre><code class="language-rust">impl&#x3C;C> vihaco::LoadOwnBytecodeSection&#x3C;C> for Machine {
     fn load_own_bytecode_section&#x3C;'a>(
@@ -234,7 +234,7 @@ global context text
 <li>section end markers must use the same indentation as their matching section start marker</li>
 <li>section names must be local names; <code>/</code> is rejected in a child marker name</li>
 </ul>
-<p>The SST parser preserves the original header and bytecode ranges, including their leading tabs. Load section programs by mapping the section to <code>ParsedModule::&#x3C;I, H>::parse_section(section)</code>, then run your <code>Resolve</code> impl to produce the runtime <code>Module</code>. Instruction types loaded this way must implement both <code>Instruction</code> and <code>vihaco_parser_core::Parse</code>.</p>
+<p>The SST parser preserves the original header and bytecode ranges, including their leading tabs. Load section programs by mapping the section to <code>ParsedModule::&#x3C;I, Ty, H>::parse_section(section)</code>, then run your <code>Resolve</code> impl to produce the runtime <code>Module</code>. Both the instruction type <code>I</code> and source type <code>Ty</code> must implement <code>vihaco_parser_core::Parse</code>.</p>
 <p><code>ProgramImage&#x3C;I, C, V = Value, Ty = Type, Info = NoInfo></code> is the standard in-memory program image. Machines load binary bytecode into it by decoding <code>section.bytecode()</code> with <code>BytecodeSectionView::decode_instructions::&#x3C;I>()</code> and, when useful, storing the section’s cloned <code>ContextHandle&#x3C;C></code>. For SST, resolve a <code>ParsedModule</code> into the image’s <code>module</code>. <code>ProgramImage</code> implements <code>ProgramCounter</code> and exposes functions, strings, and constants through <code>GetProgramInfo</code> from its own <code>module</code> fields.</p>
 <h2 id="effect-continuation-is-hand-written">Effect Continuation Is Hand-Written</h2>
 <p><code>#[composite]</code> generates the instruction enum and metadata, but it does <strong>not</strong> auto-deliver effects to observers. Continuing effects is something the runtime does explicitly: execute a component, then hand each returned effect to the types that observe it by calling their <code>Observe</code> impls.</p>
@@ -438,7 +438,7 @@ impl CounterComposite {
         sync();
       })();
     </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-07-29</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
+          documentation generated <time>2026-07-30</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {
