@@ -6,16 +6,21 @@ mod data;
 mod display;
 mod instruction;
 mod outcome;
-pub mod parse_helpers;
-
 pub use component::CPUMessage;
 pub use data::CPU;
-pub use instruction::{RuntimeInstruction, SurfaceInstruction};
+pub use instruction::{RuntimeInstruction, SurfaceInstruction, SurfaceType, SurfaceValue};
 pub use outcome::StepOutcome;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn surface_instruction_implements_surface_marker() {
+        fn require_surface_instruction<T: vihaco::SurfaceInstruction>() {}
+
+        require_surface_instruction::<SurfaceInstruction>();
+    }
 
     #[test]
     fn cpu_instruction_derive_exposes_explicit_canonical_syntax_entries() {

@@ -10,7 +10,7 @@ use vihaco::{
     LoadOwnSstSection, LoadSstSection, MAGIC, ProgramImage, SectionNameResolver, SstFile,
     SstGlobalContext, SstHeader, SstSectionView, Type, VERSION, Value,
     module::LocalModule,
-    syntax::{ParsedModule, Resolve, SurfaceInstruction},
+    syntax::{ParsedModule, Resolve},
     traits::{FromBytes, FromText, WriteBytes},
 };
 
@@ -37,7 +37,18 @@ enum TextInst {
     Alt,
 }
 
-impl SurfaceInstruction for TextInst {}
+#[derive(Debug, Clone, PartialEq, vihaco_parser::Parse)]
+#[syntax_class(instruction, head = "surface")]
+enum SurfaceOnlyInst {
+    Nop,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, vihaco_parser::Parse)]
+#[syntax_class(type)]
+enum TextType {
+    #[pattern = "`i64`"]
+    I64,
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct TestHeader {
@@ -91,10 +102,13 @@ impl SstHeader for NoHeader {}
 #[derive(Debug, Default)]
 struct TextResolver;
 
-impl<H> Resolve<TextInst, H> for TextResolver {
+impl<Ty, H> Resolve<TextInst, Ty, H> for TextResolver {
     type Module = LocalModule<TextInst, Value, Type>;
 
-    fn resolve_module(&mut self, parsed: ParsedModule<TextInst, H>) -> eyre::Result<Self::Module> {
+    fn resolve_module(
+        &mut self,
+        parsed: ParsedModule<TextInst, Ty, H>,
+    ) -> eyre::Result<Self::Module> {
         let mut module = LocalModule::default();
         for function in parsed.functions {
             module.code.extend(function.body);
@@ -117,9 +131,9 @@ fn load_bytecode_program<'bc>(
     Ok(())
 }
 
-fn load_parsed_text_program<H>(
+fn load_parsed_text_program<Ty, H>(
     program: &mut TextProgram,
-    parsed: ParsedModule<TextInst, H>,
+    parsed: ParsedModule<TextInst, Ty, H>,
     context: vihaco::ContextHandle<TextContext>,
 ) -> eyre::Result<()> {
     let mut resolver = TextResolver;
@@ -212,7 +226,7 @@ impl LoadSstSection<TextContext> for TextLoadedDevice {
         &mut self,
         section: SstSectionView<'bc, TextContext>,
     ) -> eyre::Result<()> {
-        let parsed = ParsedModule::<TextInst, NoHeader>::parse_section(section.clone())?;
+        let parsed = ParsedModule::<TextInst, TextType, NoHeader>::parse_section(section.clone())?;
         load_parsed_text_program(&mut self.program, parsed, section.context_handle())?;
         Ok(())
     }
@@ -386,7 +400,7 @@ impl LoadOwnSstSection<TextContext> for TextMachine {
         &mut self,
         section: SstSectionView<'bc, TextContext>,
     ) -> eyre::Result<()> {
-        let parsed = ParsedModule::<TextInst, NoHeader>::parse_section(section.clone())?;
+        let parsed = ParsedModule::<TextInst, TextType, NoHeader>::parse_section(section.clone())?;
         load_parsed_text_program(&mut self.program, parsed, section.context_handle())?;
         Ok(())
     }
@@ -397,7 +411,7 @@ impl LoadOwnSstSection<TextContext> for TextNestedMachine {
         &mut self,
         section: SstSectionView<'bc, TextContext>,
     ) -> eyre::Result<()> {
-        let parsed = ParsedModule::<TextInst, NoHeader>::parse_section(section.clone())?;
+        let parsed = ParsedModule::<TextInst, TextType, NoHeader>::parse_section(section.clone())?;
         load_parsed_text_program(&mut self.program, parsed, section.context_handle())?;
         Ok(())
     }
@@ -408,7 +422,7 @@ impl LoadOwnSstSection<TextContext> for TextHostMachine {
         &mut self,
         section: SstSectionView<'bc, TextContext>,
     ) -> eyre::Result<()> {
-        let parsed = ParsedModule::<TextInst, NoHeader>::parse_section(section.clone())?;
+        let parsed = ParsedModule::<TextInst, TextType, NoHeader>::parse_section(section.clone())?;
         load_parsed_text_program(&mut self.program, parsed, section.context_handle())?;
         Ok(())
     }
@@ -419,11 +433,32 @@ impl LoadOwnSstSection<TextContext> for TextHeaderMachine {
         &mut self,
         section: SstSectionView<'bc, TextContext>,
     ) -> eyre::Result<()> {
-        let parsed = ParsedModule::<TextInst, TestHeader>::parse_section(section.clone())?;
+        let parsed =
+            ParsedModule::<TextInst, TextType, TestHeader>::parse_section(section.clone())?;
         self.info = parsed.header;
         load_parsed_text_program(&mut self.program, parsed, section.context_handle())?;
         Ok(())
     }
+}
+
+#[test]
+fn parses_surface_instruction_without_runtime_bytecode_traits() {
+    let file = text_file(
+        &[],
+        ".section(root):\n\
+\t.text(root):\n\
+\t\tfn @main() {\n\
+\t\t\tsurface::nop\n\
+\t\t}\n\
+\t.text(root).\n\
+.section(root).\n",
+    );
+
+    let parsed =
+        ParsedModule::<SurfaceOnlyInst, TextType, NoHeader>::parse_section(file.root()).unwrap();
+
+    assert_eq!(parsed.functions.len(), 1);
+    assert_eq!(parsed.functions[0].body, vec![SurfaceOnlyInst::Nop]);
 }
 
 #[test]

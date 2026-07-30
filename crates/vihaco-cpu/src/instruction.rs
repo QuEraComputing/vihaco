@@ -3,7 +3,7 @@
 
 use vihaco::Instruction;
 use vihaco::program::{Type, Value};
-use vihaco::syntax::SurfaceValue;
+use vihaco_parser_core::{BareToken, Ident};
 
 /// Runtime bytecode instructions.
 ///
@@ -134,7 +134,16 @@ pub enum SurfaceType {
     HeapRef,
 }
 
-#[derive(vihaco_parser::Parse)]
+#[derive(Debug, Clone, PartialEq, Eq, vihaco_parser::Parse)]
+#[syntax_class(value)]
+pub enum SurfaceValue {
+    #[pattern = "$0"]
+    Quoted(vihaco_parser_core::QuotedString),
+    #[pattern = "$0"]
+    Bare(BareToken),
+}
+
+#[derive(Debug, Clone, PartialEq, vihaco_parser::Parse)]
 #[syntax_class(instruction, head = "cpu")]
 pub enum SurfaceInstruction {
     // no-ops
@@ -144,7 +153,8 @@ pub enum SurfaceInstruction {
     Span(u32, u32, u32),
 
     /// Label definition.
-    Label,
+    #[pattern = "'label `@` $0"]
+    Label(Ident),
 
     /// `func_start <name>` — marks function entry. `<name>` is symbolic and
     /// orchestrator-resolved; the unit variant carries no payload.
@@ -161,11 +171,11 @@ pub enum SurfaceInstruction {
     // control flows
     /// `br <target>` — symbolic. Deferred to orchestrator.
     #[pattern = "'br `@` $0"]
-    Branch(String),
+    Branch(Ident),
 
     /// `cond_br <true_target>, <false_target>` — symbolic. Deferred.
     #[pattern = "'cond_br `@` $0 `,` `@` $1"]
-    ConditionalBranch(String, String),
+    ConditionalBranch(Ident, Ident),
 
     /// `ret` (bare) is the form real `.sst` uses; numeric `ret <n>` has no
     /// precedent so we defer. Orchestrator emits `Return(0)` for bare `ret`.
@@ -177,7 +187,7 @@ pub enum SurfaceInstruction {
     IndirectCall,
 
     /// `call <arity>, <addr>` — symbolic addr. Deferred.
-    Call(u32, String),
+    Call(u32, Ident),
 
     /// `halt` — stop execution.
     Halt,
@@ -288,7 +298,7 @@ impl vihaco::CanonicalInstructionSyntax for RuntimeInstruction {
 #[cfg(test)]
 #[allow(clippy::approx_constant)]
 mod parse_tests {
-    use super::{SurfaceInstruction, SurfaceType};
+    use super::{BareToken, SurfaceInstruction, SurfaceType, SurfaceValue};
     use chumsky::Parser as _;
     use vihaco_parser_core::Parse;
 
@@ -322,7 +332,10 @@ mod parse_tests {
         assert_parses!("cpu::print", SurfaceInstruction::Print);
         assert_parses!("cpu::dup", SurfaceInstruction::Dup);
         assert_parses!("cpu::breakpoint", SurfaceInstruction::Breakpoint);
-        assert_parses!("cpu::label", SurfaceInstruction::Label);
+        assert_parses!(
+            "cpu::label @loop",
+            SurfaceInstruction::Label(name) if name.as_str() == "loop"
+        );
         assert_parses!("cpu::func_start", SurfaceInstruction::FunctionStart);
         assert_parses!("cpu::func_end", SurfaceInstruction::FunctionEnd);
         assert_parses!("cpu::get_item", SurfaceInstruction::GetItem);
@@ -410,27 +423,36 @@ mod parse_tests {
         assert_parses!(
             "cpu::const i64, 42",
             SurfaceInstruction::Const(SurfaceType::I64, value)
-                if value.value == "42"
+                if value == SurfaceValue::Bare(BareToken("42".to_owned()))
         );
         assert_parses!(
             "cpu::const u64, 7",
             SurfaceInstruction::Const(SurfaceType::U64, value)
-                if value.value == "7"
+                if value == SurfaceValue::Bare(BareToken("7".to_owned()))
         );
         assert_parses!(
             "cpu::const u32, 3",
             SurfaceInstruction::Const(SurfaceType::U32, value)
-                if value.value == "3"
+                if value == SurfaceValue::Bare(BareToken("3".to_owned()))
         );
         assert_parses!(
             "cpu::const f64, 3.14",
             SurfaceInstruction::Const(SurfaceType::F64, value)
-                if value.value == "3.14"
+                if value == SurfaceValue::Bare(BareToken("3.14".to_owned()))
         );
         assert_parses!(
             "cpu::const bool, true",
             SurfaceInstruction::Const(SurfaceType::Bool, value)
-                if value.value == "true"
+                if value == SurfaceValue::Bare(BareToken("true".to_owned()))
+        );
+    }
+
+    #[test]
+    fn parses_const_quoted_string() {
+        assert_parses!(
+            "cpu::const str, \"hello world\"",
+            SurfaceInstruction::Const(SurfaceType::String, SurfaceValue::Quoted(value))
+                if value.as_str() == "hello world"
         );
     }
 
@@ -438,16 +460,25 @@ mod parse_tests {
     fn parses_symbolic_control_flow() {
         assert_parses!(
             "cpu::br @body",
-            SurfaceInstruction::Branch(target) if target == "body"
+            SurfaceInstruction::Branch(target) if target.as_str() == "body"
         );
         assert_parses!(
             "cpu::cond_br @then, @else",
             SurfaceInstruction::ConditionalBranch(then_target, else_target)
-                if then_target == "then" && else_target == "else"
+                if then_target.as_str() == "then" && else_target.as_str() == "else"
         );
         assert_parses!(
             "cpu::call 2, main",
-            SurfaceInstruction::Call(2, target) if target == "main"
+            SurfaceInstruction::Call(2, target) if target.as_str() == "main"
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_quoted_value_instead_of_treating_it_as_bare() {
+        assert!(
+            SurfaceInstruction::parser()
+                .parse("cpu::const str, \"unterminated")
+                .has_errors()
         );
     }
 

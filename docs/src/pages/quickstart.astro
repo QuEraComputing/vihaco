@@ -50,25 +50,27 @@ const toc = [
       <dt><code>vihaco-cpu</code> <span class="crate-tag">component</span></dt>
       <dd>
         A ready-made CPU/host component — a small stack machine with
-        <code>cpu::Instruction</code> (constants, arithmetic, branches,
-        <code>halt</code>, …) and the <code>StepOutcome</code> control-flow
-        effect. Use it directly, or as a reference for writing your own
-        components.
+        <code>cpu::RuntimeInstruction</code> (constants, arithmetic, branches,
+        <code>halt</code>, …), a pattern-derived
+        <code>cpu::SurfaceInstruction</code>, and the
+        <code>StepOutcome</code> control-flow effect. Use it directly, or as a
+        reference for writing your own components.
       </dd>
       <dt><code>vihaco-parser</code> <span class="crate-tag">parser</span></dt>
       <dd>
         The <code>#[derive(Parse)]</code> proc-macro. It turns an instruction
-        enum into a <a href="https://github.com/zesterer/chumsky">chumsky</a>
-        parser from declarative <code>#[syntax_class]</code> and
+        enum or struct into a
+        <a href="https://github.com/zesterer/chumsky">chumsky</a> parser from
+        declarative <code>#[syntax_class]</code> and
         <code>#[pattern]</code> attributes.
       </dd>
       <dt><code>vihaco-parser-core</code> <span class="crate-tag">parser</span></dt>
       <dd>
-        The <code>Parse&lt;'src&gt;</code> trait and blanket impls for the
-        primitives (<code>i64</code>, <code>u64</code>, <code>f64</code>,
-        <code>bool</code>, <code>String</code>, …), plus the
-        <code>ident()</code> helper. Every parser in the workspace is a
-        <code>Parse</code> impl.
+        The <code>Parse&lt;'src&gt;</code> and
+        <code>SurfaceInstruction</code> traits, plus parser implementations for
+        primitives, lexical types (<code>Ident</code>,
+        <code>BareToken</code>, and <code>QuotedString</code>), vectors, and
+        tuples.
       </dd>
       <dt><code>vihaco-derive</code> <span class="crate-tag">internal</span></dt>
       <dd>
@@ -135,9 +137,10 @@ eyre               = "0.6"   # vihaco APIs return eyre::Result</code></pre>
     <h2 id="parsing"><span class="sec-num">§ 5</span>Parsing source text</h2>
 
     <p>
-      Source-text parsing is orthogonal to bytecode. The same enum can derive
-      <code>vihaco_parser::Parse</code> alongside <code>Instruction</code>;
-      calling <code>parser()</code> gives you a chumsky parser:
+      Source-text parsing is orthogonal to bytecode. A user-declared surface
+      enum derives <code>vihaco_parser::Parse</code> from its syntax class and
+      patterns. When the source and runtime representations match, that enum
+      can also derive <code>Instruction</code>:
     </p>
 
 <pre><code class="language-rust">{parseSrc}</code></pre>
@@ -146,9 +149,9 @@ eyre               = "0.6"   # vihaco APIs return eyre::Result</code></pre>
       That is the whole instruction-level surface. Module-level parsing adds
       device headers, typed function bodies, and application-specific
       resolution, covered in
-      <a href={`${base}/guide/parser`}>Parser Integration</a>,
-      <a href={`${base}/guide/parser-patterns`}>Pattern Parser Generator</a>, and
-      <a href={`${base}/guide/parser-advanced`}>Advanced Parser Customization</a>.
+      <a href={`${base}/guide/parser`}>Pattern Parser Integration</a>,
+      <a href={`${base}/guide/parser-patterns`}>Pattern Parser</a>, and
+      <a href={`${base}/guide/parser-advanced`}>Module Parsing and Resolution</a>.
     </p>
 
     <h2 id="next"><span class="sec-num">§ 6</span>Next steps</h2>

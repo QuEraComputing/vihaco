@@ -1,16 +1,18 @@
 ---
 layout: ../../layouts/Guide.astro
-title: Parser Integration
+title: Pattern Parser Integration
 slug: parser
 description: "Derive strict, typed chumsky parsers with syntax classes and declarative patterns."
 ---
 
-# Parser Integration for Component Instructions
+# Pattern Parser Integration for Component Instructions
 
-Source parsing has two crates:
+Source syntax is defined with the pattern parser, which is split across two
+crates:
 
-1. **`vihaco-parser-core`** defines `Parse<'src>` and implements it for common
-   primitive field types.
+1. **`vihaco-parser-core`** defines `Parse<'src>` and `SurfaceInstruction`, and
+   implements `Parse` for common lexical, primitive, and collection field
+   types.
 2. **`vihaco-parser`** provides `#[derive(Parse)]`, which generates a
    [chumsky](https://github.com/zesterer/chumsky) parser from
    `#[syntax_class]` and `#[pattern]`.
@@ -60,7 +62,8 @@ The two derives are independent:
 `#[syntax_class(instruction, head = "counter")]` places every instruction in
 the `counter::` namespace. A unit variant receives a conventional lowercase
 pattern automatically. `#[pattern = "'add $0"]` spells out the mnemonic and
-binds the first tuple field.
+binds the first tuple field. The derive also implements
+`SurfaceInstruction` for an instruction-class enum.
 
 ## The `Parse` trait
 
@@ -83,11 +86,15 @@ pub trait Parse<'src>: Sized {
 | `i32`, `i64` | Optional leading `-`, then digits |
 | `f32`, `f64` | Optional `-`, decimal fraction, and exponent |
 | `bool` | `true` or `false` |
-| `String` | An identifier-shaped token, stopping at whitespace or structural punctuation |
+| `Ident` | An unquoted identifier without a leading `@`; dots and colons are accepted |
+| `BareToken` | An unquoted token whose interpretation is deferred |
+| `QuotedString` | A double-quoted string with common backslash escapes |
+| `Vec<T>` | Comma-separated values inside `[...]` |
+| `(A, B)` | A pair inside `(a, b)` |
 
-The free `vihaco_parser_core::ident()` parser accepts non-whitespace characters
-except `, ; ( ) { } [ ]`. It is useful when hand-writing `Parse` for a local
-field type.
+`String` intentionally does not implement `Parse`: it has no single canonical
+source spelling. Choose a lexical newtype that describes the field's grammar,
+or define a domain-specific enum or struct that also derives `Parse`.
 
 ## Syntax classes
 
@@ -116,13 +123,13 @@ For example:
 ```rust
 use chumsky::Parser as _;
 use vihaco_parser::Parse;
-use vihaco_parser_core::Parse as ParseTrait;
+use vihaco_parser_core::{Ident, Parse as ParseTrait};
 
 #[derive(Debug, PartialEq, Parse)]
 #[syntax_class(instruction, head = "control")]
 enum ControlInstruction {
     #[pattern = "'branch `@` $0"]
-    Branch(String),
+    Branch(Ident),
     #[pattern = "'select $0 `,` $1"]
     Select(bool, u32),
 }
@@ -131,7 +138,7 @@ assert_eq!(
     ControlInstruction::parser()
         .parse("control::branch @done")
         .into_result(),
-    Ok(ControlInstruction::Branch("done".into())),
+    Ok(ControlInstruction::Branch(Ident("done".to_owned()))),
 );
 assert_eq!(
     ControlInstruction::parser()
@@ -141,39 +148,48 @@ assert_eq!(
 );
 ```
 
-See [Pattern Parser Generator](/guide/parser-patterns) for the complete grammar,
+See [Pattern Parser](/guide/parser-patterns) for the complete grammar,
 generated defaults, whitespace rules, validation, structs, and large enums.
 
-## Custom field syntax
+## Nested field syntax
 
-Every pattern binding calls the field type's `Parse::parser()`. When a field
-needs custom syntax, define a local type and implement `Parse` for it. A
-newtype also solves Rust's orphan-rule restriction for foreign types.
+Every pattern binding uses the field type's pattern-derived parser. Define a
+local enum or struct when a field has its own domain syntax; this also keeps
+foreign types behind an application-owned syntax boundary.
 
-```rust ignore
+```rust
 use chumsky::Parser as _;
-use vihaco_parser_core::Parse;
+use vihaco_parser::Parse;
+use vihaco_parser_core::{Ident, Parse as ParseTrait};
 
-struct Address(String);
+#[derive(Debug, PartialEq, Parse)]
+#[syntax_class(value)]
+#[pattern = "$0"]
+struct Address(Ident);
 
-impl<'src> Parse<'src> for Address {
-    fn parser() -> impl chumsky::Parser<
-        'src,
-        &'src str,
-        Self,
-        chumsky::extra::Err<chumsky::error::Simple<'src, char>>,
-    > {
-        vihaco_parser_core::ident().map(Address)
-    }
+#[derive(Debug, PartialEq, Parse)]
+#[syntax_class(instruction, head = "control")]
+enum ControlInstruction {
+    #[pattern = "'branch `@` $0"]
+    Branch(Address),
 }
+
+assert_eq!(
+    ControlInstruction::parser()
+        .parse("control::branch @done")
+        .into_result(),
+    Ok(ControlInstruction::Branch(Address(Ident(
+        "done".to_owned()
+    )))),
+);
 ```
 
-If a whole type needs grammar beyond declarative patterns, implement `Parse`
-for that type with ordinary chumsky combinators.
+Pattern-derived types compose recursively, so a field can be a lexical
+newtype, another syntax enum or struct, `Vec<T>`, or a tuple.
 
 ## What comes next
 
 - For section headers, functions, typed bodies, and `Resolve`, see
-  [Advanced Parser Customization](/guide/parser-advanced).
+  [Module Parsing and Resolution](/guide/parser-advanced).
 - To attach an instruction type to a component, see
   [Building Components With `vihaco`](/guide/components).

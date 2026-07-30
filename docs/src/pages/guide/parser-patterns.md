@@ -1,16 +1,17 @@
 ---
 layout: ../../layouts/Guide.astro
-title: Pattern Parser Generator
+title: Pattern Parser
 slug: parser-patterns
 description: "Generate Parse implementations from declarative syntax patterns for instruction, value, and type enums and structs."
 ---
 
-# Pattern Parser Generator
+# Pattern Parser
 
-The pattern generator derives source parsers for syntax types. A pattern
+The pattern parser derives source parsers for syntax types. A pattern
 describes the concrete spelling of a value and binds parts of that spelling to
 Rust fields. The derive validates the description at compile time, then emits
-an ordinary `vihaco_parser_core::Parse` implementation.
+a `vihaco_parser_core::Parse` implementation. Instruction-class enums also
+receive a `vihaco_parser_core::SurfaceInstruction` implementation.
 
 Use two attributes:
 
@@ -59,8 +60,8 @@ The `head` is a dialect namespace. The derive appends `::`, so
 `memory::load`.
 
 Every bound field is parsed with that field type's
-`vihaco_parser_core::Parse::parser()`. For custom field syntax, implement
-`Parse` for a local field type or wrap a foreign type in a local newtype.
+`vihaco_parser_core::Parse::parser()`. Give domain-specific field syntax its
+own local enum or struct with `#[derive(Parse)]`.
 
 ## Syntax classes
 
@@ -191,9 +192,8 @@ Pattern generation supports both enums and structs:
 
 - On an enum, put `#[pattern]` on each variant that needs an override.
 - On a struct, put its single `#[pattern]` on the struct definition.
-- Enum variants may be tuple or unit variants. Struct-style enum variants are
-  not supported; use a tuple variant containing a named struct when named
-  fields are useful.
+- Enum variants may be unit, tuple, or struct-style variants. Tuple variants
+  use numeric bindings, while struct-style variants use named bindings.
 - Generic types and types that already use a lifetime named similarly to the
   derive's internal lifetime are supported.
 
@@ -213,23 +213,24 @@ in stages, so failures tend to describe the earliest broken contract:
 |---|---|
 | Pattern syntax | Empty patterns; leading, trailing, or repeated spaces; tabs; malformed bindings; unsupported symbols; unterminated literals; indices larger than `u32`. |
 | Syntax class | Missing `#[syntax_class]`; instruction pattern not beginning with `'name`; instruction tokens in value/type patterns; implicit type patterns; implicit multi-field value patterns. |
-| Field mapping | Struct-style enum variants; mixed binding styles; named bindings on tuple fields; indexed bindings on named fields; missing, duplicate, unknown, or out-of-bounds fields; bindings on unit forms. |
+| Field mapping | Mixed binding styles; named bindings on tuple fields; indexed bindings on named fields; missing, duplicate, unknown, or out-of-bounds fields; bindings on unit forms. |
 | Attribute placement | `#[pattern]` used without a syntax class; `#[syntax_class]` placed on a variant or field instead of the type definition. |
 
 The generated parser then relies on Rust's type checker to verify that every
 captured field type implements `Parse<'src>`.
 
-## When a pattern is not enough
+## Compose nested syntax
 
 Patterns cover exact mnemonics and keywords, typed field parsers, comma, and
 `@`. They keep the source grammar visible in one string and checked against the
 Rust constructor.
 
-When a field has richer syntax, implement `Parse` for a local field type. When
-the entire grammar needs recursion, nested delimiters, or context-sensitive
-coordination, implement `Parse` for the containing type with chumsky
-combinators.
+Represent richer field grammar with another pattern-derived local enum or
+struct. Use `Ident`, `BareToken`, and `QuotedString` for lexical leaves, and
+use `Vec<T>` or tuples for collection shapes. Each binding composes the parser
+of its field type, keeping the complete source grammar typed and
+pattern-derived.
 
 For module parsing, typed function bodies, resolution, and explicit source
 sugar, continue to
-[Advanced Parser Customization](/guide/parser-advanced).
+[Module Parsing and Resolution](/guide/parser-advanced).

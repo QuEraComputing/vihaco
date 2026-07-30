@@ -1,8 +1,9 @@
 # vihaco
 
 A virtual ISA and machine framework for orchestrating hybrid analog/digital
-quantum control. Define instruction sets, components, effects, and parsers as
-ordinary Rust — then compose them into a machine.
+quantum control. Define instruction sets, components, effects, and
+pattern-derived source syntax as ordinary Rust — then compose them into a
+machine.
 
 [![CI](https://github.com/QuEraComputing/vihaco/actions/workflows/ci.yml/badge.svg)](https://github.com/QuEraComputing/vihaco/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -14,7 +15,7 @@ vihaco is a framework for building small virtual machines. You define
 - the **instruction set** — an enum, with `#[derive(Instruction)]`;
 - the **components** that execute it — with `#[component]`;
 - the **effects** they emit; and
-- (optionally) a **parser** for SST — with `#[derive(Parse)]`,
+- (optionally) **SST source syntax** — with `#[derive(Parse)]`,
 
 all as ordinary Rust, then compose them into a machine. A component is one
 `execute(instruction, message) -> effects`:
@@ -67,7 +68,7 @@ needs; there is no umbrella crate.
 | [`vihaco`](crates/vihaco) | The framework: the `Instruction` / `Message` / `Effects` types and their derives, the `#[component]` / `#[observe]` / `#[composite]` macros, the module / syntax / runtime layers, and the `Value` / `Type` model. Re-exports the macros, so most projects depend only on this crate. |
 | [`vihaco-cpu`](crates/vihaco-cpu) | A ready-made CPU/host component — a small stack machine (constants, arithmetic, branches, halt, …) with a `StepOutcome` control-flow effect. Use directly, or as a reference for writing your own. |
 | [`vihaco-parser`](crates/vihaco-parser) | `#[derive(Parse)]` — turns instruction, value, and type enums or structs into [chumsky](https://github.com/zesterer/chumsky) parsers via `#[syntax_class]` and `#[pattern]`. |
-| [`vihaco-parser-core`](crates/vihaco-parser-core) | The `Parse<'src>` trait and primitive impls shared by the parser derive. |
+| [`vihaco-parser-core`](crates/vihaco-parser-core) | The `Parse<'src>` and `SurfaceInstruction` traits plus lexical, primitive, and collection implementations shared by the parser derive. |
 | [`vihaco-derive`](crates/vihaco-derive) | The procedural macros behind the derives (used via `vihaco`'s re-exports). |
 
 ## Quick start
@@ -101,7 +102,7 @@ No mise? A stable Rust 2024 toolchain is enough — `cargo test --workspace
 
 Guides and the API reference are published to GitHub Pages:
 **<https://queracomputing.github.io/vihaco/>**. The guides walk through defining
-instructions, parser integration, messages, components, observers, and
+instructions, pattern parser integration, messages, components, observers, and
 composites.
 
 Every code block in the guides and on the site is compiled — and, where
@@ -109,7 +110,7 @@ runnable, executed — in CI (via the `vihaco-doctests` crate), so the examples
 can't drift from the API. To preview the docs locally:
 
 ```bash
-cd docs && npm install && npm run dev
+cd docs && pnpm install && pnpm dev
 ```
 
 ## Contributing

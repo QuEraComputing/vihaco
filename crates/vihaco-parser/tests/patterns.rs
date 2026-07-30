@@ -5,13 +5,17 @@ use std::marker::PhantomData;
 
 use chumsky::{primitive::just, IterParser, Parser};
 use vihaco_parser::Parse;
-use vihaco_parser_core::Parse as ParseTrait;
+use vihaco_parser_core::{Ident, Parse as ParseTrait, SurfaceInstruction};
 
 fn parse<'src, T>(source: &'src str) -> Result<T, Vec<chumsky::error::Simple<'src, char>>>
 where
     T: ParseTrait<'src>,
 {
     T::parser().parse(source).into_result()
+}
+
+fn ident(value: &str) -> Ident {
+    Ident(value.to_owned())
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -29,44 +33,44 @@ impl<'src> ParseTrait<'src> for Operand {
 #[syntax_class(instruction, head = "test")]
 enum PermutedTuple {
     #[pattern = "'p012 $0 $1 $2"]
-    P012(i64, bool, String),
+    P012(i64, bool, Ident),
     #[pattern = "'p021 $0 $2 $1"]
-    P021(i64, bool, String),
+    P021(i64, bool, Ident),
     #[pattern = "'p102 $1 $0 $2"]
-    P102(i64, bool, String),
+    P102(i64, bool, Ident),
     #[pattern = "'p120 $1 $2 $0"]
-    P120(i64, bool, String),
+    P120(i64, bool, Ident),
     #[pattern = "'p201 $2 $0 $1"]
-    P201(i64, bool, String),
+    P201(i64, bool, Ident),
     #[pattern = "'p210 $2 $1 $0"]
-    P210(i64, bool, String),
+    P210(i64, bool, Ident),
 }
 
 #[test]
 fn tuple_bindings_are_assigned_by_index_not_capture_order() {
     assert_eq!(
         parse("test::p012 7 true word"),
-        Ok(PermutedTuple::P012(7, true, "word".into()))
+        Ok(PermutedTuple::P012(7, true, ident("word")))
     );
     assert_eq!(
         parse("test::p021 7 word true"),
-        Ok(PermutedTuple::P021(7, true, "word".into()))
+        Ok(PermutedTuple::P021(7, true, ident("word")))
     );
     assert_eq!(
         parse("test::p102 true 7 word"),
-        Ok(PermutedTuple::P102(7, true, "word".into()))
+        Ok(PermutedTuple::P102(7, true, ident("word")))
     );
     assert_eq!(
         parse("test::p120 true word 7"),
-        Ok(PermutedTuple::P120(7, true, "word".into()))
+        Ok(PermutedTuple::P120(7, true, ident("word")))
     );
     assert_eq!(
         parse("test::p201 word 7 true"),
-        Ok(PermutedTuple::P201(7, true, "word".into()))
+        Ok(PermutedTuple::P201(7, true, ident("word")))
     );
     assert_eq!(
         parse("test::p210 word true 7"),
-        Ok(PermutedTuple::P210(7, true, "word".into()))
+        Ok(PermutedTuple::P210(7, true, ident("word")))
     );
 }
 
@@ -95,7 +99,7 @@ enum Punctuation {
     #[pattern = "'comma $0 `,` $1"]
     Comma(i64, bool),
     #[pattern = "'at $0 `@` $1"]
-    At(i64, String),
+    At(i64, Ident),
     #[pattern = "'wrapped `before` $0 `after`"]
     Wrapped(i64),
 }
@@ -119,11 +123,11 @@ fn comma_suppresses_only_leading_whitespace() {
 fn at_suppresses_only_trailing_whitespace() {
     assert_eq!(
         parse("test::at 1 @target"),
-        Ok(Punctuation::At(1, "target".into()))
+        Ok(Punctuation::At(1, ident("target")))
     );
     assert_eq!(
         parse("test::at 1    @target"),
-        Ok(Punctuation::At(1, "target".into()))
+        Ok(Punctuation::At(1, ident("target")))
     );
 
     assert!(parse::<Punctuation>("test::at 1@target").is_err());
@@ -271,8 +275,15 @@ enum Instruction {
     #[pattern = "'store $0 `,` $1"]
     Store(Operand, i64),
     #[pattern = "'jump $0 `@` $1"]
-    Jump(i64, String),
+    Jump(i64, Ident),
     Halt,
+}
+
+#[test]
+fn instruction_class_enum_implements_surface_instruction() {
+    fn require_surface_instruction<T: SurfaceInstruction>() {}
+
+    require_surface_instruction::<Instruction>();
 }
 
 fn instruction_list<'src>() -> impl Parser<
@@ -296,7 +307,7 @@ fn parses_a_newline_separated_instruction_source() {
         Ok(vec![
             Instruction::Load(4),
             Instruction::Store(Operand("destination".into()), 8),
-            Instruction::Jump(2, "loop".into()),
+            Instruction::Jump(2, ident("loop")),
             Instruction::Halt,
         ])
     );
@@ -331,13 +342,30 @@ struct Generic<T>(T)
 where
     T: for<'a> ParseTrait<'a>;
 
+#[derive(Parse, Debug, PartialEq)]
+#[syntax_class(instruction, head = "generic")]
+enum GenericInstruction<T>
+where
+    T: for<'a> ParseTrait<'a>,
+{
+    #[pattern = "'value $0"]
+    Value(T),
+}
+
 #[test]
 fn generics_and_generated_lifetime_name_collisions_compile_and_parse() {
+    fn require_surface_instruction<T: SurfaceInstruction>() {}
+
     assert_eq!(
         parse("31 marker"),
         Ok(LifetimeCollision(31, Marker(PhantomData)))
     );
     assert_eq!(parse("37"), Ok(Generic(37_i64)));
+    assert_eq!(
+        parse("generic::value 41"),
+        Ok(GenericInstruction::Value(41_i64))
+    );
+    require_surface_instruction::<GenericInstruction<i64>>();
 }
 
 macro_rules! define_instruction_enum {
