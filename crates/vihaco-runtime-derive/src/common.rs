@@ -18,7 +18,7 @@ pub fn resolve_root(attrs: &[syn::Attribute]) -> syn::Result<TokenStream2> {
         return Ok(quote! { #path });
     }
 
-    for name in ["vihaco-runtime", "vihaco"] {
+    for name in ["vihaco", "vihaco-runtime"] {
         if let Ok(found) = crate_name(name) {
             return Ok(match found {
                 FoundCrate::Itself => quote! { crate },
