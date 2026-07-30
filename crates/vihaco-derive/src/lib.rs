@@ -4,18 +4,11 @@
 mod attr_component;
 mod attr_composite;
 mod attr_observe;
-mod common;
-mod derive_instruction;
 mod derive_message;
 
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Fields};
-
-#[proc_macro_derive(Instruction, attributes(instruction, opcode))]
-pub fn derive_instruction(input: TokenStream) -> TokenStream {
-    derive_instruction::expand(input)
-}
 
 #[proc_macro_derive(Message)]
 pub fn derive_message(input: TokenStream) -> TokenStream {

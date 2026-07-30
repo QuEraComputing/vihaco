@@ -2,6 +2,8 @@
 resolver = "2"
 members = [
     "crates/vihaco",
+    "crates/vihaco-abi",
+    "crates/vihaco-abi-derive",
     "crates/vihaco-cpu",
     "crates/vihaco-derive",
     "crates/vihaco-doctests",
@@ -21,6 +23,8 @@ authors = [
 
 [workspace.dependencies]
 vihaco            = { version = "0.2.0", path = "crates/vihaco" }
+vihaco-abi        = { version = "0.2.0", path = "crates/vihaco-abi" }
+vihaco-abi-derive = { version = "0.2.0", path = "crates/vihaco-abi-derive" }
 vihaco-cpu        = { version = "0.2.0", path = "crates/vihaco-cpu" }
 vihaco-derive     = { version = "0.2.0", path = "crates/vihaco-derive" }
 vihaco-parser     = { version = "0.2.0", path = "crates/vihaco-parser" }
