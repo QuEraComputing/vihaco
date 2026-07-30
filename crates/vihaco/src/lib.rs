@@ -7,23 +7,21 @@ extern crate self as vihaco;
 pub mod __private;
 mod binary;
 pub mod color;
-pub mod effect;
-pub mod frame;
+// Foundation vocabulary now lives in `vihaco-abi`; re-export at the original
+// module paths so the public API is unchanged (see design/crate-split.md §7).
+pub use vihaco_abi::{effect, frame, instruction_syntax, metadata, program};
 pub mod instruction;
-pub mod instruction_syntax;
 pub mod loader;
 pub mod machine;
 pub mod macros;
-pub mod metadata;
 pub mod module;
 pub mod observer;
-pub mod program;
 pub mod runtime;
 pub mod syntax;
 #[doc(hidden)]
 pub mod traits;
 pub mod value {
-    pub use crate::program::{Type, Value};
+    pub use vihaco_abi::{Type, Value};
 }
 
 pub use binary::{
