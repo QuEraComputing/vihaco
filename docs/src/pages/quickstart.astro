@@ -72,12 +72,13 @@ const toc = [
         <code>BareToken</code>, and <code>QuotedString</code>), vectors, and
         tuples.
       </dd>
-      <dt><code>vihaco-derive</code> <span class="crate-tag">internal</span></dt>
+      <dt><code>vihaco-runtime-derive</code> <span class="crate-tag">internal</span></dt>
       <dd>
-        The procedural macros behind <code>#[derive(Instruction)]</code>,
-        <code>#[derive(Message)]</code>, <code>#[component]</code>,
-        <code>#[observe]</code>, and <code>#[composite]</code>. Re-exported
-        through <code>vihaco</code> — you rarely depend on it directly.
+        The procedural macros behind <code>#[derive(Message)]</code>,
+        <code>#[component]</code>, <code>#[observe]</code>, and
+        <code>#[composite]</code> (<code>#[derive(Instruction)]</code> lives in
+        <code>vihaco-abi-derive</code>). Both are re-exported through
+        <code>vihaco</code> — you rarely depend on them directly.
       </dd>
     </dl>
 

@@ -1,6 +1,6 @@
 # Crate Split Plan
 
-> **Status:** proposed / not yet executed.
+> **Status:** executed on branch `refactor/crate-split` (Waves 0–4 landed; full gate green).
 > **Owner:** (assign)
 > **Last revised:** 2026-07-30
 >

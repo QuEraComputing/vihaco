@@ -65,11 +65,17 @@ needs; there is no umbrella crate.
 
 | Crate | Role |
 |---|---|
-| [`vihaco`](crates/vihaco) | The framework: the `Instruction` / `Message` / `Effects` types and their derives, the `#[component]` / `#[observe]` / `#[composite]` macros, the module / syntax / runtime layers, and the `Value` / `Type` model. Re-exports the macros, so most projects depend only on this crate. |
+| [`vihaco`](crates/vihaco) | The batteries-included facade: re-exports every crate below at stable paths (`Instruction` / `Message` / `Effects`, the `#[component]` / `#[observe]` / `#[composite]` macros, the module / syntax / runtime layers, the `Value` / `Type` model), so most projects depend only on this crate. |
+| [`vihaco-abi`](crates/vihaco-abi) | The ISA vocabulary: the `Instruction` / `Effects` types, the `Value` / `Type` model, and the encoding + host-VM traits. |
+| [`vihaco-abi-derive`](crates/vihaco-abi-derive) | `#[derive(Instruction)]`, re-exported through `vihaco-abi`'s `derive` feature. |
+| [`vihaco-bytecode`](crates/vihaco-bytecode) | The binary / SST container format: headers, sections, and instruction (de)coding. |
+| [`vihaco-module`](crates/vihaco-module) | The loadable `Module` model, program loader, host-VM traits, and assembly-style `Display`. |
+| [`vihaco-runtime`](crates/vihaco-runtime) | The component/machine runtime: `GeneratedComponent`, effect sinks, and observers. |
+| [`vihaco-runtime-derive`](crates/vihaco-runtime-derive) | `#[derive(Message)]`, `#[component]`, `#[composite]`, `#[observe]`, re-exported through `vihaco-runtime`'s `derive` feature. |
+| [`vihaco-syntax`](crates/vihaco-syntax) | Typed SST parsing and module construction (`Resolve`). |
 | [`vihaco-cpu`](crates/vihaco-cpu) | A ready-made CPU/host component — a small stack machine (constants, arithmetic, branches, halt, …) with a `StepOutcome` control-flow effect. Use directly, or as a reference for writing your own. |
 | [`vihaco-parser`](crates/vihaco-parser) | The `Parse<'src>` and `SurfaceInstruction` traits plus lexical, primitive, and collection implementations shared by the parser derive. |
 | [`vihaco-parser-derive`](crates/vihaco-parser-derive) | `#[derive(Parse)]` — turns instruction, value, and type enums or structs into [chumsky](https://github.com/zesterer/chumsky) parsers via `#[syntax_class]` and `#[pattern]`. |
-| [`vihaco-derive`](crates/vihaco-derive) | The procedural macros behind the derives (used via `vihaco`'s re-exports). |
 
 ## Quick start
 
