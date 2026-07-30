@@ -3,7 +3,7 @@
 
 use vihaco::Instruction;
 use vihaco::program::{Type, Value};
-use vihaco_parser_core::{BareToken, Ident};
+use vihaco_parser::{BareToken, Ident};
 
 /// Runtime bytecode instructions.
 ///
@@ -111,7 +111,7 @@ pub enum RuntimeInstruction {
     Ge(Type),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, vihaco_parser::Parse)]
+#[derive(Debug, Clone, Copy, PartialEq, vihaco_parser_derive::Parse)]
 #[syntax_class(type)]
 pub enum SurfaceType {
     #[pattern = "`undef`"]
@@ -134,16 +134,16 @@ pub enum SurfaceType {
     HeapRef,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, vihaco_parser::Parse)]
+#[derive(Debug, Clone, PartialEq, Eq, vihaco_parser_derive::Parse)]
 #[syntax_class(value)]
 pub enum SurfaceValue {
     #[pattern = "$0"]
-    Quoted(vihaco_parser_core::QuotedString),
+    Quoted(vihaco_parser::QuotedString),
     #[pattern = "$0"]
     Bare(BareToken),
 }
 
-#[derive(Debug, Clone, PartialEq, vihaco_parser::Parse)]
+#[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
 #[syntax_class(instruction, head = "cpu")]
 pub enum SurfaceInstruction {
     // no-ops
@@ -300,7 +300,7 @@ impl vihaco::CanonicalInstructionSyntax for RuntimeInstruction {
 mod parse_tests {
     use super::{BareToken, SurfaceInstruction, SurfaceType, SurfaceValue};
     use chumsky::Parser as _;
-    use vihaco_parser_core::Parse;
+    use vihaco_parser::Parse;
 
     fn parse(input: &str) -> SurfaceInstruction {
         SurfaceInstruction::parser()

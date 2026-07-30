@@ -41,7 +41,7 @@ the commit types:
 
 Publishable crates (released together):
 
-- `vihaco`, `vihaco-cpu`, `vihaco-derive`, `vihaco-parser`, `vihaco-parser-core`
+- `vihaco`, `vihaco-cpu`, `vihaco-derive`, `vihaco-parser`, `vihaco-parser-derive`
 
 `vihaco-doctests` is `publish = false`, so release-plz skips it automatically.
 
@@ -127,7 +127,7 @@ requirements), then publish in dependency order — each crate must be on the
 index before the crates that depend on it:
 
 ```text
-vihaco-parser-core → vihaco-derive → vihaco-parser → vihaco → vihaco-cpu
+vihaco-parser → vihaco-derive → vihaco-parser-derive → vihaco → vihaco-cpu
 ```
 
 ```bash

@@ -10,8 +10,8 @@ use super::{
     format::{BytecodeHeader, SstHeader},
 };
 
-use vihaco_parser_core::container::SectionNode;
-pub use vihaco_parser_core::container::SectionPath;
+use vihaco_parser::container::SectionNode;
+pub use vihaco_parser::container::SectionPath;
 
 /// A lightweight view into a parsed bytecode section.
 pub struct BytecodeSectionView<'bc, C> {

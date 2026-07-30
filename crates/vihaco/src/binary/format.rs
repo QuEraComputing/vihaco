@@ -7,7 +7,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::traits::{FromBytes, FromText, Instruction, OpCode, WriteBytes};
 
-pub use vihaco_parser_core::container::bytecode::{FLAGS, MAGIC, VERSION};
+pub use vihaco_parser::container::bytecode::{FLAGS, MAGIC, VERSION};
 
 pub trait BytecodeHeader: Sized + FromBytes {}
 

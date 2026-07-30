@@ -15,7 +15,7 @@ pub mod parse;
 pub mod resolve;
 
 pub use types::{Param, ParsedFunction, ParsedModule};
-pub use vihaco_parser_core::SurfaceInstruction;
+pub use vihaco_parser::SurfaceInstruction;
 
 pub use parse::{block_i64_flat, block_i64_pairs, skip};
 pub use resolve::Resolve;
@@ -24,18 +24,18 @@ pub use resolve::Resolve;
 mod tests {
     use super::*;
     use chumsky::Parser as _;
-    use vihaco_parser_core::Parse;
+    use vihaco_parser::Parse;
 
     // Minimal stub: an enum that derives Parse and has just two unit variants.
     // Avoids pulling vihaco-cpu/-fpga into the test (cycle).
-    #[derive(Debug, Clone, PartialEq, vihaco_parser::Parse)]
+    #[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
     #[syntax_class(instruction, head = "stub")]
     enum StubInst {
         Halt,
         Print,
     }
 
-    #[derive(Debug, Clone, PartialEq, vihaco_parser::Parse)]
+    #[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
     #[syntax_class(type)]
     enum StubType {
         #[pattern = "`unit`"]
@@ -90,13 +90,13 @@ mod tests {
     fn lexical_helpers_return_explicit_newtypes() {
         assert_eq!(
             parse::symbol_ref().parse("@main").into_result(),
-            Ok(vihaco_parser_core::Ident("main".to_owned()))
+            Ok(vihaco_parser::Ident("main".to_owned()))
         );
         assert_eq!(
             parse::string_literal()
                 .parse("\"hello\\nworld\"")
                 .into_result(),
-            Ok(vihaco_parser_core::QuotedString("hello\nworld".to_owned()))
+            Ok(vihaco_parser::QuotedString("hello\nworld".to_owned()))
         );
     }
 
@@ -117,7 +117,7 @@ fn @main() {
 
     #[test]
     fn rejects_malformed_known_instruction() {
-        #[derive(Debug, Clone, PartialEq, vihaco_parser::Parse)]
+        #[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
         #[syntax_class(instruction, head = "stub")]
         enum OnlyOne {
             Dump(u32),

@@ -307,7 +307,7 @@ Inside a section:
 - section end markers must use the same indentation as their matching section start marker
 - section names must be local names; `/` is rejected in a child marker name
 
-The SST parser preserves the original header and bytecode ranges, including their leading tabs. Load section programs by mapping the section to `ParsedModule::<I, Ty, H>::parse_section(section)`, then run your `Resolve` impl to produce the runtime `Module`. Both the instruction type `I` and source type `Ty` must implement `vihaco_parser_core::Parse`.
+The SST parser preserves the original header and bytecode ranges, including their leading tabs. Load section programs by mapping the section to `ParsedModule::<I, Ty, H>::parse_section(section)`, then run your `Resolve` impl to produce the runtime `Module`. Both the instruction type `I` and source type `Ty` must implement `vihaco_parser::Parse`.
 
 `ProgramImage<I, C, V = Value, Ty = Type, Info = NoInfo>` is the standard in-memory program image. Machines load binary bytecode into it by decoding `section.bytecode()` with `BytecodeSectionView::decode_instructions::<I>()` and, when useful, storing the section's cloned `ContextHandle<C>`. For SST, resolve a `ParsedModule` into the image's `module`. `ProgramImage` implements `ProgramCounter` and exposes functions, strings, and constants through `GetProgramInfo` from its own `module` fields.
 

@@ -628,7 +628,7 @@ dependencies = [
  "trybuild",
  "vihaco-derive",
  "vihaco-parser",
- "vihaco-parser-core",
+ "vihaco-parser-derive",
 ]
 
 [[package]]
@@ -663,7 +663,7 @@ dependencies = [
  "vihaco",
  "vihaco-derive",
  "vihaco-parser",
- "vihaco-parser-core",
+ "vihaco-parser-derive",
 ]
 
 [[package]]
@@ -686,11 +686,20 @@ dependencies = [
  "vihaco-cpu",
  "vihaco-derive",
  "vihaco-parser",
- "vihaco-parser-core",
+ "vihaco-parser-derive",
 ]
 
 [[package]]
 name = "vihaco-parser"
+version = "0.2.0"
+dependencies = [
+ "byteorder",
+ "chumsky",
+ "eyre",
+]
+
+[[package]]
+name = "vihaco-parser-derive"
 version = "0.2.0"
 dependencies = [
  "chumsky",
@@ -699,16 +708,7 @@ dependencies = [
  "quote",
  "syn",
  "trybuild",
- "vihaco-parser-core",
-]
-
-[[package]]
-name = "vihaco-parser-core"
-version = "0.2.0"
-dependencies = [
- "byteorder",
- "chumsky",
- "eyre",
+ "vihaco-parser",
 ]
 
 [[package]]

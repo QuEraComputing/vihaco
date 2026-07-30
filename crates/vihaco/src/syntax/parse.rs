@@ -10,7 +10,7 @@
 use chumsky::error::Simple;
 use chumsky::extra;
 use chumsky::prelude::*;
-use vihaco_parser_core::{Ident, Parse, QuotedString};
+use vihaco_parser::{Ident, Parse, QuotedString};
 
 use crate::SstHeader;
 use crate::SstSectionView;
@@ -50,7 +50,7 @@ pub fn string_literal<'src>() -> impl Parser<'src, &'src str, QuotedString, E<'s
 
 /// `@name` — leading `@` consumed; name is `ident()`-shaped.
 pub fn symbol_ref<'src>() -> impl Parser<'src, &'src str, Ident, E<'src>> + Clone {
-    just('@').ignore_then(vihaco_parser_core::ident().map(Ident))
+    just('@').ignore_then(vihaco_parser::ident().map(Ident))
 }
 
 /// Block-body helper: parse a sequence of whitespace-separated `i64`s as
@@ -158,8 +158,8 @@ where
     pub fn parse_section<'src, C>(section: SstSectionView<'src, C>) -> eyre::Result<Self>
     where
         H: SstHeader,
-        I: vihaco_parser_core::Parse<'src> + 'src,
-        Ty: vihaco_parser_core::Parse<'src> + 'src,
+        I: vihaco_parser::Parse<'src> + 'src,
+        Ty: vihaco_parser::Parse<'src> + 'src,
     {
         let header = section.parse_header::<H>()?;
         let text = section.sst();

@@ -56,7 +56,7 @@ const toc = [
         <code>StepOutcome</code> control-flow effect. Use it directly, or as a
         reference for writing your own components.
       </dd>
-      <dt><code>vihaco-parser</code> <span class="crate-tag">parser</span></dt>
+      <dt><code>vihaco-parser-derive</code> <span class="crate-tag">parser</span></dt>
       <dd>
         The <code>#[derive(Parse)]</code> proc-macro. It turns an instruction
         enum or struct into a
@@ -64,7 +64,7 @@ const toc = [
         declarative <code>#[syntax_class]</code> and
         <code>#[pattern]</code> attributes.
       </dd>
-      <dt><code>vihaco-parser-core</code> <span class="crate-tag">parser</span></dt>
+      <dt><code>vihaco-parser</code> <span class="crate-tag">parser</span></dt>
       <dd>
         The <code>Parse&lt;'src&gt;</code> and
         <code>SurfaceInstruction</code> traits, plus parser implementations for
@@ -95,7 +95,7 @@ const toc = [
       <li>
         <strong>Parse source text into instructions</strong>:
         <code>vihaco</code> + <code>vihaco-parser</code> +
-        <code>vihaco-parser-core</code>.
+        <code>vihaco-parser-derive</code>.
       </li>
     </ul>
 
@@ -107,11 +107,11 @@ const toc = [
     </p>
 
 <pre><code class="language-toml">[dependencies]
-vihaco             = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}
-vihaco-cpu         = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}
-vihaco-parser      = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}
-vihaco-parser-core = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}
-eyre               = "0.6"   # vihaco APIs return eyre::Result</code></pre>
+vihaco               = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}
+vihaco-cpu           = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}
+vihaco-parser        = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}
+vihaco-parser-derive = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}
+eyre                 = "0.6"   # vihaco APIs return eyre::Result</code></pre>
 
     <h2 id="component"><span class="sec-num">§ 4</span>A first component</h2>
 

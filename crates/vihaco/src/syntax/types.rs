@@ -3,7 +3,7 @@
 
 //! Parsed-syntax data shapes. See module docs in [`super`].
 
-use vihaco_parser_core::{Ident, SurfaceInstruction};
+use vihaco_parser::{Ident, SurfaceInstruction};
 
 /// Parsed `.sst` module before resolution.
 ///

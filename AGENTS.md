@@ -65,8 +65,8 @@ self-contained component you can use directly or copy as a starting point.
 | `vihaco` | The framework. Core types + the `module` / `syntax` / `runtime` layers. Re-exports the derives, so most code depends only on this crate. |
 | `vihaco-cpu` | A ready-made CPU/host component: a stack machine with a `StepOutcome` control-flow effect. Use directly or as a reference component. |
 | `vihaco-derive` | The proc macros behind `#[derive(Instruction/Message/Machine)]` and `#[component]` / `#[composite]` / `#[observe]`. Consumed via `vihaco`'s re-exports. |
-| `vihaco-parser` | `#[derive(Parse)]` — turns instruction, value, and type enums or structs into [chumsky](https://github.com/zesterer/chumsky) parsers via `#[syntax_class]` and `#[pattern]` (see `attr.rs`/`codegen.rs`). |
-| `vihaco-parser-core` | The `Parse<'src>` and `SurfaceInstruction` traits plus lexical, primitive, and collection impls shared by the parser derive. |
+| `vihaco-parser` | The `Parse<'src>` and `SurfaceInstruction` traits plus lexical, primitive, and collection impls shared by the parser derive. |
+| `vihaco-parser-derive` | `#[derive(Parse)]` — turns instruction, value, and type enums or structs into [chumsky](https://github.com/zesterer/chumsky) parsers via `#[syntax_class]` and `#[pattern]` (see `attr.rs`/`codegen.rs`). |
 | `vihaco-doctests` | **Dev-only, not published.** `include!`s `docs/examples/*.rs` and runs every ` ```rust ` block in `docs/src/pages/guide/*.md` as a rustdoc doctest, so the public API and the docs can't drift. Editing the public API often requires updating these. |
 
 ### The mental model (what the macros generate)
@@ -121,12 +121,12 @@ self-contained component you can use directly or copy as a starting point.
   `eyre::eyre!`) throughout — *not* `anyhow`/`thiserror`. Match the surrounding
   code.
 - **Rust edition:** `vihaco`, `vihaco-cpu`, `vihaco-derive`, `vihaco-doctests`
-  are **edition 2024** (rustc ≥ 1.85). `vihaco-parser` and `vihaco-parser-core`
+  are **edition 2024** (rustc ≥ 1.85). `vihaco-parser` and `vihaco-parser-derive`
   are **edition 2021 with `rust-version = 1.75`** — keep their code within that
   MSRV.
 - **Macro changes need trybuild coverage:** compile-fail behaviour is pinned by
   trybuild fixtures (`crates/vihaco/tests/ui/`,
-  `crates/vihaco-parser/tests/compile_errors/`). These are line-sensitive; when
+  `crates/vihaco-parser-derive/tests/compile_errors/`). These are line-sensitive; when
   you change a diagnostic, update the matching `.stderr` (`TRYBUILD=overwrite
   cargo test`).
 

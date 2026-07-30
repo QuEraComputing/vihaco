@@ -26,7 +26,7 @@ represented explicitly in the syntax type and its patterns.
 
 ```rust ignore
 use vihaco::SurfaceInstruction;
-use vihaco_parser_core::Ident;
+use vihaco_parser::Ident;
 
 pub struct ParsedModule<I, Ty, H>
 where
@@ -66,7 +66,7 @@ for instruction enums. The source type is any consumer-owned type that derives
 
 ```rust ignore
 use vihaco::Instruction;
-use vihaco_parser::Parse;
+use vihaco_parser_derive::Parse;
 
 #[derive(Debug, Clone, PartialEq, Instruction, Parse)]
 #[syntax_class(instruction, head = "device")]
@@ -173,9 +173,9 @@ unstructured source line.
 Patterns can represent symbols and sugar directly:
 
 ```rust ignore
-use vihaco_parser_core::Ident;
+use vihaco_parser::Ident;
 
-#[derive(vihaco_parser::Parse)]
+#[derive(vihaco_parser_derive::Parse)]
 #[syntax_class(instruction, head = "control")]
 enum ControlSurface {
     #[pattern = "'branch `@` $0"]

@@ -90,7 +90,7 @@ jobs:
           -p vihaco
           -p vihaco-cpu
           -p vihaco-parser
-          -p vihaco-parser-core
+          -p vihaco-parser-derive
 
       - name: Stage rustdoc under dist/rust-api
         run: |

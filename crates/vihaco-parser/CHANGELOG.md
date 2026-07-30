@@ -7,8 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.0](https://github.com/QuEraComputing/vihaco/compare/vihaco-parser-v0.1.1...vihaco-parser-v0.2.0) - 2026-07-29
+## [0.2.0](https://github.com/QuEraComputing/vihaco/compare/vihaco-parser-core-v0.1.1...vihaco-parser-core-v0.2.0) - 2026-07-29
 
 ### Other
 
 - Parser refactor to support values, types, instructions ([#40](https://github.com/QuEraComputing/vihaco/pull/40))
+- Refactor multi-section implementation ([#37](https://github.com/QuEraComputing/vihaco/pull/37))

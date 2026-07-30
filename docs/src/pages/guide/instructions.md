@@ -125,7 +125,7 @@ So the final width is the maximum variant width, which is `2`.
 
 For explicit opcode assignment, explicit widths, and machine-level wrapper instructions, see [Advanced Instruction Usage](/guide/instructions-advanced).
 
-`#[derive(Instruction)]` covers bytecode and runtime semantics; source-text parsing is owned by an orthogonal `#[derive(vihaco_parser::Parse)]` on the same enum. See [Pattern Parser Integration for Component Instructions](/guide/parser) for the parser-side workflow and [Module Parsing and Resolution](/guide/parser-advanced) for section headers, typed function bodies, and module resolution.
+`#[derive(Instruction)]` covers bytecode and runtime semantics; source-text parsing is owned by an orthogonal `#[derive(vihaco_parser_derive::Parse)]` on the same enum. See [Pattern Parser Integration for Component Instructions](/guide/parser) for the parser-side workflow and [Module Parsing and Resolution](/guide/parser-advanced) for section headers, typed function bodies, and module resolution.
 
 After defining an instruction type, the next step is usually to attach it to a component impl with `#[component(...)]`.
 

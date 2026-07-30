@@ -10,8 +10,8 @@ description: "Generate Parse implementations from declarative syntax patterns fo
 The pattern parser derives source parsers for syntax types. A pattern
 describes the concrete spelling of a value and binds parts of that spelling to
 Rust fields. The derive validates the description at compile time, then emits
-a `vihaco_parser_core::Parse` implementation. Instruction-class enums also
-receive a `vihaco_parser_core::SurfaceInstruction` implementation.
+a `vihaco_parser::Parse` implementation. Instruction-class enums also
+receive a `vihaco_parser::SurfaceInstruction` implementation.
 
 Use two attributes:
 
@@ -23,8 +23,8 @@ Use two attributes:
 
 ```rust
 use chumsky::Parser as _;
-use vihaco_parser::Parse;
-use vihaco_parser_core::Parse as ParseTrait;
+use vihaco_parser_derive::Parse;
+use vihaco_parser::Parse as ParseTrait;
 
 #[derive(Debug, PartialEq, Parse)]
 #[syntax_class(instruction, head = "memory")]
@@ -60,7 +60,7 @@ The `head` is a dialect namespace. The derive appends `::`, so
 `memory::load`.
 
 Every bound field is parsed with that field type's
-`vihaco_parser_core::Parse::parser()`. Give domain-specific field syntax its
+`vihaco_parser::Parse::parser()`. Give domain-specific field syntax its
 own local enum or struct with `#[derive(Parse)]`.
 
 ## Syntax classes
@@ -166,8 +166,8 @@ construction ambiguous.
 
 ```rust
 use chumsky::Parser as _;
-use vihaco_parser::Parse;
-use vihaco_parser_core::Parse as ParseTrait;
+use vihaco_parser_derive::Parse;
+use vihaco_parser::Parse as ParseTrait;
 
 #[derive(Debug, PartialEq, Parse)]
 #[syntax_class(value)]

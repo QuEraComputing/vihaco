@@ -30,20 +30,20 @@ enum TestInst {
     Load(ConstantId),
 }
 
-#[derive(Debug, Clone, PartialEq, Instruction, vihaco_parser::Parse)]
+#[derive(Debug, Clone, PartialEq, Instruction, vihaco_parser_derive::Parse)]
 #[syntax_class(instruction, head = "test")]
 enum TextInst {
     Nop,
     Alt,
 }
 
-#[derive(Debug, Clone, PartialEq, vihaco_parser::Parse)]
+#[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
 #[syntax_class(instruction, head = "surface")]
 enum SurfaceOnlyInst {
     Nop,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, vihaco_parser::Parse)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, vihaco_parser_derive::Parse)]
 #[syntax_class(type)]
 enum TextType {
     #[pattern = "`i64`"]
