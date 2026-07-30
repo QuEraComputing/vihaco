@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Typed parsed-module syntax produced by `#[derive(Parse)]` and the
-//! hand-written module/function parsers.
+//! Typed parsed-module syntax built from pattern-derived instruction and type
+//! syntax.
 //!
 //! A [`ParsedModule`] contains [`ParsedFunction`] values whose bodies are
 //! typed instruction vectors. Unknown or malformed instructions are parse
@@ -14,9 +14,8 @@ mod types;
 pub mod parse;
 pub mod resolve;
 
-pub use types::{
-    Param, ParsedFunction, ParsedModule, SurfaceInstruction, SurfaceType, SurfaceValue,
-};
+pub use types::{Param, ParsedFunction, ParsedModule};
+pub use vihaco_parser_core::SurfaceInstruction;
 
 pub use parse::{block_i64_flat, block_i64_pairs, skip};
 pub use resolve::Resolve;
@@ -36,23 +35,28 @@ mod tests {
         Print,
     }
 
-    impl SurfaceInstruction for StubInst {}
+    #[derive(Debug, Clone, PartialEq, vihaco_parser::Parse)]
+    #[syntax_class(type)]
+    enum StubType {
+        #[pattern = "`unit`"]
+        Unit,
+    }
 
     #[test]
     fn parses_empty_function() {
         let src = "fn @main() {}";
-        let f = ParsedFunction::<StubInst>::parser()
+        let f = ParsedFunction::<StubInst, StubType>::parser()
             .parse(src)
             .into_result()
             .unwrap();
-        assert_eq!(f.name, "main");
+        assert_eq!(f.name.as_str(), "main");
         assert!(f.body.is_empty());
     }
 
     #[test]
     fn parses_function_with_canonical_body() {
         let src = "fn @main() {\n  stub::halt\n  stub::print\n  stub::halt\n}";
-        let f = ParsedFunction::<StubInst>::parser()
+        let f = ParsedFunction::<StubInst, StubType>::parser()
             .parse(src)
             .into_result()
             .unwrap();
@@ -65,18 +69,35 @@ mod tests {
     #[test]
     fn rejects_unknown_instruction() {
         let src = "fn @main() { foo bar 1 2.0 }";
-        assert!(ParsedFunction::<StubInst>::parser().parse(src).has_errors());
+        assert!(
+            ParsedFunction::<StubInst, StubType>::parser()
+                .parse(src)
+                .has_errors()
+        );
     }
 
     #[test]
-    fn parses_return_type() {
-        let src = "fn @main() -> i64 { stub::halt }";
-        let f = ParsedFunction::<StubInst>::parser()
+    fn parses_consumer_provided_return_type() {
+        let src = "fn @main() -> unit { stub::halt }";
+        let f = ParsedFunction::<StubInst, StubType>::parser()
             .parse(src)
             .into_result()
             .unwrap();
-        let expected = SurfaceType::parser().parse("i64").into_result().unwrap();
-        assert_eq!(f.return_ty, Some(expected));
+        assert_eq!(f.return_ty, Some(StubType::Unit));
+    }
+
+    #[test]
+    fn lexical_helpers_return_explicit_newtypes() {
+        assert_eq!(
+            parse::symbol_ref().parse("@main").into_result(),
+            Ok(vihaco_parser_core::Ident("main".to_owned()))
+        );
+        assert_eq!(
+            parse::string_literal()
+                .parse("\"hello\\nworld\"")
+                .into_result(),
+            Ok(vihaco_parser_core::QuotedString("hello\nworld".to_owned()))
+        );
     }
 
     #[test]
@@ -87,7 +108,7 @@ fn @main() {
     stub::halt
 }
 ";
-        let f = ParsedFunction::<StubInst>::parser()
+        let f = ParsedFunction::<StubInst, StubType>::parser()
             .parse(src)
             .into_result()
             .unwrap();
@@ -102,10 +123,12 @@ fn @main() {
             Dump(u32),
         }
 
-        impl SurfaceInstruction for OnlyOne {}
-
         let src = "fn @main() { stub::dump foo }";
-        assert!(ParsedFunction::<OnlyOne>::parser().parse(src).has_errors());
+        assert!(
+            ParsedFunction::<OnlyOne, StubType>::parser()
+                .parse(src)
+                .has_errors()
+        );
     }
 
     #[test]

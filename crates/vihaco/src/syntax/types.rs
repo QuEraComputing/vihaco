@@ -3,50 +3,38 @@
 
 //! Parsed-syntax data shapes. See module docs in [`super`].
 
-pub trait SurfaceInstruction {}
+use vihaco_parser_core::{Ident, SurfaceInstruction};
 
-#[derive(vihaco_parser::Parse)]
-#[syntax_class(value)]
-pub struct SurfaceValue {
-    pub value: String,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, vihaco_parser::Parse)]
-#[syntax_class(type)]
-#[pattern = "$ty"]
-pub struct SurfaceType {
-    pub ty: String,
-}
-
-/// Parsed `.sst` module — pre-resolution. `H` is the consumer's device-header
-/// enum (typically derives `Parse` via Item 5's `DeviceHeader`).
+/// Parsed `.sst` module before resolution.
+///
+/// `I` is the consumer's surface instruction type, `Ty` is its source type
+/// syntax, and `H` is its section-header type.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ParsedModule<I, H>
+pub struct ParsedModule<I, Ty, H>
 where
     I: SurfaceInstruction,
 {
     pub header: H,
-    pub functions: Vec<ParsedFunction<I>>,
+    pub functions: Vec<ParsedFunction<I, Ty>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ParsedFunction<I>
+pub struct ParsedFunction<I, Ty>
 where
     I: SurfaceInstruction,
 {
     /// Function name with the leading `@` stripped (`@main` → `"main"`).
-    pub name: String,
+    pub name: Ident,
     /// Empty for the moment — `.sst` examples don't exercise parameters.
     /// Non-empty parameter syntax errors during parsing.
-    pub params: Vec<Param>,
-    /// Return type as a bare token (`i64`, `f64`, …). Resolver converts to
-    /// `vihaco::Type`.
-    pub return_ty: Option<SurfaceType>,
+    pub params: Vec<Param<Ty>>,
+    /// Return type parsed with the consumer-provided `Ty` syntax.
+    pub return_ty: Option<Ty>,
     pub body: Vec<I>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Param {
-    pub name: String,
-    pub ty: SurfaceType,
+pub struct Param<Ty> {
+    pub name: Ident,
+    pub ty: Ty,
 }

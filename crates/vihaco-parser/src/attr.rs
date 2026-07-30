@@ -206,14 +206,6 @@ impl VariantAttrs {
             }
         }
 
-        // Validate: struct-style variants are not supported
-        if let Fields::Named(_) = variant.fields {
-            return Err(Error::new_spanned(
-                &variant.ident,
-                "#[derive(Parse)] does not support struct-style variants (e.g., `Foo { x: T }`) — use tuple variants (`Foo(T)`) or unit variants (`Foo`)",
-            ));
-        }
-
         // Validate: #[delimiters] on unit variant
         if let Fields::Unit = variant.fields {
             for attr in &variant.attrs {

@@ -5,7 +5,7 @@ const crates = [
   { name: "vihaco", blurb: "The framework: instructions, messages, effects, components, observers, composites, modules, syntax, runtime." },
   { name: "vihaco_cpu", blurb: "A ready-made CPU/host component and its instruction set." },
   { name: "vihaco_parser", blurb: "The #[derive(Parse)] proc-macro." },
-  { name: "vihaco_parser_core", blurb: "The Parse trait and primitive parser impls." },
+  { name: "vihaco_parser_core", blurb: "The Parse and SurfaceInstruction traits plus lexical, primitive, and collection implementations." },
 ];
 ---
 <Base title="API Reference" current="reference">
@@ -44,7 +44,7 @@ target/doc/vihaco_parser_core/index.html</code></pre>
 
     <p>
       For a live local preview of <em>this</em> guide site instead, run
-      <code>npm run dev</code> in <code>docs/</code>.
+      <code>pnpm dev</code> in <code>docs/</code>.
     </p>
 
     <h2 id="guides"><span class="sec-num">§ 3</span>Looking for the concepts?</h2>

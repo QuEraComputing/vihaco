@@ -47,6 +47,7 @@ pub use runtime::{
     expect_exactly_one_effect,
 };
 pub use traits::{FromBytes, FromText, GetProgramInfo, Reset};
+pub use vihaco_parser_core::SurfaceInstruction;
 
 #[cfg(test)]
 mod public_api_tests {

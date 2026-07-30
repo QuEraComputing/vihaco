@@ -1,14 +1,14 @@
 ---
 layout: ../../layouts/Guide.astro
-title: Advanced Parser Customization
+title: Module Parsing and Resolution
 slug: parser-advanced
-description: Module-level parsing with section headers, typed function bodies, Resolve implementations, and custom Parse composition.
+description: Module-level parsing with section headers, typed function bodies, pattern-derived syntax, and Resolve implementations.
 ---
 
-# Advanced Parser Customization
+# Module Parsing and Resolution
 
-This guide picks up where [Parser Integration](/guide/parser) ends. A derived
-parser handles one syntax type. The module layer adds:
+This guide picks up where [Pattern Parser Integration](/guide/parser) ends. A
+pattern-derived parser handles one syntax type. The module layer adds:
 
 - an SST section header;
 - one or more `fn @name() { ... }` blocks;
@@ -17,45 +17,55 @@ parser handles one syntax type. The module layer adds:
   machine loads.
 
 Module parsing is strict. Each function body is a `Vec<I>` produced by
-`I::parser()`. There is no untyped fallback: symbolic operands, source sugar,
-and other source-only forms must be represented explicitly in the syntax type
-and its patterns.
+`I::parser()`. Symbolic operands, source sugar, and other source-only forms are
+represented explicitly in the syntax type and its patterns.
 
 ## Parsed module types
 
 `vihaco::syntax` exposes the typed intermediate representation:
 
 ```rust ignore
-pub struct ParsedModule<I, H>
+use vihaco::SurfaceInstruction;
+use vihaco_parser_core::Ident;
+
+pub struct ParsedModule<I, Ty, H>
 where
     I: SurfaceInstruction,
 {
     pub header: H,
-    pub functions: Vec<ParsedFunction<I>>,
+    pub functions: Vec<ParsedFunction<I, Ty>>,
 }
 
-pub struct ParsedFunction<I>
+pub struct ParsedFunction<I, Ty>
 where
     I: SurfaceInstruction,
 {
-    pub name: String,
-    pub params: Vec<Param>,
-    pub return_ty: Option<SurfaceType>,
+    pub name: Ident,
+    pub params: Vec<Param<Ty>>,
+    pub return_ty: Option<Ty>,
     pub body: Vec<I>,
+}
+
+pub struct Param<Ty> {
+    pub name: Ident,
+    pub ty: Ty,
 }
 ```
 
 Whitespace and `//` comments are skipped between instructions. An unknown
 instruction or a partially matched pattern makes the function parse fail.
+The consumer-provided `Ty` parses parameter and return-type syntax, so the
+framework does not impose a universal type language.
 
-## Step 1: mark the instruction syntax
+## Step 1: define the instruction and type syntax
 
 Types used in parsed function bodies implement the `SurfaceInstruction`
-marker in addition to `Parse`.
+marker in addition to `Parse`. The pattern derive emits both implementations
+for instruction enums. The source type is any consumer-owned type that derives
+`Parse`.
 
 ```rust ignore
 use vihaco::Instruction;
-use vihaco::syntax::SurfaceInstruction;
 use vihaco_parser::Parse;
 
 #[derive(Debug, Clone, PartialEq, Instruction, Parse)]
@@ -66,7 +76,14 @@ enum DeviceInstruction {
     Wait(u32),
 }
 
-impl SurfaceInstruction for DeviceInstruction {}
+#[derive(Debug, Clone, PartialEq, Parse)]
+#[syntax_class(type)]
+enum DeviceType {
+    #[pattern = "`i64`"]
+    I64,
+    #[pattern = "`f64`"]
+    F64,
+}
 ```
 
 The source for that type uses fully qualified instructions:
@@ -110,16 +127,16 @@ use vihaco::syntax::ParsedModule;
 
 let file = SstFile::<NoContext>::from_text(source)?;
 let parsed =
-    ParsedModule::<DeviceInstruction, DeviceHeader>::parse_section(file.root())?;
+    ParsedModule::<DeviceInstruction, DeviceType, DeviceHeader>::parse_section(file.root())?;
 ```
 
 `parsed.header` is the typed `DeviceHeader`, while each function body contains
-only `DeviceInstruction` values.
+only `DeviceInstruction` values and its signature uses `DeviceType`.
 
 ## Step 4: resolve into a runtime module
 
-`Resolve<I, H>` owns the application-specific conversion from a
-`ParsedModule<I, H>` to any output module type.
+`Resolve<I, Ty, H>` owns the application-specific conversion from a
+`ParsedModule<I, Ty, H>` to any output module type.
 
 ```rust ignore
 use vihaco::module::LocalModule;
@@ -129,12 +146,12 @@ use vihaco::{Type, Value};
 #[derive(Default)]
 struct DeviceResolver;
 
-impl Resolve<DeviceInstruction, DeviceHeader> for DeviceResolver {
+impl Resolve<DeviceInstruction, DeviceType, DeviceHeader> for DeviceResolver {
     type Module = LocalModule<DeviceInstruction, Value, Type>;
 
     fn resolve_module(
         &mut self,
-        parsed: ParsedModule<DeviceInstruction, DeviceHeader>,
+        parsed: ParsedModule<DeviceInstruction, DeviceType, DeviceHeader>,
     ) -> eyre::Result<Self::Module> {
         let mut module = LocalModule::default();
         for function in parsed.functions {
@@ -156,58 +173,35 @@ unstructured source line.
 Patterns can represent symbols and sugar directly:
 
 ```rust ignore
+use vihaco_parser_core::Ident;
+
 #[derive(vihaco_parser::Parse)]
 #[syntax_class(instruction, head = "control")]
 enum ControlSurface {
     #[pattern = "'branch `@` $0"]
-    Branch(String),
+    Branch(Ident),
     #[pattern = "'repeat $0"]
     Repeat(u32),
 }
 ```
 
-A resolver can map `Branch(String)` through a label table and expand
+A resolver can map `Branch(Ident)` through a label table and expand
 `Repeat(u32)` into multiple runtime instructions. Malformed spellings are
 rejected by the parser instead of being deferred as untyped data.
 
-Quoted strings and richer expressions require field types with suitable
-`Parse` implementations. Keep state such as intern tables in the resolver;
-the parsed field should carry the owned source value needed for that later
-conversion.
+Quoted strings use `QuotedString`; domain expressions use nested local enums
+or structs that derive `Parse`. Keep state such as intern tables in the
+resolver; the parsed field should carry the owned source value needed for that
+later conversion.
 
-## Hand-write `Parse` for generated composite enums
+## Parse composite sections by component
 
-`#[derive(Parse)]` works on types you declare. A macro-generated composite
-instruction enum cannot be annotated at its generated definition, so compose
-its device parsers manually:
+A generated composite instruction enum is the runtime dispatch type. SST
+source is parsed through user-declared surface instruction types, each deriving
+`Parse` with its own namespace and patterns. Parse each component section as a
+`ParsedModule<ComponentSurface, ComponentType, ComponentHeader>`, resolve it,
+and load the resulting runtime instructions into that component.
 
-```rust ignore
-use chumsky::prelude::*;
-use vihaco_parser_core::Parse;
-
-impl<'src> Parse<'src> for MachineInstruction {
-    fn parser() -> impl Parser<
-        'src,
-        &'src str,
-        Self,
-        chumsky::extra::Err<chumsky::error::Simple<'src, char>>,
-    > {
-        let cpu = CpuSurface::parser().map(MachineInstruction::Cpu);
-        let signal = SignalSurface::parser().map(MachineInstruction::Signal);
-        choice((cpu, signal))
-    }
-}
-```
-
-Each nested parser owns its namespace, so dispatch remains explicit and typed.
-
-## When to hand-write a complete parser
-
-Use a manual `Parse` implementation when the grammar needs recursion,
-context-sensitive coordination, quoted/nested structures, or recovery that
-cannot be expressed by the pattern grammar. The result should still be a typed
-syntax value that can participate in `ParsedFunction` and `ParsedModule`.
-
-For ordinary instruction, value, and type shapes, prefer
-`#[syntax_class]` plus `#[pattern]`: the derive validates field coverage,
-punctuation, and constructor mapping at compile time.
+This keeps source syntax attached to the component that owns it. Composite
+loading routes sections to components; it does not require a second source
+grammar for the generated machine instruction enum.

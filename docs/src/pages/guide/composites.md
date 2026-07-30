@@ -150,7 +150,7 @@ impl vihaco::LoadOwnBytecodeSection<MyContext> for CpuMachine {
 }
 ```
 
-For SST, parse the section into `vihaco::syntax::ParsedModule` with `ParsedModule::<I, H>::parse_section(section)`, then lower it with your `Resolve` impl into a `Module`/`ProgramImage`. If a composite drives an instruction pointer, implement `ProgramCounter` manually by delegating to the field that owns it.
+For SST, parse the section into `vihaco::syntax::ParsedModule` with `ParsedModule::<I, Ty, H>::parse_section(section)`, then lower it with your `Resolve` impl into a `Module`/`ProgramImage`. `Ty` is the consumer-provided source type syntax. If a composite drives an instruction pointer, implement `ProgramCounter` manually by delegating to the field that owns it.
 
 For structural composites that only route child sections, make that no-op explicit:
 
@@ -307,7 +307,7 @@ Inside a section:
 - section end markers must use the same indentation as their matching section start marker
 - section names must be local names; `/` is rejected in a child marker name
 
-The SST parser preserves the original header and bytecode ranges, including their leading tabs. Load section programs by mapping the section to `ParsedModule::<I, H>::parse_section(section)`, then run your `Resolve` impl to produce the runtime `Module`. Instruction types loaded this way must implement both `Instruction` and `vihaco_parser_core::Parse`.
+The SST parser preserves the original header and bytecode ranges, including their leading tabs. Load section programs by mapping the section to `ParsedModule::<I, Ty, H>::parse_section(section)`, then run your `Resolve` impl to produce the runtime `Module`. Both the instruction type `I` and source type `Ty` must implement `vihaco_parser_core::Parse`.
 
 `ProgramImage<I, C, V = Value, Ty = Type, Info = NoInfo>` is the standard in-memory program image. Machines load binary bytecode into it by decoding `section.bytecode()` with `BytecodeSectionView::decode_instructions::<I>()` and, when useful, storing the section's cloned `ContextHandle<C>`. For SST, resolve a `ParsedModule` into the image's `module`. `ProgramImage` implements `ProgramCounter` and exposes functions, strings, and constants through `GetProgramInfo` from its own `module` fields.
 

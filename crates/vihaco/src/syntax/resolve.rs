@@ -3,17 +3,17 @@
 
 //! The `Resolve` trait — bridge between [`super::ParsedModule`] and the
 //! runtime [`crate::module::Module`]. Each consumer implements this for its
-//! own instruction set + header type, holding whatever state is needed
-//! (label table, string interner, sugar expansion rules).
+//! own instruction set, source type, and header type, holding whatever state
+//! is needed (label table, string interner, sugar expansion rules).
 
-use crate::syntax::{ParsedModule, types::SurfaceInstruction};
+use crate::{SurfaceInstruction, syntax::ParsedModule};
 
 /// Lower a parsed module to its resolved runtime form.
 ///
 /// Implementations own application-specific conversion such as translating
 /// typed surface variants, expanding explicitly modeled sugar, or interning
 /// parsed values.
-pub trait Resolve<I, H>
+pub trait Resolve<I, Ty, H>
 where
     I: SurfaceInstruction,
 {
@@ -22,5 +22,5 @@ where
     /// `Info`).
     type Module;
 
-    fn resolve_module(&mut self, parsed: ParsedModule<I, H>) -> eyre::Result<Self::Module>;
+    fn resolve_module(&mut self, parsed: ParsedModule<I, Ty, H>) -> eyre::Result<Self::Module>;
 }

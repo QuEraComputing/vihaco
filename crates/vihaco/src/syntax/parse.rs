@@ -4,21 +4,18 @@
 //! chumsky-0.10 combinators for the parsed-syntax shape.
 //!
 //! `Parse` impls for `ParsedModule`/`ParsedFunction` are generic over the
-//! consumer's instruction type `I` and device-header type `H`. The body
-//! parser tries `I::parser()` first (with `.rewind()` so failure restores
-//! input) and falls back to [`raw_form`] for everything `I` can't accept.
+//! consumer's instruction type `I`, source type `Ty`, and device-header type
+//! `H`.
 
 use chumsky::error::Simple;
 use chumsky::extra;
 use chumsky::prelude::*;
-use vihaco_parser_core::Parse;
+use vihaco_parser_core::{Ident, Parse, QuotedString};
 
 use crate::SstHeader;
 use crate::SstSectionView;
-use crate::syntax::types::SurfaceInstruction;
-use crate::syntax::types::SurfaceType;
+use crate::SurfaceInstruction;
 use crate::syntax::{Param, ParsedFunction, ParsedModule};
-use crate::traits::Instruction;
 
 type E<'src> = extra::Err<Simple<'src, char>>;
 
@@ -32,7 +29,7 @@ pub fn skip<'src>() -> impl Parser<'src, &'src str, (), E<'src>> + Clone {
 }
 
 /// `"…"` with `\\`, `\"`, `\n`, `\t`, `\r` escape sequences.
-pub fn string_literal<'src>() -> impl Parser<'src, &'src str, String, E<'src>> + Clone {
+pub fn string_literal<'src>() -> impl Parser<'src, &'src str, QuotedString, E<'src>> + Clone {
     let escape = just('\\').ignore_then(choice((
         just('"').to('"'),
         just('\\').to('\\'),
@@ -48,17 +45,18 @@ pub fn string_literal<'src>() -> impl Parser<'src, &'src str, String, E<'src>> +
     just('"')
         .ignore_then(char_or_escape.repeated().collect::<String>())
         .then_ignore(just('"'))
+        .map(QuotedString)
 }
 
 /// `@name` — leading `@` consumed; name is `ident()`-shaped.
-pub fn symbol_ref<'src>() -> impl Parser<'src, &'src str, String, E<'src>> + Clone {
-    just('@').ignore_then(vihaco_parser_core::ident())
+pub fn symbol_ref<'src>() -> impl Parser<'src, &'src str, Ident, E<'src>> + Clone {
+    just('@').ignore_then(vihaco_parser_core::ident().map(Ident))
 }
 
 /// Block-body helper: parse a sequence of whitespace-separated `i64`s as
-/// **flat rows** between an outer `{` … `}` provided by the caller (typically
-/// the `#[derive(Parse)]`-emitted delimiters). The body itself is a sequence
-/// of `i64`s with any whitespace (including newlines) between them.
+/// **flat rows** between an outer `{` … `}` provided by the caller. The body
+/// itself is a sequence of `i64`s with any whitespace (including newlines)
+/// between them.
 ///
 /// Real usage: `device slm.filling { 0 1 2 3 };`.
 pub fn block_i64_flat<'src>() -> impl Parser<'src, &'src str, Vec<i64>, E<'src>> + Clone {
@@ -102,30 +100,32 @@ pub fn block_i64_pairs<'src>() -> impl Parser<'src, &'src str, Vec<(i64, i64)>, 
 }
 
 /// Parse `i64`/`f64`/etc. parameter list. Currently only accepts empty `()`.
-fn param_list<'src>() -> impl Parser<'src, &'src str, Vec<Param>, E<'src>> + Clone {
-    just('(').padded().then(just(')').padded()).to(Vec::new())
+fn param_list<'src, Ty>() -> impl Parser<'src, &'src str, Vec<Param<Ty>>, E<'src>> + Clone {
+    just('(')
+        .padded()
+        .then(just(')').padded())
+        .map(|_| Vec::new())
 }
 
-fn functions<'src, I>() -> impl Parser<'src, &'src str, Vec<ParsedFunction<I>>, E<'src>>
+fn functions<'src, I, Ty>() -> impl Parser<'src, &'src str, Vec<ParsedFunction<I, Ty>>, E<'src>>
 where
     I: SurfaceInstruction + Parse<'src> + 'src,
+    Ty: Parse<'src> + 'src,
 {
     skip()
-        .ignore_then(ParsedFunction::<I>::parser())
+        .ignore_then(ParsedFunction::<I, Ty>::parser())
         .repeated()
         .collect::<Vec<_>>()
         .then_ignore(skip())
 }
 
-impl<'src, I> Parse<'src> for ParsedFunction<I>
+impl<'src, I, Ty> Parse<'src> for ParsedFunction<I, Ty>
 where
     I: SurfaceInstruction + Parse<'src> + 'src,
+    Ty: Parse<'src> + 'src,
 {
     fn parser() -> impl Parser<'src, &'src str, Self, E<'src>> {
-        let return_ty = just("->")
-            .padded()
-            .ignore_then(SurfaceType::parser())
-            .or_not();
+        let return_ty = just("->").padded().ignore_then(Ty::parser()).or_not();
         let body = skip()
             .ignore_then(I::parser())
             .repeated()
@@ -135,8 +135,8 @@ where
         just("fn")
             .padded()
             .ignore_then(just('@'))
-            .ignore_then(vihaco_parser_core::ident())
-            .then(param_list())
+            .ignore_then(Ident::parser())
+            .then(param_list::<Ty>())
             .then(return_ty)
             .then_ignore(just('{').padded())
             .then(body)
@@ -150,7 +150,7 @@ where
     }
 }
 
-impl<I, H> ParsedModule<I, H>
+impl<I, Ty, H> ParsedModule<I, Ty, H>
 where
     I: SurfaceInstruction,
 {
@@ -158,11 +158,12 @@ where
     pub fn parse_section<'src, C>(section: SstSectionView<'src, C>) -> eyre::Result<Self>
     where
         H: SstHeader,
-        I: Instruction + vihaco_parser_core::Parse<'src> + 'src,
+        I: vihaco_parser_core::Parse<'src> + 'src,
+        Ty: vihaco_parser_core::Parse<'src> + 'src,
     {
         let header = section.parse_header::<H>()?;
         let text = section.sst();
-        let functions = functions::<I>()
+        let functions = functions::<I, Ty>()
             .parse(text)
             .into_result()
             .map_err(|errors| eyre::eyre!("failed to parse SST functions: {:?}", errors))?;

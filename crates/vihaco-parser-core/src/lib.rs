@@ -4,10 +4,17 @@
 pub mod container;
 pub mod impls;
 
-pub use impls::ident;
+pub use impls::{bare_token, ident, BareToken, Ident, QuotedString};
 
 use chumsky::error::Simple;
 use chumsky::extra;
+
+/// Marker for enums whose pattern-derived parser represents instruction
+/// syntax.
+///
+/// `#[derive(vihaco_parser::Parse)]` implements this trait for enums annotated
+/// with `#[syntax_class(instruction, ...)]`.
+pub trait SurfaceInstruction {}
 
 /// A parser whose input is `&'src str` (char stream) and whose error type is `Simple<char>`.
 ///
@@ -88,16 +95,16 @@ mod tests {
         assert!(!parses::<bool>("false"));
     }
     #[test]
-    fn string_word() {
-        assert_eq!(parses::<String>("hello"), "hello");
+    fn ident_word() {
+        assert_eq!(parses::<Ident>("hello"), Ident("hello".to_owned()));
     }
 
     #[test]
-    fn string_stops_at_ws() {
+    fn ident_stops_at_whitespace() {
         // Without a trailing end(), Parser::parse() requires consuming all input — so a
-        // String parser given "hello world" fails because " world" is left unconsumed.
+        // token parser given "hello world" fails because " world" is left unconsumed.
         // Use lazy() / nested combinators for composition; that's not this test's job.
-        let result = String::parser().parse("hello world").into_result();
+        let result = Ident::parser().parse("hello world").into_result();
         assert!(result.is_err());
     }
 
@@ -129,6 +136,23 @@ mod tests {
     }
 
     #[test]
+    fn ident_rejects_symbol_sigil_and_quote_characters() {
+        assert!(Ident::parser().parse("@target").has_errors());
+        assert!(Ident::parser().parse("\"target\"").has_errors());
+        assert!(Ident::parser().parse("'target").has_errors());
+        assert!(Ident::parser().parse("`target`").has_errors());
+    }
+
+    #[test]
+    fn bare_token_accepts_symbol_sigil_but_rejects_quotes() {
+        assert_eq!(
+            parses::<BareToken>("@target"),
+            BareToken("@target".to_owned())
+        );
+        assert!(BareToken::parser().parse("\"target\"").has_errors());
+    }
+
+    #[test]
     fn ident_rejects_empty() {
         assert!(ident().parse("").into_result().is_err());
     }
@@ -154,5 +178,40 @@ mod tests {
             .parse("device{")
             .into_result();
         assert_eq!(result.unwrap(), "device");
+    }
+
+    #[test]
+    fn quoted_string_supports_spaces_and_escapes() {
+        assert_eq!(
+            parses::<QuotedString>("\"hello\\nworld\""),
+            QuotedString("hello\nworld".to_owned())
+        );
+    }
+
+    #[test]
+    fn lexical_newtypes_expose_owned_and_borrowed_text() {
+        let ident = Ident("target".to_owned());
+        assert_eq!(ident.as_str(), "target");
+        assert_eq!(ident.to_string(), "target");
+        assert_eq!(String::from(ident), "target");
+    }
+
+    #[test]
+    fn vec_uses_square_brackets_and_commas() {
+        assert_eq!(parses::<Vec<f64>>("[1.0, 2.5]"), vec![1.0, 2.5]);
+        assert!(parses::<Vec<f64>>("[]").is_empty());
+    }
+
+    #[test]
+    fn tuple_uses_parentheses_and_a_comma() {
+        assert_eq!(parses::<(i64, f64)>("(1, 2.5)"), (1, 2.5));
+    }
+
+    #[test]
+    fn vec_supports_nested_tuple_items() {
+        assert_eq!(
+            parses::<Vec<(f64, f64)>>("[(1.0, 2.0), (3.0, 4.0)]"),
+            vec![(1.0, 2.0), (3.0, 4.0)]
+        );
     }
 }

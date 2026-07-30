@@ -19,14 +19,14 @@ For the type-by-type API reference, see the generated [rustdoc](/reference).
    Start with instruction enums and width inference.
    - [Advanced Instruction Usage](/guide/instructions-advanced)
      Explicit opcodes, explicit widths, and machine-level wrapper instructions.
-2. [Parser Integration for Component Instructions](/guide/parser)
+2. [Pattern Parser Integration for Component Instructions](/guide/parser)
    The `Parse` trait, syntax classes, and declarative instruction patterns.
-   - [Pattern Parser Generator](/guide/parser-patterns)
+   - [Pattern Parser](/guide/parser-patterns)
      Compile-time-checked patterns for instruction, value, and type enums and
      structs.
-   - [Advanced Parser Customization](/guide/parser-advanced)
+   - [Module Parsing and Resolution](/guide/parser-advanced)
      Module-level parsing: device headers, typed function bodies, `Resolve`
-     implementations, and custom parser composition.
+     implementations, and component section routing.
 3. [Using Messages With `vihaco`](/guide/messages)
    How a runtime resolves execution input and supplies messages to components.
 4. [Building Components With `vihaco`](/guide/components)

@@ -9,10 +9,10 @@ a per-PR preview deploy.
 From this directory:
 
 ```bash
-npm install      # one-time
-npm run dev      # astro dev → http://127.0.0.1:4321
-npm run build    # astro build → ./dist/
-npm run preview  # serve ./dist/ locally
+pnpm install      # one-time
+pnpm dev          # astro dev → http://127.0.0.1:4321
+pnpm build        # astro build → ./dist/
+pnpm preview      # serve ./dist/ locally
 ```
 
 ## Layout

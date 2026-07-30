@@ -888,6 +888,18 @@ fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
         _ => or_chain,
     };
 
+    let surface_instruction_impl = if matches!(
+        &enum_attrs.syntax_class,
+        Some(SyntaxClassAttr::Instruction { .. })
+    ) {
+        let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+        quote! {
+            impl #impl_generics ::vihaco_parser_core::SurfaceInstruction for #enum_ident #ty_generics #where_clause {}
+        }
+    } else {
+        quote! {}
+    };
+
     let output = quote! {
         impl #impl_generics ::vihaco_parser_core::Parse<#src_lifetime> for #enum_ident #ty_generics #where_clause {
             fn parser() -> impl ::chumsky::Parser<
@@ -901,6 +913,8 @@ fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
                 #parser
             }
         }
+
+        #surface_instruction_impl
     };
 
     Ok(output.into())

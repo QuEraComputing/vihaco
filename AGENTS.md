@@ -66,7 +66,7 @@ self-contained component you can use directly or copy as a starting point.
 | `vihaco-cpu` | A ready-made CPU/host component: a stack machine with a `StepOutcome` control-flow effect. Use directly or as a reference component. |
 | `vihaco-derive` | The proc macros behind `#[derive(Instruction/Message/Machine)]` and `#[component]` / `#[composite]` / `#[observe]`. Consumed via `vihaco`'s re-exports. |
 | `vihaco-parser` | `#[derive(Parse)]` — turns instruction, value, and type enums or structs into [chumsky](https://github.com/zesterer/chumsky) parsers via `#[syntax_class]` and `#[pattern]` (see `attr.rs`/`codegen.rs`). |
-| `vihaco-parser-core` | The `Parse<'src>` trait + primitive impls shared by the parser derive. |
+| `vihaco-parser-core` | The `Parse<'src>` and `SurfaceInstruction` traits plus lexical, primitive, and collection impls shared by the parser derive. |
 | `vihaco-doctests` | **Dev-only, not published.** `include!`s `docs/examples/*.rs` and runs every ` ```rust ` block in `docs/src/pages/guide/*.md` as a rustdoc doctest, so the public API and the docs can't drift. Editing the public API often requires updating these. |
 
 ### The mental model (what the macros generate)
@@ -102,8 +102,9 @@ self-contained component you can use directly or copy as a starting point.
   `Module` + program counter as a `ProgramLoader`.
 - **`syntax/`** — typed SST parsing and module construction. The parser yields
   a `ParsedModule`/`ParsedFunction` whose function bodies are `Vec<I>`.
-  Instruction types implement `SurfaceInstruction` and `Parse`; consumers use
-  `Resolve` to turn the typed parsed module into their runtime module.
+  Pattern-derived instruction enums implement `SurfaceInstruction`
+  automatically; consumers use `Resolve` to turn the typed parsed module into
+  their runtime module.
 - **`runtime/` + `traits/`** — the host-VM interfaces a CPU-like component
   implements: `ProgramCounter`, `StackMemory`, `StackFrame`, `FrameMemory`,
   `GetProgramInfo`, `Stdout` (`traits/machine.rs`), plus `Reset` and the
