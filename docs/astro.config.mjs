@@ -1,4 +1,7 @@
 import { defineConfig } from "astro/config";
+// Astro 7 defaults to Sätteri for markdown; the rehype plugins below are
+// unified/hast visitors, so keep the remark/rehype pipeline explicitly.
+import { unified } from "@astrojs/markdown-remark";
 
 // `site` + `base` are read from env in CI so the same astro config powers
 // three deploy targets. The repo is public, so GitHub Pages serves the
@@ -70,6 +73,10 @@ export default defineConfig({
   site,
   base,
   trailingSlash: "ignore",
+  // Astro 7 defaults to `'jsx'`, which drops the whitespace-only text nodes at
+  // line breaks — that swallows the space in prose like `the\n<code>x</code>`.
+  // `true` is the pre-7 lossless compression, which keeps those spaces.
+  compressHTML: true,
   devToolbar: { enabled: false },
   markdown: {
     // We theme code with highlight.js client-side (see Base.astro) using the
@@ -77,6 +84,8 @@ export default defineConfig({
     // highlighter. Fenced blocks still render as `<pre><code class="language-…">`,
     // which is exactly what the client highlighter opts in on.
     syntaxHighlight: false,
-    rehypePlugins: [rehypeStripRustdocHidden, rehypeBaseLinks],
+    processor: unified({
+      rehypePlugins: [rehypeStripRustdocHidden, rehypeBaseLinks],
+    }),
   },
 });
