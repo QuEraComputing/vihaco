@@ -23,6 +23,7 @@ vihaco-runtime = { workspace = true }
 vihaco-syntax = { workspace = true }
 vihaco-parser = { workspace = true }
 vihaco-parser-derive = { workspace = true }
+vihaco-stdlib = { workspace = true }
 
 [dev-dependencies]
 trybuild = "1.0"

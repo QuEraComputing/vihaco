@@ -9,12 +9,12 @@ use vihaco_bytecode as binary;
 pub use vihaco_abi::{effect, frame, instruction_syntax, metadata, program};
 pub use vihaco_module::{color, loader, module, show, show_instruction};
 pub use vihaco_syntax as syntax;
-// The runtime layer (runtime/observer/__private) now lives in `vihaco-runtime`;
-// re-export it at the original paths (see design/crate-split.md §7).
+// The runtime layer and standard-library observers now live in their focused
+// crates; re-export them at the original paths (see design/crate-split.md §7).
 pub use vihaco_runtime as runtime;
 #[doc(hidden)]
 pub use vihaco_runtime::__private;
-pub use vihaco_runtime::observer;
+pub use vihaco_stdlib::observer;
 pub mod instruction;
 pub mod machine;
 pub mod macros;

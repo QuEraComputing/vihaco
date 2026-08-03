@@ -33,6 +33,27 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
+  feature-checks:
+    name: Feature checks (workspace)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Check each feature-bearing package independently. Checking the whole
+      # workspace in one Cargo invocation can re-enable a dependency's default
+      # features through feature unification with another workspace package.
+      - name: Check packages without default features
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.features | has("default")) | .name' \
+            | while read -r package; do
+                echo "Checking $package without default features"
+                cargo check -p "$package" --no-default-features
+              done
+
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

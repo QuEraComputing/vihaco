@@ -1,0 +1,12 @@
+[package]
+name = "vihaco-stdlib"
+edition = "2024"
+description = "Standard-library components and observers for vihaco machines."
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+eyre = { workspace = true }
+vihaco-runtime = { workspace = true }

@@ -43,7 +43,7 @@ Publishable crates (released together):
 
 - `vihaco`, `vihaco-abi`, `vihaco-abi-derive`, `vihaco-bytecode`, `vihaco-cpu`,
   `vihaco-module`, `vihaco-parser`, `vihaco-parser-derive`, `vihaco-runtime`,
-  `vihaco-runtime-derive`, `vihaco-syntax`
+  `vihaco-runtime-derive`, `vihaco-stdlib`, `vihaco-syntax`
 
 `vihaco-doctests` is `publish = false`, so release-plz skips it automatically.
 
@@ -131,7 +131,7 @@ index before the crates that depend on it:
 ```text
 vihaco-abi-derive → vihaco-abi → vihaco-bytecode → vihaco-module →
 vihaco-runtime-derive → vihaco-runtime → vihaco-parser → vihaco-parser-derive →
-vihaco-syntax → vihaco → vihaco-cpu
+vihaco-stdlib → vihaco-syntax → vihaco → vihaco-cpu
 ```
 
 ```bash

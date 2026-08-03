@@ -88,7 +88,7 @@ Complete set of `::vihaco::…` paths emitted by the current derive:
 
 ## 4. Target crate graph
 
-Ten framework crates (plus unchanged `vihaco-cpu`, `vihaco-doctests`):
+Eleven framework crates (plus unchanged `vihaco-cpu`, `vihaco-doctests`):
 
 | Crate | Role | Depends on |
 |---|---|---|
@@ -96,8 +96,9 @@ Ten framework crates (plus unchanged `vihaco-cpu`, `vihaco-doctests`):
 | **vihaco-abi-derive** | `#[derive(Instruction)]` | syn, quote, proc-macro2, proc-macro-crate |
 | **vihaco-bytecode** | `binary/*` (headers, sections, contexts, `decode_instruction_stream`) **+ absorbed container codec** | vihaco-abi, byteorder, chumsky |
 | **vihaco-module** | `color`, `module`, host-VM traits (`host.rs`), `loader` | vihaco-abi, vihaco-bytecode, colored |
-| **vihaco-runtime** | `runtime/*`, `observer/*`, `__private`. Re-exports its derive behind `derive` feature. | vihaco-abi, vihaco-bytecode, vihaco-module |
+| **vihaco-runtime** | `runtime/*`, `__private`. Re-exports its derive behind `derive` feature. | vihaco-abi, vihaco-bytecode, vihaco-module |
 | **vihaco-runtime-derive** | `#[derive(Message)]`, `#[derive(Machine)]`/`#[composite]`, `#[component]`, `#[observe]` | syn, quote, proc-macro2, proc-macro-crate |
+| **vihaco-stdlib** | Standard-library components and observers (`observer/*`). | vihaco-runtime, eyre |
 | **vihaco-parser** | *(renamed from vihaco-parser-core)* `Parse`, `SurfaceInstruction`, primitive/lexical/collection impls. Re-exports its derive behind `derive` feature. | chumsky |
 | **vihaco-parser-derive** | *(renamed from vihaco-parser)* `#[derive(Parse)]` | syn, quote, proc-macro2, eyre |
 | **vihaco-syntax** | `syntax/*` (SST parse, `Resolve`, `Parsed*` types) | vihaco-abi, vihaco-bytecode, vihaco-parser (+ vihaco-parser-derive for tests) |
@@ -227,7 +228,7 @@ modules that invoke derives take the facade (or the specific derive crate) as a
 | `traits/machine.rs` | vihaco-module (`src/host.rs`) | `super::Instruction`→`vihaco_abi::traits::Instruction`; `crate::{ConstantId,frame::Frame,module::FunctionInfo}`→`vihaco_bytecode::ConstantId`, `vihaco_abi::frame::Frame`, `crate::module::FunctionInfo` | host-VM traits; reason they cannot live in abi |
 | `loader.rs` | vihaco-module | `crate::binary::*`→`vihaco_bytecode::*`; `crate::program::*`→`vihaco_abi::program::*`; host traits→`crate::host::*` | widest fan-in |
 | `runtime/{mod,generated,marker,observe}.rs` | vihaco-runtime | `crate::metadata`→`vihaco_abi::metadata`; `crate::module::LocalModule`→`vihaco_module::module::LocalModule`; `crate::Effects`→`vihaco_abi::Effects` | + re-exports from §5.3 |
-| `observer/{mod,stdio}.rs` | vihaco-runtime | `Stdout`→`vihaco_module::host::Stdout`; `#[observe]` now from `vihaco-runtime-derive` | the one non-test derive user; no longer forces the facade cycle |
+| `observer/{mod,stdio}.rs` | vihaco-stdlib | `#[observe]` from `vihaco-runtime-derive` through `vihaco-runtime` | the one non-test derive user; no longer forces the facade cycle |
 | `__private.rs` | vihaco-runtime | `crate::runtime::CompositeMetadata`→`crate::CompositeMetadata` | `GeneratedMachine` |
 | `syntax/{mod,types,parse,resolve}.rs` | vihaco-syntax | `crate::{SstHeader,SstSectionView}`→`vihaco_bytecode::*`; `crate::SurfaceInstruction`→`vihaco_parser::SurfaceInstruction` | tests: `vihaco-parser-derive` + `vihaco` dev-deps |
 | `macros/mod.rs`, `instruction.rs`, `machine.rs`, `lib.rs` (+ `public_api_tests`) | vihaco (facade) | rewritten as re-exports | see §7 |

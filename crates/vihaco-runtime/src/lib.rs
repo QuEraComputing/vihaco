@@ -9,7 +9,6 @@ mod observe;
 
 #[doc(hidden)]
 pub mod __private;
-pub mod observer;
 
 // Re-export the sub-paths the runtime derive (`vihaco-runtime-derive`) emits so
 // that `vihaco-runtime` is a valid derive root on its own, mirroring the facade

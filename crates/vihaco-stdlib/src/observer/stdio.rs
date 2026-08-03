@@ -3,8 +3,8 @@
 
 use std::io::Write;
 
-use crate::observe;
 use eyre::Result;
+use vihaco_runtime::{Effects, observe};
 
 #[derive(Debug, Clone)]
 pub struct StdoutEffect(pub String);
@@ -27,9 +27,9 @@ impl StdoutObserver {
 
 #[observe(StdoutEffect)]
 impl StdoutObserver {
-    fn observe_stdout_effect(&mut self, effect: &StdoutEffect) -> Result<crate::Effects<()>> {
+    fn observe_stdout_effect(&mut self, effect: &StdoutEffect) -> Result<Effects<()>> {
         self.write_stdout(&effect.0)?;
-        Ok(crate::Effects::none())
+        Ok(Effects::none())
     }
 }
 

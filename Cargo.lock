@@ -632,6 +632,7 @@ dependencies = [
  "vihaco-parser",
  "vihaco-parser-derive",
  "vihaco-runtime",
+ "vihaco-stdlib",
  "vihaco-syntax",
 ]
 
@@ -743,6 +744,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "vihaco-stdlib"
+version = "0.2.0"
+dependencies = [
+ "eyre",
+ "vihaco-runtime",
 ]
 
 [[package]]

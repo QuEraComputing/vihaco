@@ -68,8 +68,9 @@ self-contained component you can use directly or copy as a starting point.
 | `vihaco-abi-derive` | `#[derive(Instruction)]`. Consumed via `vihaco-abi`. |
 | `vihaco-bytecode` | Binary/SST container format: headers, sections, instruction (de)coding, the `container/` codec. |
 | `vihaco-module` | Loadable `Module` model, `ProgramLoader`, host-VM traits (`ProgramCounter`, …), assembly-style `Display`. |
-| `vihaco-runtime` | Component/machine runtime: `GeneratedComponent`, `Effects` sinks, observers, `CompositeMetadata`. Re-exports its derives via its `derive` feature. |
+| `vihaco-runtime` | Component/machine runtime: `GeneratedComponent`, `Effects` sinks, observation machinery, `CompositeMetadata`. Re-exports its derives via its `derive` feature. |
 | `vihaco-runtime-derive` | The proc macros behind `#[derive(Message/Machine)]` and `#[component]` / `#[composite]` / `#[observe]`. Consumed via `vihaco-runtime`. |
+| `vihaco-stdlib` | Standard-library components and observers, currently including `StdoutObserver`. |
 | `vihaco-syntax` | Typed SST parsing and module construction (`Resolve`). |
 | `vihaco-parser` | The `Parse<'src>` and `SurfaceInstruction` traits plus lexical, primitive, and collection impls shared by the parser derive. |
 | `vihaco-parser-derive` | `#[derive(Parse)]` — turns instruction, value, and type enums or structs into [chumsky](https://github.com/zesterer/chumsky) parsers via `#[syntax_class]` and `#[pattern]` (see `attr.rs`/`codegen.rs`). |
@@ -114,7 +115,8 @@ self-contained component you can use directly or copy as a starting point.
 - **`runtime/` + `traits/`** — the host-VM interfaces a CPU-like component
   implements: `ProgramCounter`, `StackMemory`, `StackFrame`, `FrameMemory`,
   `GetProgramInfo`, `Stdout` (`traits/machine.rs`), plus `Reset` and the
-  `EffectSink` / `Observe` machinery (`#[observe]`, `observer/stdio.rs`).
+  `EffectSink` / `Observe` machinery (`#[observe]`). Standard-library observers
+  live in `vihaco-stdlib`.
 - **`value.rs`** — the runtime `Value` enum (`I64`/`U64`/`F64`/`Bool`/
   `FunctionRef`/`HeapRef`/interned `String`…) and `Type`.
 

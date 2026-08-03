@@ -12,6 +12,7 @@ members = [
     "crates/vihaco-parser-derive",
     "crates/vihaco-runtime",
     "crates/vihaco-runtime-derive",
+    "crates/vihaco-stdlib",
     "crates/vihaco-syntax",
 ]
 
@@ -36,6 +37,7 @@ vihaco-parser     = { version = "0.2.0", path = "crates/vihaco-parser" }
 vihaco-parser-derive = { version = "0.2.0", path = "crates/vihaco-parser-derive" }
 vihaco-runtime    = { version = "0.2.0", path = "crates/vihaco-runtime" }
 vihaco-runtime-derive = { version = "0.2.0", path = "crates/vihaco-runtime-derive" }
+vihaco-stdlib     = { version = "0.2.0", path = "crates/vihaco-stdlib" }
 vihaco-syntax     = { version = "0.2.0", path = "crates/vihaco-syntax" }
 
 # Shared third-party dependencies pinned once (see design/crate-split.md §8.1).
