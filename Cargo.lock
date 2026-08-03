@@ -681,6 +681,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "vihaco-demos"
+version = "0.2.0"
+dependencies = [
+ "chumsky",
+ "eyre",
+ "vihaco",
+ "vihaco-cpu",
+ "vihaco-parser",
+ "vihaco-parser-derive",
+]
+
+[[package]]
 name = "vihaco-doctests"
 version = "0.2.0"
 dependencies = [

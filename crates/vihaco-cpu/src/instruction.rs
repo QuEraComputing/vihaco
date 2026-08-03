@@ -480,6 +480,7 @@ mod parse_tests {
                 .parse("cpu::const str, \"unterminated")
                 .has_errors()
         );
+        assert!(SurfaceInstruction::parser().parse("br @body").has_errors());
     }
 
     #[test]

@@ -107,7 +107,7 @@ to the same runtime operation.
 
 ## Composite Parser Generation
 
-The machine surface parser is the sum of exactly the selected surface products:
+An executable composite's surface parser is the sum of exactly the selected surface products:
 
 ```text
 Parse<stack::surface::Push>
@@ -123,6 +123,11 @@ unrecognizable at the parser boundary.
 The pattern parser composes the selected alternatives, including overlapping mnemonic prefixes and
 large instruction sets. The composite supplies types and does not implement a separate parsing
 algorithm.
+
+The non-executing `HeterogeneousMachine` runtime root selects no local surface or runtime
+instructions and therefore has no local instruction parser. Its two CPU children parse and resolve
+their own programs. A future structural root section may describe child sections and wiring without
+creating an empty executable instruction sum.
 
 ## Parsing Versus Resolution
 

@@ -118,11 +118,14 @@ program-counter placement determines their destination:
 
 - With a machine-owned program counter, a route handler applies control effects to the selected
   program-counter component.
-- With a driver-owned program counter, the route returns equivalent driver-facing control.
+- The reference CPUs use this machine-owned arrangement; the root event loop does not independently
+  advance their cursors.
 - Call-stack selection, frame construction, and return-value placement remain composite routing
   concerns because they cross component boundaries.
-- Timing and selection of the next runnable instruction remain driver concerns, although handlers
-  may produce the information used for those decisions.
+- Timing handlers produce owned scheduling information, while the root runtime and `GlobalClock`
+  select the next runnable child.
 
-This makes control-flow instructions reusable across different program, cursor, frame, and driver
-representations without allowing both the machine and driver to advance the same cursor.
+This keeps control-flow instructions reusable across different program, cursor, and frame
+representations without allowing both the child and root runtime to advance the same cursor. A
+future externally owned cursor can be added after a concrete runtime requires it; the initial
+architecture does not generalize that placement.

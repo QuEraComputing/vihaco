@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug vihaco demo",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/examples/demo",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "build demo",
+      "sourceLanguages": ["rust"]
+    }
+  ]
+}
