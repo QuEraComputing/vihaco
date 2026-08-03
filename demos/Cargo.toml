@@ -1,0 +1,18 @@
+[package]
+name = "vihaco-demos"
+edition = "2024"
+description = "Executable demonstrations of vihaco machine composition."
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+chumsky = "0.10"
+eyre = "0.6.12"
+vihaco = { workspace = true }
+vihaco-cpu = { workspace = true }
+vihaco-derive = { workspace = true }
+vihaco-parser = { workspace = true }
+vihaco-parser-core = { workspace = true }

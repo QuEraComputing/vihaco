@@ -50,7 +50,8 @@ performs source resolution.
 
 ## Runtime Execution Pipeline
 
-One-instruction execution starts with a runtime instruction supplied by a driver or direct caller:
+One-instruction execution starts with a runtime instruction supplied by a containing runtime root
+or direct caller:
 
 ```text
 supplied runtime instruction
@@ -58,7 +59,7 @@ supplied runtime instruction
     -> resolve runtime message
     -> execute against the route's component
     -> handle immediate internal effects
-    -> return the step outcome and any driver-facing work
+    -> return the step outcome and any root-facing work
 ```
 
 The composite macro generates one outer `step` dispatcher from the selected runtime routes. Users
@@ -107,9 +108,9 @@ representation; further dispatch abstractions are justified only by demonstrated
 compiler constraints.
 
 `step` does not inherently fetch an instruction, iterate a program, define what happens next, or
-advance modeled time. A driver-owned program counter is advanced outside `step`. When a program
-counter is itself modeled machine state, route handling may mutate that component during `step`,
-but that is an explicit machine configuration rather than universal step behavior.
+advance modeled time. In the reference runtime, each CPU owns its program counter and route
+handling mutates that modeled component during `step`. That is an explicit machine configuration
+rather than universal step behavior.
 
 ### Stage 1: Message Resolution
 
@@ -163,6 +164,49 @@ borrow is guaranteed to end before `step` returns.
 Instructions with no live input use `NoMessage`, allowing generation to omit a user-written
 resolver. A route's documentation still states whether its nontrivial resolution reads, copies, or
 consumes machine state.
+
+#### Resolution Sources
+
+Message resolution has three declaration forms, ordered by how much the composite macro can
+generate on the author's behalf:
+
+- A route with no live input uses `NoMessage`, and generation omits the resolver entirely.
+- A route whose entire message comes from one component uses `message from <field>`. The component
+  supplies the message through a reusable capability, and generation emits a forwarding resolver.
+- A route whose message is assembled from several components, or in an order the grammar does not
+  imply, names a route-local resolver method with `message with <method>`.
+
+The single-source form is backed by a component capability that is the input dual of effect
+absorption:
+
+```rust
+pub trait Supply<M> {
+    type Fault;
+
+    fn supply(&mut self) -> Result<M, Self::Fault>;
+}
+```
+
+A stack implements `Supply<Operands<V>>` once, and every `message from <stack>` route reuses it.
+The generated resolver is then a forwarding call:
+
+```rust
+fn resolve_integer_add_message(
+    &mut self,
+    _instruction: &Add,
+) -> Result<Operands<MachineValue>, MachineFault> {
+    Ok(self.operand_stack.supply()?)
+}
+```
+
+Resolution is expressed as a route method rather than a route-parameterized trait. Effect handling
+earns its trait from two properties that message resolution does not share: component execution
+returns an `Effects<E>` stream that a generic drainer folds over, and the generated route marker's
+locality permits a component to carry an effect handler directly. A resolved message is instead a
+single owned value, and resolution reads across several composite fields, so it can neither be
+folded nor relocated onto a component. The reusable part of resolution therefore lives in
+`Supply<M>`, while selection between same-typed messages is expressed by distinct resolver methods
+rather than by a marker type.
 
 ### Stage 2: Component Execution
 
@@ -288,7 +332,7 @@ machine instruction variant
     -> target component field
     -> message resolver
     -> effect handler
-    -> route outcome and driver-facing work
+    -> route outcome and root-facing work
 ```
 
 The generated machine instruction variant is the canonical route identity during dispatch. The
@@ -535,6 +579,66 @@ The generated implementation may use a fully qualified trait call, a private met
 match-arm body. All three preserve the same public model: the current machine instruction variant
 selects exactly one effect-handling policy.
 
+##### Component Absorb and Observe Capabilities
+
+Declarative effect forwarding is backed by reusable component capabilities, so a generated route
+handler names a destination without carrying handler behavior. A component that consumes an effect
+into its own state implements `Absorb`; a component that only reads an effect implements `Observe`:
+
+```rust
+pub trait Absorb<E> {
+    type Fault;
+
+    fn absorb(&mut self, effect: E) -> Result<(), Self::Fault>;
+}
+
+pub trait Observe<E> {
+    fn observe(&mut self, effect: &E);
+}
+```
+
+`Absorb` is the effect-side dual of `Supply`. Both are written once per component, are machine
+agnostic, and preserve the component's invariants exactly as its ordinary methods do. A generated
+`effects to <field>` handler forwards through `Absorb`, so the composite still owns the routing
+decision while the component still owns how its state changes.
+
+Effect handling then has the same three declaration forms as message resolution:
+
+- `effects to <field>` forwards the effect into one component through `Absorb`.
+- `effects to <field>, observed by <field>...` delivers the effect to one consuming component and
+  any number of read-only observers.
+- `effects with <method>` names a route-local handler for anything the forwarding forms cannot
+  express.
+
+Because the generated route marker is a type local to the machine crate, it may also appear in the
+trait reference of a handler implemented directly on a component. That locality is what permits a
+component to own the effect handler for a specific route without violating the orphan rule, while
+two routes that produce the same effect type remain distinct implementations. Handling on the
+composite remains the default; component-side handling is available where a component should own its
+own effect policy.
+
+##### Multiple Handlers
+
+One operation may need to reach more than one component. This resolves into one of three shapes, and
+only the composite route decides which applies:
+
+- Distinct effects. When the destinations need different information, component execution emits one
+  effect that carries the whole outcome, and the route handler distributes its fields to each
+  component through their own `Absorb` implementations. The field-to-component mapping is semantic,
+  so this uses `effects with <method>`.
+- Observation. When several components need the same value but only one consumes it, the consuming
+  component uses `Absorb` and the rest use `Observe`. Observers run before the consumer takes
+  ownership, so no clone is required.
+- Broadcast. When several components must each consume the same value, the effect implements `Clone`
+  and generation clones it for every destination but the last. Generation admits `effects to a, b`
+  only when the effect is `Clone`; otherwise it directs the author to observation or an explicit
+  handler.
+
+Delivery order is deterministic: observers precede the consumer, and multiple consumers receive the
+effect in declaration order. Routing selects a destination from the effect's type and the route, not
+from a runtime value. A route that produces heterogeneous outputs carries them in a carrier product
+or a sum the handler matches, rather than distributing by inspecting effect contents.
+
 ##### Code-Generation Boundary
 
 Code generation supports the ownership model without becoming part of it:
@@ -567,14 +671,14 @@ Route provenance matters whenever two identical effect types receive different m
 - The destination component instance.
 - Whether a value is pushed, observed, discarded, or transformed.
 - Whether handling completes immediately or parks the machine.
-- Whether a scheduling request remains internal or crosses the driver boundary.
+- Whether a scheduling request remains internal or crosses a child-to-root boundary.
 - Which fault conversion and diagnostic context are attached.
 - Which handlers receive the effect.
 
 Effects therefore do not enter an unlabelled machine-wide queue before route handling. Deferred
 work retains either equivalent route provenance or an already-resolved continuation. Once route
-handling converts the effect into a resource command, diagnostic event, or driver request, ordinary
-typed handlers can continue it without the original route marker.
+handling converts the effect into a resource command, diagnostic event, or root scheduling request,
+ordinary typed handlers can continue it without the original route marker.
 
 #### Effect Ordering
 
@@ -602,5 +706,5 @@ for tracing, diagnostic handlers, replay, and future event-sourced runtimes.
 #### No Effects
 
 Owner-local mutation may complete with an empty `Effects<NoEffect>`. The route still returns a step
-outcome, and the driver can still account for time or select more work. Neither effect production
-nor a clock is required by `step`.
+outcome, and a containing runtime can still account for time or select more work. Neither effect
+production nor a clock is required by `step`.

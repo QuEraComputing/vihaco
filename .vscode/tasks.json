@@ -1,0 +1,11 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build demo",
+      "type": "shell",
+      "command": "cargo build --package vihaco-demos --example demo",
+      "problemMatcher": ["$rustc"]
+    }
+  ]
+}
