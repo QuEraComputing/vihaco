@@ -1,25 +1,13 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-mod encoding;
-mod event_sink;
-mod instruction;
-mod machine;
-
-pub use encoding::{FromBytes, FromBytesWithOpcode, FromText, WriteBytes};
-pub use event_sink::EffectSink;
-pub use instruction::{Instruction, OpCode};
-pub use machine::{FrameMemory, GetProgramInfo, ProgramCounter, StackFrame, StackMemory, Stdout};
-
-pub trait Reset {
-    /// reset the component state into initial state
-    fn reset(&mut self);
-}
-
-impl<T: Reset> Reset for Vec<T> {
-    fn reset(&mut self) {
-        for item in self.iter_mut() {
-            item.reset();
-        }
-    }
-}
+// The encoding/instruction/event-sink traits + `Reset` moved to `vihaco-abi`;
+// re-export them here so intra-crate `crate::traits::*` paths still resolve.
+pub use vihaco_abi::traits::{
+    EffectSink, FromBytes, FromBytesWithOpcode, FromText, Instruction, OpCode, Reset, WriteBytes,
+};
+// The host-VM traits moved to `vihaco-module`; re-export so `crate::traits::*`
+// (and the `crate::machine` shim) still resolve.
+pub use vihaco_module::host::{
+    FrameMemory, GetProgramInfo, ProgramCounter, StackFrame, StackMemory, Stdout,
+};

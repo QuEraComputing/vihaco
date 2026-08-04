@@ -1,10 +1,10 @@
 use chumsky::Parser as _;
 use vihaco::Instruction;
-use vihaco_parser_core::Parse;
+use vihaco_parser::Parse;
 
 // The same enum can derive both `Instruction` (bytecode + runtime) and
 // `Parse` (SST). The two derives are orthogonal.
-#[derive(Debug, Clone, PartialEq, Instruction, vihaco_parser::Parse)]
+#[derive(Debug, Clone, PartialEq, Instruction, vihaco_parser_derive::Parse)]
 #[syntax_class(instruction, head = "counter")]
 pub enum CounterInst {
     #[pattern = "'add $0"]

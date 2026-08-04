@@ -10,10 +10,10 @@ description: "Derive strict, typed chumsky parsers with syntax classes and decla
 Source syntax is defined with the pattern parser, which is split across two
 crates:
 
-1. **`vihaco-parser-core`** defines `Parse<'src>` and `SurfaceInstruction`, and
+1. **`vihaco-parser`** defines `Parse<'src>` and `SurfaceInstruction`, and
    implements `Parse` for common lexical, primitive, and collection field
    types.
-2. **`vihaco-parser`** provides `#[derive(Parse)]`, which generates a
+2. **`vihaco-parser-derive`** provides `#[derive(Parse)]`, which generates a
    [chumsky](https://github.com/zesterer/chumsky) parser from
    `#[syntax_class]` and `#[pattern]`.
 
@@ -28,8 +28,8 @@ If you are new to instruction enums, read
 ```rust
 use chumsky::Parser as _;
 use vihaco::Instruction;
-use vihaco_parser::Parse;
-use vihaco_parser_core::Parse as ParseTrait;
+use vihaco_parser_derive::Parse;
+use vihaco_parser::Parse as ParseTrait;
 
 #[derive(Debug, Clone, PartialEq, Instruction, Parse)]
 #[instruction(width = 8)]
@@ -78,7 +78,7 @@ pub trait Parse<'src>: Sized {
 }
 ```
 
-`vihaco-parser-core` implements `Parse` for common primitives:
+`vihaco-parser` implements `Parse` for common primitives:
 
 | Type | Accepted form |
 |---|---|
@@ -122,8 +122,8 @@ For example:
 
 ```rust
 use chumsky::Parser as _;
-use vihaco_parser::Parse;
-use vihaco_parser_core::{Ident, Parse as ParseTrait};
+use vihaco_parser_derive::Parse;
+use vihaco_parser::{Ident, Parse as ParseTrait};
 
 #[derive(Debug, PartialEq, Parse)]
 #[syntax_class(instruction, head = "control")]
@@ -159,8 +159,8 @@ foreign types behind an application-owned syntax boundary.
 
 ```rust
 use chumsky::Parser as _;
-use vihaco_parser::Parse;
-use vihaco_parser_core::{Ident, Parse as ParseTrait};
+use vihaco_parser_derive::Parse;
+use vihaco_parser::{Ident, Parse as ParseTrait};
 
 #[derive(Debug, PartialEq, Parse)]
 #[syntax_class(value)]

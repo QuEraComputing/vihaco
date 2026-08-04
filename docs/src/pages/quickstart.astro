@@ -56,7 +56,7 @@ const toc = [
         <code>StepOutcome</code> control-flow effect. Use it directly, or as a
         reference for writing your own components.
       </dd>
-      <dt><code>vihaco-parser</code> <span class="crate-tag">parser</span></dt>
+      <dt><code>vihaco-parser-derive</code> <span class="crate-tag">parser</span></dt>
       <dd>
         The <code>#[derive(Parse)]</code> proc-macro. It turns an instruction
         enum or struct into a
@@ -64,7 +64,7 @@ const toc = [
         declarative <code>#[syntax_class]</code> and
         <code>#[pattern]</code> attributes.
       </dd>
-      <dt><code>vihaco-parser-core</code> <span class="crate-tag">parser</span></dt>
+      <dt><code>vihaco-parser</code> <span class="crate-tag">parser</span></dt>
       <dd>
         The <code>Parse&lt;'src&gt;</code> and
         <code>SurfaceInstruction</code> traits, plus parser implementations for
@@ -72,12 +72,13 @@ const toc = [
         <code>BareToken</code>, and <code>QuotedString</code>), vectors, and
         tuples.
       </dd>
-      <dt><code>vihaco-derive</code> <span class="crate-tag">internal</span></dt>
+      <dt><code>vihaco-runtime-derive</code> <span class="crate-tag">internal</span></dt>
       <dd>
-        The procedural macros behind <code>#[derive(Instruction)]</code>,
-        <code>#[derive(Message)]</code>, <code>#[component]</code>,
-        <code>#[observe]</code>, and <code>#[composite]</code>. Re-exported
-        through <code>vihaco</code> — you rarely depend on it directly.
+        The procedural macros behind <code>#[derive(Message)]</code>,
+        <code>#[component]</code>, <code>#[observe]</code>, and
+        <code>#[composite]</code> (<code>#[derive(Instruction)]</code> lives in
+        <code>vihaco-abi-derive</code>). Both are re-exported through
+        <code>vihaco</code> — you rarely depend on them directly.
       </dd>
     </dl>
 
@@ -95,7 +96,7 @@ const toc = [
       <li>
         <strong>Parse source text into instructions</strong>:
         <code>vihaco</code> + <code>vihaco-parser</code> +
-        <code>vihaco-parser-core</code>.
+        <code>vihaco-parser-derive</code>.
       </li>
     </ul>
 
@@ -107,11 +108,11 @@ const toc = [
     </p>
 
 <pre><code class="language-toml">[dependencies]
-vihaco             = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}
-vihaco-cpu         = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}
-vihaco-parser      = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}
-vihaco-parser-core = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}
-eyre               = "0.6"   # vihaco APIs return eyre::Result</code></pre>
+vihaco               = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}
+vihaco-cpu           = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}
+vihaco-parser        = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}
+vihaco-parser-derive = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}
+eyre                 = "0.6"   # vihaco APIs return eyre::Result</code></pre>
 
     <h2 id="component"><span class="sec-num">§ 4</span>A first component</h2>
 

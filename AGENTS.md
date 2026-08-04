@@ -64,9 +64,16 @@ self-contained component you can use directly or copy as a starting point.
 |---|---|
 | `vihaco` | The framework. Core types + the `module` / `syntax` / `runtime` layers. Re-exports the derives, so most code depends only on this crate. |
 | `vihaco-cpu` | A ready-made CPU/host component: a stack machine with a `StepOutcome` control-flow effect. Use directly or as a reference component. |
-| `vihaco-derive` | The proc macros behind `#[derive(Instruction/Message/Machine)]` and `#[component]` / `#[composite]` / `#[observe]`. Consumed via `vihaco`'s re-exports. |
-| `vihaco-parser` | `#[derive(Parse)]` — turns instruction, value, and type enums or structs into [chumsky](https://github.com/zesterer/chumsky) parsers via `#[syntax_class]` and `#[pattern]` (see `attr.rs`/`codegen.rs`). |
-| `vihaco-parser-core` | The `Parse<'src>` and `SurfaceInstruction` traits plus lexical, primitive, and collection impls shared by the parser derive. |
+| `vihaco-abi` | ISA vocabulary: `Instruction`/`Effects`, `Value`/`Type`, encoding + host-VM traits. Re-exports `#[derive(Instruction)]` via its `derive` feature. |
+| `vihaco-abi-derive` | `#[derive(Instruction)]`. Consumed via `vihaco-abi`. |
+| `vihaco-bytecode` | Binary/SST container format: headers, sections, instruction (de)coding, the `container/` codec. |
+| `vihaco-module` | Loadable `Module` model, `ProgramLoader`, host-VM traits (`ProgramCounter`, …), assembly-style `Display`. |
+| `vihaco-runtime` | Component/machine runtime: `GeneratedComponent`, `Effects` sinks, observation machinery, `CompositeMetadata`. Re-exports its derives via its `derive` feature. |
+| `vihaco-runtime-derive` | The proc macros behind `#[derive(Message/Machine)]` and `#[component]` / `#[composite]` / `#[observe]`. Consumed via `vihaco-runtime`. |
+| `vihaco-stdlib` | Standard-library components and observers, currently including `StdoutObserver`. |
+| `vihaco-syntax` | Typed SST parsing and module construction (`Resolve`). |
+| `vihaco-parser` | The `Parse<'src>` and `SurfaceInstruction` traits plus lexical, primitive, and collection impls shared by the parser derive. |
+| `vihaco-parser-derive` | `#[derive(Parse)]` — turns instruction, value, and type enums or structs into [chumsky](https://github.com/zesterer/chumsky) parsers via `#[syntax_class]` and `#[pattern]` (see `attr.rs`/`codegen.rs`). |
 | `vihaco-doctests` | **Dev-only, not published.** `include!`s `docs/examples/*.rs` and runs every ` ```rust ` block in `docs/src/pages/guide/*.md` as a rustdoc doctest, so the public API and the docs can't drift. Editing the public API often requires updating these. |
 
 ### The mental model (what the macros generate)
@@ -91,7 +98,7 @@ self-contained component you can use directly or copy as a starting point.
   field becomes a variant of a generated `<Name>Instruction` enum (one opcode
   per device); one field may be `#[program]` to delegate `ProgramCounter`. The
   derive emits a `GeneratedMachine` impl exposing `CompositeMetadata` (device
-  codes + source-symbol aliases). See `vihaco-derive/src/derive_machine.rs`.
+  codes + source-symbol aliases). See `vihaco-runtime-derive/src/attr_composite.rs`.
 
 ### Layers inside `vihaco`
 
@@ -108,7 +115,8 @@ self-contained component you can use directly or copy as a starting point.
 - **`runtime/` + `traits/`** — the host-VM interfaces a CPU-like component
   implements: `ProgramCounter`, `StackMemory`, `StackFrame`, `FrameMemory`,
   `GetProgramInfo`, `Stdout` (`traits/machine.rs`), plus `Reset` and the
-  `EffectSink` / `Observe` machinery (`#[observe]`, `observer/stdio.rs`).
+  `EffectSink` / `Observe` machinery (`#[observe]`). Standard-library observers
+  live in `vihaco-stdlib`.
 - **`value.rs`** — the runtime `Value` enum (`I64`/`U64`/`F64`/`Bool`/
   `FunctionRef`/`HeapRef`/interned `String`…) and `Type`.
 
@@ -120,13 +128,12 @@ self-contained component you can use directly or copy as a starting point.
 - **Error handling:** this codebase uses **`eyre`** (`eyre::Result`,
   `eyre::eyre!`) throughout — *not* `anyhow`/`thiserror`. Match the surrounding
   code.
-- **Rust edition:** `vihaco`, `vihaco-cpu`, `vihaco-derive`, `vihaco-doctests`
-  are **edition 2024** (rustc ≥ 1.85). `vihaco-parser` and `vihaco-parser-core`
-  are **edition 2021 with `rust-version = 1.75`** — keep their code within that
-  MSRV.
+- **Rust edition:** every crate is **edition 2024** (rustc ≥ 1.85) EXCEPT
+  `vihaco-parser` and `vihaco-parser-derive`, which are **edition 2021 with
+  `rust-version = 1.75`** — keep their code within that MSRV.
 - **Macro changes need trybuild coverage:** compile-fail behaviour is pinned by
   trybuild fixtures (`crates/vihaco/tests/ui/`,
-  `crates/vihaco-parser/tests/compile_errors/`). These are line-sensitive; when
+  `crates/vihaco-parser-derive/tests/compile_errors/`). These are line-sensitive; when
   you change a diagnostic, update the matching `.stderr` (`TRYBUILD=overwrite
   cargo test`).
 

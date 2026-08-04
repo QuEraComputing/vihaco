@@ -2,11 +2,18 @@
 resolver = "2"
 members = [
     "crates/vihaco",
+    "crates/vihaco-abi",
+    "crates/vihaco-abi-derive",
+    "crates/vihaco-bytecode",
     "crates/vihaco-cpu",
-    "crates/vihaco-derive",
     "crates/vihaco-doctests",
+    "crates/vihaco-module",
     "crates/vihaco-parser",
-    "crates/vihaco-parser-core",
+    "crates/vihaco-parser-derive",
+    "crates/vihaco-runtime",
+    "crates/vihaco-runtime-derive",
+    "crates/vihaco-stdlib",
+    "crates/vihaco-syntax",
 ]
 
 [workspace.package]
@@ -21,7 +28,20 @@ authors = [
 
 [workspace.dependencies]
 vihaco            = { version = "0.2.0", path = "crates/vihaco" }
+vihaco-abi        = { version = "0.2.0", path = "crates/vihaco-abi" }
+vihaco-abi-derive = { version = "0.2.0", path = "crates/vihaco-abi-derive" }
+vihaco-bytecode   = { version = "0.2.0", path = "crates/vihaco-bytecode" }
 vihaco-cpu        = { version = "0.2.0", path = "crates/vihaco-cpu" }
-vihaco-derive     = { version = "0.2.0", path = "crates/vihaco-derive" }
+vihaco-module     = { version = "0.2.0", path = "crates/vihaco-module" }
 vihaco-parser     = { version = "0.2.0", path = "crates/vihaco-parser" }
-vihaco-parser-core = { version = "0.2.0", path = "crates/vihaco-parser-core" }
+vihaco-parser-derive = { version = "0.2.0", path = "crates/vihaco-parser-derive" }
+vihaco-runtime    = { version = "0.2.0", path = "crates/vihaco-runtime" }
+vihaco-runtime-derive = { version = "0.2.0", path = "crates/vihaco-runtime-derive" }
+vihaco-stdlib     = { version = "0.2.0", path = "crates/vihaco-stdlib" }
+vihaco-syntax     = { version = "0.2.0", path = "crates/vihaco-syntax" }
+
+# Shared third-party dependencies pinned once (see design/crate-split.md §8.1).
+byteorder = "1.5.0"
+chumsky   = "0.10"
+eyre      = "0.6.12"
+smallvec  = "1.15.1"

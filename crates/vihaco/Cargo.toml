@@ -8,17 +8,22 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-byteorder = "1.5.0"
-chumsky = "0.10"
+byteorder = { workspace = true }
+chumsky = { workspace = true }
 codespan = "0.13.1"
 colored = "3.0.0"
 env_logger = "0.11.8"
-eyre = "0.6.12"
+eyre = { workspace = true }
 log = "0.4.29"
-smallvec = "1.15.1"
-vihaco-parser-core = { workspace = true }
+smallvec = { workspace = true }
+vihaco-abi = { workspace = true }
+vihaco-bytecode = { workspace = true }
+vihaco-module = { workspace = true }
+vihaco-runtime = { workspace = true }
+vihaco-syntax = { workspace = true }
 vihaco-parser = { workspace = true }
-vihaco-derive = { workspace = true }
+vihaco-parser-derive = { workspace = true }
+vihaco-stdlib = { workspace = true }
 
 [dev-dependencies]
 trybuild = "1.0"

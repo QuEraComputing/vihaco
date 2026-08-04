@@ -1,0 +1,19 @@
+[package]
+name = "vihaco-abi"
+edition = "2024"
+description = "ISA vocabulary for vihaco: Effects, Value/Type, Frame, metadata, instruction syntax, and the encoding/instruction/event-sink/Reset traits."
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+byteorder = { workspace = true }
+chumsky = { workspace = true }
+eyre = { workspace = true }
+smallvec = { workspace = true }
+vihaco-abi-derive = { workspace = true, optional = true }
+
+[features]
+default = ["derive"]
+derive = ["dep:vihaco-abi-derive"]

@@ -1,0 +1,19 @@
+[package]
+name = "vihaco-runtime"
+edition = "2024"
+description = "Runtime/component machinery for vihaco machines (GeneratedComponent, Observe, composite wiring)."
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+eyre = { workspace = true }
+vihaco-abi = { workspace = true }
+vihaco-bytecode = { workspace = true }
+vihaco-module = { workspace = true }
+vihaco-runtime-derive = { workspace = true, optional = true }
+
+[features]
+default = ["derive"]
+derive = ["dep:vihaco-runtime-derive", "vihaco-abi/derive"]

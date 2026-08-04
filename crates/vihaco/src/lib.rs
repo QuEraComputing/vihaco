@@ -3,27 +3,25 @@
 
 extern crate self as vihaco;
 
+use vihaco_bytecode as binary;
+// Extracted crates re-exported at their original module paths so the public
+// API is unchanged (see design/crate-split.md §7).
+pub use vihaco_abi::{effect, frame, instruction_syntax, metadata, program};
+pub use vihaco_module::{color, loader, module, show, show_instruction};
+pub use vihaco_syntax as syntax;
+// The runtime layer and standard-library observers now live in their focused
+// crates; re-export them at the original paths (see design/crate-split.md §7).
+pub use vihaco_runtime as runtime;
 #[doc(hidden)]
-pub mod __private;
-mod binary;
-pub mod color;
-pub mod effect;
-pub mod frame;
+pub use vihaco_runtime::__private;
+pub use vihaco_stdlib::observer;
 pub mod instruction;
-pub mod instruction_syntax;
-pub mod loader;
 pub mod machine;
 pub mod macros;
-pub mod metadata;
-pub mod module;
-pub mod observer;
-pub mod program;
-pub mod runtime;
-pub mod syntax;
 #[doc(hidden)]
 pub mod traits;
 pub mod value {
-    pub use crate::program::{Type, Value};
+    pub use vihaco_abi::{Type, Value};
 }
 
 pub use binary::{
@@ -47,7 +45,7 @@ pub use runtime::{
     expect_exactly_one_effect,
 };
 pub use traits::{FromBytes, FromText, GetProgramInfo, Reset};
-pub use vihaco_parser_core::SurfaceInstruction;
+pub use vihaco_parser::SurfaceInstruction;
 
 #[cfg(test)]
 mod public_api_tests {

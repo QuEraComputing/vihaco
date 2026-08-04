@@ -1,0 +1,62 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
+mod attr_component;
+mod attr_composite;
+mod attr_observe;
+mod common;
+mod derive_message;
+
+use crate::common::strip_vihaco_attrs;
+use proc_macro::TokenStream;
+use quote::quote;
+use syn::{Data, DeriveInput, Fields};
+
+#[proc_macro_derive(Message, attributes(vihaco))]
+pub fn derive_message(input: TokenStream) -> TokenStream {
+    derive_message::expand(input)
+}
+
+#[proc_macro_attribute]
+pub fn composite(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let original = proc_macro2::TokenStream::from(item.clone());
+    let generated = proc_macro2::TokenStream::from(attr_composite::expand(item));
+    let mut sanitized: DeriveInput = match syn::parse2(original) {
+        Ok(input) => input,
+        Err(err) => return err.into_compile_error().into(),
+    };
+
+    strip_vihaco_attrs(&mut sanitized.attrs);
+
+    if let Data::Struct(data) = &mut sanitized.data
+        && let Fields::Named(fields) = &mut data.fields
+    {
+        for field in &mut fields.named {
+            field.attrs.retain(|attr| {
+                let path = attr.path();
+                !(path.is_ident("device") || path.is_ident("loadable"))
+            });
+        }
+    }
+
+    quote! {
+        #sanitized
+        #generated
+    }
+    .into()
+}
+
+#[proc_macro_attribute]
+pub fn component(attr: TokenStream, item: TokenStream) -> TokenStream {
+    attr_component::expand(attr, item)
+}
+
+#[proc_macro_attribute]
+pub fn machine(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    item
+}
+
+#[proc_macro_attribute]
+pub fn observe(attr: TokenStream, item: TokenStream) -> TokenStream {
+    attr_observe::expand(attr, item)
+}

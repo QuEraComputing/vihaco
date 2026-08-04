@@ -4,8 +4,8 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, "");
 const crates = [
   { name: "vihaco", blurb: "The framework: instructions, messages, effects, components, observers, composites, modules, syntax, runtime." },
   { name: "vihaco_cpu", blurb: "A ready-made CPU/host component and its instruction set." },
-  { name: "vihaco_parser", blurb: "The #[derive(Parse)] proc-macro." },
-  { name: "vihaco_parser_core", blurb: "The Parse and SurfaceInstruction traits plus lexical, primitive, and collection implementations." },
+  { name: "vihaco_parser", blurb: "The Parse and SurfaceInstruction traits plus lexical, primitive, and collection implementations." },
+  { name: "vihaco_parser_derive", blurb: "The #[derive(Parse)] proc-macro." },
 ];
 ---
 <Base title="API Reference" current="reference">
@@ -40,7 +40,7 @@ const crates = [
 <pre><code>target/doc/vihaco/index.html
 target/doc/vihaco_cpu/index.html
 target/doc/vihaco_parser/index.html
-target/doc/vihaco_parser_core/index.html</code></pre>
+target/doc/vihaco_parser_derive/index.html</code></pre>
 
     <p>
       For a live local preview of <em>this</em> guide site instead, run
