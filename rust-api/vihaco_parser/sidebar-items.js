@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"derive":["Parse"]};
+window.SIDEBAR_ITEMS = {"mod":["impls"],"trait":["Parse","SurfaceInstruction"]};

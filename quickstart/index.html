@@ -34,39 +34,40 @@ A ready-made CPU/host component — a small stack machine with
 <code>cpu::SurfaceInstruction</code>, and the
 <code>StepOutcome</code> control-flow effect. Use it directly, or as a
         reference for writing your own components.
-</dd> <dt><code>vihaco-parser</code> <span class="crate-tag">parser</span></dt> <dd>
+</dd> <dt><code>vihaco-parser-derive</code> <span class="crate-tag">parser</span></dt> <dd>
 The <code>#[derive(Parse)]</code> proc-macro. It turns an instruction
         enum or struct into a
 <a href="https://github.com/zesterer/chumsky">chumsky</a> parser from
         declarative <code>#[syntax_class]</code> and
 <code>#[pattern]</code> attributes.
-</dd> <dt><code>vihaco-parser-core</code> <span class="crate-tag">parser</span></dt> <dd>
+</dd> <dt><code>vihaco-parser</code> <span class="crate-tag">parser</span></dt> <dd>
 The <code>Parse&lt;'src&gt;</code> and
 <code>SurfaceInstruction</code> traits, plus parser implementations for
         primitives, lexical types (<code>Ident</code>,
 <code>BareToken</code>, and <code>QuotedString</code>), vectors, and
         tuples.
-</dd> <dt><code>vihaco-derive</code> <span class="crate-tag">internal</span></dt> <dd>
-The procedural macros behind <code>#[derive(Instruction)]</code>,
-<code>#[derive(Message)]</code>, <code>#[component]</code>,
-<code>#[observe]</code>, and <code>#[composite]</code>. Re-exported
-        through <code>vihaco</code> — you rarely depend on it directly.
+</dd> <dt><code>vihaco-runtime-derive</code> <span class="crate-tag">internal</span></dt> <dd>
+The procedural macros behind <code>#[derive(Message)]</code>,
+<code>#[component]</code>, <code>#[observe]</code>, and
+<code>#[composite]</code> (<code>#[derive(Instruction)]</code> lives in
+<code>vihaco-abi-derive</code>). Both are re-exported through
+<code>vihaco</code> — you rarely depend on them directly.
 </dd> </dl> <h2 id="pick"><span class="sec-num">§ 2</span>Pick crates by use case</h2> <ul class="crate-pick"> <li> <strong>Define instructions, components, and effects</strong>:
 <code>vihaco</code>.
 </li> <li> <strong>Reuse a CPU / stack machine</strong> as one of your components:
 <code>vihaco</code> + <code>vihaco-cpu</code>.
 </li> <li> <strong>Parse source text into instructions</strong>:
 <code>vihaco</code> + <code>vihaco-parser</code> +
-<code>vihaco-parser-core</code>.
+<code>vihaco-parser-derive</code>.
 </li> </ul> <h2 id="setup"><span class="sec-num">§ 3</span>Setup</h2> <p>
 Requires Rust edition 2024. There is no published release yet, so depend
       on the git repo. The git dependency form is identical for each crate:
 </p> <pre><code class="language-toml">[dependencies]
-vihaco             = { git = &quot;https://github.com/QuEraComputing/vihaco&quot; }
-vihaco-cpu         = { git = &quot;https://github.com/QuEraComputing/vihaco&quot; }
-vihaco-parser      = { git = &quot;https://github.com/QuEraComputing/vihaco&quot; }
-vihaco-parser-core = { git = &quot;https://github.com/QuEraComputing/vihaco&quot; }
-eyre               = "0.6"   # vihaco APIs return eyre::Result</code></pre> <h2 id="component"><span class="sec-num">§ 4</span>A first component</h2> <p>
+vihaco               = { git = &quot;https://github.com/QuEraComputing/vihaco&quot; }
+vihaco-cpu           = { git = &quot;https://github.com/QuEraComputing/vihaco&quot; }
+vihaco-parser        = { git = &quot;https://github.com/QuEraComputing/vihaco&quot; }
+vihaco-parser-derive = { git = &quot;https://github.com/QuEraComputing/vihaco&quot; }
+eyre                 = "0.6"   # vihaco APIs return eyre::Result</code></pre> <h2 id="component"><span class="sec-num">§ 4</span>A first component</h2> <p>
 A component bundles three things: an <code>Instruction</code> enum (the
       operations), an optional <code>Message</code> (resolved execution input),
       and an optional effect type (what execution returns). The
@@ -133,11 +134,11 @@ Source-text parsing is orthogonal to bytecode. A user-declared surface
       can also derive <code>Instruction</code>:
 </p> <pre><code class="language-rust">use chumsky::Parser as _;
 use vihaco::Instruction;
-use vihaco_parser_core::Parse;
+use vihaco_parser::Parse;
 
 // The same enum can derive both `Instruction` (bytecode + runtime) and
 // `Parse` (SST). The two derives are orthogonal.
-#[derive(Debug, Clone, PartialEq, Instruction, vihaco_parser::Parse)]
+#[derive(Debug, Clone, PartialEq, Instruction, vihaco_parser_derive::Parse)]
 #[syntax_class(instruction, head = &quot;counter&quot;)]
 pub enum CounterInst {
     #[pattern = &quot;&#39;add $0&quot;]
@@ -315,7 +316,7 @@ Ready for the full authoring model — instructions, messages, components, obser
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-07-31</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-08-04</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

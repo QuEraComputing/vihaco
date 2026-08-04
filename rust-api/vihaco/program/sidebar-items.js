@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["value"]};
+window.SIDEBAR_ITEMS = {"enum":["Type","Value"],"mod":["value"]};

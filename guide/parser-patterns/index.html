@@ -14,8 +14,8 @@
 <p>The pattern parser derives source parsers for syntax types. A pattern
 describes the concrete spelling of a value and binds parts of that spelling to
 Rust fields. The derive validates the description at compile time, then emits
-a <code>vihaco_parser_core::Parse</code> implementation. Instruction-class enums also
-receive a <code>vihaco_parser_core::SurfaceInstruction</code> implementation.</p>
+a <code>vihaco_parser::Parse</code> implementation. Instruction-class enums also
+receive a <code>vihaco_parser::SurfaceInstruction</code> implementation.</p>
 <p>Use two attributes:</p>
 <ul>
 <li><code>#[syntax_class(...)]</code> on the enum or struct selects the role of the syntax.</li>
@@ -24,8 +24,8 @@ generated pattern.</li>
 </ul>
 <h2 id="a-complete-instruction-example">A complete instruction example</h2>
 <pre><code class="language-rust">use chumsky::Parser as _;
-use vihaco_parser::Parse;
-use vihaco_parser_core::Parse as ParseTrait;
+use vihaco_parser_derive::Parse;
+use vihaco_parser::Parse as ParseTrait;
 
 #[derive(Debug, PartialEq, Parse)]
 #[syntax_class(instruction, head = "memory")]
@@ -59,7 +59,7 @@ assert_eq!(
 <code>head = "memory"</code> combines with the pattern token <code>'load</code> to accept
 <code>memory::load</code>.</p>
 <p>Every bound field is parsed with that field type’s
-<code>vihaco_parser_core::Parse::parser()</code>. Give domain-specific field syntax its
+<code>vihaco_parser::Parse::parser()</code>. Give domain-specific field syntax its
 own local enum or struct with <code>#[derive(Parse)]</code>.</p>
 <h2 id="syntax-classes">Syntax classes</h2>
 <p>Every type using pattern generation must declare a syntax class.</p>
@@ -230,8 +230,8 @@ Rust constructor:</p>
 <p>These rules allow fields to appear in any source order without making
 construction ambiguous.</p>
 <pre><code class="language-rust">use chumsky::Parser as _;
-use vihaco_parser::Parse;
-use vihaco_parser_core::Parse as ParseTrait;
+use vihaco_parser_derive::Parse;
+use vihaco_parser::Parse as ParseTrait;
 
 #[derive(Debug, PartialEq, Parse)]
 #[syntax_class(value)]
@@ -459,7 +459,7 @@ sugar, continue to
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-07-31</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-08-04</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

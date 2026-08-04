@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"attr":["component","composite","observe"],"derive":["Instruction","Message"]};
+window.SIDEBAR_ITEMS = {"attr":["component","composite","observe"],"derive":["Instruction","Message"],"trait":["Message"]};

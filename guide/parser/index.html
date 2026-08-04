@@ -14,10 +14,10 @@
 <p>Source syntax is defined with the pattern parser, which is split across two
 crates:</p>
 <ol>
-<li><strong><code>vihaco-parser-core</code></strong> defines <code>Parse&#x3C;'src></code> and <code>SurfaceInstruction</code>, and
+<li><strong><code>vihaco-parser</code></strong> defines <code>Parse&#x3C;'src></code> and <code>SurfaceInstruction</code>, and
 implements <code>Parse</code> for common lexical, primitive, and collection field
 types.</li>
-<li><strong><code>vihaco-parser</code></strong> provides <code>#[derive(Parse)]</code>, which generates a
+<li><strong><code>vihaco-parser-derive</code></strong> provides <code>#[derive(Parse)]</code>, which generates a
 <a href="https://github.com/zesterer/chumsky">chumsky</a> parser from
 <code>#[syntax_class]</code> and <code>#[pattern]</code>.</li>
 </ol>
@@ -28,8 +28,8 @@ by the Rust syntax type. Unknown or malformed input is an error.</p>
 <h2 id="a-complete-instruction-parser">A complete instruction parser</h2>
 <pre><code class="language-rust">use chumsky::Parser as _;
 use vihaco::Instruction;
-use vihaco_parser::Parse;
-use vihaco_parser_core::Parse as ParseTrait;
+use vihaco_parser_derive::Parse;
+use vihaco_parser::Parse as ParseTrait;
 
 #[derive(Debug, Clone, PartialEq, Instruction, Parse)]
 #[instruction(width = 8)]
@@ -73,7 +73,7 @@ binds the first tuple field. The derive also implements
     >;
 }
 </code></pre>
-<p><code>vihaco-parser-core</code> implements <code>Parse</code> for common primitives:</p>
+<p><code>vihaco-parser</code> implements <code>Parse</code> for common primitives:</p>
 
 
 
@@ -159,8 +159,8 @@ trailing <code>::</code>; the derive supplies it.</p>
 </ul>
 <p>For example:</p>
 <pre><code class="language-rust">use chumsky::Parser as _;
-use vihaco_parser::Parse;
-use vihaco_parser_core::{Ident, Parse as ParseTrait};
+use vihaco_parser_derive::Parse;
+use vihaco_parser::{Ident, Parse as ParseTrait};
 
 #[derive(Debug, PartialEq, Parse)]
 #[syntax_class(instruction, head = "control")]
@@ -191,8 +191,8 @@ generated defaults, whitespace rules, validation, structs, and large enums.</p>
 local enum or struct when a field has its own domain syntax; this also keeps
 foreign types behind an application-owned syntax boundary.</p>
 <pre><code class="language-rust">use chumsky::Parser as _;
-use vihaco_parser::Parse;
-use vihaco_parser_core::{Ident, Parse as ParseTrait};
+use vihaco_parser_derive::Parse;
+use vihaco_parser::{Ident, Parse as ParseTrait};
 
 #[derive(Debug, PartialEq, Parse)]
 #[syntax_class(value)]
@@ -375,7 +375,7 @@ newtype, another syntax enum or struct, <code>Vec&#x3C;T></code>, or a tuple.</p
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-07-31</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-08-04</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {
