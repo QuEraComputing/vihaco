@@ -6,6 +6,13 @@ use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
 use syn::Ident;
 
+/// Remove attributes consumed by this proc-macro crate before re-emitting an
+/// item. Attribute macros cannot register helper attributes, so leaving one on
+/// the output causes rustc to reject the expanded item.
+pub fn strip_vihaco_attrs(attrs: &mut Vec<syn::Attribute>) {
+    attrs.retain(|attr| !attr.path().is_ident("vihaco"));
+}
+
 /// Resolve the crate root that generated code should be rooted at.
 ///
 /// A downstream crate might depend on the `vihaco` facade *or* directly on

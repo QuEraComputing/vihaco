@@ -12,7 +12,7 @@ use syn::{
     parse_macro_input,
 };
 
-use crate::common::resolve_root;
+use crate::common::{resolve_root, strip_vihaco_attrs};
 
 struct ObserveEntry {
     event_type: syn::Path,
@@ -194,11 +194,12 @@ fn expr_tokens_eq(lhs: &syn::Expr, rhs: &syn::Expr) -> bool {
 
 pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as ObserveArgs);
-    let item_impl = parse_macro_input!(item as ItemImpl);
+    let mut item_impl = parse_macro_input!(item as ItemImpl);
     let root = match resolve_root(&item_impl.attrs) {
         Ok(root) => root,
         Err(err) => return err.into_compile_error().into(),
     };
+    strip_vihaco_attrs(&mut item_impl.attrs);
     let self_ty = &item_impl.self_ty;
 
     let mut trait_impls = Vec::new();

@@ -7,6 +7,7 @@ mod attr_observe;
 mod common;
 mod derive_message;
 
+use crate::common::strip_vihaco_attrs;
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Fields};
@@ -24,6 +25,8 @@ pub fn composite(_attr: TokenStream, item: TokenStream) -> TokenStream {
         Ok(input) => input,
         Err(err) => return err.into_compile_error().into(),
     };
+
+    strip_vihaco_attrs(&mut sanitized.attrs);
 
     if let Data::Struct(data) = &mut sanitized.data
         && let Fields::Named(fields) = &mut data.fields

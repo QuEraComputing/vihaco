@@ -6,7 +6,7 @@ use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::{ImplItem, ItemImpl, ReturnType, Token, Type};
 
-use crate::common::resolve_root;
+use crate::common::{resolve_root, strip_vihaco_attrs};
 
 struct ComponentArgs {
     instruction: syn::Type,
@@ -58,11 +58,12 @@ impl Parse for ComponentArgs {
 
 pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = syn::parse_macro_input!(attr as ComponentArgs);
-    let item_impl = syn::parse_macro_input!(item as ItemImpl);
+    let mut item_impl = syn::parse_macro_input!(item as ItemImpl);
     let root = match resolve_root(&item_impl.attrs) {
         Ok(root) => root,
         Err(err) => return err.into_compile_error().into(),
     };
+    strip_vihaco_attrs(&mut item_impl.attrs);
     let instruction_ty = args.instruction;
     let message_ty = args.message;
 
