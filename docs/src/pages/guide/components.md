@@ -2,212 +2,162 @@
 layout: ../../layouts/Guide.astro
 title: Building Components
 slug: components
-description: "Components are the basic execution units in vihaco — an instruction type, an optional message, an optional effect, and one #[component(...)] impl that executes the instruction."
+description: "Declare reusable runtime components with component!, define instruction products, and implement Execute per instruction."
 ---
 
 # Building Components With `vihaco`
 
-Components are the basic execution units in `vihaco`.
-You define:
+A component owns state and the behavior for one or more runtime instruction
+products. The component declaration and the execution implementation are two
+deliberate boundaries:
 
-- an instruction type
-- an optional resolved message type
-- an optional effect type
-- one `#[component(...)]` impl that executes the instruction
+- `component!` declares the state type and the instruction product types.
+- `Execute<I>` implements one product `I`, with its own message, effect, and
+  fault types.
 
-This guide shows the current public authoring model for defining your own component.
+This lets a component expose operations with different input and output
+contracts without forcing them through one large instruction enum.
 
-If you want a focused guide to instruction enums, explicit instruction width, and nested composite-level wrappers, read [Defining Instructions With `vihaco`](/guide/instructions).
-If you want a focused guide to resolved execution input and composite-side message generation, read [Using Messages With `vihaco`](/guide/messages).
+## Declare a component
 
-## The Core Pieces
+```rust
+use vihaco::component;
 
-A component usually starts with two or three data types:
+component! {
+    component Counter {
+        value: i64,
+    }
 
-- an instruction enum with `#[derive(Instruction)]`
-- a message type with `#[derive(Message)]` when execution needs pre-resolved input
-- one or more plain Rust effect types when execution needs to return output
+    instruction {
+        Add(i64),
+        Print,
+    }
+}
+```
 
-Use them this way:
+The macro creates `counter::Counter` and places the products in
+`counter::instruction`: `Add(i64)` and `Print`. Named and tuple products are
+also supported:
 
-- `Instruction`: the operation the component should execute
-- `Message`: resolved execution input delivered into the component for that step
-- `Effect`: value returned from execution and later interpreted by the runtime or delivered to observers
+```rust
+use vihaco::component;
 
-Example:
+component! {
+    component RegisterFile {
+        values: Vec<i64>,
+    }
+
+    instruction {
+        Read { slot: usize },
+        Write(usize, i64),
+        Reset,
+    }
+}
+```
+
+The declaration is a catalog of runtime products. It does not define source
+syntax, assign machine-wide device codes, or choose which products a composite
+exposes.
+
+## Implement `Execute<I>`
+
+Execution is implemented per product. `Message` is a marker for owned,
+runtime-supplied input; `NoMessage` is the standard input for an instruction
+that needs none. `StepResult` keeps returned effects separate from whether the
+operation completed or parked.
 
 ```rust
 use eyre::Result;
-use vihaco::{Effects, Instruction, Message, component};
+use vihaco::{
+    component, Effects, Execute, Execution, Message, StepResult,
+};
 
-#[derive(Debug, Clone, Instruction)]
-pub enum CounterInst {
-    Add(i64),
-    Print,
+component! {
+    component Counter {
+        value: i64,
+    }
+
+    instruction {
+        Add(i64),
+        Print,
+    }
 }
 
 #[derive(Debug, Clone)]
-pub struct PrintPrefix(pub String);
-
-impl Message for PrintPrefix {}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StdoutEffect(pub String);
-
-#[derive(Debug, Default)]
-pub struct Counter {
-    value: i64,
-}
-```
-
-## Defining `#[component(...)]`
-
-Component execution lives on an impl block annotated with `#[component(...)]`.
-
-```rust ignore
-# use eyre::Result;
-# use vihaco::{Effects, Instruction, Message, component};
-# #[derive(Debug, Clone, Instruction)]
-# pub enum CounterInst { Add(i64), Print }
-# #[derive(Debug, Clone, Message)]
-# pub struct PrintPrefix(pub String);
-# #[derive(Debug, Clone, PartialEq, Eq)]
-# pub struct StdoutEffect(pub String);
-# #[derive(Debug, Default)]
-# pub struct Counter { value: i64 }
-#[component(instruction = CounterInst, message = PrintPrefix, effect = StdoutEffect)]
-impl Counter {
-    fn execute(&mut self, inst: CounterInst, msg: PrintPrefix) -> Result<Effects<StdoutEffect>> {
-        match inst {
-            CounterInst::Add(v) => {
-                self.value += v;
-                Ok(Effects::none())
-            }
-            CounterInst::Print => Ok(Effects::one(StdoutEffect(format!(
-                "{}{}",
-                msg.0, self.value
-            )))),
-        }
-    }
-}
-```
-
-The execution method shape is:
-
-```rust ignore
-fn execute(&mut self, inst: Inst, msg: Msg) -> eyre::Result<Effects<Effect>>
-```
-
-Important points:
-
-- `Inst` must match the `instruction = ...` type
-- `Msg` must match the `message = ...` type
-- when `effect = ...` is omitted, the effect type defaults to `()`
-- normal execution output is returned as `Effects<Effect>`
-
-It is useful to keep the data flow straight:
-
-- `Message` goes into a component
-- `Effect` comes out of a component
-- components consume `Message`
-- runtimes and observers consume `Effect`
-
-## When To Use `message = ()`
-
-Use `message = ()` when the component can execute directly from its instruction and local state.
-
-```rust ignore
-use eyre::Result;
-use vihaco::{Effects, Instruction, component};
-
-#[derive(Debug, Clone, Instruction)]
-pub enum LampInst {
-    On,
-    Off,
-}
+pub struct Prefix(String);
+impl Message for Prefix {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LampChanged(pub bool);
+pub struct Line(String);
 
-#[derive(Debug, Default)]
-pub struct Lamp {
-    on: bool,
+impl Execute<counter::instruction::Add> for counter::Counter {
+    type Message = ();
+    type Effect = ();
+    type Fault = eyre::Report;
+
+    fn execute(
+        &mut self,
+        instruction: &counter::instruction::Add,
+        _message: (),
+    ) -> Result<StepResult<()>, Self::Fault> {
+        self.value += instruction.0;
+        Ok(StepResult {
+            effects: Effects::none(),
+            execution: Execution::Complete,
+        })
+    }
 }
 
-#[component(instruction = LampInst, message = (), effect = LampChanged)]
-impl Lamp {
-    fn execute(&mut self, inst: LampInst, _msg: ()) -> Result<Effects<LampChanged>> {
-        self.on = matches!(inst, LampInst::On);
-        Ok(Effects::one(LampChanged(self.on)))
+impl Execute<counter::instruction::Print> for counter::Counter {
+    type Message = Prefix;
+    type Effect = Line;
+    type Fault = eyre::Report;
+
+    fn execute(
+        &mut self,
+        _instruction: &counter::instruction::Print,
+        message: Prefix,
+    ) -> Result<StepResult<Line>, Self::Fault> {
+        Ok(StepResult {
+            effects: Effects::one(Line(format!("{}{}", message.0, self.value))),
+            execution: Execution::Complete,
+        })
     }
 }
 ```
 
-Use a non-unit message when execution needs resolved data that should not be encoded directly in the instruction itself.
+The `Execute` contract is:
 
-As a rule:
-
-- use `Message` for step-local execution input
-- use `Effect` for values the runtime should interpret or deliver after execution
-
-## Execution Surface
-
-Component execution depends only on explicit inputs and returned effects.
-
-- `Instruction` and `Message` are the full inputs to `execute(...)`
-- `Effects<Effect>` is the full output from `execute(...)`
-- runtimes decide how to interpret returned effects after execution
-
-## Design Guidance
-
-- Put bytecode-visible execution variants in the instruction enum.
-- Put resolved execution input in the message type.
-- Put follow-up outputs in plain effect types.
-- Keep the component responsible for its own state mutation.
-- Use `effect = StepOutcome` when a component needs to return control-flow signals.
-
-## Returning A Custom Effect
-
-By default, `execute(...)` returns `Result<Effects<()>>`. When a component needs to return a real effect, use the `effect` parameter:
-
-```rust ignore
-use vihaco::{Effects, Instruction, Message, component};
-use vihaco_cpu::StepOutcome;
-
-#[derive(Debug, Clone, Instruction)]
-pub enum CpuInst {
-    Nop,
-    Halt,
-}
-
-#[derive(Debug, Clone, Message)]
-pub struct CpuMsg;
-
-pub struct CpuCore;
-
-#[component(instruction = CpuInst, message = CpuMsg, effect = StepOutcome)]
-impl CpuCore {
-    fn execute(&mut self, inst: CpuInst, _msg: CpuMsg) -> eyre::Result<Effects<StepOutcome>> {
-        match inst {
-            CpuInst::Nop => Ok(Effects::one(StepOutcome::Continue)),
-            CpuInst::Halt => Ok(Effects::one(StepOutcome::Halt)),
-        }
-    }
-}
+```text
+Execute<I>::execute(&mut self, &I, Message)
+    -> Result<StepResult<Effect>, Fault>
 ```
 
-The `effect` parameter is optional. When omitted, the macro sets `type Effect = ()`. When present, the component's `GeneratedComponent::Effect` type matches what you specify.
+`Effects` can contain zero, one, or many values. `Execution::Complete` tells a
+parent that it may advance its program counter; `Execution::Parked` tells it
+to retain the operation until an owned completion is available. The runtime
+does not infer timing or scheduling from this value.
 
-**Important:** effects only matter when some runtime continues them. In practice:
+## Capabilities around execution
 
-- Hand-written runtime code can call `execute_generated` directly and extract the returned effects. For single-effect control flow, `expect_exactly_one_effect(...)` is the common helper.
-- When a runtime needs to mix control-flow effects with other follow-ups, it usually defines a runtime-local sum-effect enum, gathers those values, and continues them in one place.
-- Transitional `#[composite]` wiring generates the device dispatch and metadata; continuing returned effects to observers is something the hand-written runtime does (see [Defining A Composite With `vihaco`](/guide/composites)), and it does not interpret `StepOutcome` for you.
+Components can expose reusable capabilities independently of instruction
+execution:
 
-As a rule: use plain effect types for observer-delivered outputs, and use runtime-local sum-effect enums when a hand-written runtime needs extra per-step interpretation.
+- `Supply<M>` produces an owned message, often from a stack or queue.
+- `Absorb<E>` consumes an owned effect, often by updating state.
+- `Observe<E, R>` borrows an effect for diagnostics, tracing, or recording.
+- `Handle<E, R>` is the composite-selected route for the one consumer that
+  receives ownership of an effect.
 
-## What Comes Next
+These contracts keep a reusable component independent of the composite that
+contains it. The composite decides which capability is used on each route.
 
-Once you have one or more components, the next step is to understand how observer types consume the returned effects.
+## Planned extensions
 
-Continue with [Observing Effects With `#[observe]`](/guide/observers).
+The current runtime leaves resume/continuation dispatch and timing policy to
+ordinary Rust in the parent runtime. A future macro layer is planned to make
+those boundaries more convenient; until then, examples should implement them
+explicitly and should treat `Execution::Parked` as a real runtime state.
+
+Continue with [Defining Composites](/guide/composites) and
+[Using Messages](/guide/messages).

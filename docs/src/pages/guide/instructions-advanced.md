@@ -123,7 +123,8 @@ This keeps composition straightforward:
 - the machine exposes one outer instruction type
 - the wrapper enum handles outer dispatch without forcing every inner instruction type to be rewritten
 
-> When you use the [`#[composite]`](/guide/composites) attribute, this outer wrapper enum is generated for you (as `<MachineName>Instruction`). Writing it by hand, as above, is the same shape — useful when you want full control over the wrapper.
+> A `composite!` declaration generates the machine-local runtime sum as
+> `<MachineName>Instruction`, with one explicitly declared route per product.
 
 ## How Nested Widths Compose
 
@@ -172,6 +173,7 @@ This is what makes nested instruction composition deterministic:
 
 `#[derive(Instruction)]` covers bytecode and runtime semantics; source-text parsing is owned by an orthogonal `#[derive(vihaco_parser_derive::Parse)]` on the same enum. See [Pattern Parser Integration for Component Instructions](/guide/parser) for the parser-side workflow and [Module Parsing and Resolution](/guide/parser-advanced) for section headers, typed function bodies, and module resolution.
 
-After defining an instruction type, the next step is usually to attach it to a component impl with `#[component(...)]`.
+After defining an instruction type, implement `Execute<I>` for the relevant
+component product and select it from a `composite!` route.
 
 See [Building Components With `vihaco`](/guide/components) for the execution side of that model.

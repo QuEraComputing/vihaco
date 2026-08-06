@@ -7,8 +7,9 @@ description: "How to define a component-local instruction enum with #[derive(Ins
 
 # Defining Instructions With `vihaco`
 
-Instruction types are the bytecode-visible operations in `vihaco`.
-They are usually Rust enums annotated with `#[derive(Instruction)]`.
+Instruction types are the encoded operations in `vihaco`. Component runtime
+products are declared with `component!`; source- or bytecode-facing enums can
+derive `Instruction` when a single enum is the representation you want.
 
 This guide shows:
 
@@ -47,7 +48,7 @@ CounterInst::Print  => [opcode for Print]
 By default, `#[derive(Instruction)]` assigns opcodes in variant order starting at `0`.
 That means the first variant gets opcode `0`, the second gets `1`, and so on.
 
-In normal component code, this instruction type is the `instruction = ...` value on the component impl:
+For the current component model, declare products directly:
 
 ```rust ignore
 use eyre::Result;
@@ -64,12 +65,9 @@ pub struct Lamp {
     on: bool,
 }
 
-#[component(instruction = LampInst, message = ())]
-impl Lamp {
-    fn execute(&mut self, inst: LampInst, _msg: ()) -> Result<vihaco::Effects<()>> {
-        self.on = matches!(inst, LampInst::On);
-        Ok(vihaco::Effects::none())
-    }
+component! {
+    component Lamp { on: bool, }
+    instruction { On, Off, }
 }
 ```
 
@@ -127,6 +125,7 @@ For explicit opcode assignment, explicit widths, and machine-level wrapper instr
 
 `#[derive(Instruction)]` covers bytecode and runtime semantics; source-text parsing is owned by an orthogonal `#[derive(vihaco_parser_derive::Parse)]` on the same enum. See [Pattern Parser Integration for Component Instructions](/guide/parser) for the parser-side workflow and [Module Parsing and Resolution](/guide/parser-advanced) for section headers, typed function bodies, and module resolution.
 
-After defining an instruction type, the next step is usually to attach it to a component impl with `#[component(...)]`.
+After defining products, implement `Execute<I>` for each product as described in
+[Building Components](/guide/components).
 
 See [Building Components With `vihaco`](/guide/components) for the execution side of that model.

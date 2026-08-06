@@ -2,373 +2,140 @@
 layout: ../../layouts/Guide.astro
 title: Defining a Composite
 slug: composites
-description: "Composite structs are the composition root in vihaco — #[composite] generates the outer instruction enum and device metadata; message resolution and effect delivery are hand-written."
+description: "Compose components with composite!, select runtime routes, resolve messages, and deliver effects."
 ---
 
-# Defining A Composite With `vihaco`
+# Defining a Composite With `vihaco`
 
-Composite structs are the composition root in `vihaco`.
-They own components, observers, and device codes, and they are where the
-generated wiring meets your hand-written runtime.
+A composite is the machine-specific composition root. It owns component
+instances and declares the routes that connect a public machine instruction to
+a component product, a message source, observers, and one effect handler.
 
-This guide shows how to wire components and observers into a composite using the current macro surface.
-
-If you have not read the observer guide yet, read [Observing Effects With `#[observe]`](/guide/observers) first.
-For a focused guide to composite-side message resolution before component execution, read [Using Messages With `vihaco`](/guide/messages).
-
-## A Small Composite
-
-Assume you already have:
-
-- a component such as `Counter`
-- an effect type such as `StdoutEffect`
-- a type that observes that effect
+## A routed composite
 
 ```rust
 use eyre::Result;
-use vihaco::{Effects, Observe};
+use vihaco::{
+    composite, Absorb, Effects, Execute, Execution, Message, Observe, StepResult,
+    Supply,
+};
 
-#[derive(Debug, Clone)]
-pub struct StdoutEffect(pub String);
-
-#[derive(Debug, Default)]
-pub struct StdoutCollector {
-    lines: Vec<String>,
+struct Stack(Vec<i64>);
+impl Supply<(i64, i64)> for Stack {
+    type Fault = eyre::Report;
+    fn supply(&mut self) -> Result<(i64, i64), Self::Fault> {
+        let rhs = self.0.pop().ok_or_else(|| eyre::eyre!("underflow"))?;
+        let lhs = self.0.pop().ok_or_else(|| eyre::eyre!("underflow"))?;
+        Ok((lhs, rhs))
+    }
 }
 
-impl Observe<StdoutEffect> for StdoutCollector {
+#[derive(Clone)]
+struct Add;
+struct Arithmetic;
+struct Value(i64);
+impl Execute<Add> for Arithmetic {
+    type Message = (i64, i64);
+    type Effect = Value;
+    type Fault = eyre::Report;
+    fn execute(&mut self, _: &Add, (lhs, rhs): (i64, i64)) -> Result<StepResult<Value>> {
+        Ok(StepResult {
+            effects: Effects::one(Value(lhs + rhs)),
+            execution: Execution::Complete,
+        })
+    }
+}
+impl Absorb<Value> for Stack {
+    type Fault = eyre::Report;
+    fn absorb(&mut self, value: Value) -> Result<()> { self.0.push(value.0); Ok(()) }
+}
+struct Trace;
+impl<R> Observe<Value, R> for Trace {
     type Effect = ();
     type Error = eyre::Report;
+    fn observe(&mut self, _: &Value) -> Result<Effects<()>> { Ok(Effects::none()) }
+}
 
-    fn observe(&mut self, effect: &StdoutEffect) -> Result<Effects<()>> {
-        self.lines.push(effect.0.clone());
-        Ok(Effects::none())
+composite! {
+    composite Calculator {
+        error = eyre::Report;
+
+        #[device(0x01, alias = "alu")]
+        arithmetic: Arithmetic,
+        stack: Stack,
+        trace: Trace,
     }
-}
-```
 
-Now you can compose a runtime root:
-
-```rust ignore
-# use eyre::Result;
-# use vihaco::{Effects, Instruction, Observe, component};
-# #[derive(Debug, Clone, Instruction)]
-# pub enum CounterInst { Print }
-# #[derive(Debug, Default)]
-# pub struct Counter;
-# #[component(instruction = CounterInst, message = ())]
-# impl Counter {
-#     fn execute(&mut self, _inst: CounterInst, _msg: ()) -> Result<Effects<()>> { Ok(Effects::none()) }
-# }
-# #[derive(Debug, Clone)]
-# pub struct StdoutEffect(pub String);
-# #[derive(Debug, Default)]
-# pub struct StdoutCollector { lines: Vec<String> }
-# impl Observe<StdoutEffect> for StdoutCollector {
-#     type Effect = ();
-#     type Error = eyre::Report;
-#     fn observe(&mut self, effect: &StdoutEffect) -> Result<Effects<()>> {
-#         self.lines.push(effect.0.clone());
-#         Ok(Effects::none())
-#     }
-# }
-use vihaco::composite;
-
-#[composite]
-#[derive(Debug, Default)]
-pub struct CounterComposite {
-    #[device(0x00, alias = "count")]
-    counter: Counter,
-
-    // A plain observer field — the runtime delivers StdoutEffect to it.
-    stdout: StdoutCollector,
-}
-```
-
-## What `#[composite]` Generates
-
-`#[composite]` is transitional scaffolding that generates the repetitive composition glue from the `#[device(...)]` fields:
-
-- **An outer instruction enum** named `<StructName>Instruction`, with one variant per device field. Each variant is the PascalCase of the field name and wraps that component's instruction type. For `CounterComposite` above the macro emits, roughly:
-
-  ```rust ignore
-  #[derive(Debug, Clone, Instruction)]
-  pub enum CounterCompositeInstruction {
-      Counter(<Counter as GeneratedComponent>::Instruction),
-  }
-  ```
-
-- **Composite metadata** — an `impl GeneratedMachine` whose `metadata()` returns a `CompositeMetadata` listing each device's code and field name, plus the source-symbol aliases (so a loader can map a name like `"counter"` to its device code).
-
-- **Section loading glue** — `LoadBytecodeSection` and `LoadSstSection` impls that call your own-section loader for the composite's own section, then route direct child sections to `#[loadable]` devices.
-
-The `#[device]` and `#[loadable]` attributes are stripped from the struct the macro emits, so they don't leak into your type.
-
-The long-term model is still explicit Rust composition. The macro is convenience for the device dispatch and metadata, not the semantic center of the design — message resolution and effect delivery stay in hand-written runtime code.
-
-## The Field Attributes
-
-### `#[device(CODE, alias = "…")]`
-
-Associates a component field with a device code and optional source aliases.
-
-```rust ignore
-#[device(0x00, alias = "count")]
-counter: Counter,
-```
-
-- `CODE` is a `u8` device code; it must be unique across the composite (a duplicate is a compile error).
-- `alias = "…"` registers a source-symbol alias for the field; you can repeat it for multiple aliases. The field name itself is always registered as a source symbol, and every name (field or alias) must be unique across the composite.
-
-The field type must implement `GeneratedComponent` (which `#[component(...)]` provides). The device code and aliases are what a loader uses to validate source symbols and route instructions when a composite loads a module.
-
-### Own Section Loading
-
-Headers, program streams, and program-counter delegation are ordinary Rust. Implement `LoadOwnBytecodeSection` or `LoadOwnSstSection` for the composite to load the current section's own data:
-
-```rust ignore
-#[derive(Default)]
-pub struct CpuHeader {
-    cores: u32,
-}
-
-#[composite]
-#[derive(Default)]
-pub struct CpuMachine {
-    info: CpuHeader,
-    program: vihaco::ProgramImage<CpuInst, MyContext>,
-}
-
-impl vihaco::LoadOwnBytecodeSection<MyContext> for CpuMachine {
-    fn load_own_bytecode_section<'a>(
-        &mut self,
-        section: vihaco::BytecodeSectionView<'a, MyContext>,
-    ) -> eyre::Result<()> {
-        self.info = section.decode_header::<CpuHeader>()?;
-        self.program.module.code = section.decode_instructions()?;
-        self.program.context = Some(section.context_handle());
-        self.program.pc = 0;
-        Ok(())
-    }
-}
-```
-
-For SST, parse the section into `vihaco::syntax::ParsedModule` with `ParsedModule::<I, Ty, H>::parse_section(section)`, then lower it with your `Resolve` impl into a `Module`/`ProgramImage`. `Ty` is the consumer-provided source type syntax. If a composite drives an instruction pointer, implement `ProgramCounter` manually by delegating to the field that owns it.
-
-For structural composites that only route child sections, make that no-op explicit:
-
-```rust ignore
-impl<C> vihaco::LoadOwnBytecodeSection<C> for Machine {
-    fn load_own_bytecode_section<'a>(
-        &mut self,
-        _section: vihaco::BytecodeSectionView<'a, C>,
-    ) -> eyre::Result<()> {
-        Ok(())
-    }
-}
-```
-
-### `#[loadable]`
-
-Marks a device field that should receive its own direct child section when loading v1 multi-section bytecode or SST. The device owns its loader internally; the generated composite loader only routes the section to the marked device's concrete load impl.
-
-```rust ignore
-#[composite]
-#[derive(Default)]
-pub struct Machine {
-    #[device(0x01)]
-    #[loadable("signal")]
-    signal: SignalMachine,
-}
-```
-
-`#[loadable]` must be used on a `#[device(...)]` field whose type implements the loader trait for the representation you are loading as well as `GeneratedComponent`. Binary bytecode delegates through `LoadBytecodeSection<C>`; SST delegates through `LoadSstSection<C>`. The attribute uses the field name as the local section name. `#[loadable("name")]` overrides it. Names must be non-empty direct child names, so they cannot contain `/`.
-
-Section identity is represented as a `SectionPath`, which is a vector of resolved local section names. The root section is `SectionPath::root()` with zero components. A root child named `cpu` has the path `cpu`; a child named `alu` inside that section has `cpu/alu`. Generated loading asks the current section for direct children by local name, so the same composite can be loaded at the root or under another parent section.
-
-Manual loaders can inspect a section through the concrete view type for the format being loaded: `BytecodeSectionView<'bc, C>` for bytecode and `SstSectionView<'bc, C>` for SST. Both expose `child(name)` for a direct child and `children()` for all direct children; start from `BytecodeFile::root()` or `SstFile::root()` to inspect an entire file.
-
-The generated loader is strict:
-
-- any present direct child section must correspond to a `#[loadable]` device field
-- `#[loadable]` device fields are optional; if a file omits that child section, the device is left unchanged
-- the composite's own section header/body is loaded only through `LoadOwnBytecodeSection` or `LoadOwnSstSection`
-- manual loaders can inspect bytecode headers through `BytecodeSectionView::header_bytes()` / `BytecodeSectionView::decode_header::<H>()`, or SST headers through `SstSectionView::header_text()` / `SstSectionView::parse_header::<H>()`
-
-## Multi-Section Bytecode
-
-The read-side bytecode API lives in `vihaco` and `vihaco::loader`.
-
-```rust ignore
-fn load_machine<'bc>(
-    file: &'bc vihaco::BytecodeFile<MyContext>,
-) -> eyre::Result<Machine> {
-    let mut machine = Machine::default();
-    machine.load_bytecode_section(file.root())?;
-    Ok(machine)
-}
-
-let file: vihaco::BytecodeFile<MyContext> = vihaco::BytecodeFile::from_bytes(bytes)?;
-let machine = load_machine(&file)?;
-```
-
-The v1 file layout is:
-
-```text
-VHBC magic
-u16 version = 1
-u16 flags = 0
-u64 global_context_len
-global context bytes
-root section bytes
-```
-
-The bytecode global context is interpreted by the file's `C: BytecodeGlobalContext`. For bytecode, `C` must also implement `SectionNameResolver`, because child section table entries store local section names indirectly by ID. SST global contexts only implement `SstGlobalContext`; section names are present directly in the text. Program tables such as constants, functions, labels, entrypoints, and source symbols are architecture-specific and should live in a section header, `Module` fields, `Module::extra`, or a custom loader-owned data structure.
-
-Each section is:
-
-```text
-section frame:
-u64 section_len
-u64 header_len
-composite header bytes
-section bytecode header:
-u64 bytecode_len
-bytecode bytes
-child section table header:
-u32 child_count
-child table entries
-child section bytes
-```
-
-Each child table entry stores:
-
-```text
-u32 local_name_string
-u64 section_offset
-```
-
-The section frame is part of every section, including the root section. The bytecode header starts after the composite header, and the section's bytecode immediately follows that length. Child-related metadata comes after the parent bytecode. `local_name_string` is resolved through `GlobalContext::section_name` and represents the child's local section name. The parser builds each child's `SectionPath` by appending that resolved name to the parent path. Child section offsets are relative to the start of the containing section.
-
-### SST Multi-Section Bytecode
-
-SST uses `SstFile<C>`, `SstSectionView<'bc, C>`, and generated `LoadSstSection<C>` machinery. The backing contents are the original SST and each section stores ranges into that string. Use `SstFile<NoContext>` for an empty global block, or `SstFile<C>` when you need a custom context:
-
-```rust ignore
-let file: vihaco::SstFile<vihaco::NoContext> =
-    vihaco::SstFile::<vihaco::NoContext>::from_text(source)?;
-
-let file: vihaco::SstFile<MyContext> =
-    vihaco::SstFile::<MyContext>::from_text(source)?;
-
-let mut machine = Machine::default();
-machine.load_sst_section(file.root())?;
-```
-
-The file begins with the text magic/version marker, then a global context block:
-
-```text
-sst v1
-
-.global:
-global context text
-.global.
-```
-
-`sst v1` is the text spelling of version 1. With `NoContext`, the global block must be empty. For `SstFile<C>`, the context body is delegated to `C::from_text(context_text)`; custom SST formats usually provide a custom `SstGlobalContext` that interprets this block. The context start marker `.global:` and end marker `.global.` must be at indentation level 0.
-
-After the context comes the root section. Sections use `.section(name):` to begin and `.section(name).` to end. The top-level section must be named `root` (`.section(root):` and `.section(root).`), and it is parsed as `SectionPath::root()`. Direct child section names become path components.
-
-```text
-.section(root):
-	.header(root):
-		root header
-	.header(root).
-
-	.text(root):
-		fn @main() {
-			root instructions
-		}
-	.text(root).
-
-	.section(cpu):
-		.text(cpu):
-			fn @main() {
-				cpu instructions
-			}
-		.text(cpu).
-	.section(cpu).
-.section(root).
-```
-
-Inside a section:
-
-- `.header(name):` / `.header(name).` delimit the composite header text for `SstSectionView::header_text()`
-- `.text(name):` / `.text(name).` delimit the section bytecode text for `SstSectionView::sst()`
-- child sections are nested directly inside their parent section
-- header, bytecode, and direct child section markers must be indented with exactly one tab more than their parent section
-- section end markers must use the same indentation as their matching section start marker
-- section names must be local names; `/` is rejected in a child marker name
-
-The SST parser preserves the original header and bytecode ranges, including their leading tabs. Load section programs by mapping the section to `ParsedModule::<I, Ty, H>::parse_section(section)`, then run your `Resolve` impl to produce the runtime `Module`. Both the instruction type `I` and source type `Ty` must implement `vihaco_parser::Parse`.
-
-`ProgramImage<I, C, V = Value, Ty = Type, Info = NoInfo>` is the standard in-memory program image. Machines load binary bytecode into it by decoding `section.bytecode()` with `BytecodeSectionView::decode_instructions::<I>()` and, when useful, storing the section's cloned `ContextHandle<C>`. For SST, resolve a `ParsedModule` into the image's `module`. `ProgramImage` implements `ProgramCounter` and exposes functions, strings, and constants through `GetProgramInfo` from its own `module` fields.
-
-## Effect Continuation Is Hand-Written
-
-`#[composite]` generates the instruction enum and metadata, but it does **not** auto-deliver effects to observers. Continuing effects is something the runtime does explicitly: execute a component, then hand each returned effect to the types that observe it by calling their `Observe` impls.
-
-```rust ignore
-use vihaco::{GeneratedComponent, Observe};
-
-impl CounterComposite {
-    fn print(&mut self, msg: PrintPrefix) -> eyre::Result<()> {
-        // Counter executes Print and returns a StdoutEffect.
-        let effects = self.counter.execute_generated(CounterInst::Print, msg)?;
-        // Deliver each effect to the observer that handles it.
-        for effect in effects {
-            Observe::<StdoutEffect>::observe(&mut self.stdout, &effect)?;
+    runtime_instructions {
+        Add(Add) => arithmetic {
+            message from stack;
+            effects {
+                observe trace;
+                absorb with stack;
+            }
         }
-        Ok(())
     }
 }
 ```
 
-Conventions to follow when you write that delivery:
+The generated public `CalculatorInstruction::Add(Add)` is the machine-local
+runtime sum. `execute_generated` resolves the message, calls
+`Execute<Add>`, invokes observers in declaration order, and passes each effect
+to exactly one handler. `absorb with stack` delegates to `Stack::absorb`; use
+`handle with method` when routing policy belongs to the composite.
 
-- components return `Effects<T>`
-- the runtime continues those effects to all matching observer fields
-- both standalone observers and components that also observe receive effects through the same `Observe::observe` call
-- follow-up effects continue depth-first
-- `Effects::Many(...)` is continued left-to-right
-- if an observer needs more data, stage it into a richer effect instead of relying on delivery context
+## Route clauses
 
-## Hand-Written Runtimes
+Every route names a payload and target:
 
-Not every runtime uses a generic step loop. Hand-written runtimes often call `execute_generated(...)` directly, extract the returned effects, and then interpret or re-deliver them themselves.
+```text
+Variant(Payload) => field {
+    message none;
+    effects {
+        observe observer_a, observer_b;
+        handle with composite_method;
+    }
+}
+```
 
-The common pattern is:
+Message sources are deliberately explicit:
 
-- use `effect = StepOutcome` when a component's direct output is control flow
-- define a runtime-local sum-effect enum when a step needs to mix control flow with other follow-up values
-- continue that runtime-local effect set in one place, forwarding observer-facing effects as needed
+- `message none` passes `NoMessage`.
+- `message from field` calls `Supply<M>` on that field.
+- `message with method` calls a composite method with the instruction payload.
 
-## Design Guidance
+Effect handlers are exclusive:
 
-- Keep the composite struct explicit and readable.
-- Put `#[observe]` on the type that actually consumes the effect.
-- Use `#[device(...)]` aliases that match your source model.
-- Implement `LoadOwnBytecodeSection` / `LoadOwnSstSection` for headers and program streams owned by the current section.
-- Implement `ProgramCounter` manually when the composite drives an instruction pointer.
-- Prefer staged effect types over hidden cross-component observer context.
-- Let generated code own the device dispatch and metadata; keep effect delivery and message resolution in one clear place in your runtime.
+- `absorb with field` calls `Absorb<E>` on a component field.
+- `handle with method` calls a composite method with owned `E`.
 
-## What Comes Next
+The declared `error = E` type is the normalization boundary for component,
+message, observer, and handler failures.
 
-At this point you have the core authoring model:
+## Devices and loading
 
-- components execute instructions
-- `#[observe]` reacts to delivered effects
-- composites generate the device wiring; the runtime resolves messages and continues effects
+`#[device(code, alias = "name")]` contributes device metadata and source-symbol
+aliases. Codes must be unique. `#[loadable]` marks a device that receives a
+direct child bytecode/SST section through the generated loader. A composite
+that owns program data implements `LoadOwnBytecodeSection` or
+`LoadOwnSstSection` in ordinary Rust.
 
-From here, the next useful step is to apply the same structure to your own domain types and source model.
+The composite macro can also declare structural composites with no
+`runtime_instructions` block. Those composites still provide fields, device
+metadata, and section wiring, while their event loop or parent dispatch remains
+hand-written.
+
+## Runtime boundaries
+
+The macro does not fetch instructions, own a program counter, generate a clock,
+or generate continuation/resume dispatch. A runtime root can call
+`execute_generated`, inspect `Execution`, update its own program state, and
+schedule the next owned event. The demo shows this pattern with a CPU child and
+a global event loop.
+
+Those conveniences are planned for a later API extension. Documentation and
+examples that need timing or parked operations should continue to show the
+explicit parent-owned loop until that extension is implemented.
+
+See [Building Components](/guide/components), [Using Messages](/guide/messages),
+and [Observing Effects](/guide/observers) for the individual contracts.

@@ -1,55 +1,37 @@
 use eyre::Result;
-use vihaco::{Effects, Execute, Execution, Instruction, Message, StepResult};
+use vihaco::{component, Effects, Execute, Execution, StepResult};
 
-/// Bytecode-visible operations. Each variant becomes an opcode; tuple
-/// fields become the payload bytes that follow it.
-#[derive(Debug, Clone, Instruction)]
-pub enum CounterInst {
-    Add(i64),
-    Print,
-}
+component! {
+    component Counter {
+        value: i64,
+    }
 
-/// Resolved execution input — supplied by the runtime, not encoded in
-/// the instruction stream.
-#[derive(Debug, Clone)]
-pub struct Prefix(pub String);
-
-impl Message for Prefix {}
-
-/// A value the component returns for the runtime or observers to consume.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Line(pub String);
-
-#[derive(Debug, Default)]
-pub struct Counter {
-    value: i64,
-}
-
-impl Counter {
-    fn execute_instruction(&mut self, inst: &CounterInst, msg: Prefix) -> Result<Effects<Line>> {
-        match inst {
-            CounterInst::Add(v) => {
-                self.value += v;
-                Ok(Effects::none())
-            }
-            CounterInst::Print => Ok(Effects::one(Line(format!("{}{}", msg.0, self.value)))),
-        }
+    instruction {
+        Add(i64),
+        Read,
     }
 }
 
-impl Execute<CounterInst> for Counter {
-    type Message = Prefix;
-    type Effect = Line;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Value(pub i64);
+
+impl Execute<counter::instruction::Add> for counter::Counter {
+    type Message = ();
+    type Effect = ();
     type Fault = eyre::Report;
 
-    fn execute(
-        &mut self,
-        inst: &CounterInst,
-        msg: Prefix,
-    ) -> Result<StepResult<Line>> {
-        Ok(StepResult {
-            effects: self.execute_instruction(inst, msg)?,
-            execution: Execution::Complete,
-        })
+    fn execute(&mut self, instruction: &counter::instruction::Add, _: ()) -> Result<StepResult<()>> {
+        self.value += instruction.0;
+        Ok(StepResult { effects: Effects::none(), execution: Execution::Complete })
+    }
+}
+
+impl Execute<counter::instruction::Read> for counter::Counter {
+    type Message = ();
+    type Effect = Value;
+    type Fault = eyre::Report;
+
+    fn execute(&mut self, _: &counter::instruction::Read, _: ()) -> Result<StepResult<Value>> {
+        Ok(StepResult { effects: Effects::one(Value(self.value)), execution: Execution::Complete })
     }
 }

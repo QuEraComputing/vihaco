@@ -32,3 +32,6 @@ target
 CLAUDE.md
 .agents/skills/agents-update
 .claude/skills/agents-update
+
+# docs site
+node_modules

@@ -40,9 +40,8 @@ const toc = [
       <dt><code>vihaco</code> <span class="crate-tag">foundation</span></dt>
       <dd>
         The framework. The <code>Instruction</code> / <code>Message</code> /
-        <code>Effects</code> types and their derives, the
-        <code>#[component]</code>, <code>#[observe]</code>, and
-        <code>#[composite]</code> macros, the <code>module</code> /
+        <code>Effects</code> types, the <code>component!</code> and
+        <code>composite!</code> macros, the <code>module</code> /
         <code>syntax</code> / <code>runtime</code> layers, and the
         <code>Value</code> / <code>Type</code> value model. Re-exports the
         macros, so most projects depend only on this crate.
@@ -53,8 +52,8 @@ const toc = [
         <code>cpu::RuntimeInstruction</code> (constants, arithmetic, branches,
         <code>halt</code>, …), a pattern-derived
         <code>cpu::SurfaceInstruction</code>, and the
-        <code>StepOutcome</code> control-flow effect. Use it directly, or as a
-        reference for writing your own components.
+        execution component. Use it directly, or as a reference for writing
+        your own components.
       </dd>
       <dt><code>vihaco-parser-derive</code> <span class="crate-tag">parser</span></dt>
       <dd>
@@ -74,9 +73,8 @@ const toc = [
       </dd>
       <dt><code>vihaco-runtime-derive</code> <span class="crate-tag">internal</span></dt>
       <dd>
-        The procedural macros behind <code>#[derive(Message)]</code>,
-        <code>#[component]</code>, <code>#[observe]</code>, and
-        <code>#[composite]</code> (<code>#[derive(Instruction)]</code> lives in
+        The procedural macros behind <code>component!</code> and
+        <code>composite!</code> (<code>#[derive(Instruction)]</code> lives in
         <code>vihaco-abi-derive</code>). Both are re-exported through
         <code>vihaco</code> — you rarely depend on them directly.
       </dd>
@@ -117,20 +115,17 @@ eyre                 = "0.6"   # vihaco APIs return eyre::Result</code></pre>
     <h2 id="component"><span class="sec-num">§ 4</span>A first component</h2>
 
     <p>
-      A component bundles three things: an <code>Instruction</code> enum (the
-      operations), an optional <code>Message</code> (resolved execution input),
-      and an optional effect type (what execution returns). The
-      <code>#[component(...)]</code> attribute generates the runtime glue from a
-      single <code>execute</code> method.
+      A component declares instruction products with <code>component!</code>.
+      Each product gets its own <code>Execute&lt;I&gt;</code> implementation, so its
+      message, effect, and fault types can be specific to that operation.
     </p>
 
 <pre><code class="language-rust">{quickstartSrc}</code></pre>
 
     <p>
-      <code>execute_generated</code> is the runtime entry point the macro
-      generates (via the <code>GeneratedComponent</code> trait);
-      <code>expect_exactly_one_effect</code> is a helper for the common
-      single-effect case. For the full data-flow model — when to use a
+      A composite's generated <code>execute_generated</code> method is the
+      route-dispatch boundary; components themselves use <code>Execute</code>
+      directly. For the full data-flow model — when to use a
       <code>Message</code>, how effects are delivered to observers — read
       <a href={`${base}/guide/components`}>Building Components</a>.
     </p>
