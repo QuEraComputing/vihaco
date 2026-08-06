@@ -25,10 +25,6 @@ mod ex_counter {
     include!("../../../docs/examples/counter.rs");
 }
 
-mod ex_observe {
-    include!("../../../docs/examples/observe.rs");
-}
-
 mod ex_quickstart {
     include!("../../../docs/examples/quickstart.rs");
 

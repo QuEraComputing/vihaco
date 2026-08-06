@@ -38,11 +38,11 @@ pub use instruction_syntax::{
 pub use loader::{
     LoadBytecodeSection, LoadOwnBytecodeSection, LoadOwnSstSection, LoadSstSection, ProgramImage,
 };
-pub use macros::{Instruction, Message, component, composite, observe};
+pub use macros::{Instruction, component, composite};
 pub use program::{Type, Value};
 pub use runtime::{
-    CompositeMetadata, EffectSink, GeneratedComponent, Message as MessageMarker, Observe,
-    expect_exactly_one_effect,
+    Absorb, CompositeMetadata, EffectSink, Execute, Execution, Handle, Message,
+    Message as MessageMarker, NoMessage, Observe, StepResult, Supply, expect_exactly_one_effect,
 };
 pub use traits::{FromBytes, FromText, GetProgramInfo, Reset};
 pub use vihaco_parser::SurfaceInstruction;
@@ -50,9 +50,9 @@ pub use vihaco_parser::SurfaceInstruction;
 #[cfg(test)]
 mod public_api_tests {
     use crate::{
-        BytecodeGlobalContext, BytecodeHeader, ConstantId, EffectSink, Effects, GeneratedComponent,
+        BytecodeGlobalContext, BytecodeHeader, ConstantId, EffectSink, Effects, Execute, Execution,
         GlobalContext, LoadBytecodeSection, LoadOwnBytecodeSection, Reset, SectionNameResolver,
-        SstGlobalContext, SstHeader, WriteBytecodeHeader,
+        SstGlobalContext, SstHeader, StepResult, WriteBytecodeHeader,
         instruction::{FromBytes, OpCode, WriteBytes},
         module::FunctionInfo,
         observer::stdio::StdoutEffect,
@@ -154,24 +154,27 @@ mod public_api_tests {
     #[derive(Clone, Copy)]
     struct DemoComponent;
 
-    impl GeneratedComponent for DemoComponent {
-        type Instruction = ();
+    impl Execute<()> for DemoComponent {
         type Message = ();
         type Effect = u8;
+        type Fault = eyre::Report;
 
-        fn execute_generated(
+        fn execute(
             &mut self,
-            _inst: Self::Instruction,
+            _inst: &(),
             _msg: Self::Message,
-        ) -> eyre::Result<Effects<Self::Effect>> {
-            Ok(Effects::one(7))
+        ) -> eyre::Result<StepResult<Self::Effect>> {
+            Ok(StepResult {
+                effects: Effects::one(7),
+                execution: Execution::Complete,
+            })
         }
     }
 
     #[test]
-    fn generated_component_executes_without_exec_context() {
+    fn execute_component_without_exec_context() {
         let mut component = DemoComponent;
-        let effects = GeneratedComponent::execute_generated(&mut component, (), ()).unwrap();
+        let effects = Execute::execute(&mut component, &(), ()).unwrap().effects;
 
         assert_eq!(effects, Effects::one(7));
         assert_eq!(crate::expect_exactly_one_effect(effects).unwrap(), 7);

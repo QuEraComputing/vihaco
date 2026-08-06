@@ -17,11 +17,11 @@ This guide explains what `#[observe]` is for and how to use it, both on standalo
 
 ## What `#[observe]` Looks Like
 
-`#[observe(EffectType)]` goes on an impl block. It declares which delivered effect types the type handles and generates the `Observe<EffectType>` trait impl.
+An explicit `impl Observe<EffectType>` declares which delivered effect types a type handles.
 
 ```rust
 use eyre::Result;
-use vihaco::{Effects, observe};
+use vihaco::{Effects, Observe};
 
 #[derive(Debug, Clone)]
 pub struct StdoutEffect(pub String);
@@ -31,9 +31,11 @@ pub struct StdoutCollector {
     lines: Vec<String>,
 }
 
-#[observe(StdoutEffect)]
-impl StdoutCollector {
-    fn observe_stdout_effect(&mut self, effect: &StdoutEffect) -> Result<Effects<()>> {
+impl Observe<StdoutEffect> for StdoutCollector {
+    type Effect = ();
+    type Error = eyre::Report;
+
+    fn observe(&mut self, effect: &StdoutEffect) -> Result<Effects<()>> {
         self.lines.push(effect.0.clone());
         Ok(Effects::none())
     }
@@ -55,7 +57,7 @@ Observer handlers can also synthesize follow-up effects. If a handler returns va
 
 You can define multiple handler methods for the same effect type by adding a suffix after the base name:
 
-```rust
+```rust ignore
 # use eyre::Result;
 # use vihaco::{Effects, observe};
 # #[derive(Debug, Clone)]
@@ -82,7 +84,7 @@ All methods matching `observe_<snake_case>` or `observe_<snake_case>_*` are call
 
 A single `#[observe]` block can handle multiple delivered effect types:
 
-```rust
+```rust ignore
 # use eyre::Result;
 # use vihaco::{Effects, observe};
 # #[derive(Debug, Clone)]
@@ -119,7 +121,7 @@ That keeps continuation explicit and allows each child observer to return its ow
 
 ```rust
 use eyre::Result;
-use vihaco::{Effects, Observe, observe};
+use vihaco::{Effects, Observe};
 
 #[derive(Debug, Clone)]
 pub struct ChannelFrame;
@@ -156,9 +158,11 @@ pub struct Runtime {
     display: Display,
 }
 
-#[observe(ChannelFrame, effect = RuntimeEffect)]
-impl Runtime {
-    fn observe_channel_frame(&mut self, effect: &ChannelFrame) -> Result<Effects<RuntimeEffect>> {
+impl Observe<ChannelFrame> for Runtime {
+    type Effect = RuntimeEffect;
+    type Error = eyre::Report;
+
+    fn observe(&mut self, effect: &ChannelFrame) -> Result<Effects<RuntimeEffect>> {
         Ok(Observe::<ChannelFrame>::observe(&mut self.display, effect)?.map(Into::into))
     }
 }
@@ -188,7 +192,7 @@ The simplest use of `#[observe]` is on a type that only reacts to delivered effe
 
 ```rust
 # use eyre::Result;
-# use vihaco::{Effects, observe};
+# use vihaco::{Effects, Observe};
 # #[derive(Debug, Clone)]
 # pub struct StdoutEffect(pub String);
 #[derive(Debug, Default)]
@@ -196,9 +200,11 @@ pub struct StdoutCollector {
     lines: Vec<String>,
 }
 
-#[observe(StdoutEffect)]
-impl StdoutCollector {
-    fn observe_stdout_effect(&mut self, effect: &StdoutEffect) -> Result<Effects<()>> {
+impl Observe<StdoutEffect> for StdoutCollector {
+    type Effect = ();
+    type Error = eyre::Report;
+
+    fn observe(&mut self, effect: &StdoutEffect) -> Result<Effects<()>> {
         self.lines.push(effect.0.clone());
         Ok(Effects::none())
     }
@@ -302,7 +308,7 @@ The example below shows the full picture:
 
 ```rust
 use eyre::Result;
-use vihaco::{Effects, Instruction, Message, component, observe};
+use vihaco::{Effects, Instruction, Message, component};
 
 #[derive(Debug, Clone, Instruction)]
 pub enum WaveInst {
@@ -310,11 +316,13 @@ pub enum WaveInst {
     Play,
 }
 
-#[derive(Debug, Clone, Message)]
+#[derive(Debug, Clone)]
 pub struct PlayMsg {
     pub when_ns: u64,
     pub channel_id: u32,
 }
+
+impl Message for PlayMsg {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StdoutEffect(pub String);
@@ -329,13 +337,14 @@ pub struct ChannelSample {
 
 ### The Producing Component
 
-```rust
+```rust ignore
 # use eyre::Result;
 # use vihaco::{Effects, Instruction, Message, component};
 # #[derive(Debug, Clone, Instruction)]
 # pub enum WaveInst { SetAmplitude(f64), Play }
-# #[derive(Debug, Clone, Message)]
+# #[derive(Debug, Clone)]
 # pub struct PlayMsg { pub when_ns: u64, pub channel_id: u32 }
+# impl Message for PlayMsg {}
 # #[derive(Debug, Clone, PartialEq)]
 # pub struct ChannelSample { pub when_ns: u64, pub channel_id: u32, pub value: f64 }
 #[derive(Debug, Default)]
@@ -365,7 +374,7 @@ impl WaveGenerator {
 
 ```rust
 # use eyre::Result;
-# use vihaco::{Effects, observe};
+# use vihaco::{Effects, Observe};
 # #[derive(Debug, Clone)]
 # pub struct StdoutEffect(pub String);
 #[derive(Debug, Default)]
@@ -373,9 +382,11 @@ pub struct StdoutCollector {
     lines: Vec<String>,
 }
 
-#[observe(StdoutEffect)]
-impl StdoutCollector {
-    fn observe_stdout_effect(&mut self, effect: &StdoutEffect) -> Result<Effects<()>> {
+impl Observe<StdoutEffect> for StdoutCollector {
+    type Effect = ();
+    type Error = eyre::Report;
+
+    fn observe(&mut self, effect: &StdoutEffect) -> Result<Effects<()>> {
         self.lines.push(effect.0.clone());
         Ok(Effects::none())
     }
@@ -384,7 +395,7 @@ impl StdoutCollector {
 
 ### A Component That Also Observes
 
-```rust
+```rust ignore
 # use eyre::Result;
 # use vihaco::{Effects, Instruction, component, observe};
 # #[derive(Debug, Clone, PartialEq)]

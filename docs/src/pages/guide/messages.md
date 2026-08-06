@@ -50,21 +50,23 @@ That keeps responsibilities clean:
 
 ## A Small Message Type
 
-Message types are usually plain Rust types annotated with `#[derive(Message)]`.
+Message types are usually plain Rust types with an explicit `Message` marker implementation.
 
 ```rust
 use vihaco::Message;
 
-#[derive(Debug, Clone, Message)]
+#[derive(Debug, Clone)]
 pub struct PlayMsg {
     pub when_ns: u64,
     pub channel_id: u32,
 }
+
+impl Message for PlayMsg {}
 ```
 
 A component can then declare that message type in its `#[component(...)]` impl:
 
-```rust
+```rust ignore
 use eyre::Result;
 use vihaco::{Effects, Instruction, Message, component};
 
@@ -139,7 +141,7 @@ That is the mental model to keep throughout the rest of this guide.
 
 `#[composite]` generates the device wiring (the outer instruction enum and device metadata), but message resolution is plain Rust that you write next to the composite: build the message from runtime context, then hand `(instruction, message)` to the component via the generated `execute_generated` method.
 
-```rust
+```rust ignore
 use eyre::Result;
 use vihaco::{Effects, GeneratedComponent, Instruction, Message, component, composite};
 
@@ -277,7 +279,7 @@ Use `message = ()` when the component can execute directly from:
 
 For example:
 
-```rust
+```rust ignore
 use eyre::Result;
 use vihaco::{Effects, Instruction, component};
 
@@ -310,13 +312,13 @@ When an outer composite wraps inner components, it can also wrap their message t
 ```rust
 use vihaco::Message;
 
-#[derive(Message)]
 struct DemoMsg;
+impl Message for DemoMsg {}
 
-#[derive(Message)]
 enum CompositeMsg {
     Inner(DemoMsg),
 }
+impl Message for CompositeMsg {}
 ```
 
 This pattern keeps the outer component or composite boundary explicit:

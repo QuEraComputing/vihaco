@@ -5,18 +5,6 @@ use eyre::Result;
 
 use crate::Effects;
 
-pub trait GeneratedComponent {
-    type Instruction;
-    type Message;
-    type Effect;
-
-    fn execute_generated(
-        &mut self,
-        inst: Self::Instruction,
-        msg: Self::Message,
-    ) -> Result<Effects<Self::Effect>>;
-}
-
 pub fn expect_exactly_one_effect<E>(effects: Effects<E>) -> Result<E> {
     let mut iter = effects.into_iter();
     let first = iter.next();

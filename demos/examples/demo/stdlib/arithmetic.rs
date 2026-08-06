@@ -1,51 +1,39 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-/// A reusable, stateless `i64` arithmetic component implementing `add`, `sub`, and `mul`. It is pure
-/// behavior: it does not know which CPU contains it, which stack supplied the values, or how long an
-/// operation takes. Because it carries no timing, the same component works unchanged whether
-/// execution is driven by a clock or by real time.
-struct ArithmeticUnit;
+use crate::stack::{Stack, StackFault};
+
+use super::{
+    Effects,
+    execute::{Execute, Execution, StepResult},
+    handle::Absorb,
+    supply::Supply,
+};
+
+vihaco::component! {
+    component ArithmeticUnit {}
+
+    instruction {
+        #[derive(Debug, Clone, Copy)]
+        Add,
+        #[derive(Debug, Clone, Copy)]
+        Sub,
+        #[derive(Debug, Clone, Copy)]
+        Mul
+    }
+}
+
+pub use arithmetic_unit::ArithmeticUnit;
+pub use arithmetic_unit::instruction::{Add, Mul, Sub};
 
 impl ArithmeticUnit {
-    fn new() -> Self {
-        Self
+    pub fn new() -> Self {
+        Self {}
     }
 }
-
-/*
-component! {
-    component ArithmeticUnit;
-
-    #[namespace("arith")]
-    instruction Arithmetic {
-        #[pattern = "'add"]
-        Add,
-        #[pattern = "'sub"]
-        Sub,
-        #[pattern = "'mul"]
-        Mul,
-    }
-}
-*/
-
-enum Arithmetic {
-    Add(Add),
-    Sub(Sub),
-    Mul(Mul),
-}
-
-/// The three arithmetic runtime instructions. Each is a distinct payload type so `Execute` can
-/// select the operation, while the surrounding route ZST selects where the result lands.
-#[derive(Debug, Clone, Copy)]
-struct Add;
-#[derive(Debug, Clone, Copy)]
-struct Sub;
-#[derive(Debug, Clone, Copy)]
-struct Mul;
 
 /// The message the composite resolves for an arithmetic op (its two operands).
-struct BinaryOperands {
+pub struct BinaryOperands {
     lhs: i64,
     rhs: i64,
 }
@@ -53,7 +41,7 @@ struct BinaryOperands {
 /// The semantic effect arithmetic produces. It carries a value and names no destination, which is
 /// why several routes can share it.
 #[derive(Debug)]
-struct ValueResult(i64);
+pub struct ValueResult(i64);
 
 impl Execute<Add> for ArithmeticUnit {
     type Message = BinaryOperands;

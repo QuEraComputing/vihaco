@@ -4,7 +4,58 @@
 use proc_macro_crate::{FoundCrate, crate_name};
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
-use syn::Ident;
+use syn::parse::ParseStream;
+use syn::punctuated::Punctuated;
+use syn::{Field, GenericParam, Generics, Ident, Token};
+
+/// Parse a comma-separated sequence of named fields.
+pub fn parse_named_fields(input: ParseStream<'_>) -> syn::Result<Punctuated<Field, Token![,]>> {
+    Punctuated::parse_terminated_with(input, Field::parse_named)
+}
+
+/// Retain only the generic parameters referenced by the supplied token streams.
+pub fn retain_generics(generics: &Generics, references: &[TokenStream2]) -> Generics {
+    let mut result = generics.clone();
+    result.params = generics
+        .params
+        .iter()
+        .filter(|param| {
+            references
+                .iter()
+                .any(|tokens| generic_param_is_referenced(param, tokens))
+        })
+        .cloned()
+        .collect();
+
+    if let Some(where_clause) = &mut result.where_clause {
+        where_clause.predicates = where_clause
+            .predicates
+            .iter()
+            .filter(|predicate| {
+                let tokens = quote!(#predicate);
+                result
+                    .params
+                    .iter()
+                    .any(|param| generic_param_is_referenced(param, &tokens))
+            })
+            .cloned()
+            .collect();
+        if where_clause.predicates.is_empty() {
+            result.where_clause = None;
+        }
+    }
+    result
+}
+
+fn generic_param_is_referenced(param: &GenericParam, tokens: &TokenStream2) -> bool {
+    // TODO: improve: inspect the syntax tree instead of matching token strings.
+    let tokens = tokens.to_string();
+    match param {
+        GenericParam::Type(param) => tokens.contains(&param.ident.to_string()),
+        GenericParam::Const(param) => tokens.contains(&param.ident.to_string()),
+        GenericParam::Lifetime(param) => tokens.contains(&param.lifetime.to_string()),
+    }
+}
 
 /// Remove attributes consumed by this proc-macro crate before re-emitting an
 /// item. Attribute macros cannot register helper attributes, so leaving one on

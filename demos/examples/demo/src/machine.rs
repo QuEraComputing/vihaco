@@ -1,6 +1,13 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+use super::{
+    channel::{EndpointId, ReceiveCompletion, ReceiveContinuation, SharedTransport, Transport},
+    clock::{ClockedComponent, GlobalClock, GlobalTick, GlobalTicksPerLocalCycle, Schedule},
+    cpu::{Cpu, CpuEvent, CpuFault, RuntimeInstruction},
+};
+use std::collections::HashMap;
+
 // ===========================================================================================
 // === AUTHOR: the top-level composite and its root event loop ===============================
 // ===========================================================================================
@@ -13,7 +20,7 @@
 
 /// Which CPU an event or waiter refers to. The reusable CPU is oblivious to this tag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum CpuId {
+pub enum CpuId {
     A,
     B,
 }
@@ -21,7 +28,7 @@ enum CpuId {
 /// The machine-specific owned event sum interpreted by the root. The generic `GlobalClock` is
 /// parameterized over this type and never inspects it.
 #[derive(Debug, Clone, Copy)]
-enum MachineEvent {
+pub enum MachineEvent {
     /// Run the next instruction of the identified CPU.
     Step(CpuId),
     /// Resume a receive at the receiver's next local clock boundary.
@@ -34,21 +41,21 @@ enum MachineEvent {
 
 /// How the machine terminated.
 #[derive(Debug, PartialEq, Eq)]
-enum RunOutcome {
+pub enum RunOutcome {
     /// Both programs finished with no lost value, stale continuation, or pending event.
     Completed,
     /// Every runnable CPU is parked and no delivery can satisfy any continuation.
     Deadlock,
 }
 
-struct HeterogeneousMachine {
-    clock: GlobalClock<MachineEvent>,
-    transport: SharedTransport<i64>,
-    ticks_per_local_cycle: HashMap<CpuId, GlobalTicksPerLocalCycle>,
-    cpu_a: Cpu,
-    cpu_b: Cpu,
+pub struct HeterogeneousMachine {
+    pub clock: GlobalClock<MachineEvent>,
+    pub transport: SharedTransport<i64>,
+    pub ticks_per_local_cycle: HashMap<CpuId, GlobalTicksPerLocalCycle>,
+    pub cpu_a: Cpu,
+    pub cpu_b: Cpu,
     /// A human-readable record of the deterministic global trace, asserted by the driver.
-    execution_trace: Vec<String>,
+    pub execution_trace: Vec<String>,
 }
 
 impl HeterogeneousMachine {
@@ -66,10 +73,7 @@ impl HeterogeneousMachine {
         }
     }
 
-    fn ticks_per_local_cycle(
-        &self,
-        id: CpuId,
-    ) -> Result<GlobalTicksPerLocalCycle, CpuFault> {
+    fn ticks_per_local_cycle(&self, id: CpuId) -> Result<GlobalTicksPerLocalCycle, CpuFault> {
         self.ticks_per_local_cycle
             .get(&id)
             .copied()
@@ -87,7 +91,7 @@ impl HeterogeneousMachine {
     /// selected child (the borrow of `GlobalClock` ends before the child is stepped), and inserts
     /// any resulting scheduling requests back into the clock. Terminates when the timeline is
     /// exhausted, distinguishing normal completion from deadlock.
-    fn run(&mut self) -> Result<RunOutcome, CpuFault> {
+    pub fn run(&mut self) -> Result<RunOutcome, CpuFault> {
         // Seed both CPUs to run their first instruction at global tick 0.
         self.clock
             .schedule_at(GlobalTick::ZERO, MachineEvent::Step(CpuId::A))?;
@@ -123,29 +127,26 @@ impl HeterogeneousMachine {
             return Ok(());
         };
 
+        let (detail, parked_detail) = match instruction {
+            RuntimeInstruction::IntegerAdd(_) => ("Add".to_owned(), "Add parks".to_owned()),
+            RuntimeInstruction::IntegerSub(_) => ("Sub".to_owned(), "Sub parks".to_owned()),
+            RuntimeInstruction::IntegerMul(_) => ("Mul".to_owned(), "Mul parks".to_owned()),
+            RuntimeInstruction::Send(send) => (
+                format!("send on {:?}", send.channel),
+                format!("send parks on {:?}", send.channel),
+            ),
+            RuntimeInstruction::Recv(recv) => (
+                format!("recv on {:?}", recv.channel),
+                format!("recv parks on {:?}", recv.channel),
+            ),
+        };
+
         let ticks_per_local_cycle = self.ticks_per_local_cycle(id)?;
-        let schedule = self
-            .cpu_mut(id)
-            .step_at(tick, ticks_per_local_cycle)?;
+        let schedule = self.cpu_mut(id).step_at(tick, ticks_per_local_cycle)?;
         self.submit_schedule(id, schedule)?;
 
         let parked = self.cpu_ref(id).is_parked();
-        let detail = match instruction {
-            RuntimeInstruction::IntegerAdd(_) if parked => "Add parks".to_owned(),
-            RuntimeInstruction::IntegerSub(_) if parked => "Sub parks".to_owned(),
-            RuntimeInstruction::IntegerMul(_) if parked => "Mul parks".to_owned(),
-            RuntimeInstruction::IntegerAdd(_) => "Add".to_owned(),
-            RuntimeInstruction::IntegerSub(_) => "Sub".to_owned(),
-            RuntimeInstruction::IntegerMul(_) => "Mul".to_owned(),
-            RuntimeInstruction::Send(send) if parked => {
-                format!("send parks on {:?}", send.channel)
-            }
-            RuntimeInstruction::Send(send) => format!("send on {:?}", send.channel),
-            RuntimeInstruction::Recv(recv) if parked => {
-                format!("recv parks on {:?}", recv.channel)
-            }
-            RuntimeInstruction::Recv(recv) => format!("recv on {:?}", recv.channel),
-        };
+        let detail = if parked { parked_detail } else { detail };
         self.record(tick, id, detail);
 
         Ok(())
@@ -163,16 +164,14 @@ impl HeterogeneousMachine {
         let ticks_per_local_cycle = self.ticks_per_local_cycle(id)?;
         // The child owns continuation completion, including its stack and parked state. The root
         // only supplies the opaque continuation input and resubmits the returned schedule.
-        let schedule = self
-            .cpu_mut(id)
-            .resume(
-                ReceiveCompletion {
-                    continuation,
-                    value,
-                },
-                tick,
-                ticks_per_local_cycle,
-            )?;
+        let schedule = self.cpu_mut(id).resume(
+            ReceiveCompletion {
+                continuation,
+                value,
+            },
+            tick,
+            ticks_per_local_cycle,
+        )?;
         self.submit_schedule(id, schedule)?;
         self.record(tick, id, format!("wakes, recv {value}"));
         Ok(())

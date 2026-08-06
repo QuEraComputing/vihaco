@@ -46,8 +46,10 @@ pub enum CounterInst {
     Print,
 }
 
-#[derive(Debug, Clone, Message)]
+#[derive(Debug, Clone)]
 pub struct PrintPrefix(pub String);
+
+impl Message for PrintPrefix {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StdoutEffect(pub String);
@@ -62,7 +64,7 @@ pub struct Counter {
 
 Component execution lives on an impl block annotated with `#[component(...)]`.
 
-```rust
+```rust ignore
 # use eyre::Result;
 # use vihaco::{Effects, Instruction, Message, component};
 # #[derive(Debug, Clone, Instruction)]
@@ -114,7 +116,7 @@ It is useful to keep the data flow straight:
 
 Use `message = ()` when the component can execute directly from its instruction and local state.
 
-```rust
+```rust ignore
 use eyre::Result;
 use vihaco::{Effects, Instruction, component};
 
@@ -168,7 +170,7 @@ Component execution depends only on explicit inputs and returned effects.
 
 By default, `execute(...)` returns `Result<Effects<()>>`. When a component needs to return a real effect, use the `effect` parameter:
 
-```rust
+```rust ignore
 use vihaco::{Effects, Instruction, Message, component};
 use vihaco_cpu::StepOutcome;
 

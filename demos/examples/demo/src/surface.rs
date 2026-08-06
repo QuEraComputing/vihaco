@@ -1,6 +1,12 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+use super::{
+    arithmetic::{Add, Mul, Sub},
+    channel::{ChannelId, Recv, Send},
+    cpu::RuntimeInstruction,
+};
+
 // ===========================================================================================
 // === AUTHOR: surface programs and channel-name resolution ==================================
 // ===========================================================================================
@@ -10,7 +16,7 @@
 
 /// A surface instruction as authored, before channel names are resolved.
 #[derive(Debug, Clone, Copy)]
-enum SurfaceInstruction {
+pub enum SurfaceInstruction {
     Add,
     Sub,
     Mul,
@@ -19,12 +25,12 @@ enum SurfaceInstruction {
 }
 
 /// The two directed channels wired into this machine.
-const CHANNEL_A_TO_B: ChannelId = ChannelId(0);
-const CHANNEL_B_TO_A: ChannelId = ChannelId(1);
+pub const CHANNEL_A_TO_B: ChannelId = ChannelId(0);
+pub const CHANNEL_B_TO_A: ChannelId = ChannelId(1);
 
 /// Resolve a symbolic channel name to its runtime identifier. `to_b`/`from_a` name the A->B
 /// channel; `to_a`/`from_b` name the B->A channel.
-fn resolve_channel(name: &str) -> ChannelId {
+pub fn resolve_channel(name: &str) -> ChannelId {
     match name {
         "to_b" | "from_a" => CHANNEL_A_TO_B,
         "to_a" | "from_b" => CHANNEL_B_TO_A,
@@ -33,7 +39,7 @@ fn resolve_channel(name: &str) -> ChannelId {
 }
 
 /// Lower a whole surface program to runtime instructions, resolving channel names along the way.
-fn resolve_program(surface: &[SurfaceInstruction]) -> Vec<RuntimeInstruction> {
+pub fn resolve_program(surface: &[SurfaceInstruction]) -> Vec<RuntimeInstruction> {
     surface
         .iter()
         .map(|instruction| match *instruction {

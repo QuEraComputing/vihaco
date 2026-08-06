@@ -9,7 +9,7 @@ use crate::data::CPU;
 use crate::instruction::RuntimeInstruction;
 use vihaco::Effects;
 use vihaco::program::{Type, Value};
-use vihaco::{component, frame::Frame, traits::*};
+use vihaco::{Execute, Execution, StepResult, frame::Frame, traits::*};
 
 impl Reset for CPU {
     fn reset(&mut self) {
@@ -76,14 +76,15 @@ impl CPU {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, vihaco::Message)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CPUMessage {
     None,
     FunctionInfo { arity: u32, start_address: u32 },
     Print(String),
 }
 
-#[component(instruction = RuntimeInstruction, message = CPUMessage, effect = StepOutcome)]
+impl vihaco::Message for CPUMessage {}
+
 impl CPU {
     fn execute(
         &mut self,
@@ -114,6 +115,23 @@ impl CPU {
             }
             (inst, CPUMessage::None) => self.execute_instruction(inst).map(Effects::one),
         }
+    }
+}
+
+impl Execute<RuntimeInstruction> for CPU {
+    type Message = CPUMessage;
+    type Effect = StepOutcome;
+    type Fault = eyre::Report;
+
+    fn execute(
+        &mut self,
+        inst: &RuntimeInstruction,
+        msg: Self::Message,
+    ) -> eyre::Result<StepResult<Self::Effect>> {
+        Ok(StepResult {
+            effects: self.execute(inst.clone(), msg)?,
+            execution: Execution::Complete,
+        })
     }
 }
 
@@ -299,15 +317,21 @@ impl CPU {
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
-    use vihaco::{
-        Effects, GeneratedComponent, frame::Frame, instruction::OpCode, traits::StackMemory,
-    };
+    use vihaco::{Effects, Execute, frame::Frame, instruction::OpCode, traits::StackMemory};
+
+    fn execute(
+        cpu: &mut CPU,
+        instruction: RuntimeInstruction,
+        message: CPUMessage,
+    ) -> eyre::Result<Effects<StepOutcome>> {
+        Execute::execute(cpu, &instruction, message).map(|result| result.effects)
+    }
 
     #[test]
     fn cpu_generated_component_executes_instruction_without_message() {
         let mut cpu = CPU::default();
 
-        GeneratedComponent::execute_generated(
+        execute(
             &mut cpu,
             RuntimeInstruction::Const(Value::I64(7)),
             CPUMessage::None,
@@ -566,7 +590,7 @@ mod tests {
             ret_pc: 0,
         });
 
-        let outcome = GeneratedComponent::execute_generated(
+        let outcome = execute(
             &mut cpu,
             RuntimeInstruction::Const(Value::I64(99)),
             CPUMessage::None,
@@ -587,7 +611,7 @@ mod tests {
             ret_pc: 0,
         });
 
-        let outcome = GeneratedComponent::execute_generated(
+        let outcome = execute(
             &mut cpu,
             RuntimeInstruction::Label,
             CPUMessage::FunctionInfo {
@@ -613,7 +637,7 @@ mod tests {
         });
         cpu.stack_push(Value::I64(42));
 
-        let outcome = GeneratedComponent::execute_generated(
+        let outcome = execute(
             &mut cpu,
             RuntimeInstruction::Print,
             CPUMessage::Print("hello".into()),
@@ -635,12 +659,7 @@ mod tests {
         });
         cpu.stack_push(Value::I64(42));
 
-        let err = GeneratedComponent::execute_generated(
-            &mut cpu,
-            RuntimeInstruction::Print,
-            CPUMessage::None,
-        )
-        .unwrap_err();
+        let err = execute(&mut cpu, RuntimeInstruction::Print, CPUMessage::None).unwrap_err();
 
         assert!(err.to_string().contains("Print requires"));
     }

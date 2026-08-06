@@ -12,7 +12,7 @@
 ///
 /// The composite machinery generates one marker and one implementation for every selected route.
 /// Users provide the component operations and handlers; they do not implement this trait.
-trait Route {
+pub trait Route {
     /// Effect produced by the component on this route and passed to its observers and handlers.
     ///
     /// The association lets generated dispatch name the route once and derive the effect type

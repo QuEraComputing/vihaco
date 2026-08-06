@@ -1,6 +1,12 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+use super::{
+    Effects,
+    execute::{Execute, Execution, NoMessage, StepResult},
+    resume::Resume,
+};
+
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::marker::PhantomData;
@@ -9,41 +15,31 @@ use std::rc::Rc;
 /// A library-defined runtime channel identifier. Surface channel names resolve to this before
 /// execution; the CPU and arithmetic components never see the symbolic name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ChannelId(usize);
-
-#[derive(Debug, Clone, Copy)]
-struct Send {
-    channel: ChannelId,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Recv {
-    channel: ChannelId,
-}
+pub struct ChannelId(pub usize);
 
 /// Identity used by the transport to return a completion to the endpoint that parked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct EndpointId(u8);
+pub struct EndpointId(pub u8);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ReceiveContinuation {
-    endpoint: EndpointId,
-    channel: ChannelId,
+pub struct ReceiveContinuation {
+    pub endpoint: EndpointId,
+    pub channel: ChannelId,
 }
 
-struct ReceiveCompletion<M> {
-    continuation: ReceiveContinuation,
-    value: M,
+pub struct ReceiveCompletion<M> {
+    pub continuation: ReceiveContinuation,
+    pub value: M,
 }
 
-enum ReceivePoll<M> {
+pub enum ReceivePoll<M> {
     Ready(M),
     Parked(ReceiveContinuation),
 }
 
 /// A transport is a capability supplied to a channel endpoint. It knows nothing about CPUs or
 /// composite containment. Wakeups are owned by the transport and polled by the runtime root.
-trait Transport<M> {
+pub trait Transport<M> {
     type Fault;
 
     fn send(&mut self, channel: ChannelId, value: M) -> Result<(), Self::Fault>;
@@ -59,14 +55,14 @@ trait Transport<M> {
 
 /// A reusable shared communication component. This demo uses immediate delivery; another
 /// transport can implement latency or topology policy without changing `ChannelEndpoint` or `Cpu`.
-struct ChannelFabric<M> {
+pub struct ChannelFabric<M> {
     queues: Vec<VecDeque<M>>,
     waiters: Vec<Option<ReceiveContinuation>>,
     wakeups: VecDeque<(ReceiveContinuation, M)>,
 }
 
 impl<M> ChannelFabric<M> {
-    fn with_channels(count: usize) -> Self {
+    pub fn with_channels(count: usize) -> Self {
         Self {
             queues: (0..count).map(|_| VecDeque::new()).collect(),
             waiters: vec![None; count],
@@ -113,10 +109,10 @@ impl<M> Transport<M> for ChannelFabric<M> {
 
 /// The capability copied into each endpoint. Cloning it shares the transport, not endpoint state.
 #[derive(Clone)]
-struct SharedTransport<M>(Rc<RefCell<ChannelFabric<M>>>);
+pub struct SharedTransport<M>(Rc<RefCell<ChannelFabric<M>>>);
 
 impl<M> SharedTransport<M> {
-    fn new(fabric: Rc<RefCell<ChannelFabric<M>>>) -> Self {
+    pub fn new(fabric: Rc<RefCell<ChannelFabric<M>>>) -> Self {
         Self(fabric)
     }
 }
@@ -142,25 +138,35 @@ impl<M> Transport<M> for SharedTransport<M> {
 }
 
 #[derive(Debug)]
-enum SendEffect {}
+pub enum SendEffect {}
 
 #[derive(Debug)]
-enum ReceiveEffect<M> {
+pub enum ReceiveEffect<M> {
     Received(M),
     Parked(ReceiveContinuation),
 }
 
-/// The component on which the communication instructions execute. Its transport is supplied at
-/// construction, so its behavior is independent of where the CPU is placed in a machine.
-struct ChannelEndpoint<M, T> {
-    id: EndpointId,
-    transport: T,
-    parked: Option<ReceiveContinuation>,
-    _message: PhantomData<fn() -> M>,
+vihaco::component! {
+    component ChannelEndpoint<M, T> {
+        id: EndpointId,
+        transport: T,
+        parked: Option<ReceiveContinuation>,
+        _message: PhantomData<fn() -> M>,
+    }
+
+    instruction {
+        #[derive(Debug, Clone, Copy)]
+        Send { channel: ChannelId },
+        #[derive(Debug, Clone, Copy)]
+        Recv { channel: ChannelId }
+    }
 }
 
+pub use channel_endpoint::ChannelEndpoint;
+pub use channel_endpoint::instruction::{Recv, Send};
+
 impl<M, T> ChannelEndpoint<M, T> {
-    fn new(id: EndpointId, transport: T) -> Self {
+    pub fn new(id: EndpointId, transport: T) -> Self {
         Self {
             id,
             transport,
@@ -169,7 +175,7 @@ impl<M, T> ChannelEndpoint<M, T> {
         }
     }
 
-    fn is_parked(&self) -> bool {
+    pub fn is_parked(&self) -> bool {
         self.parked.is_some()
     }
 }
@@ -243,7 +249,15 @@ impl<M, T> Resume<ReceiveCompletion<M>> for ChannelEndpoint<M, T> {
 
 #[cfg(test)]
 mod channel_tests {
-    use super::*;
+    use super::super::{
+        execute::{Execute, NoMessage},
+        resume::Resume,
+    };
+    use super::{
+        ChannelEndpoint, ChannelFabric, ChannelId, EndpointId, ReceiveCompletion, ReceiveEffect,
+        Recv, Send, SharedTransport, Transport,
+    };
+    use std::{cell::RefCell, rc::Rc};
 
     #[test]
     fn queued_values_are_fifo() {
@@ -251,14 +265,29 @@ mod channel_tests {
         let mut endpoint = ChannelEndpoint::new(EndpointId(0), SharedTransport::new(fabric));
 
         endpoint
-            .execute(&Send { channel: ChannelId(0) }, 10)
+            .execute(
+                &Send {
+                    channel: ChannelId(0),
+                },
+                10,
+            )
             .unwrap();
         endpoint
-            .execute(&Send { channel: ChannelId(0) }, 20)
+            .execute(
+                &Send {
+                    channel: ChannelId(0),
+                },
+                20,
+            )
             .unwrap();
 
         let first = endpoint
-            .execute(&Recv { channel: ChannelId(0) }, NoMessage)
+            .execute(
+                &Recv {
+                    channel: ChannelId(0),
+                },
+                NoMessage,
+            )
             .unwrap()
             .effects
             .into_iter()
@@ -266,7 +295,12 @@ mod channel_tests {
         assert!(matches!(first, Some(ReceiveEffect::Received(10))));
 
         let second = endpoint
-            .execute(&Recv { channel: ChannelId(0) }, NoMessage)
+            .execute(
+                &Recv {
+                    channel: ChannelId(0),
+                },
+                NoMessage,
+            )
             .unwrap()
             .effects
             .into_iter()
@@ -277,11 +311,17 @@ mod channel_tests {
     #[test]
     fn send_execute_wakes_a_parked_recv_execute() {
         let fabric = Rc::new(RefCell::new(ChannelFabric::with_channels(1)));
-        let mut receiver = ChannelEndpoint::new(EndpointId(1), SharedTransport::new(fabric.clone()));
+        let mut receiver =
+            ChannelEndpoint::new(EndpointId(1), SharedTransport::new(fabric.clone()));
         let mut sender = ChannelEndpoint::new(EndpointId(0), SharedTransport::new(fabric.clone()));
 
         let parked = receiver
-            .execute(&Recv { channel: ChannelId(0) }, NoMessage)
+            .execute(
+                &Recv {
+                    channel: ChannelId(0),
+                },
+                NoMessage,
+            )
             .unwrap()
             .effects
             .into_iter()
@@ -290,12 +330,20 @@ mod channel_tests {
         assert!(receiver.is_parked());
 
         sender
-            .execute(&Send { channel: ChannelId(0) }, 42)
+            .execute(
+                &Send {
+                    channel: ChannelId(0),
+                },
+                42,
+            )
             .unwrap();
 
         let (continuation, value) = receiver.transport.take_wakeup().unwrap();
         let effects = receiver
-            .resume(ReceiveCompletion { continuation, value })
+            .resume(ReceiveCompletion {
+                continuation,
+                value,
+            })
             .unwrap()
             .effects;
         assert!(matches!(

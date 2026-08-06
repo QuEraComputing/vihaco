@@ -12,20 +12,45 @@
 use std::collections::HashMap;
 use vihaco::Effects;
 
-include!("demo/vihaco/execute.rs");
-include!("demo/vihaco/resume.rs");
-include!("demo/vihaco/supply.rs");
-include!("demo/vihaco/handle.rs");
-include!("demo/vihaco/machine_macro.rs");
-include!("demo/vihaco/route.rs");
-include!("demo/stdlib/debug_trace.rs");
-include!("demo/stdlib/clock.rs");
-include!("demo/stdlib/stack.rs");
-include!("demo/stdlib/arithmetic.rs");
-include!("demo/stdlib/channel.rs");
-include!("demo/src/cpu.rs");
-include!("demo/src/surface.rs");
-include!("demo/src/machine.rs");
+#[path = "demo/stdlib/arithmetic.rs"]
+mod arithmetic;
+#[path = "demo/stdlib/channel.rs"]
+mod channel;
+#[path = "demo/stdlib/clock.rs"]
+mod clock;
+#[path = "demo/src/cpu.rs"]
+mod cpu;
+#[path = "demo/stdlib/debug_trace.rs"]
+mod debug_trace;
+#[path = "demo/src/driver.rs"]
+mod driver;
+#[path = "demo/vihaco/execute.rs"]
+mod execute;
+#[path = "demo/vihaco/handle.rs"]
+mod handle;
+#[path = "demo/src/machine.rs"]
+mod machine;
+#[path = "demo/vihaco/machine_macro.rs"]
+mod machine_macro;
+#[path = "demo/vihaco/resume.rs"]
+mod resume;
+#[path = "demo/vihaco/route.rs"]
+mod route;
+#[path = "demo/stdlib/stack.rs"]
+mod stack;
+#[path = "demo/vihaco/supply.rs"]
+mod supply;
+#[path = "demo/src/surface.rs"]
+mod surface;
+
+use arithmetic::ArithmeticUnit;
+use channel::{ChannelEndpoint, ChannelFabric, EndpointId, SharedTransport};
+use clock::{GlobalClock, GlobalTicksPerLocalCycle};
+use cpu::{Cpu, CpuFault};
+use debug_trace::DebugTrace;
+use machine::{CpuId, HeterogeneousMachine, RunOutcome};
+use stack::Stack;
+use surface::{SurfaceInstruction, resolve_program};
 
 fn main() -> Result<(), CpuFault> {
     // The two CPU programs, authored with symbolic channel names, then resolved to runtime form.
@@ -51,7 +76,7 @@ fn main() -> Result<(), CpuFault> {
         operand_stack: Stack::seeded(&[3]),
         alu: ArithmeticUnit::new(),
         channel: ChannelEndpoint::new(EndpointId(0), transport_a),
-        debug: DebugTrace::default(),
+        debug: DebugTrace::new(),
         program: cpu_a_program,
         pc: 0,
     };
@@ -60,7 +85,7 @@ fn main() -> Result<(), CpuFault> {
         operand_stack: Stack::seeded(&[10, 4, 2]),
         alu: ArithmeticUnit::new(),
         channel: ChannelEndpoint::new(EndpointId(1), transport_b),
-        debug: DebugTrace::default(),
+        debug: DebugTrace::new(),
         program: cpu_b_program,
         pc: 0,
     };
@@ -70,7 +95,7 @@ fn main() -> Result<(), CpuFault> {
         transport: SharedTransport::new(fabric),
         ticks_per_local_cycle: HashMap::from([
             (CpuId::A, GlobalTicksPerLocalCycle::new(3)?),
-            (CpuId::B, GlobalTicksPerLocalCycle::new(1)?),
+            (CpuId::B, GlobalTicksPerLocalCycle::new(2)?),
         ]),
         // CpuA has three global ticks per local tick. CpuB has one global tick per local tick.
         cpu_a,
@@ -85,8 +110,8 @@ fn main() -> Result<(), CpuFault> {
         println!("  {line}");
     }
     println!("outcome        = {outcome:?}");
-    println!("CpuA stack     = {:?}", machine.cpu_a.operand_stack.items);
-    println!("CpuB stack     = {:?}", machine.cpu_b.operand_stack.items);
+    println!("CpuA stack     = {:?}", machine.cpu_a.operand_stack.view());
+    println!("CpuB stack     = {:?}", machine.cpu_b.operand_stack.view());
     println!("CpuA debug      = {:?}", machine.cpu_a.debug.records);
     println!("CpuB debug      = {:?}", machine.cpu_b.debug.records);
 
@@ -98,10 +123,10 @@ fn main() -> Result<(), CpuFault> {
         vec![
             "global  0: CpuA recv parks on ChannelId(1)",
             "global  0: CpuB Sub",
-            "global  1: CpuB Mul",
-            "global  2: CpuB send on ChannelId(1)",
-            "global  3: CpuA wakes, recv 20",
-            "global  6: CpuA Mul",
+            "global  2: CpuB Mul",
+            "global  4: CpuB send on ChannelId(1)",
+            "global  6: CpuA wakes, recv 20",
+            "global  9: CpuA Mul",
         ]
     );
     assert_eq!(machine.cpu_a.operand_stack.top(), Some(60));
@@ -113,5 +138,3 @@ fn main() -> Result<(), CpuFault> {
     println!("OK: heterogeneous exchange completed with 60 on CpuA, no stale continuation");
     Ok(())
 }
-
-include!("demo/src/driver.rs");

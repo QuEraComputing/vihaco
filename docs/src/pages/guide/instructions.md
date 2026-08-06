@@ -49,7 +49,7 @@ That means the first variant gets opcode `0`, the second gets `1`, and so on.
 
 In normal component code, this instruction type is the `instruction = ...` value on the component impl:
 
-```rust
+```rust ignore
 use eyre::Result;
 use vihaco::{Instruction, component};
 

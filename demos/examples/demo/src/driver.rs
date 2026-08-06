@@ -3,7 +3,13 @@
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::{
+        arithmetic::Add,
+        channel::Recv,
+        clock::{ClockFault, GlobalTicksPerLocalCycle, LocalCycles, TimedInstruction},
+        cpu::RuntimeInstruction,
+        surface::CHANNEL_A_TO_B,
+    };
 
     #[test]
     fn instruction_timing_belongs_to_the_instruction() {

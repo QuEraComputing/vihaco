@@ -2,4 +2,4 @@
 // SPDX-License-Identifier: MIT
 
 pub use vihaco_abi::Instruction;
-pub use vihaco_runtime::{Message, component, composite, observe};
+pub use vihaco_runtime::{component, composite};

@@ -27,27 +27,27 @@ use std::collections::BinaryHeap;
 /// `(tick, seq)`; the sequence number gives stable ordering to events scheduled for the same global
 /// tick. Host execution time never contributes to modeled duration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct GlobalTick(u64);
+pub struct GlobalTick(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct GlobalDuration(u64);
+pub struct GlobalDuration(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct LocalCycles(u64);
+pub struct LocalCycles(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct GlobalTicksPerLocalCycle(u64);
+pub struct GlobalTicksPerLocalCycle(pub u64);
 
 /// Runtime instructions provide the local duration of their own operation.
-trait TimedInstruction {
+pub trait TimedInstruction {
     fn local_cycles(&self) -> LocalCycles;
 }
 
 /// Owned scheduling work returned by a clocked component. The parent adds any child identity
 /// before submitting the request to its root `GlobalClock`.
-struct Schedule<E> {
-    at: GlobalTick,
-    event: E,
+pub struct Schedule<E> {
+    pub at: GlobalTick,
+    pub event: E,
 }
 
 /// Generic boundary for a component that participates in a global event loop.
@@ -55,7 +55,7 @@ struct Schedule<E> {
 /// The trait shares only clock vocabulary with `GlobalClock`: ticks, instruction timing, and
 /// owned scheduling requests. It does not depend on a particular clock implementation or root
 /// event enum. Components supply their own instruction, event, completion, and fault types.
-trait ClockedComponent {
+pub trait ClockedComponent {
     type Event;
     type Completion;
     type Fault;
@@ -79,9 +79,9 @@ trait ClockedComponent {
 }
 
 impl GlobalTick {
-    const ZERO: Self = Self(0);
+    pub const ZERO: Self = Self(0);
 
-    fn checked_add(self, duration: GlobalDuration) -> Result<Self, ClockFault> {
+    pub fn checked_add(self, duration: GlobalDuration) -> Result<Self, ClockFault> {
         self.0
             .checked_add(duration.0)
             .map(Self)
@@ -90,16 +90,19 @@ impl GlobalTick {
 }
 
 impl LocalCycles {
-    const ONE: Self = Self(1);
+    pub const ONE: Self = Self(1);
 
-    fn checked_add(self, other: Self) -> Result<Self, ClockFault> {
+    pub fn checked_add(self, other: Self) -> Result<Self, ClockFault> {
         self.0
             .checked_add(other.0)
             .map(Self)
             .ok_or(ClockFault::LocalCycleOverflow)
     }
 
-    fn checked_mul(self, ratio: GlobalTicksPerLocalCycle) -> Result<GlobalDuration, ClockFault> {
+    pub fn checked_mul(
+        self,
+        ratio: GlobalTicksPerLocalCycle,
+    ) -> Result<GlobalDuration, ClockFault> {
         self.0
             .checked_mul(ratio.0)
             .map(GlobalDuration)
@@ -108,7 +111,7 @@ impl LocalCycles {
 }
 
 impl GlobalTicksPerLocalCycle {
-    fn new(value: u64) -> Result<Self, ClockFault> {
+    pub fn new(value: u64) -> Result<Self, ClockFault> {
         (value != 0)
             .then_some(Self(value))
             .ok_or(ClockFault::ZeroTickRatio)
@@ -116,7 +119,7 @@ impl GlobalTicksPerLocalCycle {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum ClockFault {
+pub enum ClockFault {
     ZeroTickRatio,
     LocalCycleOverflow,
     DurationOverflow,
@@ -125,13 +128,13 @@ enum ClockFault {
     SchedulingInPast,
 }
 
-struct GlobalClock<E> {
+pub struct GlobalClock<E> {
     now: GlobalTick,
     seq: u64,
     pending: BinaryHeap<Scheduled<E>>,
 }
 
-struct Scheduled<E> {
+pub struct Scheduled<E> {
     tick: GlobalTick,
     seq: u64,
     event: E,
@@ -163,7 +166,7 @@ impl<E> PartialEq for Scheduled<E> {
 impl<E> Eq for Scheduled<E> {}
 
 impl<E> GlobalClock<E> {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             now: GlobalTick::ZERO,
             seq: 0,
@@ -172,7 +175,7 @@ impl<E> GlobalClock<E> {
     }
 
     /// Insert owned scheduling work at an absolute global tick.
-    fn schedule_at(&mut self, tick: GlobalTick, event: E) -> Result<(), ClockFault> {
+    pub fn schedule_at(&mut self, tick: GlobalTick, event: E) -> Result<(), ClockFault> {
         if tick < self.now {
             return Err(ClockFault::SchedulingInPast);
         }
@@ -186,31 +189,31 @@ impl<E> GlobalClock<E> {
     }
 
     /// Convert child-local relative work into an absolute global tick.
-    fn schedule_after(&mut self, after: GlobalDuration, event: E) -> Result<(), ClockFault> {
+    pub fn schedule_after(&mut self, after: GlobalDuration, event: E) -> Result<(), ClockFault> {
         self.schedule_at(self.now.checked_add(after)?, event)
     }
 
     /// Remove the earliest owned event by `(tick, seq)`, advancing `now` to it. Returns the event
     /// and its tick, or `None` when the timeline is exhausted.
-    fn pop_earliest(&mut self) -> Option<(GlobalTick, E)> {
+    pub fn pop_earliest(&mut self) -> Option<(GlobalTick, E)> {
         let Scheduled { tick, event, .. } = self.pending.pop()?;
         // Global time is monotonic: `now` only ever advances to the dispatched event's tick.
         self.now = tick;
         Some((tick, event))
     }
 
-    fn now(&self) -> GlobalTick {
+    pub fn now(&self) -> GlobalTick {
         self.now
     }
 
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.pending.is_empty()
     }
 }
 
 #[cfg(test)]
 mod clock_tests {
-    use super::*;
+    use super::{GlobalClock, GlobalTick};
 
     #[test]
     fn heap_returns_events_in_timeline_order() {

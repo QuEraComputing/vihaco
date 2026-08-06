@@ -3,9 +3,12 @@
 
 extern crate self as vihaco_runtime;
 
+mod execute;
 mod generated;
+mod handle;
 mod marker;
 mod observe;
+mod supply;
 
 #[doc(hidden)]
 pub mod __private;
@@ -18,21 +21,23 @@ pub use vihaco_abi::{Effects, metadata};
 pub use vihaco_bytecode::{BytecodeSectionView, SstSectionView};
 pub use vihaco_module::loader;
 
-pub use generated::{CompositeMetadata, GeneratedComponent, expect_exactly_one_effect};
+pub use execute::{Execute, Execution, NoMessage, StepResult};
+pub use generated::{CompositeMetadata, expect_exactly_one_effect};
+pub use handle::{Absorb, Handle};
 pub use marker::Message;
 pub use observe::Observe;
+pub use supply::Supply;
 
-// `#[derive(Message)]` emits `#root::runtime::Message`; keep a `runtime` segment
-// available on this crate too (the facade exposes it via `pub use vihaco_runtime
-// as runtime;`) so direct dependents resolve the marker identically.
+// Keep a `runtime` segment available on this crate too (the facade exposes it
+// via `pub use vihaco_runtime as runtime;`) for generated code.
 pub use crate as runtime;
 
 // The `Instruction` derive lives in `vihaco-abi(-derive)`; re-export it here so
-// `#[composite]`'s generated `#root::Instruction` derive resolves through the
+// `composite!` generated instruction declarations resolve through the
 // runtime root as well.
 #[cfg(feature = "derive")]
 pub use vihaco_abi::Instruction;
 
 // Re-export the runtime derives behind the `derive` feature (serde convention).
 #[cfg(feature = "derive")]
-pub use vihaco_runtime_derive::{Message, component, composite, machine, observe};
+pub use vihaco_runtime_derive::{component, composite};

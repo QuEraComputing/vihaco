@@ -1,7 +1,7 @@
 [package]
 name = "vihaco-runtime-derive"
 edition = "2024"
-description = "Runtime procedural macros (#[derive(Message)], #[component], #[composite]/#[derive(Machine)], #[observe]) for the vihaco-runtime crate."
+description = "Runtime procedural macros (#[component] and #[composite]) for the vihaco-runtime crate."
 version.workspace = true
 license.workspace = true
 repository.workspace = true

@@ -1,33 +1,47 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-/// A reusable operand-stack component with invariant-preserving operations.
-struct Stack {
-    items: Vec<i64>,
+use super::supply::Supply;
+
+vihaco::component! {
+    component Stack {
+        items: Vec<i64>,
+    }
+
+    instruction {
+        Push(i64),
+        Pop,
+    }
 }
 
+pub use stack::Stack;
+
 impl Stack {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self { items: Vec::new() }
     }
 
     /// Load initial operands with the rightmost value treated as the top of the stack.
-    fn seeded(values: &[i64]) -> Self {
+    pub fn seeded(values: &[i64]) -> Self {
         Self {
             items: values.to_vec(),
         }
     }
 
-    fn push(&mut self, value: i64) {
+    pub fn push(&mut self, value: i64) {
         self.items.push(value);
     }
 
-    fn pop(&mut self) -> Result<i64, StackFault> {
+    pub fn pop(&mut self) -> Result<i64, StackFault> {
         self.items.pop().ok_or(StackFault::Underflow)
     }
 
-    fn top(&self) -> Option<i64> {
+    pub fn top(&self) -> Option<i64> {
         self.items.last().copied()
+    }
+
+    pub fn view(&self) -> &[i64] {
+        &self.items
     }
 }
 
@@ -40,6 +54,6 @@ impl Supply<i64> for Stack {
 }
 
 #[derive(Debug)]
-enum StackFault {
+pub enum StackFault {
     Underflow,
 }

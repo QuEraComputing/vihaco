@@ -1,5 +1,5 @@
 use eyre::Result;
-use vihaco::{Effects, Instruction, Message, component};
+use vihaco::{Effects, Execute, Execution, Instruction, Message, StepResult};
 
 /// Bytecode-visible operations. Each variant becomes an opcode; tuple
 /// fields become the payload bytes that follow it.
@@ -11,8 +11,10 @@ pub enum CounterInst {
 
 /// Resolved execution input — supplied by the runtime, not encoded in
 /// the instruction stream.
-#[derive(Debug, Clone, Message)]
+#[derive(Debug, Clone)]
 pub struct Prefix(pub String);
+
+impl Message for Prefix {}
 
 /// A value the component returns for the runtime or observers to consume.
 #[derive(Debug, Clone, PartialEq)]
@@ -23,10 +25,8 @@ pub struct Counter {
     value: i64,
 }
 
-// One `execute` per component: (instruction, message) in, effects out.
-#[component(instruction = CounterInst, message = Prefix, effect = Line)]
 impl Counter {
-    fn execute(&mut self, inst: CounterInst, msg: Prefix) -> Result<Effects<Line>> {
+    fn execute_instruction(&mut self, inst: &CounterInst, msg: Prefix) -> Result<Effects<Line>> {
         match inst {
             CounterInst::Add(v) => {
                 self.value += v;
@@ -34,5 +34,22 @@ impl Counter {
             }
             CounterInst::Print => Ok(Effects::one(Line(format!("{}{}", msg.0, self.value)))),
         }
+    }
+}
+
+impl Execute<CounterInst> for Counter {
+    type Message = Prefix;
+    type Effect = Line;
+    type Fault = eyre::Report;
+
+    fn execute(
+        &mut self,
+        inst: &CounterInst,
+        msg: Prefix,
+    ) -> Result<StepResult<Line>> {
+        Ok(StepResult {
+            effects: self.execute_instruction(inst, msg)?,
+            execution: Execution::Complete,
+        })
     }
 }

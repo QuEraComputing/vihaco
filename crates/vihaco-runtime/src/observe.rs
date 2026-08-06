@@ -3,8 +3,11 @@
 
 use crate::Effects;
 
-pub trait Observe<E: 'static> {
-    type Effect: 'static;
+/// A non-consuming effect observer selected by a composite-specific route marker.
+///
+/// Composite route generation currently discards follow-up effects.
+pub trait Observe<E, R = ()> {
+    type Effect;
     type Error;
 
     fn observe(&mut self, effect: &E) -> Result<Effects<Self::Effect>, Self::Error>;

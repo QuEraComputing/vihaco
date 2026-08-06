@@ -5,10 +5,10 @@ use std::{io::Read, str::FromStr};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use vihaco::{
-    BytecodeFile, BytecodeGlobalContext, BytecodeSectionView, ConstantId, Effects, FLAGS,
-    GeneratedComponent, GetProgramInfo, Instruction, LoadBytecodeSection, LoadOwnBytecodeSection,
-    LoadOwnSstSection, LoadSstSection, MAGIC, ProgramImage, SectionNameResolver, SstFile,
-    SstGlobalContext, SstHeader, SstSectionView, Type, VERSION, Value,
+    BytecodeFile, BytecodeGlobalContext, BytecodeSectionView, ConstantId, FLAGS, GetProgramInfo,
+    Instruction, LoadBytecodeSection, LoadOwnBytecodeSection, LoadOwnSstSection, LoadSstSection,
+    MAGIC, ProgramImage, SectionNameResolver, SstFile, SstGlobalContext, SstHeader, SstSectionView,
+    Type, VERSION, Value,
     module::LocalModule,
     syntax::{ParsedModule, Resolve},
     traits::{FromBytes, FromText, WriteBytes},
@@ -184,34 +184,6 @@ struct TextLoadedDevice {
     program: TextProgram,
 }
 
-impl GeneratedComponent for LoadedDevice {
-    type Instruction = TestInst;
-    type Message = ();
-    type Effect = ();
-
-    fn execute_generated(
-        &mut self,
-        _inst: Self::Instruction,
-        _msg: Self::Message,
-    ) -> eyre::Result<Effects<Self::Effect>> {
-        Ok(Effects::none())
-    }
-}
-
-impl GeneratedComponent for TextLoadedDevice {
-    type Instruction = TextInst;
-    type Message = ();
-    type Effect = ();
-
-    fn execute_generated(
-        &mut self,
-        _inst: Self::Instruction,
-        _msg: Self::Message,
-    ) -> eyre::Result<Effects<Self::Effect>> {
-        Ok(Effects::none())
-    }
-}
-
 impl LoadBytecodeSection<TextContext> for LoadedDevice {
     fn load_bytecode_section<'bc>(
         &mut self,
@@ -232,10 +204,10 @@ impl LoadSstSection<TextContext> for TextLoadedDevice {
     }
 }
 
-#[vihaco::composite]
+vihaco::composite! {
 #[derive(Debug, Default)]
 #[allow(dead_code)]
-struct Machine {
+composite Machine {
     program: BytecodeProgram,
 
     #[device(0x01)]
@@ -246,47 +218,36 @@ struct Machine {
     #[loadable]
     default_child: LoadedDevice,
 }
+}
 
-#[vihaco::composite]
+vihaco::composite! {
 #[derive(Debug, Default)]
 #[allow(dead_code)]
-struct NestedMachine {
+composite NestedMachine {
     program: BytecodeProgram,
 
     #[device(0x01)]
     #[loadable("leaf")]
     leaf: LoadedDevice,
 }
-
-impl GeneratedComponent for NestedMachine {
-    type Instruction = NestedMachineInstruction;
-    type Message = ();
-    type Effect = ();
-
-    fn execute_generated(
-        &mut self,
-        _inst: Self::Instruction,
-        _msg: Self::Message,
-    ) -> eyre::Result<Effects<Self::Effect>> {
-        Ok(Effects::none())
-    }
 }
 
-#[vihaco::composite]
+vihaco::composite! {
 #[derive(Debug, Default)]
 #[allow(dead_code)]
-struct HostMachine {
+composite HostMachine {
     program: BytecodeProgram,
 
     #[device(0x01)]
     #[loadable("middle")]
     middle: NestedMachine,
 }
+}
 
-#[vihaco::composite]
+vihaco::composite! {
 #[derive(Debug, Default)]
 #[allow(dead_code)]
-struct HeaderMachine {
+composite HeaderMachine {
     info: TestHeader,
 
     program: BytecodeProgram,
@@ -294,11 +255,12 @@ struct HeaderMachine {
     #[device(0x01)]
     device: LoadedDevice,
 }
+}
 
-#[vihaco::composite]
+vihaco::composite! {
 #[derive(Debug, Default)]
 #[allow(dead_code)]
-struct TextMachine {
+composite TextMachine {
     program: TextProgram,
 
     #[device(0x01)]
@@ -309,53 +271,43 @@ struct TextMachine {
     #[loadable]
     default_child: TextLoadedDevice,
 }
+}
 
-#[vihaco::composite]
+vihaco::composite! {
 #[derive(Debug, Default)]
 #[allow(dead_code)]
-struct TextNestedMachine {
+composite TextNestedMachine {
     program: TextProgram,
 
     #[device(0x01)]
     #[loadable("leaf")]
     leaf: TextLoadedDevice,
 }
-
-impl GeneratedComponent for TextNestedMachine {
-    type Instruction = TextNestedMachineInstruction;
-    type Message = ();
-    type Effect = ();
-
-    fn execute_generated(
-        &mut self,
-        _inst: Self::Instruction,
-        _msg: Self::Message,
-    ) -> eyre::Result<Effects<Self::Effect>> {
-        Ok(Effects::none())
-    }
 }
 
-#[vihaco::composite]
+vihaco::composite! {
 #[derive(Debug, Default)]
 #[allow(dead_code)]
-struct TextHostMachine {
+composite TextHostMachine {
     program: TextProgram,
 
     #[device(0x01)]
     #[loadable("middle")]
     middle: TextNestedMachine,
 }
+}
 
-#[vihaco::composite]
+vihaco::composite! {
 #[derive(Debug, Default)]
 #[allow(dead_code)]
-struct TextHeaderMachine {
+composite TextHeaderMachine {
     info: TestHeader,
 
     program: TextProgram,
 
     #[device(0x01)]
     device: TextLoadedDevice,
+}
 }
 
 impl LoadOwnBytecodeSection<TextContext> for Machine {

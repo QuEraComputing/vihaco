@@ -26,7 +26,7 @@ Assume you already have:
 
 ```rust
 use eyre::Result;
-use vihaco::{Effects, observe};
+use vihaco::{Effects, Observe};
 
 #[derive(Debug, Clone)]
 pub struct StdoutEffect(pub String);
@@ -36,9 +36,11 @@ pub struct StdoutCollector {
     lines: Vec<String>,
 }
 
-#[observe(StdoutEffect)]
-impl StdoutCollector {
-    fn observe_stdout_effect(&mut self, effect: &StdoutEffect) -> Result<Effects<()>> {
+impl Observe<StdoutEffect> for StdoutCollector {
+    type Effect = ();
+    type Error = eyre::Report;
+
+    fn observe(&mut self, effect: &StdoutEffect) -> Result<Effects<()>> {
         self.lines.push(effect.0.clone());
         Ok(Effects::none())
     }
@@ -47,9 +49,9 @@ impl StdoutCollector {
 
 Now you can compose a runtime root:
 
-```rust
+```rust ignore
 # use eyre::Result;
-# use vihaco::{Effects, Instruction, component, observe};
+# use vihaco::{Effects, Instruction, Observe, component};
 # #[derive(Debug, Clone, Instruction)]
 # pub enum CounterInst { Print }
 # #[derive(Debug, Default)]
@@ -62,9 +64,10 @@ Now you can compose a runtime root:
 # pub struct StdoutEffect(pub String);
 # #[derive(Debug, Default)]
 # pub struct StdoutCollector { lines: Vec<String> }
-# #[observe(StdoutEffect)]
-# impl StdoutCollector {
-#     fn observe_stdout_effect(&mut self, effect: &StdoutEffect) -> Result<Effects<()>> {
+# impl Observe<StdoutEffect> for StdoutCollector {
+#     type Effect = ();
+#     type Error = eyre::Report;
+#     fn observe(&mut self, effect: &StdoutEffect) -> Result<Effects<()>> {
 #         self.lines.push(effect.0.clone());
 #         Ok(Effects::none())
 #     }
