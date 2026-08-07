@@ -199,8 +199,8 @@ selected by multiple routes.
 The payload type is passed unchanged to `Execute<PayloadType>`. The macro does not create a
 component-wide instruction enum or insert implicit conversions.
 
-Each route requires exactly one message clause and one effect handler. It may list zero or more
-observers:
+Each route requires exactly one message clause. Effect-producing routes include exactly one
+effect handler and may list zero or more observers:
 
 ```text
 message none;
@@ -212,6 +212,18 @@ effects {
     absorb with destination_field;
 }
 ```
+
+An instruction that intentionally emits no effects may omit the `effects` block entirely:
+
+```text
+Reset(ResetInstruction) => gate_beam {
+    message none;
+}
+```
+
+For such a route, the selected component instruction must use `NoEffect` as its `Execute::Effect`
+type. The generated route consumes the returned effect stream without invoking observers or a
+handler, and the type check prevents another effect type from being silently discarded.
 
 The handler alternatives are exclusive:
 

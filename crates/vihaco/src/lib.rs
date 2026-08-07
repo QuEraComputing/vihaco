@@ -42,7 +42,8 @@ pub use macros::{Instruction, component, composite};
 pub use program::{Type, Value};
 pub use runtime::{
     Absorb, CompositeMetadata, EffectSink, Execute, Execution, Handle, Message,
-    Message as MessageMarker, NoMessage, Observe, StepResult, Supply, expect_exactly_one_effect,
+    Message as MessageMarker, NoEffect, NoMessage, Observe, StepResult, Supply, complete,
+    expect_exactly_one_effect,
 };
 pub use traits::{FromBytes, FromText, GetProgramInfo, Reset};
 pub use vihaco_parser::SurfaceInstruction;

@@ -142,7 +142,6 @@ impl Parse for RouteDeclaration {
         let mut message_source = None;
         let mut observers = Vec::new();
         let mut handler = None;
-        let mut saw_effects = false;
 
         while !body.is_empty() {
             if body.peek(message) {
@@ -166,12 +165,11 @@ impl Parse for RouteDeclaration {
                 message_source = Some(source);
             } else if body.peek(effects) {
                 body.parse::<effects>()?;
-                if saw_effects {
-                    return Err(body.error("route has more than one effects block"));
-                }
-                saw_effects = true;
                 let effects_body;
                 syn::braced!(effects_body in body);
+                if handler.is_some() || !observers.is_empty() {
+                    return Err(body.error("route has more than one effects block"));
+                }
                 parse_effects(&effects_body, &mut observers, &mut handler)?;
             } else {
                 return Err(body.error("expected a message clause or effects block"));
@@ -180,12 +178,6 @@ impl Parse for RouteDeclaration {
 
         let message = message_source
             .ok_or_else(|| syn::Error::new(variant.span(), "route is missing a message clause"))?;
-        if !saw_effects {
-            return Err(syn::Error::new(
-                variant.span(),
-                "route is missing an effects block",
-            ));
-        }
 
         Ok(Self {
             variant,

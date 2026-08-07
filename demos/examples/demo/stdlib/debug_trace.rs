@@ -1,7 +1,10 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-use super::{Effects, handle::Observe};
+use super::{
+    Effects,
+    handle::{Absorb, Observe},
+};
 
 vihaco::component! {
     component DebugTrace {
@@ -17,12 +20,27 @@ impl debug_trace::DebugTrace {
             records: Vec::new(),
         }
     }
+
+    fn record<E: std::fmt::Debug>(&mut self, route: &'static str, effect: &E) {
+        self.records.push(DebugRecord {
+            route,
+            effect: format!("{effect:?}"),
+        });
+    }
+
+    /// Record an effect produced by a clock-driven component together with its global tick.
+    pub fn record_at<E: std::fmt::Debug>(&mut self, tick: u64, effect: &E) {
+        self.records.push(DebugRecord {
+            route: "clock",
+            effect: format!("tick {tick}: {effect:?}"),
+        });
+    }
 }
 
 #[derive(Debug)]
 pub struct DebugRecord {
-    route: &'static str,
-    effect: String,
+    pub route: &'static str,
+    pub effect: String,
 }
 
 impl<E, R> Observe<E, R> for debug_trace::DebugTrace
@@ -34,10 +52,19 @@ where
     type Error = std::convert::Infallible;
 
     fn observe(&mut self, effect: &E) -> Result<Effects<Self::Effect>, Self::Error> {
-        self.records.push(DebugRecord {
-            route: std::any::type_name::<R>(),
-            effect: format!("{effect:?}"),
-        });
+        self.record(std::any::type_name::<R>(), effect);
         Ok(Effects::none())
+    }
+}
+
+impl<E> Absorb<E> for debug_trace::DebugTrace
+where
+    E: std::fmt::Debug,
+{
+    type Fault = std::convert::Infallible;
+
+    fn absorb(&mut self, effect: E) -> Result<(), Self::Fault> {
+        self.record("absorbed", &effect);
+        Ok(())
     }
 }

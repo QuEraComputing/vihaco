@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 use vihaco_runtime::{
-    Absorb, Effects, Execute, Execution, Handle, NoMessage, Observe, StepResult, Supply,
+    Absorb, Effects, Execute, Execution, Handle, NoEffect, NoMessage, Observe, StepResult, Supply,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -109,4 +109,12 @@ fn supply_absorb_observe_and_handle_are_route_capabilities() {
 #[test]
 fn execution_has_complete_and_parked_states() {
     assert_ne!(Execution::Complete, Execution::Parked);
+}
+
+#[test]
+fn no_effect_is_a_distinct_uninhabited_effect_type() {
+    fn accepts_no_effect(_: NoEffect) {}
+
+    let _: fn(NoEffect) = accepts_no_effect;
+    assert_eq!(std::mem::size_of::<NoEffect>(), 0);
 }

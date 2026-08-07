@@ -50,12 +50,38 @@ pub struct Schedule<E> {
     pub event: E,
 }
 
+/*
+pub trait TimedEffect {
+    fn duration(&self) -> LocalCycles;
+}
+
+pub struct TickContext<E, C>
+where
+    E: TimedEffect,
+    C: ClockedComponent,
+{
+    pub elapsed: GlobalDuration,
+    pub context: E,
+    _marker: PhantomData<C>,
+}
+
+pub trait TickListener: ClockedComponent {
+    type Context: TimedEffect;
+    type Effect;
+
+    fn on_tick(
+        &mut self,
+        context: TickContext<Self::Context, Self>,
+    ) -> Result<vihaco::Effects<Self::Effect>, Self::Fault>;
+}
+*/
+
 /// Generic boundary for a component that participates in a global event loop.
 ///
 /// The trait shares only clock vocabulary with `GlobalClock`: ticks, instruction timing, and
 /// owned scheduling requests. It does not depend on a particular clock implementation or root
 /// event enum. Components supply their own instruction, event, completion, and fault types.
-pub trait ClockedComponent {
+pub trait ClockedComponent: Sized {
     type Event;
     type Completion;
     type Fault;

@@ -8,6 +8,13 @@ use crate::Effects;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct NoMessage;
 
+/// Marker effect for instructions that intentionally emit no effects.
+///
+/// This is distinct from [`std::convert::Infallible`], which describes an operation that cannot
+/// fail. `NoEffect` describes the effect channel of an instruction instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoEffect {}
+
 /// Outcome of one instruction step.
 ///
 /// This is independent of any timing model. It answers whether the parent
@@ -39,4 +46,28 @@ pub trait Execute<I> {
         instruction: &I,
         message: Self::Message,
     ) -> Result<StepResult<Self::Effect>, Self::Fault>;
+}
+
+#[macro_export]
+macro_rules! complete {
+    () => {
+        Ok(StepResult {
+            effects: vihaco::Effects::None,
+            execution: vihaco::Execution::Complete,
+        })
+    };
+
+    ($effect:expr) => {
+        Ok(StepResult {
+            effects: vihaco::Effects::One($effect),
+            execution: vihaco::Execution::Complete,
+        })
+    };
+
+    ($($effects:expr),+) => {
+        Ok(StepResult {
+            effects: vihaco::Effects::Many($effects),
+            execution: vihaco::Execution::Complete,
+        })
+    };
 }

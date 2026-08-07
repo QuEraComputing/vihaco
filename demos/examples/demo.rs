@@ -18,6 +18,8 @@ mod arithmetic;
 mod channel;
 #[path = "demo/stdlib/clock.rs"]
 mod clock;
+#[path = "demo/stdlib/counter.rs"]
+mod counter;
 #[path = "demo/src/cpu.rs"]
 mod cpu;
 #[path = "demo/stdlib/debug_trace.rs"]

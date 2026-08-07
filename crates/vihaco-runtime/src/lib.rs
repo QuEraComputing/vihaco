@@ -21,7 +21,7 @@ pub use vihaco_abi::{Effects, metadata};
 pub use vihaco_bytecode::{BytecodeSectionView, SstSectionView};
 pub use vihaco_module::loader;
 
-pub use execute::{Execute, Execution, NoMessage, StepResult};
+pub use execute::{Execute, Execution, NoEffect, NoMessage, StepResult};
 pub use generated::{CompositeMetadata, expect_exactly_one_effect};
 pub use handle::{Absorb, Handle};
 pub use marker::Message;

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 use proc_macro2::TokenStream as TokenStream2;
-use quote::{format_ident, quote};
+use quote::{format_ident, quote, quote_spanned};
 use syn::{Field, Generics, Ident, Result, Type};
 
 use super::syntax::{CompositeDeclaration, Handler, MessageSource, RouteDeclaration};
@@ -88,13 +88,14 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
             .ty
     };
 
-    let handle_impls = routes.iter().map(|route| {
+    let handle_impls = routes.iter().filter_map(|route| {
+        let handler = route.handler.as_ref()?;
         let marker = marker_ident(&route.variant);
         let target_ty = field_ty(&route.target);
         let payload = &route.payload;
         let effect = quote!(<#target_ty as #root::Execute<#payload>>::Effect);
         let error_type = error.as_ref().expect("validated executable composite");
-        let body = match route.handler.as_ref().expect("validated handler") {
+        let body = match handler {
             Handler::Absorb(field) => {
                 let absorb_ty = field_ty(field);
                 quote! {
@@ -106,7 +107,7 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
                 self.#method(effect).map_err(::std::convert::Into::<#error_type>::into)
             },
         };
-        quote! {
+        Some(quote! {
             impl #impl_generics #root::Handle<#effect, #route_module::#marker>
                 for #name #ty_generics #where_clause
             {
@@ -116,7 +117,7 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
                     #body
                 }
             }
-        }
+        })
     });
 
     let dispatch_arms = routes.iter().map(|route| {
@@ -152,6 +153,27 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
                     .map_err(::std::convert::Into::<#error_type>::into)?;
             }
         });
+        let effect_handling = if route.handler.is_some() {
+            quote! {
+                for effect in result.effects {
+                    #( #observers )*
+                    <Self as #root::Handle<
+                        <#target_ty as #root::Execute<#payload>>::Effect,
+                        #route_module::#marker
+                    >>::handle(self, effect)
+                    .map_err(::std::convert::Into::<#error_type>::into)?;
+                }
+            }
+        } else {
+            let no_effect_assertion = quote_spanned! {route.variant.span()=>
+                let _: #root::NoEffect = effect;
+            };
+            quote! {
+                for effect in result.effects {
+                    #no_effect_assertion
+                }
+            }
+        };
         quote! {
             #instruction_ident::#variant(instruction) => {
                 let message = #message;
@@ -161,14 +183,7 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
                     message,
                 )
                 .map_err(::std::convert::Into::<#error_type>::into)?;
-                for effect in result.effects {
-                    #( #observers )*
-                    <Self as #root::Handle<
-                        <#target_ty as #root::Execute<#payload>>::Effect,
-                        #route_module::#marker
-                    >>::handle(self, effect)
-                    .map_err(::std::convert::Into::<#error_type>::into)?;
-                }
+                #effect_handling
                 Ok(result.execution)
             }
         }

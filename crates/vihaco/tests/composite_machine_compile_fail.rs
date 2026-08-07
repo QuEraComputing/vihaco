@@ -8,4 +8,5 @@ fn composite_machine_rejects_ambiguous_wiring() {
     t.compile_fail("tests/compile_fail/composite_machine/duplicate-loadable-name.rs");
     t.compile_fail("tests/compile_fail/composite_machine/invalid-loadable-name.rs");
     t.compile_fail("tests/compile_fail/composite_machine/loadable-without-device.rs");
+    t.compile_fail("tests/compile_fail/composite_machine/missing-effects-handler.rs");
 }

@@ -74,4 +74,26 @@ mod tests {
         assert!(declaration.error.is_none());
         assert!(declaration.routes.is_empty());
     }
+
+    #[test]
+    fn parses_routes_without_effects_blocks() {
+        let declaration: CompositeDeclaration = parse_str(
+            r#"
+                composite CounterMachine {
+                    error = CounterMachineFault;
+                    counter_group: CounterGroup,
+                }
+                runtime_instructions {
+                    Queue(QueueInstruction) => counter_group {
+                        message none;
+                    }
+                }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(declaration.routes.len(), 1);
+        assert!(declaration.routes[0].observers.is_empty());
+        assert!(declaration.routes[0].handler.is_none());
+    }
 }
