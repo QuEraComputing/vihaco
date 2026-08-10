@@ -36,8 +36,8 @@ pub use instruction_syntax::{
     InstructionSugarVariantSyntax, OperandKind, SugarOperandKind,
 };
 pub use loader::{
-    InstallProgramModule, LoadBytecodeSection, LoadOwnBytecodeSection, LoadOwnSstSection,
-    LoadSstSection, ProgramImage,
+    BuildProgramModule, InstallProgramModule, LoadBytecodeSection, LoadOwnBytecodeSection,
+    LoadOwnSstSection, LoadSstSection, ProgramImage,
 };
 pub use macros::{Instruction, component, composite};
 pub use program::{Type, Value};

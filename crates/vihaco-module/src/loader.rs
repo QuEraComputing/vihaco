@@ -2,11 +2,10 @@
 // SPDX-License-Identifier: MIT
 
 use vihaco_abi::program::{Type, Value};
-use vihaco_abi::traits::Instruction;
 use vihaco_bytecode::{BytecodeSectionView, ConstantId, ContextHandle, SstSectionView};
 
 use crate::host::{GetProgramInfo, ProgramCounter};
-use crate::module::{LocalModule, NoInfo};
+use crate::module::{FunctionInfo, LabelInfo, LocalModule, NoInfo, SourceSymbolInfo};
 
 /// Allow a machine to load the bytecode data owned directly by its section.
 ///
@@ -63,6 +62,42 @@ pub trait InstallProgramModule<C> {
         module: Self::Module,
         context: ContextHandle<C>,
     ) -> eyre::Result<()>;
+}
+
+/// Build the runtime module owned by a program container from resolved SST data.
+///
+/// [`LocalModule`] receives the standard implementation through [`ProgramImage`]. Custom
+/// program containers may implement this capability to preserve their own module and metadata
+/// representation while still using generated composite loading.
+pub trait BuildProgramModule {
+    type Instruction;
+    type Value;
+    type Type;
+    type Info;
+    type Module;
+
+    fn empty_module() -> Self::Module;
+
+    fn append_instructions(
+        module: &mut Self::Module,
+        instructions: impl IntoIterator<Item = Self::Instruction>,
+    );
+
+    fn instruction_count(module: &Self::Module) -> u32;
+
+    fn add_function(module: &mut Self::Module, function: FunctionInfo<Self::Type>);
+
+    fn add_label(module: &mut Self::Module, label: LabelInfo);
+
+    fn add_source_symbol(module: &mut Self::Module, symbol: SourceSymbolInfo);
+
+    fn intern_string(module: &mut Self::Module, value: String) -> u32;
+
+    fn add_constant(module: &mut Self::Module, value: Self::Value) -> u32;
+
+    fn set_main_function(module: &mut Self::Module, function: Option<u32>);
+
+    fn finish(module: Self::Module) -> eyre::Result<Self::Module>;
 }
 
 #[derive(Debug, Clone)]
@@ -130,7 +165,70 @@ impl<I, C, V, Ty, Info> InstallProgramModule<C> for ProgramImage<I, C, V, Ty, In
     }
 }
 
-impl<I: Instruction, C, V, Ty, Info> ProgramCounter for ProgramImage<I, C, V, Ty, Info> {
+impl<I, C, V, Ty, Info: Default> BuildProgramModule for ProgramImage<I, C, V, Ty, Info> {
+    type Instruction = I;
+    type Value = V;
+    type Type = Ty;
+    type Info = Info;
+    type Module = LocalModule<I, V, Ty, Info>;
+
+    fn empty_module() -> Self::Module {
+        LocalModule::default()
+    }
+
+    fn append_instructions(
+        module: &mut Self::Module,
+        instructions: impl IntoIterator<Item = Self::Instruction>,
+    ) {
+        module.code.extend(instructions);
+    }
+
+    fn instruction_count(module: &Self::Module) -> u32 {
+        module.code.len() as u32
+    }
+
+    fn add_function(module: &mut Self::Module, function: FunctionInfo<Self::Type>) {
+        module.functions.push(function);
+    }
+
+    fn add_label(module: &mut Self::Module, label: LabelInfo) {
+        module.labels.push(label);
+    }
+
+    fn add_source_symbol(module: &mut Self::Module, symbol: SourceSymbolInfo) {
+        module.source_symbols.push(symbol);
+    }
+
+    fn intern_string(module: &mut Self::Module, value: String) -> u32 {
+        if let Some(index) = module
+            .strings
+            .iter()
+            .position(|existing| existing == &value)
+        {
+            index as u32
+        } else {
+            let index = module.strings.len() as u32;
+            module.strings.push(value);
+            index
+        }
+    }
+
+    fn add_constant(module: &mut Self::Module, value: Self::Value) -> u32 {
+        let index = module.constants.len() as u32;
+        module.constants.push(value);
+        index
+    }
+
+    fn set_main_function(module: &mut Self::Module, function: Option<u32>) {
+        module.main_function = function;
+    }
+
+    fn finish(module: Self::Module) -> eyre::Result<Self::Module> {
+        Ok(module)
+    }
+}
+
+impl<I, C, V, Ty, Info> ProgramCounter for ProgramImage<I, C, V, Ty, Info> {
     type Instruction = I;
 
     fn pc(&self) -> u32 {
@@ -152,7 +250,7 @@ impl<I: Instruction, C, V, Ty, Info> ProgramCounter for ProgramImage<I, C, V, Ty
     }
 }
 
-impl<I: Instruction, C, V, Ty, Info> GetProgramInfo for ProgramImage<I, C, V, Ty, Info>
+impl<I, C, V, Ty, Info> GetProgramInfo for ProgramImage<I, C, V, Ty, Info>
 where
     Ty: Clone,
 {
@@ -233,5 +331,45 @@ mod tests {
         assert_eq!(image.context().unwrap(), &"new");
         assert!(image.context.as_ref().unwrap().ptr_eq(&new_context));
         assert_eq!(image.pc, 0);
+    }
+
+    #[test]
+    fn program_counter_supports_non_bytecode_instructions() {
+        let mut image: ProgramImage<TestInstruction, &str> = ProgramImage {
+            module: LocalModule {
+                code: vec![TestInstruction(7), TestInstruction(11)],
+                ..LocalModule::default()
+            },
+            context: None,
+            pc: 0,
+        };
+
+        assert_eq!(image.peek_instruction().unwrap(), &TestInstruction(7));
+        assert_eq!(image.next_instruction().unwrap(), &TestInstruction(7));
+        assert_eq!(image.pc(), 1);
+        assert_eq!(image.next_instruction().unwrap(), &TestInstruction(11));
+        assert_eq!(image.pc(), 2);
+    }
+
+    #[test]
+    fn local_module_builder_appends_and_interns() {
+        let mut module =
+            <ProgramImage<TestInstruction, &str> as BuildProgramModule>::empty_module();
+        <ProgramImage<TestInstruction, &str> as BuildProgramModule>::append_instructions(
+            &mut module,
+            [TestInstruction(7), TestInstruction(11)],
+        );
+        let first = <ProgramImage<TestInstruction, &str> as BuildProgramModule>::intern_string(
+            &mut module,
+            "main".to_owned(),
+        );
+        let second = <ProgramImage<TestInstruction, &str> as BuildProgramModule>::intern_string(
+            &mut module,
+            "main".to_owned(),
+        );
+
+        assert_eq!(module.code, vec![TestInstruction(7), TestInstruction(11)]);
+        assert_eq!(first, 0);
+        assert_eq!(second, first);
     }
 }

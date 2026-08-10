@@ -14,8 +14,10 @@ vihaco is a framework for building small virtual machines. You define
 
 - reusable **components** and their instruction products with `component!`;
 - one `Execute<I>` implementation per product, with typed messages and effects;
-- **composite routes** with `composite!`; and
-- (optionally) **SST source syntax** with the parser derives,
+- **composite routes** with `composite!`;
+- executable composite **surface syntax and program loading** with the parser
+  derives; and
+- (optionally) standalone **SST source syntax** with the parser derives,
 
 all as ordinary Rust. A component step is
 `execute(&instruction, message) -> StepResult<effect>`:
@@ -91,8 +93,8 @@ No mise? A stable Rust 2024 toolchain is enough — `cargo test --workspace
 
 Guides and the API reference are published to GitHub Pages:
 **<https://queracomputing.github.io/vihaco/>**. The guides walk through defining
-instructions, pattern parser integration, messages, components, observers, and
-composites.
+instructions, pattern parser integration, typed module resolution, messages,
+components, observers, composites, and composite-owned program loading.
 
 Every code block in the guides and on the site is compiled — and, where
 runnable, executed — in CI (via the `vihaco-doctests` crate), so the examples

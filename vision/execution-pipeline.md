@@ -17,6 +17,27 @@ SST text
     -> runtime program image
 ```
 
+An executable `composite!` can now own the surface-to-runtime boundary. Its
+`syntax` block generates the surface instruction parser, its named resolver
+methods lower payload-bearing instructions, and a `#[program]` field receives
+the resulting module through `BuildProgramModule` and
+`InstallProgramModule`:
+
+```text
+SST section
+    -> composite::syntax::Instruction parser
+    -> ParsedModule<SurfaceInstruction, SurfaceType, Header>
+    -> generated composite lowering
+    -> BuildProgramModule
+    -> load_parsed(parsed, ContextHandle)
+    -> installed runtime program
+```
+
+The generic `Resolve` trait remains available for standalone or more
+application-specific module construction. The generated composite path is a
+convenience for executable composites and does not require the runtime
+instruction enum to implement bytecode encoding.
+
 `SurfaceType`, `Constant`, and `RuntimeType` are author-defined products rather than vihaco enums.
 `Resolve<SurfaceInstruction, SurfaceType, Header>` owns every transformation that requires
 module-wide source context:

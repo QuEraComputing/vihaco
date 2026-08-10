@@ -205,3 +205,16 @@ and load the resulting runtime instructions into that component.
 This keeps source syntax attached to the component that owns it. Composite
 loading routes sections to components; it does not require a second source
 grammar for the generated machine instruction enum.
+
+For an executable composite with a `#[program]` field, the composite can own
+this final step instead of requiring a separate handwritten `Resolve`
+implementation. Its generated `syntax::Instruction` is the surface type, and
+its generated resolver lowers those values into the composite's runtime
+instruction enum. Call `load_parsed(parsed, context)` to build and install the
+program. Use `resolve_parsed(parsed)` when the constructed module needs to be
+inspected before installation.
+
+The program field's container supplies the construction policy through
+`BuildProgramModule`. `ProgramImage` implements the standard policy for
+`LocalModule`; custom containers can implement the same capability when they
+need different storage or metadata.

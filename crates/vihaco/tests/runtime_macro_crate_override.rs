@@ -3,21 +3,20 @@
 
 use chumsky::Parser as _;
 use eyre::Result;
-use vihaco::{Effects, Execute, Execution, Instruction, Observe, StepResult, composite};
-use vihaco_parser::Parse;
+use vihaco::{Effects, Execute, Execution, Observe, StepResult, composite};
+use vihaco_parser::{Ident, Parse};
 
 mod test_root {
     pub use ::vihaco::*;
 }
 
-#[derive(Debug, Clone, Instruction)]
-pub enum TestInstruction {
-    Run,
-}
+#[derive(Debug, Clone, Copy)]
+pub struct TestInstruction;
 
 struct TestMessage;
 struct TestEffect;
 struct TestComponent;
+struct TestContext;
 
 impl Execute<TestInstruction> for TestComponent {
     type Message = TestMessage;
@@ -59,6 +58,8 @@ composite! {
         #[device(0x01)]
         component: TestComponent,
         observer: TestObserver,
+        #[program]
+        program: vihaco::ProgramImage<TestMachineInstruction, TestContext, vihaco::Value, ()>,
     }
 
     syntax {
@@ -89,6 +90,15 @@ impl TestMachine {
     }
 }
 
+impl test_machine::syntax::Resolver for TestMachine {
+    fn lower_count(
+        &mut self,
+        _instruction: u32,
+    ) -> Result<Vec<test_machine::runtime::Instruction>, eyre::Report> {
+        Ok(Vec::new())
+    }
+}
+
 #[test]
 fn runtime_macros_honor_explicit_crate_override() {
     let parsed = test_machine::syntax::Instruction::parser()
@@ -100,9 +110,10 @@ fn runtime_macros_honor_explicit_crate_override() {
     let mut machine = TestMachine {
         component: TestComponent,
         observer: TestObserver::default(),
+        program: vihaco::ProgramImage::new(),
     };
     let outcome = machine
-        .execute_generated(&TestMachineInstruction::Run(TestInstruction::Run))
+        .execute_generated(&TestMachineInstruction::Run(TestInstruction))
         .unwrap();
     assert_eq!(outcome, Execution::Complete);
     assert!(machine.observer.observed);
@@ -110,4 +121,31 @@ fn runtime_macros_honor_explicit_crate_override() {
     let metadata = test_root::__private::GeneratedMachine::metadata(&machine);
     assert_eq!(metadata.devices[0].code, 0x01);
     assert_eq!(metadata.devices[0].name, "component");
+}
+
+#[test]
+fn generated_program_loader_builds_and_installs_module() {
+    let parsed = vihaco::syntax::ParsedModule {
+        header: (),
+        functions: vec![vihaco::syntax::ParsedFunction {
+            name: Ident("main".to_owned()),
+            params: Vec::<vihaco::syntax::Param<()>>::new(),
+            return_ty: None,
+            body: vec![test_machine::syntax::Instruction::Run],
+        }],
+    };
+    let mut machine = TestMachine {
+        component: TestComponent,
+        observer: TestObserver::default(),
+        program: vihaco::ProgramImage::new(),
+    };
+
+    machine
+        .load_parsed(parsed, vihaco::ContextHandle::new(TestContext))
+        .unwrap();
+
+    assert_eq!(machine.program.module.code.len(), 1);
+    assert_eq!(machine.program.module.functions.len(), 1);
+    assert_eq!(machine.program.module.main_function, Some(0));
+    assert_eq!(machine.program.pc, 0);
 }

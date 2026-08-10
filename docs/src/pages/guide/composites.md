@@ -125,6 +125,77 @@ The composite macro can also declare structural composites with no
 metadata, and section wiring, while their event loop or parent dispatch remains
 hand-written.
 
+## Surface syntax and program loading
+
+An executable composite can own the source grammar for its machine program.
+The `syntax` block declares surface instructions, while the `runtime` block
+declares the runtime routes they lower to:
+
+```rust ignore
+composite Machine {
+    error = eyre::Report;
+
+    #[device(0x01)]
+    cpu: Cpu,
+
+    #[program]
+    program: ProgramImage<MachineInstruction, MachineContext, Value, ()>,
+}
+
+syntax {
+    #[pattern = "'machine::halt"]
+    Halt => runtime Halt;
+    #[pattern = "'machine::load $0"]
+    Load(u64) => lower_load;
+}
+
+runtime {
+    Halt(Halt) => cpu { message none; }
+    LoadConstant(u64) => cpu { message none; }
+}
+```
+
+Direct `runtime` mappings are intended for unit surface instructions. A named
+lowerer handles payloads and may expand one surface instruction into several
+runtime instructions:
+
+```rust ignore
+impl machine::syntax::Resolver for Machine {
+    fn lower_load(
+        &mut self,
+        value: u64,
+    ) -> Result<Vec<machine::runtime::Instruction>> {
+        Ok(vec![machine::runtime::Instruction::LoadConstant(value)])
+    }
+}
+```
+
+The generated parser is available as
+`machine::syntax::Instruction::parser()`. A parsed module can be resolved and
+installed with an explicit context:
+
+```rust ignore
+let parsed = machine::syntax::ParsedModule::parse_section(section)?;
+machine.load_parsed(parsed, ContextHandle::new(MachineContext))?;
+```
+
+`load_parsed` constructs a fresh module, lowers every function, records
+function metadata, selects `main`, installs the module and context, and resets
+the program counter. Malformed input or a lowering failure returns an error.
+
+## Custom program containers
+
+`ProgramImage` is the standard program container. A composite author only
+needs to mark its program field with `#[program]`. A library author who needs
+custom storage or metadata can implement `BuildProgramModule` and
+`InstallProgramModule` for another container. The builder controls module
+creation, instruction appending, string interning, function metadata,
+constants, and final validation; generated `load_parsed` uses those operations
+without depending on `LocalModule` directly.
+
+This keeps source resolution independent from the representation used by a
+particular host VM.
+
 ## Runtime boundaries
 
 The macro does not fetch instructions, own a program counter, generate a clock,

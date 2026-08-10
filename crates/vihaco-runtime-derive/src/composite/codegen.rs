@@ -145,6 +145,205 @@ fn generate_resolver_traits(
     }
 }
 
+fn generate_surface_lowering(
+    module: &Ident,
+    instruction_ident: &Ident,
+    generics: &Generics,
+    syntax: &[SyntaxDeclaration],
+    routes: &[RouteDeclaration],
+    error: Option<&Type>,
+) -> TokenStream2 {
+    if syntax.is_empty() || routes.is_empty() || error.is_none() {
+        return quote! {};
+    }
+    let error = error.expect("checked above");
+    let route_generics = retained_enum_generics(generics, routes);
+    let (_, route_ty_generics, _) = route_generics.split_for_impl();
+    let arms = syntax.iter().filter_map(|entry| {
+        let variant = &entry.variant;
+        let route = match &entry.mapping {
+            SyntaxMapping::Runtime(runtime_variant) => routes
+                .iter()
+                .find(|route| route.variant == *runtime_variant)
+                .expect("validated runtime route"),
+            SyntaxMapping::Lower(_) => return None,
+        };
+        let runtime_variant = &route.variant;
+        let payload = &route.payload;
+        Some(quote! {
+            #module::syntax::Instruction::#variant => {
+                Ok(vec![#instruction_ident::#runtime_variant(#payload)])
+            }
+        })
+    });
+    let lowerer_arms = syntax.iter().filter_map(|entry| {
+        let SyntaxMapping::Lower(method) = &entry.mapping else {
+            return None;
+        };
+        let variant = &entry.variant;
+        Some(quote! {
+            #module::syntax::Instruction::#variant(instruction) => {
+                <Self as #module::syntax::Resolver>::#method(self, instruction)
+                    .map_err(::std::convert::Into::<#error>::into)
+            }
+        })
+    });
+    quote! {
+        fn lower_surface_instruction(
+            &mut self,
+            instruction: &#module::syntax::Instruction,
+        ) -> ::std::result::Result<
+            ::std::vec::Vec<#instruction_ident #route_ty_generics>,
+            #error,
+        > {
+            match instruction.clone() {
+                #( #arms, )*
+                #( #lowerer_arms, )*
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn generate_program_loading(
+    root: &TokenStream2,
+    name: &Ident,
+    module: &Ident,
+    generics: &Generics,
+    error: Option<&Type>,
+    syntax: &[SyntaxDeclaration],
+    routes: &[RouteDeclaration],
+    fields: &[super::validate::FieldMetadata],
+) -> TokenStream2 {
+    let Some(error) = error else {
+        return quote! {};
+    };
+    let Some(program) = fields.iter().find(|field| field.program) else {
+        return quote! {};
+    };
+    if syntax.is_empty() || routes.is_empty() {
+        return quote! {};
+    }
+
+    let program_field = &program.ident;
+    let program_ty = &program.ty;
+    let instruction_ident = format_ident!("{name}Instruction");
+    let route_generics = retained_enum_generics(generics, routes);
+    let (_, route_ty_generics, _) = route_generics.split_for_impl();
+    let syntax_generics = syntax_generics(generics, syntax);
+    let (_, syntax_ty_generics, _) = syntax_generics.split_for_impl();
+    let surface_ty = format_ident!("__VihacoSurfaceType");
+    let header_ty = format_ident!("__VihacoHeader");
+    let context_ty = format_ident!("__VihacoContext");
+
+    quote! {
+        pub fn resolve_parsed<#surface_ty, #header_ty>(
+            &mut self,
+            parsed: #root::syntax::ParsedModule<
+                #module::syntax::Instruction #syntax_ty_generics,
+                #surface_ty,
+                #header_ty,
+            >,
+        ) -> ::eyre::Result<
+            <#program_ty as #root::BuildProgramModule>::Module,
+        >
+        where
+            #surface_ty: ::std::clone::Clone
+                + ::std::convert::Into<
+                    <#program_ty as #root::BuildProgramModule>::Type,
+                >,
+            #program_ty: #root::BuildProgramModule<
+                    Instruction = #instruction_ident #route_ty_generics,
+                >,
+        {
+            let mut module = <#program_ty as #root::BuildProgramModule>::empty_module();
+            for (function_index, function) in parsed.functions.into_iter().enumerate() {
+                let start_address =
+                    <#program_ty as #root::BuildProgramModule>::instruction_count(&module);
+                for instruction in function.body {
+                    let lowered = self.lower_surface_instruction(&instruction)?;
+                    <#program_ty as #root::BuildProgramModule>::append_instructions(
+                        &mut module,
+                        lowered,
+                    );
+                }
+                let end_address =
+                    <#program_ty as #root::BuildProgramModule>::instruction_count(&module);
+                let function_name =
+                    <#program_ty as #root::BuildProgramModule>::intern_string(
+                        &mut module,
+                        function.name.as_str().to_owned(),
+                    );
+                let params = function
+                    .params
+                    .into_iter()
+                    .map(|param| {
+                        let name = <#program_ty as #root::BuildProgramModule>::intern_string(
+                            &mut module,
+                            param.name.as_str().to_owned(),
+                        );
+                        #root::module::Parameter {
+                            name,
+                            ty: param.ty.into(),
+                        }
+                    })
+                    .collect();
+                let ret = function
+                    .return_ty
+                    .into_iter()
+                    .map(::std::convert::Into::into)
+                    .collect();
+                <#program_ty as #root::BuildProgramModule>::add_function(
+                    &mut module,
+                    #root::module::FunctionInfo {
+                        name: function_name,
+                        signature: #root::module::Signature { params, ret },
+                        local_count: 0,
+                        start_address,
+                        end_address,
+                        file: 0,
+                    },
+                );
+                if function.name.as_str() == "main" {
+                    <#program_ty as #root::BuildProgramModule>::set_main_function(
+                        &mut module,
+                        Some(function_index as u32),
+                    );
+                }
+            }
+            <#program_ty as #root::BuildProgramModule>::finish(module)
+                .map_err(::std::convert::Into::<#error>::into)
+        }
+
+        pub fn load_parsed<#surface_ty, #header_ty, #context_ty>(
+            &mut self,
+            parsed: #root::syntax::ParsedModule<
+                #module::syntax::Instruction #syntax_ty_generics,
+                #surface_ty,
+                #header_ty,
+            >,
+            context: #root::ContextHandle<#context_ty>,
+        ) -> ::eyre::Result<()>
+        where
+            #surface_ty: ::std::clone::Clone
+                + ::std::convert::Into<
+                    <#program_ty as #root::BuildProgramModule>::Type,
+                >,
+            #program_ty: #root::BuildProgramModule<
+                    Instruction = #instruction_ident #route_ty_generics,
+                > + #root::InstallProgramModule<
+                    #context_ty,
+                    Module = <#program_ty as #root::BuildProgramModule>::Module,
+                >,
+        {
+            let module = self.resolve_parsed(parsed)?;
+            <#program_ty as #root::InstallProgramModule<#context_ty>>
+                ::install_program_module(&mut self.#program_field, module, context)
+                .map_err(::std::convert::Into::<#error>::into)
+        }
+    }
+}
+
 pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStream2> {
     let root = resolve_root(&declaration.attrs)?;
     let fields_metadata = super::validate::metadata_fields(&declaration.fields)?;
@@ -189,7 +388,30 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
     let syntax_declaration = generate_syntax_module(&root, &generics, error.as_ref(), &syntax);
     let resolver_traits =
         generate_resolver_traits(&root, &generics, error.as_ref(), &routes, &fields_metadata);
+    let surface_lowering = generate_surface_lowering(
+        &composite_module,
+        &instruction_ident,
+        &generics,
+        &syntax,
+        &routes,
+        error.as_ref(),
+    );
+    let program_loading = generate_program_loading(
+        &root,
+        &name,
+        &composite_module,
+        &generics,
+        error.as_ref(),
+        &syntax,
+        &routes,
+        &fields_metadata,
+    );
     let runtime_alias = quote! {};
+    let runtime_instruction_alias = if syntax.is_empty() {
+        quote! {}
+    } else {
+        quote! { pub use super::super::#instruction_ident as Instruction; }
+    };
     let syntax_alias = if syntax.is_empty() {
         quote! {}
     } else {
@@ -213,7 +435,7 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
                 use super::*;
                 pub mod runtime {
                     use super::*;
-                    pub use super::super::#instruction_ident as Instruction;
+                    #runtime_instruction_alias
                     #resolver_traits
                 }
                 #syntax_declaration
@@ -386,6 +608,8 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
         }
 
         impl #impl_generics #name #ty_generics #where_clause {
+            #surface_lowering
+            #program_loading
             #dispatch
         }
 

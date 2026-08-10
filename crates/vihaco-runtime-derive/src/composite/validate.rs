@@ -15,6 +15,7 @@ pub(super) struct FieldMetadata {
     pub(super) ty: Type,
     pub(super) device: Option<DeviceArgs>,
     pub(super) loadable: Option<String>,
+    pub(super) program: bool,
 }
 
 fn validate_loadable_name(name: &str, span: Span) -> Result<()> {
@@ -42,6 +43,7 @@ pub(super) fn metadata_fields(fields: &[Field]) -> Result<Vec<FieldMetadata>> {
             .ok_or_else(|| syn::Error::new(field.span(), "composite fields must be named"))?;
         let mut device = None;
         let mut loadable = None;
+        let mut program = false;
         for attr in &field.attrs {
             if attr.path().is_ident("device") {
                 if device.is_some() {
@@ -65,6 +67,14 @@ pub(super) fn metadata_fields(fields: &[Field]) -> Result<Vec<FieldMetadata>> {
                 };
                 validate_loadable_name(&name, attr.span())?;
                 loadable = Some(name);
+            } else if attr.path().is_ident("program") {
+                if program {
+                    return Err(syn::Error::new(
+                        attr.span(),
+                        format!("duplicate program attribute on field `{ident}`"),
+                    ));
+                }
+                program = true;
             }
         }
         if loadable.is_some() && device.is_none() {
@@ -78,13 +88,26 @@ pub(super) fn metadata_fields(fields: &[Field]) -> Result<Vec<FieldMetadata>> {
             ty: field.ty.clone(),
             device,
             loadable,
+            program,
         });
     }
 
     let mut device_codes = BTreeMap::<u8, Ident>::new();
     let mut source_symbols = BTreeMap::<String, Ident>::new();
     let mut loadable_names = BTreeMap::<String, Ident>::new();
+    let mut program_field = None;
     for field in &metadata {
+        if field.program
+            && let Some(previous) = program_field.replace(field.ident.clone())
+        {
+            return Err(syn::Error::new(
+                field.ident.span(),
+                format!(
+                    "multiple `#[program]` fields: `{previous}` and `{}`",
+                    field.ident
+                ),
+            ));
+        }
         let Some(device) = &field.device else {
             continue;
         };
