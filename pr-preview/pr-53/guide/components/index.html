@@ -1,0 +1,306 @@
+<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Declare reusable runtime components with component!, define instruction products, and implement Execute per instruction."><title>Building Components — vihaco</title><script>
+      (() => {
+        // localStorage can throw when storage is blocked (hardened privacy
+        // settings, sandboxed frames); fall back to "auto" so the theme still
+        // applies before first paint.
+        let stored = "auto";
+        try { stored = localStorage.getItem("vihaco-theme") || "auto"; } catch (e) {}
+        const sysDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const resolved = stored === "auto" ? (sysDark ? "dark" : "light") : stored;
+        document.documentElement.setAttribute("data-theme", resolved);
+        document.documentElement.setAttribute("data-theme-pref", stored);
+      })();
+    </script><link rel="stylesheet" href="/vihaco/pr-preview/pr-53/_astro/Base.Wd5z-zFf.css"></head> <body> <header class="masthead"> <div class="masthead-inner"> <a class="brand" href="/vihaco/pr-preview/pr-53/"> <span class="brand-mark" aria-hidden="true"></span> <span class="brand-mono">vihaco</span> <span class="brand-sub">/ virtual ISA &amp; machine framework</span> </a> <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Open navigation menu"> <span class="nav-toggle-bars" aria-hidden="true"></span> </button> <nav class="nav-links" id="primary-nav"> <a href="/vihaco/pr-preview/pr-53/">Overview</a><a href="/vihaco/pr-preview/pr-53/quickstart">Quick Start</a><a href="/vihaco/pr-preview/pr-53/guide" aria-current="page">Guides</a><a href="/vihaco/pr-preview/pr-53/reference">Reference</a> <div class="theme-toggle" role="group" aria-label="Theme"> <button type="button" data-theme-set="light" title="Light theme" aria-label="Light theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <circle cx="12" cy="12" r="4"></circle> <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path> </svg> </button> <button type="button" data-theme-set="dark" title="Dark theme" aria-label="Dark theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path> </svg> </button> <button type="button" data-theme-set="auto" title="Match system theme" aria-label="Auto (follow system)" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <rect x="3" y="4" width="18" height="13" rx="2"></rect> <path d="M8 21h8M12 17v4"></path> </svg> </button> </div> </nav> </div> </header> <main> <div class="page-shell page-shell--3col"> <details class="page-sections side-nav" aria-label="Guides"> <summary class="page-toc-label">Guides</summary> <ol> <li> <a href="/vihaco/pr-preview/pr-53/guide/instructions">Defining Instructions</a> </li><li> <a href="/vihaco/pr-preview/pr-53/guide/instructions-advanced">Advanced Instruction Usage</a> </li><li> <a href="/vihaco/pr-preview/pr-53/guide/parser">Parser Integration</a> </li><li> <a href="/vihaco/pr-preview/pr-53/guide/parser-patterns">Pattern Parser Generator</a> </li><li> <a href="/vihaco/pr-preview/pr-53/guide/parser-advanced">Advanced Parser Customization</a> </li><li> <a href="/vihaco/pr-preview/pr-53/guide/messages">Using Messages</a> </li><li> <a href="/vihaco/pr-preview/pr-53/guide/components" aria-current="page">Building Components</a> </li><li> <a href="/vihaco/pr-preview/pr-53/guide/observers">Observing Effects</a> </li><li> <a href="/vihaco/pr-preview/pr-53/guide/composites">Defining a Composite</a> </li> </ol> </details> <div class="page-toc-content">  <article class="shell narrow guide-body"> <h1 id="building-components-with-vihaco">Building Components With <code>vihaco</code></h1>
+<p>A component owns state and the behavior for one or more runtime instruction
+products. The component declaration and the execution implementation are two
+deliberate boundaries:</p>
+<ul>
+<li><code>component!</code> declares the state type and the instruction product types.</li>
+<li><code>Execute&#x3C;I></code> implements one product <code>I</code>, with its own message, effect, and
+fault types.</li>
+</ul>
+<p>This lets a component expose operations with different input and output
+contracts without forcing them through one large instruction enum.</p>
+<h2 id="declare-a-component">Declare a component</h2>
+<pre><code class="language-rust">use vihaco::component;
+
+component! {
+    component Counter {
+        value: i64,
+    }
+
+    instruction {
+        Add(i64),
+        Print,
+    }
+}
+</code></pre>
+<p>The macro creates <code>counter::Counter</code> and places the products in
+<code>counter::instruction</code>: <code>Add(i64)</code> and <code>Print</code>. Named and tuple products are
+also supported:</p>
+<pre><code class="language-rust">use vihaco::component;
+
+component! {
+    component RegisterFile {
+        values: Vec&#x3C;i64>,
+    }
+
+    instruction {
+        Read { slot: usize },
+        Write(usize, i64),
+        Reset,
+    }
+}
+</code></pre>
+<p>The declaration is a catalog of runtime products. It does not define source
+syntax, assign machine-wide device codes, or choose which products a composite
+exposes.</p>
+<h2 id="implement-executei">Implement <code>Execute&#x3C;I></code></h2>
+<p>Execution is implemented per product. <code>Message</code> is a marker for owned,
+runtime-supplied input; <code>NoMessage</code> is the standard input for an instruction
+that needs none. <code>StepResult</code> keeps returned effects separate from whether the
+operation completed or parked.</p>
+<pre><code class="language-rust">use eyre::Result;
+use vihaco::{
+    component, Effects, Execute, Execution, Message, StepResult,
+};
+
+component! {
+    component Counter {
+        value: i64,
+    }
+
+    instruction {
+        Add(i64),
+        Print,
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Prefix(String);
+impl Message for Prefix {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Line(String);
+
+impl Execute&#x3C;counter::instruction::Add> for counter::Counter {
+    type Message = ();
+    type Effect = ();
+    type Fault = eyre::Report;
+
+    fn execute(
+        &#x26;mut self,
+        instruction: &#x26;counter::instruction::Add,
+        _message: (),
+    ) -> Result&#x3C;StepResult&#x3C;()>, Self::Fault> {
+        self.value += instruction.0;
+        Ok(StepResult {
+            effects: Effects::none(),
+            execution: Execution::Complete,
+        })
+    }
+}
+
+impl Execute&#x3C;counter::instruction::Print> for counter::Counter {
+    type Message = Prefix;
+    type Effect = Line;
+    type Fault = eyre::Report;
+
+    fn execute(
+        &#x26;mut self,
+        _instruction: &#x26;counter::instruction::Print,
+        message: Prefix,
+    ) -> Result&#x3C;StepResult&#x3C;Line>, Self::Fault> {
+        Ok(StepResult {
+            effects: Effects::one(Line(format!("{}{}", message.0, self.value))),
+            execution: Execution::Complete,
+        })
+    }
+}
+</code></pre>
+<p>The <code>Execute</code> contract is:</p>
+<pre><code class="language-text">Execute&#x3C;I>::execute(&#x26;mut self, &#x26;I, Message)
+    -> Result&#x3C;StepResult&#x3C;Effect>, Fault>
+</code></pre>
+<p><code>Effects</code> can contain zero, one, or many values. <code>Execution::Complete</code> tells a
+parent that it may advance its program counter; <code>Execution::Parked</code> tells it
+to retain the operation until an owned completion is available. The runtime
+does not infer timing or scheduling from this value.</p>
+<h2 id="capabilities-around-execution">Capabilities around execution</h2>
+<p>Components can expose reusable capabilities independently of instruction
+execution:</p>
+<ul>
+<li><code>Supply&#x3C;M></code> produces an owned message, often from a stack or queue.</li>
+<li><code>Absorb&#x3C;E></code> consumes an owned effect, often by updating state.</li>
+<li><code>Observe&#x3C;E, R></code> borrows an effect for diagnostics, tracing, or recording.</li>
+<li><code>Handle&#x3C;E, R></code> is the composite-selected route for the one consumer that
+receives ownership of an effect.</li>
+</ul>
+<p>These contracts keep a reusable component independent of the composite that
+contains it. The composite decides which capability is used on each route.</p>
+<h2 id="planned-extensions">Planned extensions</h2>
+<p>The current runtime leaves resume/continuation dispatch and timing policy to
+ordinary Rust in the parent runtime. A future macro layer is planned to make
+those boundaries more convenient; until then, examples should implement them
+explicitly and should treat <code>Execution::Parked</code> as a real runtime state.</p>
+<p>Continue with <a href="/vihaco/pr-preview/pr-53/guide/composites">Defining Composites</a> and
+<a href="/vihaco/pr-preview/pr-53/guide/messages">Using Messages</a>.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/pr-preview/pr-53/guide/messages" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Using Messages</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/pr-preview/pr-53/guide/observers" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Observing Effects</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#declare-a-component" data-toc-link="#declare-a-component">Declare a component</a></li><li><a href="#implement-executei" data-toc-link="#implement-executei">Implement Execute&lt;I&gt;</a></li><li><a href="#capabilities-around-execution" data-toc-link="#capabilities-around-execution">Capabilities around execution</a></li><li><a href="#planned-extensions" data-toc-link="#planned-extensions">Planned extensions</a></li> </ol> </details> </div> </main> <script>
+        // Scroll-spy: mark the TOC link for the section currently in view.
+        (() => {
+          const links = Array.from(document.querySelectorAll(".page-toc [data-toc-link]"));
+          if (!links.length) return;
+          const targets = links
+            .map((a) => {
+              const href = a.getAttribute("data-toc-link") || "";
+              const id = href.startsWith("#") ? href.slice(1) : null;
+              const el = id ? document.getElementById(id) : null;
+              return el ? { link: a, el } : null;
+            })
+            .filter(Boolean);
+          if (!targets.length) return;
+          const ANCHOR = 120;
+          function update() {
+            let activeIdx = 0;
+            for (let i = 0; i < targets.length; i++) {
+              const top = targets[i].el.getBoundingClientRect().top;
+              if (top - ANCHOR <= 0) activeIdx = i;
+              else break;
+            }
+            for (let i = 0; i < targets.length; i++) {
+              targets[i].link.setAttribute("aria-current", i === activeIdx ? "true" : "false");
+            }
+          }
+          update();
+          window.addEventListener("scroll", update, { passive: true });
+          window.addEventListener("resize", update);
+        })();
+      </script> <script>
+      // Mobile navigation drawer + responsive open-state for the sidebar TOCs.
+      (() => {
+        const mq = window.matchMedia("(min-width: 901px)");
+        const sideNavs = document.querySelectorAll("details.side-nav");
+        function syncSideNavs() {
+          for (const d of sideNavs) {
+            if (mq.matches) d.setAttribute("open", "");
+            else d.removeAttribute("open");
+          }
+        }
+        syncSideNavs();
+        mq.addEventListener("change", syncSideNavs);
+
+        const toggle = document.querySelector(".nav-toggle");
+        const nav = document.getElementById("primary-nav");
+        if (toggle && nav) {
+          function setOpen(open) {
+            toggle.setAttribute("aria-expanded", open ? "true" : "false");
+            toggle.setAttribute("aria-label", open ? "Close navigation menu" : "Open navigation menu");
+            nav.toggleAttribute("data-open", open);
+          }
+          toggle.addEventListener("click", () => {
+            const open = toggle.getAttribute("aria-expanded") !== "true";
+            setOpen(open);
+          });
+          nav.addEventListener("click", (e) => {
+            if (e.target && e.target.closest && e.target.closest("a")) setOpen(false);
+          });
+          const mqNav = window.matchMedia("(min-width: 721px)");
+          mqNav.addEventListener("change", () => setOpen(false));
+        }
+      })();
+    </script><script>
+      // Inject a copy button into every <pre> block.
+      (() => {
+        const COPY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+        const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+        for (const pre of document.querySelectorAll("pre")) {
+          if (pre.querySelector(".copy-btn")) continue;
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "copy-btn";
+          btn.setAttribute("aria-label", "Copy code to clipboard");
+          btn.innerHTML = COPY_SVG + "<span>Copy</span>";
+          pre.appendChild(btn);
+          btn.addEventListener("click", async () => {
+            const code = pre.querySelector("code");
+            let raw;
+            if (code) {
+              raw = code.innerText;
+            } else {
+              const clone = pre.cloneNode(true);
+              for (const el of clone.querySelectorAll(".copy-btn")) el.remove();
+              raw = clone.innerText;
+            }
+            const text = raw.replace(/\n$/, "");
+            try {
+              await navigator.clipboard.writeText(text);
+            } catch {
+              const ta = document.createElement("textarea");
+              ta.value = text;
+              ta.style.position = "fixed";
+              ta.style.opacity = "0";
+              document.body.appendChild(ta);
+              ta.select();
+              try { document.execCommand("copy"); } catch {}
+              document.body.removeChild(ta);
+            }
+            btn.dataset.state = "copied";
+            btn.innerHTML = CHECK_SVG + "<span>Copied</span>";
+            setTimeout(() => {
+              btn.removeAttribute("data-state");
+              btn.innerHTML = COPY_SVG + "<span>Copy</span>";
+            }, 1500);
+          });
+        }
+      })();
+    </script><script>
+      // Theme switcher: light / dark / auto, persisted in localStorage.
+      (() => {
+        const root = document.documentElement;
+        const mql = window.matchMedia("(prefers-color-scheme: dark)");
+        const buttons = document.querySelectorAll(".theme-toggle button[data-theme-set]");
+        // localStorage may be unavailable (blocked storage); degrade gracefully
+        // so the toggle still themes the page for the current session.
+        const readPref = () => {
+          try { return localStorage.getItem("vihaco-theme") || "auto"; } catch (e) { return "auto"; }
+        };
+        function apply(pref) {
+          const resolved = pref === "auto" ? (mql.matches ? "dark" : "light") : pref;
+          root.setAttribute("data-theme", resolved);
+          root.setAttribute("data-theme-pref", pref);
+          try { localStorage.setItem("vihaco-theme", pref); } catch (e) {}
+          for (const b of buttons) {
+            b.setAttribute("aria-pressed", b.dataset.themeSet === pref ? "true" : "false");
+          }
+        }
+        apply(readPref());
+        for (const b of buttons) b.addEventListener("click", () => apply(b.dataset.themeSet));
+        mql.addEventListener("change", () => {
+          if (readPref() === "auto") apply("auto");
+        });
+      })();
+    </script><button type="button" class="back-to-top" aria-label="Back to top" hidden> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M12 19V5"></path> <path d="m5 12 7-7 7 7"></path> </svg> </button> <script>
+      (() => {
+        const btn = document.querySelector(".back-to-top");
+        if (!btn) return;
+        const threshold = () => Math.max(window.innerHeight * 1.2, 600);
+        function sync() {
+          btn.toggleAttribute("hidden", !(window.scrollY > threshold()));
+        }
+        btn.addEventListener("click", () => {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+          const brand = document.querySelector(".brand");
+          if (brand && brand.focus) brand.focus({ preventScroll: true });
+        });
+        window.addEventListener("scroll", sync, { passive: true });
+        window.addEventListener("resize", sync);
+        sync();
+      })();
+    </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
+          documentation generated <time>2026-08-10</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+      (() => {
+        if (typeof hljs === "undefined") return;
+        for (const el of document.querySelectorAll("pre code[class*='language-']")) {
+          hljs.highlightElement(el);
+        }
+      })();
+    </script></body> </html>

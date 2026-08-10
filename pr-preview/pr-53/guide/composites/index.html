@@ -1,0 +1,288 @@
+<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Compose components with composite!, select runtime routes, resolve messages, and deliver effects."><title>Defining a Composite — vihaco</title><script>
+      (() => {
+        // localStorage can throw when storage is blocked (hardened privacy
+        // settings, sandboxed frames); fall back to "auto" so the theme still
+        // applies before first paint.
+        let stored = "auto";
+        try { stored = localStorage.getItem("vihaco-theme") || "auto"; } catch (e) {}
+        const sysDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const resolved = stored === "auto" ? (sysDark ? "dark" : "light") : stored;
+        document.documentElement.setAttribute("data-theme", resolved);
+        document.documentElement.setAttribute("data-theme-pref", stored);
+      })();
+    </script><link rel="stylesheet" href="/vihaco/pr-preview/pr-53/_astro/Base.Wd5z-zFf.css"></head> <body> <header class="masthead"> <div class="masthead-inner"> <a class="brand" href="/vihaco/pr-preview/pr-53/"> <span class="brand-mark" aria-hidden="true"></span> <span class="brand-mono">vihaco</span> <span class="brand-sub">/ virtual ISA &amp; machine framework</span> </a> <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Open navigation menu"> <span class="nav-toggle-bars" aria-hidden="true"></span> </button> <nav class="nav-links" id="primary-nav"> <a href="/vihaco/pr-preview/pr-53/">Overview</a><a href="/vihaco/pr-preview/pr-53/quickstart">Quick Start</a><a href="/vihaco/pr-preview/pr-53/guide" aria-current="page">Guides</a><a href="/vihaco/pr-preview/pr-53/reference">Reference</a> <div class="theme-toggle" role="group" aria-label="Theme"> <button type="button" data-theme-set="light" title="Light theme" aria-label="Light theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <circle cx="12" cy="12" r="4"></circle> <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path> </svg> </button> <button type="button" data-theme-set="dark" title="Dark theme" aria-label="Dark theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path> </svg> </button> <button type="button" data-theme-set="auto" title="Match system theme" aria-label="Auto (follow system)" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <rect x="3" y="4" width="18" height="13" rx="2"></rect> <path d="M8 21h8M12 17v4"></path> </svg> </button> </div> </nav> </div> </header> <main> <div class="page-shell page-shell--3col"> <details class="page-sections side-nav" aria-label="Guides"> <summary class="page-toc-label">Guides</summary> <ol> <li> <a href="/vihaco/pr-preview/pr-53/guide/instructions">Defining Instructions</a> </li><li> <a href="/vihaco/pr-preview/pr-53/guide/instructions-advanced">Advanced Instruction Usage</a> </li><li> <a href="/vihaco/pr-preview/pr-53/guide/parser">Parser Integration</a> </li><li> <a href="/vihaco/pr-preview/pr-53/guide/parser-patterns">Pattern Parser Generator</a> </li><li> <a href="/vihaco/pr-preview/pr-53/guide/parser-advanced">Advanced Parser Customization</a> </li><li> <a href="/vihaco/pr-preview/pr-53/guide/messages">Using Messages</a> </li><li> <a href="/vihaco/pr-preview/pr-53/guide/components">Building Components</a> </li><li> <a href="/vihaco/pr-preview/pr-53/guide/observers">Observing Effects</a> </li><li> <a href="/vihaco/pr-preview/pr-53/guide/composites" aria-current="page">Defining a Composite</a> </li> </ol> </details> <div class="page-toc-content">  <article class="shell narrow guide-body"> <h1 id="defining-a-composite-with-vihaco">Defining a Composite With <code>vihaco</code></h1>
+<p>A composite is the machine-specific composition root. It owns component
+instances and declares the routes that connect a public machine instruction to
+a component product, a message source, observers, and one effect handler.</p>
+<h2 id="a-routed-composite">A routed composite</h2>
+<pre><code class="language-rust">use eyre::Result;
+use vihaco::{
+    composite, Absorb, Effects, Execute, Execution, Message, Observe, StepResult,
+    Supply,
+};
+
+struct Stack(Vec&#x3C;i64>);
+impl Supply&#x3C;(i64, i64)> for Stack {
+    type Fault = eyre::Report;
+    fn supply(&#x26;mut self) -> Result&#x3C;(i64, i64), Self::Fault> {
+        let rhs = self.0.pop().ok_or_else(|| eyre::eyre!("underflow"))?;
+        let lhs = self.0.pop().ok_or_else(|| eyre::eyre!("underflow"))?;
+        Ok((lhs, rhs))
+    }
+}
+
+#[derive(Clone)]
+struct Add;
+struct Arithmetic;
+struct Value(i64);
+impl Execute&#x3C;Add> for Arithmetic {
+    type Message = (i64, i64);
+    type Effect = Value;
+    type Fault = eyre::Report;
+    fn execute(&#x26;mut self, _: &#x26;Add, (lhs, rhs): (i64, i64)) -> Result&#x3C;StepResult&#x3C;Value>> {
+        Ok(StepResult {
+            effects: Effects::one(Value(lhs + rhs)),
+            execution: Execution::Complete,
+        })
+    }
+}
+impl Absorb&#x3C;Value> for Stack {
+    type Fault = eyre::Report;
+    fn absorb(&#x26;mut self, value: Value) -> Result&#x3C;()> { self.0.push(value.0); Ok(()) }
+}
+struct Trace;
+impl&#x3C;R> Observe&#x3C;Value, R> for Trace {
+    type Effect = ();
+    type Error = eyre::Report;
+    fn observe(&#x26;mut self, _: &#x26;Value) -> Result&#x3C;Effects&#x3C;()>> { Ok(Effects::none()) }
+}
+
+composite! {
+    composite Calculator {
+        error = eyre::Report;
+
+        #[device(0x01, alias = "alu")]
+        arithmetic: Arithmetic,
+        stack: Stack,
+        trace: Trace,
+    }
+
+    runtime_instructions {
+        Add(Add) => arithmetic {
+            message from stack;
+            effects {
+                observe trace;
+                absorb with stack;
+            }
+        }
+    }
+}
+</code></pre>
+<p>The generated public <code>CalculatorInstruction::Add(Add)</code> is the machine-local
+runtime sum. <code>execute_generated</code> resolves the message, calls
+<code>Execute&#x3C;Add></code>, invokes observers in declaration order, and passes each effect
+to exactly one handler. <code>absorb with stack</code> delegates to <code>Stack::absorb</code>; use
+<code>handle with method</code> when routing policy belongs to the composite.</p>
+<h2 id="route-clauses">Route clauses</h2>
+<p>Every route names a payload and target:</p>
+<pre><code class="language-text">Variant(Payload) => field {
+    message none;
+    effects {
+        observe observer_a, observer_b;
+        handle with composite_method;
+    }
+}
+</code></pre>
+<p>Message sources are deliberately explicit:</p>
+<ul>
+<li><code>message none</code> passes <code>NoMessage</code>.</li>
+<li><code>message from field</code> calls <code>Supply&#x3C;M></code> on that field.</li>
+<li><code>message with method</code> calls a composite method with the instruction payload.</li>
+</ul>
+<p>Effect handlers are exclusive:</p>
+<ul>
+<li><code>absorb with field</code> calls <code>Absorb&#x3C;E></code> on a component field.</li>
+<li><code>handle with method</code> calls a composite method with owned <code>E</code>.</li>
+</ul>
+<p>The declared <code>error = E</code> type is the normalization boundary for component,
+message, observer, and handler failures.</p>
+<h2 id="devices-and-loading">Devices and loading</h2>
+<p><code>#[device(code, alias = "name")]</code> contributes device metadata and source-symbol
+aliases. Codes must be unique. <code>#[loadable]</code> marks a device that receives a
+direct child bytecode/SST section through the generated loader. A composite
+that owns program data implements <code>LoadOwnBytecodeSection</code> or
+<code>LoadOwnSstSection</code> in ordinary Rust.</p>
+<p>The composite macro can also declare structural composites with no
+<code>runtime_instructions</code> block. Those composites still provide fields, device
+metadata, and section wiring, while their event loop or parent dispatch remains
+hand-written.</p>
+<h2 id="runtime-boundaries">Runtime boundaries</h2>
+<p>The macro does not fetch instructions, own a program counter, generate a clock,
+or generate continuation/resume dispatch. A runtime root can call
+<code>execute_generated</code>, inspect <code>Execution</code>, update its own program state, and
+schedule the next owned event. The demo shows this pattern with a CPU child and
+a global event loop.</p>
+<p>Those conveniences are planned for a later API extension. Documentation and
+examples that need timing or parked operations should continue to show the
+explicit parent-owned loop until that extension is implemented.</p>
+<p>See <a href="/vihaco/pr-preview/pr-53/guide/components">Building Components</a>, <a href="/vihaco/pr-preview/pr-53/guide/messages">Using Messages</a>,
+and <a href="/vihaco/pr-preview/pr-53/guide/observers">Observing Effects</a> for the individual contracts.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/pr-preview/pr-53/guide/observers" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Observing Effects</span> </a> <span class="section-pager-link section-pager-next section-pager-empty" aria-hidden="true"></span> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#a-routed-composite" data-toc-link="#a-routed-composite">A routed composite</a></li><li><a href="#route-clauses" data-toc-link="#route-clauses">Route clauses</a></li><li><a href="#devices-and-loading" data-toc-link="#devices-and-loading">Devices and loading</a></li><li><a href="#runtime-boundaries" data-toc-link="#runtime-boundaries">Runtime boundaries</a></li> </ol> </details> </div> </main> <script>
+        // Scroll-spy: mark the TOC link for the section currently in view.
+        (() => {
+          const links = Array.from(document.querySelectorAll(".page-toc [data-toc-link]"));
+          if (!links.length) return;
+          const targets = links
+            .map((a) => {
+              const href = a.getAttribute("data-toc-link") || "";
+              const id = href.startsWith("#") ? href.slice(1) : null;
+              const el = id ? document.getElementById(id) : null;
+              return el ? { link: a, el } : null;
+            })
+            .filter(Boolean);
+          if (!targets.length) return;
+          const ANCHOR = 120;
+          function update() {
+            let activeIdx = 0;
+            for (let i = 0; i < targets.length; i++) {
+              const top = targets[i].el.getBoundingClientRect().top;
+              if (top - ANCHOR <= 0) activeIdx = i;
+              else break;
+            }
+            for (let i = 0; i < targets.length; i++) {
+              targets[i].link.setAttribute("aria-current", i === activeIdx ? "true" : "false");
+            }
+          }
+          update();
+          window.addEventListener("scroll", update, { passive: true });
+          window.addEventListener("resize", update);
+        })();
+      </script> <script>
+      // Mobile navigation drawer + responsive open-state for the sidebar TOCs.
+      (() => {
+        const mq = window.matchMedia("(min-width: 901px)");
+        const sideNavs = document.querySelectorAll("details.side-nav");
+        function syncSideNavs() {
+          for (const d of sideNavs) {
+            if (mq.matches) d.setAttribute("open", "");
+            else d.removeAttribute("open");
+          }
+        }
+        syncSideNavs();
+        mq.addEventListener("change", syncSideNavs);
+
+        const toggle = document.querySelector(".nav-toggle");
+        const nav = document.getElementById("primary-nav");
+        if (toggle && nav) {
+          function setOpen(open) {
+            toggle.setAttribute("aria-expanded", open ? "true" : "false");
+            toggle.setAttribute("aria-label", open ? "Close navigation menu" : "Open navigation menu");
+            nav.toggleAttribute("data-open", open);
+          }
+          toggle.addEventListener("click", () => {
+            const open = toggle.getAttribute("aria-expanded") !== "true";
+            setOpen(open);
+          });
+          nav.addEventListener("click", (e) => {
+            if (e.target && e.target.closest && e.target.closest("a")) setOpen(false);
+          });
+          const mqNav = window.matchMedia("(min-width: 721px)");
+          mqNav.addEventListener("change", () => setOpen(false));
+        }
+      })();
+    </script><script>
+      // Inject a copy button into every <pre> block.
+      (() => {
+        const COPY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+        const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+        for (const pre of document.querySelectorAll("pre")) {
+          if (pre.querySelector(".copy-btn")) continue;
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "copy-btn";
+          btn.setAttribute("aria-label", "Copy code to clipboard");
+          btn.innerHTML = COPY_SVG + "<span>Copy</span>";
+          pre.appendChild(btn);
+          btn.addEventListener("click", async () => {
+            const code = pre.querySelector("code");
+            let raw;
+            if (code) {
+              raw = code.innerText;
+            } else {
+              const clone = pre.cloneNode(true);
+              for (const el of clone.querySelectorAll(".copy-btn")) el.remove();
+              raw = clone.innerText;
+            }
+            const text = raw.replace(/\n$/, "");
+            try {
+              await navigator.clipboard.writeText(text);
+            } catch {
+              const ta = document.createElement("textarea");
+              ta.value = text;
+              ta.style.position = "fixed";
+              ta.style.opacity = "0";
+              document.body.appendChild(ta);
+              ta.select();
+              try { document.execCommand("copy"); } catch {}
+              document.body.removeChild(ta);
+            }
+            btn.dataset.state = "copied";
+            btn.innerHTML = CHECK_SVG + "<span>Copied</span>";
+            setTimeout(() => {
+              btn.removeAttribute("data-state");
+              btn.innerHTML = COPY_SVG + "<span>Copy</span>";
+            }, 1500);
+          });
+        }
+      })();
+    </script><script>
+      // Theme switcher: light / dark / auto, persisted in localStorage.
+      (() => {
+        const root = document.documentElement;
+        const mql = window.matchMedia("(prefers-color-scheme: dark)");
+        const buttons = document.querySelectorAll(".theme-toggle button[data-theme-set]");
+        // localStorage may be unavailable (blocked storage); degrade gracefully
+        // so the toggle still themes the page for the current session.
+        const readPref = () => {
+          try { return localStorage.getItem("vihaco-theme") || "auto"; } catch (e) { return "auto"; }
+        };
+        function apply(pref) {
+          const resolved = pref === "auto" ? (mql.matches ? "dark" : "light") : pref;
+          root.setAttribute("data-theme", resolved);
+          root.setAttribute("data-theme-pref", pref);
+          try { localStorage.setItem("vihaco-theme", pref); } catch (e) {}
+          for (const b of buttons) {
+            b.setAttribute("aria-pressed", b.dataset.themeSet === pref ? "true" : "false");
+          }
+        }
+        apply(readPref());
+        for (const b of buttons) b.addEventListener("click", () => apply(b.dataset.themeSet));
+        mql.addEventListener("change", () => {
+          if (readPref() === "auto") apply("auto");
+        });
+      })();
+    </script><button type="button" class="back-to-top" aria-label="Back to top" hidden> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M12 19V5"></path> <path d="m5 12 7-7 7 7"></path> </svg> </button> <script>
+      (() => {
+        const btn = document.querySelector(".back-to-top");
+        if (!btn) return;
+        const threshold = () => Math.max(window.innerHeight * 1.2, 600);
+        function sync() {
+          btn.toggleAttribute("hidden", !(window.scrollY > threshold()));
+        }
+        btn.addEventListener("click", () => {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+          const brand = document.querySelector(".brand");
+          if (brand && brand.focus) brand.focus({ preventScroll: true });
+        });
+        window.addEventListener("scroll", sync, { passive: true });
+        window.addEventListener("resize", sync);
+        sync();
+      })();
+    </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
+          documentation generated <time>2026-08-10</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+      (() => {
+        if (typeof hljs === "undefined") return;
+        for (const el of document.querySelectorAll("pre code[class*='language-']")) {
+          hljs.highlightElement(el);
+        }
+      })();
+    </script></body> </html>
