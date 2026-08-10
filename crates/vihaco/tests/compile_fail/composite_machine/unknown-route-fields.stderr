@@ -1,0 +1,5 @@
+error: unknown composite field `missing_target`
+  --> tests/compile_fail/composite_machine/unknown-route-fields.rs:11:29
+   |
+11 |         Run(Instruction) => missing_target {
+   |                             ^^^^^^^^^^^^^^

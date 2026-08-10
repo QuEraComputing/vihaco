@@ -1,0 +1,5 @@
+error: duplicate observer field `observer`
+  --> tests/compile_fail/composite_machine/duplicate-observer.rs:16:35
+   |
+16 |                 observe observer, observer;
+   |                                   ^^^^^^^^

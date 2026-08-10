@@ -30,7 +30,7 @@ vihaco::composite! {
         pub pc: usize,
     }
 
-    runtime_instructions {
+    runtime {
         IntegerAdd(Add) => alu {
             message from operand_stack;
             effects {

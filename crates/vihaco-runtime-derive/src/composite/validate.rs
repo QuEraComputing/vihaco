@@ -6,7 +6,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use syn::spanned::Spanned;
 use syn::{Field, Ident, LitStr, Result, Type};
 
-use super::syntax::{DeviceArgs, Handler, MessageSource, RouteDeclaration};
+use super::syntax::{
+    DeviceArgs, Handler, MessageSource, RouteDeclaration, SyntaxDeclaration, SyntaxMapping,
+};
 
 pub(super) struct FieldMetadata {
     pub(super) ident: Ident,
@@ -183,6 +185,57 @@ pub(super) fn validate_routes(routes: &[RouteDeclaration], fields: &[FieldMetada
                 field.span(),
                 format!("unknown effect destination field `{field}`"),
             ));
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn validate_syntax(
+    syntax: &[SyntaxDeclaration],
+    routes: &[RouteDeclaration],
+) -> Result<()> {
+    let mut variants = BTreeSet::new();
+    let mut patterns = BTreeSet::new();
+    let route_variants: BTreeSet<_> = routes
+        .iter()
+        .map(|route| route.variant.to_string())
+        .collect();
+
+    for entry in syntax {
+        if !variants.insert(entry.variant.to_string()) {
+            return Err(syn::Error::new(
+                entry.variant.span(),
+                format!("duplicate syntax instruction variant `{}`", entry.variant),
+            ));
+        }
+        if !patterns.insert(entry.pattern.value()) {
+            return Err(syn::Error::new(
+                entry.pattern.span(),
+                "duplicate syntax instruction pattern",
+            ));
+        }
+        match &entry.mapping {
+            SyntaxMapping::Runtime(runtime_variant) => {
+                if entry.payload.is_some() {
+                    return Err(syn::Error::new(
+                        entry.variant.span(),
+                        "direct runtime mappings may only be used for unit syntax instructions",
+                    ));
+                }
+                if !route_variants.contains(&runtime_variant.to_string()) {
+                    return Err(syn::Error::new(
+                        runtime_variant.span(),
+                        format!("unknown runtime route `{runtime_variant}`"),
+                    ));
+                }
+            }
+            SyntaxMapping::Lower(lowerer) if entry.payload.is_none() => {
+                return Err(syn::Error::new(
+                    lowerer.span(),
+                    "named syntax lowerers require an instruction payload",
+                ));
+            }
+            SyntaxMapping::Lower(_) => {}
         }
     }
     Ok(())

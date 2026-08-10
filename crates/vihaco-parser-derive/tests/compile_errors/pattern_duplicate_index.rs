@@ -4,7 +4,7 @@
 use vihaco_parser_derive::Parse;
 
 #[derive(Parse)]
-#[syntax_class(instruction, head = "test")]
+#[syntax_class(instruction)]
 enum Instruction {
     #[pattern = "'pair $0 $0"]
     Pair(i64, bool),

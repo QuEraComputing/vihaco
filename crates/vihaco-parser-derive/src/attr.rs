@@ -9,7 +9,6 @@ use syn::{
 };
 
 mod kw {
-    syn::custom_keyword!(head);
     syn::custom_keyword!(instruction);
     syn::custom_keyword!(value);
 }
@@ -18,7 +17,7 @@ mod kw {
 
 #[derive(Clone)]
 pub enum SyntaxClassAttr {
-    Instruction { head: String },
+    Instruction,
     Type,
     Value,
 }
@@ -27,17 +26,7 @@ impl Parse for SyntaxClassAttr {
     fn parse(input: ParseStream<'_>) -> Result<Self> {
         if input.peek(kw::instruction) {
             input.parse::<kw::instruction>()?;
-
-            if input.is_empty() {
-                return Err(input.error("instruction syntax class must have `head` argument"));
-            }
-
-            input.parse::<Token![,]>()?;
-            input.parse::<kw::head>()?;
-            input.parse::<Token![=]>()?;
-            let head = input.parse::<LitStr>()?.value();
-
-            return Ok(Self::Instruction { head });
+            return Ok(Self::Instruction);
         }
 
         if input.peek(kw::value) {

@@ -37,7 +37,7 @@ vihaco::composite! {
         target: Target,
     }
 
-    runtime_instructions {
+    runtime {
         Queue(Instruction) => target {
             message none;
         }

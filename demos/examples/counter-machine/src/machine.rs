@@ -36,7 +36,7 @@ vihaco::composite! {
         advance_scheduled: bool,
     }
 
-    runtime_instructions {
+    runtime {
         Queue(counter_group::instruction::Queue) => counter_group {
             message none;
         }

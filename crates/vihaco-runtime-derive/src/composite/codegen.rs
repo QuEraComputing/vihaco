@@ -1,11 +1,15 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+use convert_case::{Case, Casing};
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote, quote_spanned};
 use syn::{Field, Generics, Ident, Result, Type};
 
-use super::syntax::{CompositeDeclaration, Handler, MessageSource, RouteDeclaration};
+use super::syntax::{
+    CompositeDeclaration, Handler, MessageSource, RouteDeclaration, SyntaxDeclaration,
+    SyntaxMapping,
+};
 use crate::common::{resolve_root, retain_generics};
 
 pub(super) fn retained_enum_generics(generics: &Generics, routes: &[RouteDeclaration]) -> Generics {
@@ -34,9 +38,117 @@ fn strip_consumed_field_attrs(mut field: Field) -> Field {
     field
 }
 
+fn syntax_generics(generics: &Generics, syntax: &[SyntaxDeclaration]) -> Generics {
+    let payloads = syntax
+        .iter()
+        .filter_map(|entry| entry.payload.as_ref())
+        .map(|payload| quote!(#payload))
+        .collect::<Vec<_>>();
+    retain_generics(generics, &payloads)
+}
+
+fn generate_syntax_module(
+    root: &TokenStream2,
+    generics: &Generics,
+    error: Option<&Type>,
+    syntax: &[SyntaxDeclaration],
+) -> TokenStream2 {
+    if syntax.is_empty() {
+        return quote! {};
+    }
+
+    let enum_generics = syntax_generics(generics, syntax);
+    let variants = syntax.iter().map(|entry| {
+        let variant = &entry.variant;
+        let pattern = &entry.pattern;
+        let payload = entry
+            .payload
+            .as_ref()
+            .map(|payload| quote!((#payload)))
+            .unwrap_or_default();
+        quote! {
+            #[pattern = #pattern]
+            #variant #payload
+        }
+    });
+    let error = error
+        .map(|error| quote!(#error))
+        .unwrap_or_else(|| quote!(::core::convert::Infallible));
+    let lowerer_methods = syntax.iter().filter_map(|entry| {
+        let SyntaxMapping::Lower(method) = &entry.mapping else {
+            return None;
+        };
+        let payload = entry.payload.as_ref()?;
+        Some(quote! {
+            fn #method(
+                &mut self,
+                instruction: #payload,
+            ) -> ::std::result::Result<
+                ::std::vec::Vec<super::runtime::Instruction>,
+                #error,
+            >;
+        })
+    });
+
+    quote! {
+        pub mod syntax {
+            use super::*;
+            #[derive(Clone, #root::Parse)]
+            #[syntax_class(instruction)]
+            pub enum Instruction #enum_generics {
+                #( #variants ),*
+            }
+
+            pub trait Resolver {
+                #( #lowerer_methods )*
+            }
+        }
+    }
+}
+
+fn generate_resolver_traits(
+    root: &TokenStream2,
+    generics: &Generics,
+    error: Option<&Type>,
+    routes: &[RouteDeclaration],
+    fields: &[super::validate::FieldMetadata],
+) -> TokenStream2 {
+    let Some(error) = error else {
+        return quote! {};
+    };
+    let field_ty = |field: &Ident| -> &Type {
+        &fields
+            .iter()
+            .find(|candidate| candidate.ident == *field)
+            .expect("validated composite field")
+            .ty
+    };
+    let message_methods = routes.iter().filter_map(|route| {
+        let MessageSource::With(method) = &route.message else {
+            return None;
+        };
+        let target_ty = field_ty(&route.target);
+        let payload = &route.payload;
+        let message_ty = quote!(<#target_ty as #root::Execute<#payload>>::Message);
+        Some(quote! {
+            fn #method(
+                &mut self,
+                instruction: &#payload,
+            ) -> ::std::result::Result<#message_ty, #error>;
+        })
+    });
+    let (impl_generics, _, where_clause) = generics.split_for_impl();
+    quote! {
+        pub trait MessageResolver #impl_generics #where_clause {
+            #( #message_methods )*
+        }
+    }
+}
+
 pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStream2> {
     let root = resolve_root(&declaration.attrs)?;
     let fields_metadata = super::validate::metadata_fields(&declaration.fields)?;
+    super::validate::validate_syntax(&declaration.syntax, &declaration.routes)?;
     super::validate::validate_routes(&declaration.routes, &fields_metadata)?;
 
     let CompositeDeclaration {
@@ -46,6 +158,7 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
         generics,
         error,
         fields,
+        syntax,
         routes,
     } = declaration;
     crate::common::strip_vihaco_attrs(&mut attrs);
@@ -53,8 +166,9 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let instruction_ident = format_ident!("{name}Instruction");
     let route_module = format_ident!("__Vihaco{name}Routes");
+    let composite_module = format_ident!("{}", name.to_string().to_case(Case::Snake));
 
-    let instruction_declaration = if routes.is_empty() {
+    let runtime_instruction_declaration = if routes.is_empty() {
         quote! {}
     } else {
         let enum_generics = retained_enum_generics(&generics, &routes);
@@ -69,6 +183,44 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
             pub enum #instruction_ident #enum_generics {
                 #( #variants ),*
             }
+        }
+    };
+
+    let syntax_declaration = generate_syntax_module(&root, &generics, error.as_ref(), &syntax);
+    let resolver_traits =
+        generate_resolver_traits(&root, &generics, error.as_ref(), &routes, &fields_metadata);
+    let runtime_alias = quote! {};
+    let syntax_alias = if syntax.is_empty() {
+        quote! {}
+    } else {
+        let resolver_ident = format_ident!("{name}SyntaxResolver");
+        quote! {
+            pub use #composite_module::syntax::Instruction as SurfaceInstruction;
+            pub use #composite_module::syntax::Resolver as #resolver_ident;
+        }
+    };
+    let message_alias = if routes.is_empty() {
+        quote! {}
+    } else {
+        let resolver_ident = format_ident!("{name}MessageResolver");
+        quote! { pub use #composite_module::runtime::MessageResolver as #resolver_ident; }
+    };
+    let generated_modules = if syntax.is_empty() && routes.is_empty() {
+        quote! {}
+    } else {
+        quote! {
+            pub mod #composite_module {
+                use super::*;
+                pub mod runtime {
+                    use super::*;
+                    pub use super::super::#instruction_ident as Instruction;
+                    #resolver_traits
+                }
+                #syntax_declaration
+            }
+            #runtime_alias
+            #syntax_alias
+            #message_alias
         }
     };
 
@@ -225,7 +377,8 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
             #( #fields ),*
         }
 
-        #instruction_declaration
+        #runtime_instruction_declaration
+        #generated_modules
 
         #[doc(hidden)]
         mod #route_module {

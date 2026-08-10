@@ -50,6 +50,21 @@ pub trait LoadSstSection<C> {
     fn load_sst_section<'bc>(&mut self, section: SstSectionView<'bc, C>) -> eyre::Result<()>;
 }
 
+/// Replace a program's loaded module, context, and program-counter state as one operation.
+///
+/// Implementations must complete any validation before mutating the program. The supplied
+/// context becomes the context for the installed module, and a successful installation starts
+/// execution at program counter zero.
+pub trait InstallProgramModule<C> {
+    type Module;
+
+    fn install_program_module(
+        &mut self,
+        module: Self::Module,
+        context: ContextHandle<C>,
+    ) -> eyre::Result<()>;
+}
+
 #[derive(Debug, Clone)]
 pub struct ProgramImage<I, C, V = Value, Ty = Type, Info = NoInfo> {
     pub module: LocalModule<I, V, Ty, Info>,
@@ -97,6 +112,21 @@ impl<I, C, V, Ty, Info> ProgramImage<I, C, V, Ty, Info> {
             .as_ref()
             .map(ContextHandle::get)
             .ok_or_else(|| eyre::eyre!("program image has not been loaded with a context"))
+    }
+}
+
+impl<I, C, V, Ty, Info> InstallProgramModule<C> for ProgramImage<I, C, V, Ty, Info> {
+    type Module = LocalModule<I, V, Ty, Info>;
+
+    fn install_program_module(
+        &mut self,
+        module: Self::Module,
+        context: ContextHandle<C>,
+    ) -> eyre::Result<()> {
+        self.module = module;
+        self.context = Some(context);
+        self.pc = 0;
+        Ok(())
     }
 }
 
@@ -157,5 +187,51 @@ where
                 self.module.constants.len()
             ))
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct TestInstruction(u32);
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct TestType;
+
+    #[derive(Debug, Clone, Default, PartialEq)]
+    struct TestInfo;
+
+    #[test]
+    fn installation_replaces_module_context_and_pc_together() {
+        let old_context = ContextHandle::new("old");
+        let new_context = ContextHandle::new("new");
+        let mut image: ProgramImage<TestInstruction, &str, u8, TestType, TestInfo> = ProgramImage {
+            module: LocalModule {
+                code: vec![TestInstruction(1)],
+                extra: TestInfo,
+                ..LocalModule::default()
+            },
+            context: Some(old_context),
+            pc: 7,
+        };
+        let module = LocalModule {
+            code: vec![TestInstruction(2), TestInstruction(3)],
+            extra: TestInfo,
+            ..LocalModule::default()
+        };
+
+        image
+            .install_program_module(module, new_context.clone())
+            .unwrap();
+
+        assert_eq!(
+            image.module.code,
+            vec![TestInstruction(2), TestInstruction(3)]
+        );
+        assert_eq!(image.context().unwrap(), &"new");
+        assert!(image.context.as_ref().unwrap().ptr_eq(&new_context));
+        assert_eq!(image.pc, 0);
     }
 }

@@ -19,7 +19,7 @@ For example:
 
 ```rust
 #[derive(vihaco_parser::Parse)]
-#[syntax_class(instruction, head = "control")]
+#[syntax_class(instruction)]
 #[pattern = "'branch `@` $target"]
 pub struct SurfaceBranch {
     pub target: String,
@@ -111,7 +111,7 @@ machine! {
         fpga: Fpga,
     }
 
-    runtime_instructions {
+    runtime {
         device Cpu => cpu::Instruction {
             message with resolve_cpu;
             effects with continue_cpu;
@@ -129,7 +129,7 @@ The generated portion is equivalent in shape to:
 
 ```rust
 #[composite]
-#[runtime_instructions(
+#[runtime(
     Cpu => cpu::Instruction {
         message with resolve_cpu;
         effects with continue_cpu;
@@ -169,7 +169,7 @@ machine! {
         cpu_b: Cpu,
     }
 
-    runtime_instructions {}
+    runtime {}
 }
 ```
 

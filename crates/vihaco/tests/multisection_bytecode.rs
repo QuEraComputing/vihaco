@@ -31,15 +31,18 @@ enum TestInst {
 }
 
 #[derive(Debug, Clone, PartialEq, Instruction, vihaco_parser_derive::Parse)]
-#[syntax_class(instruction, head = "test")]
+#[syntax_class(instruction)]
 enum TextInst {
+    #[pattern = "'test::nop"]
     Nop,
+    #[pattern = "'test::alt"]
     Alt,
 }
 
 #[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
-#[syntax_class(instruction, head = "surface")]
+#[syntax_class(instruction)]
 enum SurfaceOnlyInst {
+    #[pattern = "'surface::nop"]
     Nop,
 }
 

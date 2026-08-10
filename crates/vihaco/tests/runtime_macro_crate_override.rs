@@ -1,8 +1,10 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+use chumsky::Parser as _;
 use eyre::Result;
 use vihaco::{Effects, Execute, Execution, Instruction, Observe, StepResult, composite};
+use vihaco_parser::Parse;
 
 mod test_root {
     pub use ::vihaco::*;
@@ -59,7 +61,14 @@ composite! {
         observer: TestObserver,
     }
 
-    runtime_instructions {
+    syntax {
+        #[pattern = "'test::run"]
+        Run => runtime Run;
+        #[pattern = "'test::count $0"]
+        Count(u32) => lower_count;
+    }
+
+    runtime {
         Run(TestInstruction) => component {
             message with resolve_message;
             effects {
@@ -82,6 +91,12 @@ impl TestMachine {
 
 #[test]
 fn runtime_macros_honor_explicit_crate_override() {
+    let parsed = test_machine::syntax::Instruction::parser()
+        .parse("test::run")
+        .into_result()
+        .unwrap();
+    assert!(matches!(parsed, test_machine::syntax::Instruction::Run));
+
     let mut machine = TestMachine {
         component: TestComponent,
         observer: TestObserver::default(),

@@ -52,7 +52,7 @@ composite! {
         alu: ArithmeticUnit,
     }
 
-    runtime_instructions {
+    runtime {
         IntegerAdd(Add) => alu {
             message from operand_stack;
             effects { absorb with operand_stack; }

@@ -323,7 +323,7 @@ describes semantic meaning, but it does not by itself identify a destination wit
 
 ##### Route Identity
 
-Each entry in a composite's `runtime_instructions` declaration defines one route. Its
+Each entry in a composite's `runtime` declaration defines one route. Its
 composite-local name identifies the complete execution path:
 
 ```text
@@ -352,7 +352,7 @@ source operands are resolved. A typed addition illustrates the distinction:
 
 ```rust
 #[derive(vihaco_parser::Parse)]
-#[syntax_class(instruction, head = "arithmetic")]
+#[syntax_class(instruction)]
 #[pattern = "'add $ty"]
 pub struct SurfaceAdd {
     pub ty: ArithmeticSurfaceType,
@@ -372,7 +372,7 @@ arithmetic::add address
 The composite can provide distinct runtime routes for the supported resolved types:
 
 ```rust
-runtime_instructions {
+runtime {
     IntegerAdd => arithmetic::runtime::Add on integer_arithmetic {
         message from operand_stack;
         effects to operand_stack;
@@ -444,7 +444,7 @@ never choose conversion semantics.
 The same `Add` runtime instruction can therefore appear through two routes:
 
 ```rust
-runtime_instructions {
+runtime {
     IntegerAdd => arithmetic::runtime::Add on integer_arithmetic {
         message from operand_stack;
         effects to operand_stack;
@@ -477,7 +477,7 @@ composite assigns destinations and machine-local behavior.
 
 ##### Generated Route Representation
 
-`IntegerAdd` and `AddressAdd` originate in the composite's `runtime_instructions` declaration.
+`IntegerAdd` and `AddressAdd` originate in the composite's `runtime` declaration.
 Generation turns them into variants of the machine runtime sum:
 
 ```rust

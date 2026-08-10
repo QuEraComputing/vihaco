@@ -109,9 +109,11 @@ mod channel {
         use_vihaco_parse!();
 
         #[derive(Parse)]
-        #[syntax_class(instruction, head = "channel")]
+        #[syntax_class(instruction)]
         pub enum Instruction {
+            #[pattern = "'channel::send $0"]
             Send(u32),
+            #[pattern = "'channel::recv $0"]
             Recv(u32),
         }
 
@@ -282,13 +284,16 @@ mod arithmetic {
         use_vihaco_parse!();
 
         #[derive(Parse)]
-        #[syntax_class(instruction, head = "arith")]
+        #[syntax_class(instruction)]
         pub enum Instruction<Ty>
         where
             Ty: for<'a> Parse<'a>,
         {
+            #[pattern = "'arith::add $0"]
             Add(Ty),
+            #[pattern = "'arith::sub $0"]
             Sub(Ty),
+            #[pattern = "'arith::mul $0"]
             Mul(Ty),
         }
 

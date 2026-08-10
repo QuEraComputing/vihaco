@@ -66,7 +66,7 @@ composite! {
         trace: Trace,
     }
 
-    runtime_instructions {
+    runtime {
         Add(Add) => arithmetic {
             message from stack;
             effects {
@@ -121,7 +121,7 @@ that owns program data implements `LoadOwnBytecodeSection` or
 `LoadOwnSstSection` in ordinary Rust.
 
 The composite macro can also declare structural composites with no
-`runtime_instructions` block. Those composites still provide fields, device
+`runtime` block. Those composites still provide fields, device
 metadata, and section wiring, while their event loop or parent dispatch remains
 hand-written.
 

@@ -34,7 +34,7 @@ The macro should:
 - consume each effect through exactly one handler;
 - support reusable `Absorb<E>` delegation and composite-owned custom handlers;
 - normalize component, observer, and handler errors into the composite error; and
-- support structural composites that omit `runtime_instructions` entirely.
+- support structural composites that omit `runtime` entirely.
 
 The generated execution boundary is an inherent method:
 
@@ -140,7 +140,7 @@ composite! {
         pub pc: usize,
     }
 
-    runtime_instructions {
+    runtime {
         IntegerAdd(Add) => alu {
             message from operand_stack;
             effects {
@@ -160,7 +160,7 @@ composite! {
 }
 ```
 
-The `runtime_instructions` block is optional. If it is omitted, the composite takes no
+The `runtime` block is optional. If it is omitted, the composite takes no
 instructions: the macro generates the struct and metadata/section wiring, but no instruction enum
 and no `execute_generated` method.
 
@@ -342,7 +342,7 @@ keeps route-specific resolution explicit without introducing a route-parameteriz
 ## Structural composites
 
 A structural composite may contain clocks, fabrics, devices, or other runtime state but omit
-`runtime_instructions`:
+`runtime`:
 
 ```rust
 composite! {

@@ -33,7 +33,7 @@ mod tests {
                     alu: Alu,
                     debug: Debug,
                 }
-                runtime_instructions {
+                runtime {
                     Add(AddInstruction) => alu {
                         message from stack;
                         effects {
@@ -83,7 +83,7 @@ mod tests {
                     error = CounterMachineFault;
                     counter_group: CounterGroup,
                 }
-                runtime_instructions {
+                runtime {
                     Queue(QueueInstruction) => counter_group {
                         message none;
                     }
@@ -95,5 +95,39 @@ mod tests {
         assert_eq!(declaration.routes.len(), 1);
         assert!(declaration.routes[0].observers.is_empty());
         assert!(declaration.routes[0].handler.is_none());
+    }
+
+    #[test]
+    fn parses_syntax_entries_and_direct_runtime_mappings() {
+        let declaration: CompositeDeclaration = parse_str(
+            r#"
+                composite Machine {
+                    error = MachineFault;
+                    device: Device,
+                }
+                syntax {
+                    #[pattern = "'device::clear"]
+                    Clear => runtime Clear;
+                    #[pattern = "'device::set $0"]
+                    Set(u32) => lower_set;
+                }
+                runtime {
+                    Clear(DeviceInstruction) => device {
+                        message none;
+                    }
+                }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(declaration.syntax.len(), 2);
+        assert!(matches!(
+            declaration.syntax[0].mapping,
+            super::syntax::SyntaxMapping::Runtime(_)
+        ));
+        assert!(matches!(
+            declaration.syntax[1].mapping,
+            super::syntax::SyntaxMapping::Lower(_)
+        ));
     }
 }

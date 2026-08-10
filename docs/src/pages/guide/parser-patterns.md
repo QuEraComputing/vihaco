@@ -27,12 +27,13 @@ use vihaco_parser_derive::Parse;
 use vihaco_parser::Parse as ParseTrait;
 
 #[derive(Debug, PartialEq, Parse)]
-#[syntax_class(instruction, head = "memory")]
+#[syntax_class(instruction)]
 enum MemoryInstruction {
+    #[pattern = "'memory::halt"]
     Halt,
-    #[pattern = "'load $0"]
+    #[pattern = "'memory::load $0"]
     Load(u32),
-    #[pattern = "'store $0 `,` $1"]
+    #[pattern = "'memory::store $0 `,` $1"]
     Store(u32, i64),
 }
 
@@ -55,9 +56,8 @@ assert_eq!(
 );
 ```
 
-The `head` is a dialect namespace. The derive appends `::`, so
-`head = "memory"` combines with the pattern token `'load` to accept
-`memory::load`.
+Instruction patterns contain the complete dialect namespace. For example,
+`'memory::load $0` accepts `memory::load 4`.
 
 Every bound field is parsed with that field type's
 `vihaco_parser::Parse::parser()`. Give domain-specific field syntax its
@@ -69,12 +69,13 @@ Every type using pattern generation must declare a syntax class.
 
 | Attribute | Meaning | Additional rules |
 |---|---|---|
-| `#[syntax_class(instruction, head = "dialect")]` | An instruction in the `dialect::` namespace. | Every pattern starts with an instruction token such as `'load`. |
+| `#[syntax_class(instruction)]` | An instruction whose patterns contain complete tokens such as `dialect::load`. | Every pattern starts with a complete instruction token. |
 | `#[syntax_class(value)]` | A value expression. | Instruction tokens are forbidden. Simple defaults are available. |
 | `#[syntax_class(type)]` | A type expression. | Instruction tokens are forbidden and every variant or struct needs an explicit pattern. |
 
 Put `#[syntax_class]` on the enum or struct definition, never on a variant or
-field. An instruction head is required and is written without trailing `::`.
+field. Instruction patterns carry their complete source token, including any
+namespace.
 
 ## Generated patterns
 
@@ -84,9 +85,9 @@ split (`HttpServer` becomes `httpserver`).
 
 | Rust shape | Generated pattern | Accepted source |
 |---|---|---|
-| instruction `Halt` | `'halt` | `dialect::halt` |
-| instruction `Move(i64, bool)` | <code>'move $0 `,` $1</code> | `dialect::move 3, true` |
-| instruction struct `Set { x: i64, enabled: bool }` | <code>'set $x `,` $enabled</code> | `dialect::set 3, true` |
+| instruction `Halt` | `'halt` | `halt` |
+| instruction `Move(i64, bool)` | <code>'move $0 `,` $1</code> | `move 3, true` |
+| instruction struct `Set { x: i64, enabled: bool }` | <code>'set $x `,` $enabled</code> | `set 3, true` |
 | value `Nothing` | `` `nothing` `` | `nothing` |
 | value `Number(i64)` | `$0` | `3` |
 | value `Wrapper { value: i64 }` | `$value` | `3` |

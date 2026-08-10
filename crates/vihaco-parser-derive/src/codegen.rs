@@ -101,7 +101,11 @@ fn pattern_syntax_parser<'p>(
     let ident = text::ascii::ident();
     let digits = text::int(10);
 
-    let token = just('\'').ignore_then(ident).map(Token);
+    let instruction_name = text::ascii::ident()
+        .then(just("::").ignore_then(text::ascii::ident()).repeated())
+        .to_slice();
+
+    let token = just('\'').ignore_then(instruction_name).map(Token);
 
     let binding_index = digits
         .to_slice()
@@ -232,7 +236,7 @@ impl<'p> UnparsedPatternInfo<'p> {
 
         let pattern = PatternAtoms::try_new(tokens)?;
 
-        if matches!(self.class, SyntaxClassAttr::Instruction { .. })
+        if matches!(self.class, SyntaxClassAttr::Instruction)
             && !matches!(pattern.first(), Token(_))
         {
             return Err(eyre::eyre!(
@@ -240,7 +244,7 @@ impl<'p> UnparsedPatternInfo<'p> {
             ));
         }
 
-        if !matches!(self.class, SyntaxClassAttr::Instruction { .. }) {
+        if !matches!(self.class, SyntaxClassAttr::Instruction) {
             if let Some(tok) = pattern.contains_token() {
                 return Err(eyre::eyre!(
                     "cannot have instruction syntax '{tok} in {} pattern",
@@ -268,7 +272,7 @@ impl<'p> UnparsedPatternInfo<'p> {
 impl fmt::Display for SyntaxClassAttr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Instruction { .. } => write!(f, "instruction"),
+            Self::Instruction => write!(f, "instruction"),
             Self::Type => write!(f, "type"),
             Self::Value => write!(f, "value"),
         }
@@ -694,7 +698,7 @@ fn generate_pattern<'src>(
     }
 
     let name = info.target.ident().to_string().to_lowercase();
-    let prefix = if matches!(info.class, Some(SyntaxClassAttr::Instruction { .. })) {
+    let prefix = if matches!(info.class, Some(SyntaxClassAttr::Instruction)) {
         Some(format!("'{}", name))
     } else {
         None
@@ -877,20 +881,11 @@ fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
         quote! { ::chumsky::primitive::choice((#(#chunks),*)) }
     };
 
-    let parser = match &enum_attrs.syntax_class {
-        Some(SyntaxClassAttr::Instruction { head }) => {
-            let head = format!("{head}::");
-            quote! {
-                ::chumsky::primitive::just(#head)
-                    .ignore_then(#or_chain)
-            }
-        }
-        _ => or_chain,
-    };
+    let parser = or_chain;
 
     let surface_instruction_impl = if matches!(
         &enum_attrs.syntax_class,
-        Some(SyntaxClassAttr::Instruction { .. })
+        Some(SyntaxClassAttr::Instruction)
     ) {
         let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
         quote! {
@@ -968,16 +963,7 @@ fn expand_struct(input: StructInfo) -> Result<TokenStream> {
     let (impl_generics, _, where_clause) = parser_generics.split_for_impl();
     let (_, ty_generics, _) = input.generics.split_for_impl();
 
-    let parser = match &struct_attrs.syntax_class {
-        Some(SyntaxClassAttr::Instruction { head }) => {
-            let head = format!("{head}::");
-            quote! {
-                ::chumsky::primitive::just(#head)
-                    .ignore_then(#ident)
-            }
-        }
-        _ => quote! { #ident },
-    };
+    let parser = quote! { #ident };
 
     let output = quote! {
         impl #impl_generics ::vihaco_parser::Parse<#src_lifetime> for #struct_ident #ty_generics #where_clause {

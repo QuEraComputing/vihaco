@@ -1,0 +1,5 @@
+error: route has more than one message clause
+  --> tests/compile_fail/composite_machine/duplicate-message-clause.rs:13:21
+   |
+13 |             message none;
+   |                     ^^^^

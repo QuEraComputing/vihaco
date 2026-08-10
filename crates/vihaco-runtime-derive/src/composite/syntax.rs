@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 use syn::parse::{Parse, ParseStream};
+use syn::spanned::Spanned;
 use syn::{
     Attribute, Field, Generics, Ident, LitInt, LitStr, Result, Token, Type, Visibility, WhereClause,
 };
@@ -10,7 +11,8 @@ use crate::common::parse_named_fields;
 
 syn::custom_keyword!(composite);
 syn::custom_keyword!(error);
-syn::custom_keyword!(runtime_instructions);
+syn::custom_keyword!(syntax);
+syn::custom_keyword!(runtime);
 syn::custom_keyword!(message);
 syn::custom_keyword!(effects);
 syn::custom_keyword!(observe);
@@ -27,7 +29,20 @@ pub(super) struct CompositeDeclaration {
     pub(super) generics: Generics,
     pub(super) error: Option<Type>,
     pub(super) fields: Vec<Field>,
+    pub(super) syntax: Vec<SyntaxDeclaration>,
     pub(super) routes: Vec<RouteDeclaration>,
+}
+
+pub(super) struct SyntaxDeclaration {
+    pub(super) pattern: LitStr,
+    pub(super) variant: Ident,
+    pub(super) payload: Option<Type>,
+    pub(super) mapping: SyntaxMapping,
+}
+
+pub(super) enum SyntaxMapping {
+    Lower(Ident),
+    Runtime(Ident),
 }
 
 pub(super) struct RouteDeclaration {
@@ -69,8 +84,17 @@ impl Parse for CompositeDeclaration {
         syn::braced!(body in input);
         let (error, fields) = parse_composite_body(&body)?;
 
-        let routes = if input.peek(runtime_instructions) {
-            input.parse::<runtime_instructions>()?;
+        let syntax = if input.peek(syntax) {
+            input.parse::<syntax>()?;
+            let syntax_body;
+            syn::braced!(syntax_body in input);
+            parse_syntax(&syntax_body)?
+        } else {
+            Vec::new()
+        };
+
+        let routes = if input.peek(runtime) {
+            input.parse::<runtime>()?;
             let routes_body;
             syn::braced!(routes_body in input);
             parse_routes(&routes_body)?
@@ -96,9 +120,65 @@ impl Parse for CompositeDeclaration {
             generics,
             error,
             fields,
+            syntax,
             routes,
         })
     }
+}
+
+fn parse_syntax(input: ParseStream<'_>) -> Result<Vec<SyntaxDeclaration>> {
+    let mut declarations = Vec::new();
+    while !input.is_empty() {
+        let attrs = Attribute::parse_outer(input)?;
+        let [pattern] = attrs.as_slice() else {
+            return Err(input.error("syntax entries require one `#[pattern = \"...\"]` attribute"));
+        };
+        if !pattern.path().is_ident("pattern") {
+            return Err(syn::Error::new(
+                pattern.span(),
+                "syntax entries require `#[pattern = \"...\"]`",
+            ));
+        }
+        let value = &pattern.meta.require_name_value()?.value;
+        let syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(pattern),
+            ..
+        }) = value
+        else {
+            return Err(syn::Error::new(
+                input.span(),
+                "`pattern` must be a string literal",
+            ));
+        };
+
+        let variant = input.parse::<Ident>()?;
+        let payload = if input.peek(syn::token::Paren) {
+            let content;
+            syn::parenthesized!(content in input);
+            if content.is_empty() {
+                None
+            } else {
+                Some(content.parse()?)
+            }
+        } else {
+            None
+        };
+        input.parse::<Token![=>]>()?;
+        let mapping = if input.peek(runtime) {
+            input.parse::<runtime>()?;
+            SyntaxMapping::Runtime(input.parse()?)
+        } else {
+            SyntaxMapping::Lower(input.parse()?)
+        };
+        input.parse::<Token![;]>()?;
+        declarations.push(SyntaxDeclaration {
+            pattern: pattern.clone(),
+            variant,
+            payload,
+            mapping,
+        });
+    }
+    Ok(declarations)
 }
 
 fn parse_composite_body(input: ParseStream<'_>) -> Result<(Option<Type>, Vec<Field>)> {

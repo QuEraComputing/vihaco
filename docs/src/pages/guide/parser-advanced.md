@@ -69,10 +69,10 @@ use vihaco::Instruction;
 use vihaco_parser_derive::Parse;
 
 #[derive(Debug, Clone, PartialEq, Instruction, Parse)]
-#[syntax_class(instruction, head = "device")]
+#[syntax_class(instruction)]
 enum DeviceInstruction {
     Halt,
-    #[pattern = "'wait $0"]
+    #[pattern = "'device::wait $0"]
     Wait(u32),
 }
 
@@ -176,11 +176,11 @@ Patterns can represent symbols and sugar directly:
 use vihaco_parser::Ident;
 
 #[derive(vihaco_parser_derive::Parse)]
-#[syntax_class(instruction, head = "control")]
+#[syntax_class(instruction)]
 enum ControlSurface {
-    #[pattern = "'branch `@` $0"]
+    #[pattern = "'control::branch `@` $0"]
     Branch(Ident),
-    #[pattern = "'repeat $0"]
+    #[pattern = "'control::repeat $0"]
     Repeat(u32),
 }
 ```

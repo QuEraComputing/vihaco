@@ -1,0 +1,5 @@
+error: duplicate runtime instruction variant `Run`
+  --> tests/compile_fail/composite_machine/duplicate-route-variant.rs:14:9
+   |
+14 |         Run(Instruction) => target {
+   |         ^^^

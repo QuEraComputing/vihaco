@@ -29,9 +29,11 @@ mod tests {
     // Minimal stub: an enum that derives Parse and has just two unit variants.
     // Avoids pulling vihaco-cpu/-fpga into the test (cycle).
     #[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
-    #[syntax_class(instruction, head = "stub")]
+    #[syntax_class(instruction)]
     enum StubInst {
+        #[pattern = "'stub::halt"]
         Halt,
+        #[pattern = "'stub::print"]
         Print,
     }
 
@@ -118,8 +120,9 @@ fn @main() {
     #[test]
     fn rejects_malformed_known_instruction() {
         #[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
-        #[syntax_class(instruction, head = "stub")]
+        #[syntax_class(instruction)]
         enum OnlyOne {
+            #[pattern = "'stub::dump $0"]
             Dump(u32),
         }
 

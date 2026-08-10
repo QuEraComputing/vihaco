@@ -144,117 +144,145 @@ pub enum SurfaceValue {
 }
 
 #[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
-#[syntax_class(instruction, head = "cpu")]
+#[syntax_class(instruction)]
 pub enum SurfaceInstruction {
     // no-ops
     /// span <file:file_id> <start:u32> <end:u32>
     /// `span 0 1 2` — three space-separated u32s.
-    #[pattern = "'span $0 $1 $2"]
+    #[pattern = "'cpu::span $0 $1 $2"]
     Span(u32, u32, u32),
 
     /// Label definition.
-    #[pattern = "'label `@` $0"]
+    #[pattern = "'cpu::label `@` $0"]
     Label(Ident),
 
     /// `func_start <name>` — marks function entry. `<name>` is symbolic and
     /// orchestrator-resolved; the unit variant carries no payload.
-    #[pattern = "'func_start"]
+    #[pattern = "'cpu::func_start"]
     FunctionStart,
     /// `func_end <name>` — marks function exit (debug only).
-    #[pattern = "'func_end"]
+    #[pattern = "'cpu::func_end"]
     FunctionEnd,
 
     /// `breakpoint`. Must precede `Branch` (whose token `br` would be a
     /// prefix of `breakpoint`).
+    #[pattern = "'cpu::breakpoint"]
     Breakpoint,
 
     // control flows
     /// `br <target>` — symbolic. Deferred to orchestrator.
-    #[pattern = "'br `@` $0"]
+    #[pattern = "'cpu::br `@` $0"]
     Branch(Ident),
 
     /// `cond_br <true_target>, <false_target>` — symbolic. Deferred.
-    #[pattern = "'cond_br `@` $0 `,` `@` $1"]
+    #[pattern = "'cpu::cond_br `@` $0 `,` `@` $1"]
     ConditionalBranch(Ident, Ident),
 
     /// `ret` (bare) is the form real `.sst` uses; numeric `ret <n>` has no
     /// precedent so we defer. Orchestrator emits `Return(0)` for bare `ret`.
-    #[pattern = "'ret"]
+    #[pattern = "'cpu::ret"]
     Return,
 
     /// `call_indirect`. **Must precede `Call`** for the prefix check.
-    #[pattern = "'call_indirect"]
+    #[pattern = "'cpu::call_indirect"]
     IndirectCall,
 
     /// `call <arity>, <addr>` — symbolic addr. Deferred.
+    #[pattern = "'cpu::call $0 `,` $1"]
     Call(u32, Ident),
 
     /// `halt` — stop execution.
+    #[pattern = "'cpu::halt"]
     Halt,
 
     // traps / IO
     /// `print` — write top-of-stack to stdout.
+    #[pattern = "'cpu::print"]
     Print,
 
     // memory operations
     /// `load.<type> <address>` — two fields with single-space separator.
+    #[pattern = "'cpu::load $0 `,` $1"]
     Load(SurfaceType, u32),
 
     /// `store.<type> <address>`.
+    #[pattern = "'cpu::store $0 `,` $1"]
     Store(SurfaceType, u32),
 
     /// `dup`.
+    #[pattern = "'cpu::dup"]
     Dup,
 
     /// `heap_alloc <n>`.
-    #[pattern = "'heap_alloc $0"]
+    #[pattern = "'cpu::heap_alloc $0"]
     HeapAlloc(u32),
 
     /// `get_item`. Must precede `Ge` (token `ge` ⊂ `get_item`).
-    #[pattern = "'get_item"]
+    #[pattern = "'cpu::get_item"]
     GetItem,
 
     /// `heap_dealloc` — pops a HeapRef and marks the slot dead, returning it
     /// to the free list for reuse by the next `heap_alloc`.
-    #[pattern = "'heap_dealloc"]
+    #[pattern = "'cpu::heap_dealloc"]
     HeapDealloc,
 
     /// `const.<type> <literal>` — numeric/bool only here. `.str`/`.fn_ref`/
     /// `.heap_ref` are orchestrator-handled.
+    #[pattern = "'cpu::const $0 `,` $1"]
     Const(SurfaceType, SurfaceValue),
 
     // arithmetic operations
+    #[pattern = "'cpu::add $0"]
     Add(SurfaceType),
+    #[pattern = "'cpu::sub $0"]
     Sub(SurfaceType),
+    #[pattern = "'cpu::mul $0"]
     Mul(SurfaceType),
+    #[pattern = "'cpu::div $0"]
     Div(SurfaceType),
+    #[pattern = "'cpu::rem $0"]
     Rem(SurfaceType),
+    #[pattern = "'cpu::neg $0"]
     Neg(SurfaceType),
 
     // integer / bitwise operations
+    #[pattern = "'cpu::shl $0"]
     Shl(SurfaceType),
+    #[pattern = "'cpu::shr $0"]
     Shr(SurfaceType),
+    #[pattern = "'cpu::rol $0"]
     Rol(SurfaceType),
+    #[pattern = "'cpu::ror $0"]
     Ror(SurfaceType),
-    #[pattern = "'bitand $0"]
+    #[pattern = "'cpu::bitand $0"]
     BitAnd(SurfaceType),
-    #[pattern = "'bitor $0"]
+    #[pattern = "'cpu::bitor $0"]
     BitOr(SurfaceType),
-    #[pattern = "'bitxor $0"]
+    #[pattern = "'cpu::bitxor $0"]
     BitXor(SurfaceType),
 
     // boolean operations
+    #[pattern = "'cpu::not"]
     Not,
+    #[pattern = "'cpu::and"]
     And,
+    #[pattern = "'cpu::or"]
     Or,
+    #[pattern = "'cpu::xor"]
     Xor,
 
     // comparison operations
+    #[pattern = "'cpu::eq $0"]
     Eq(SurfaceType),
+    #[pattern = "'cpu::ne $0"]
     Ne(SurfaceType),
+    #[pattern = "'cpu::lt $0"]
     Lt(SurfaceType),
+    #[pattern = "'cpu::gt $0"]
     Gt(SurfaceType),
+    #[pattern = "'cpu::le $0"]
     Le(SurfaceType),
+    #[pattern = "'cpu::ge $0"]
     Ge(SurfaceType),
 }
 

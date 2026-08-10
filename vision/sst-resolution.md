@@ -5,7 +5,7 @@ runtime instructions:
 
 ```rust
 #[derive(vihaco_parser::Parse)]
-#[syntax_class(instruction, head = "control")]
+#[syntax_class(instruction)]
 #[pattern = "'conditional_branch `@` $when_true `,` `@` $when_false"]
 pub struct SurfaceConditionalBranch {
     pub when_true: String,
