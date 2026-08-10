@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["block_i64_flat","block_i64_pairs","body_item","raw_form","raw_operand","raw_type","skip","string_literal","symbol_ref"]};
