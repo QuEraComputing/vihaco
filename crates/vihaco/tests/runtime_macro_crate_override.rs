@@ -3,7 +3,10 @@
 
 use chumsky::Parser as _;
 use eyre::Result;
-use vihaco::{Effects, Execute, Execution, Observe, StepResult, composite};
+use vihaco::{
+    Effects, Execute, Execution, Observe, SstFile, SstGlobalContext, SstHeader, StepResult,
+    VERSION, composite,
+};
 use vihaco_parser::{Ident, Parse};
 
 mod test_root {
@@ -17,6 +20,30 @@ struct TestMessage;
 struct TestEffect;
 struct TestComponent;
 struct TestContext;
+
+impl SstGlobalContext for TestContext {
+    fn from_text(_text: &str) -> Result<Self> {
+        Ok(Self)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, vihaco_parser_derive::Parse)]
+#[syntax_class(type)]
+enum TestType {
+    #[pattern = "`unit`"]
+    Unit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct TestHeader;
+
+impl vihaco::FromText for TestHeader {
+    fn from_text(_text: &str) -> Result<Self> {
+        Ok(Self)
+    }
+}
+
+impl SstHeader for TestHeader {}
 
 impl Execute<TestInstruction> for TestComponent {
     type Message = TestMessage;
@@ -59,7 +86,7 @@ composite! {
         component: TestComponent,
         observer: TestObserver,
         #[program]
-        program: vihaco::ProgramImage<TestMachineInstruction, TestContext, vihaco::Value, ()>,
+        program: vihaco::ProgramImage<TestMachineInstruction, TestContext, vihaco::Value, TestType>,
     }
 
     syntax {
@@ -129,7 +156,7 @@ fn generated_program_loader_builds_and_installs_module() {
         header: (),
         functions: vec![vihaco::syntax::ParsedFunction {
             name: Ident("main".to_owned()),
-            params: Vec::<vihaco::syntax::Param<()>>::new(),
+            params: Vec::<vihaco::syntax::Param<TestType>>::new(),
             return_ty: None,
             body: vec![test_machine::syntax::Instruction::Run],
         }],
@@ -141,7 +168,29 @@ fn generated_program_loader_builds_and_installs_module() {
     };
 
     machine
-        .load_parsed(parsed, vihaco::ContextHandle::new(TestContext))
+        .load_parsed::<TestType, (), TestContext>(parsed, vihaco::ContextHandle::new(TestContext))
+        .unwrap();
+
+    assert_eq!(machine.program.module.code.len(), 1);
+    assert_eq!(machine.program.module.functions.len(), 1);
+    assert_eq!(machine.program.module.main_function, Some(0));
+    assert_eq!(machine.program.pc, 0);
+}
+
+#[test]
+fn generated_source_loader_parses_and_installs_module() {
+    let file = SstFile::<TestContext>::from_text(&format!(
+        "sst v{VERSION}\n\n.section(root):\n\t.text(root):\n\t\tfn @main() {{\n\t\t\ttest::run\n\t\t}}\n\t.text(root).\n.section(root).\n"
+    ))
+    .unwrap();
+    let mut machine = TestMachine {
+        component: TestComponent,
+        observer: TestObserver::default(),
+        program: vihaco::ProgramImage::new(),
+    };
+
+    machine
+        .load_source::<TestType, TestHeader, TestContext>(file.root())
         .unwrap();
 
     assert_eq!(machine.program.module.code.len(), 1);

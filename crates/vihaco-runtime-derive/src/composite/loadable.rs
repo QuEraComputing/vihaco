@@ -20,38 +20,14 @@ pub(super) fn generate_loadable_impls(
     let context = format_ident!("__VihacoContext");
 
     let (_, ty_generics, _) = generics.split_for_impl();
-    let own_bytecode_predicate = quote! {
-        #name #ty_generics: #root::loader::LoadOwnBytecodeSection<#context>
-    };
     let own_sst_predicate = quote! {
         #name #ty_generics: #root::loader::LoadOwnSstSection<#context>
     };
-    let bytecode_method_predicates: Vec<_> = loadables
-        .iter()
-        .map(|field| {
-            let field_ty = &field.ty;
-            quote! { #field_ty: #root::loader::LoadBytecodeSection<#context> }
-        })
-        .collect();
     let sst_method_predicates: Vec<_> = loadables
         .iter()
         .map(|field| {
             let field_ty = &field.ty;
             quote! { #field_ty: #root::loader::LoadSstSection<#context> }
-        })
-        .collect();
-    let bytecode_children: Vec<_> = loadables
-        .iter()
-        .map(|field| {
-            let field_ident = &field.ident;
-            let field_ty = &field.ty;
-            let section_name = field.loadable.as_ref().expect("loadable field");
-            quote! {
-                if let ::std::option::Option::Some(child) = section.child(#section_name) {
-                    <#field_ty as #root::loader::LoadBytecodeSection<#context>>
-                        ::load_bytecode_section(&mut self.#field_ident, child)?;
-                }
-            }
         })
         .collect();
     let sst_children: Vec<_> = loadables
@@ -91,28 +67,6 @@ pub(super) fn generate_loadable_impls(
         }
     };
 
-    let mut bytecode_impl_generics = generics.clone();
-    bytecode_impl_generics
-        .params
-        .push(syn::parse_quote!(#context));
-    {
-        let where_clause = bytecode_impl_generics.make_where_clause();
-        where_clause
-            .predicates
-            .push(syn::parse2(own_bytecode_predicate.clone()).expect("valid predicate"));
-        for field in &loadables {
-            let field_ty = &field.ty;
-            where_clause.predicates.push(
-                syn::parse2(quote! {
-                    #field_ty: #root::loader::LoadBytecodeSection<#context>
-                })
-                .expect("valid predicate"),
-            );
-        }
-    }
-    let (bytecode_impl_generics, _, bytecode_where_clause) =
-        bytecode_impl_generics.split_for_impl();
-
     let mut sst_impl_generics = generics.clone();
     sst_impl_generics.params.push(syn::parse_quote!(#context));
     {
@@ -135,23 +89,6 @@ pub(super) fn generate_loadable_impls(
 
     quote! {
         impl #impl_generics #name #ty_generics #where_clause {
-            pub fn load_generated_bytecode_sections<'__vihaco_bc, #context>(
-                &mut self,
-                section: #root::BytecodeSectionView<'__vihaco_bc, #context>,
-            ) -> ::eyre::Result<()>
-            where
-                #name #ty_generics: #root::loader::LoadOwnBytecodeSection<#context>,
-                #( #bytecode_method_predicates ),*
-            {
-                #root::loader::LoadOwnBytecodeSection::<#context>::load_own_bytecode_section(
-                    self,
-                    section.clone(),
-                )?;
-                #expected_children
-                #( #bytecode_children )*
-                Ok(())
-            }
-
             pub fn load_generated_sst_sections<'__vihaco_sst, #context>(
                 &mut self,
                 section: #root::SstSectionView<'__vihaco_sst, #context>,
@@ -164,21 +101,19 @@ pub(super) fn generate_loadable_impls(
                     self,
                     section.clone(),
                 )?;
+                self.load_generated_sst_children(section)
+            }
+
+            pub fn load_generated_sst_children<'__vihaco_sst, #context>(
+                &mut self,
+                section: #root::SstSectionView<'__vihaco_sst, #context>,
+            ) -> ::eyre::Result<()>
+            where
+                #( #sst_method_predicates ),*
+            {
                 #expected_children
                 #( #sst_children )*
                 Ok(())
-            }
-        }
-
-        impl #bytecode_impl_generics #root::loader::LoadBytecodeSection<#context>
-            for #name #ty_generics
-            #bytecode_where_clause
-        {
-            fn load_bytecode_section<'__vihaco_bc>(
-                &mut self,
-                section: #root::BytecodeSectionView<'__vihaco_bc, #context>,
-            ) -> ::eyre::Result<()> {
-                self.load_generated_bytecode_sections(section)
             }
         }
 

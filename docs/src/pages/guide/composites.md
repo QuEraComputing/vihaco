@@ -116,9 +116,8 @@ message, observer, and handler failures.
 
 `#[device(code, alias = "name")]` contributes device metadata and source-symbol
 aliases. Codes must be unique. `#[loadable]` marks a device that receives a
-direct child bytecode/SST section through the generated loader. A composite
-that owns program data implements `LoadOwnBytecodeSection` or
-`LoadOwnSstSection` in ordinary Rust.
+direct child SST section through the generated loader. A composite that owns
+program data implements `LoadOwnSstSection` in ordinary Rust.
 
 The composite macro can also declare structural composites with no
 `runtime` block. Those composites still provide fields, device
@@ -177,6 +176,12 @@ installed with an explicit context:
 ```rust ignore
 let parsed = machine::syntax::ParsedModule::parse_section(section)?;
 machine.load_parsed(parsed, ContextHandle::new(MachineContext))?;
+```
+
+For an SST section, provide the surface-type and header types explicitly:
+
+```rust ignore
+machine.load_source::<SurfaceType, Header>(section)?;
 ```
 
 `load_parsed` constructs a fresh module, lowers every function, records

@@ -36,8 +36,7 @@ pub use instruction_syntax::{
     InstructionSugarVariantSyntax, OperandKind, SugarOperandKind,
 };
 pub use loader::{
-    BuildProgramModule, InstallProgramModule, LoadBytecodeSection, LoadOwnBytecodeSection,
-    LoadOwnSstSection, LoadSstSection, ProgramImage,
+    BuildProgramModule, InstallProgramModule, LoadOwnSstSection, LoadSstSection, ProgramImage,
 };
 pub use macros::{Instruction, component, composite};
 pub use program::{Type, Value};
@@ -47,16 +46,15 @@ pub use runtime::{
     expect_exactly_one_effect,
 };
 pub use traits::{FromBytes, FromText, GetProgramInfo, Reset};
-pub use vihaco_parser::SurfaceInstruction;
+pub use vihaco_parser::{Parse, SurfaceInstruction};
 pub use vihaco_parser_derive::Parse;
 
 #[cfg(test)]
 mod public_api_tests {
     use crate::{
         BytecodeGlobalContext, BytecodeHeader, ConstantId, EffectSink, Effects, Execute, Execution,
-        GlobalContext, InstallProgramModule, LoadBytecodeSection, LoadOwnBytecodeSection,
-        ProgramImage, Reset, SectionNameResolver, SstGlobalContext, SstHeader, StepResult,
-        WriteBytecodeHeader,
+        GlobalContext, InstallProgramModule, ProgramImage, Reset, SectionNameResolver,
+        SstGlobalContext, SstHeader, StepResult, WriteBytecodeHeader,
         instruction::{FromBytes, OpCode, WriteBytes},
         module::FunctionInfo,
         observer::stdio::StdoutEffect,
@@ -88,24 +86,6 @@ mod public_api_tests {
         }
     }
 
-    impl LoadOwnBytecodeSection<PublicContext> for PublicReset {
-        fn load_own_bytecode_section<'bc>(
-            &mut self,
-            _section: crate::BytecodeSectionView<'bc, PublicContext>,
-        ) -> eyre::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl LoadBytecodeSection<PublicContext> for PublicReset {
-        fn load_bytecode_section<'bc>(
-            &mut self,
-            section: crate::BytecodeSectionView<'bc, PublicContext>,
-        ) -> eyre::Result<()> {
-            self.load_own_bytecode_section(section)
-        }
-    }
-
     struct PublicSstHeader;
 
     impl crate::traits::FromText for PublicSstHeader {
@@ -128,8 +108,6 @@ mod public_api_tests {
         fn require_bytecode_global_context<T: BytecodeGlobalContext>() {}
         fn require_sst_global_context<T: SstGlobalContext>() {}
         fn require_global_context<T: GlobalContext>() {}
-        fn require_load_own_bytecode_section<T: LoadOwnBytecodeSection<PublicContext>>() {}
-        fn require_load_bytecode_section<T: LoadBytecodeSection<PublicContext>>() {}
         fn require_install_program_module<T: InstallProgramModule<PublicContext>>() {}
         fn require_stdout_effect(_effect: StdoutEffect) {}
         fn require_metadata(_metadata: crate::CompositeMetadata) {}
@@ -145,8 +123,6 @@ mod public_api_tests {
         require_sst_global_context::<PublicContext>();
         require_sst_global_context::<crate::NoContext>();
         require_global_context::<PublicContext>();
-        require_load_own_bytecode_section::<PublicReset>();
-        require_load_bytecode_section::<PublicReset>();
         require_install_program_module::<ProgramImage<(), PublicContext>>();
         let _constant = ConstantId(0);
         let _function: Option<FunctionInfo<crate::Type>> = None;

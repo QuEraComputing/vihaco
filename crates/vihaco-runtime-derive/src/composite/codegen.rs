@@ -235,6 +235,13 @@ fn generate_program_loading(
     let surface_ty = format_ident!("__VihacoSurfaceType");
     let header_ty = format_ident!("__VihacoHeader");
     let context_ty = format_ident!("__VihacoContext");
+    let loadable_predicates = fields
+        .iter()
+        .filter(|field| field.loadable.is_some())
+        .map(|field| {
+            let field_ty = &field.ty;
+            quote! { #field_ty: #root::loader::LoadSstSection<#context_ty> }
+        });
 
     quote! {
         pub fn resolve_parsed<#surface_ty, #header_ty>(
@@ -340,6 +347,44 @@ fn generate_program_loading(
             <#program_ty as #root::InstallProgramModule<#context_ty>>
                 ::install_program_module(&mut self.#program_field, module, context)
                 .map_err(::std::convert::Into::<#error>::into)
+        }
+
+        pub fn load_source<'__vihaco_sst, #surface_ty, #header_ty, #context_ty>(
+            &mut self,
+            section: #root::SstSectionView<'__vihaco_sst, #context_ty>,
+        ) -> ::eyre::Result<()>
+        where
+            #module::syntax::Instruction #syntax_ty_generics:
+                #root::Parse<'__vihaco_sst> + '__vihaco_sst,
+            #surface_ty: #root::Parse<'__vihaco_sst>
+                + '__vihaco_sst
+                + ::std::clone::Clone
+                + ::std::convert::Into<
+                    <#program_ty as #root::BuildProgramModule>::Type,
+                >,
+            #header_ty: #root::SstHeader,
+            #program_ty: #root::BuildProgramModule<
+                    Instruction = #instruction_ident #route_ty_generics,
+                > + #root::InstallProgramModule<
+                    #context_ty,
+                    Module = <#program_ty as #root::BuildProgramModule>::Module,
+                >,
+            #( #loadable_predicates ),*
+        {
+            let parsed = #root::syntax::ParsedModule::<
+                #module::syntax::Instruction #syntax_ty_generics,
+                #surface_ty,
+                #header_ty,
+            >::parse_section(section.clone())?;
+            let module = self.resolve_parsed(parsed)?;
+            <#program_ty as #root::InstallProgramModule<#context_ty>>
+                ::install_program_module(
+                    &mut self.#program_field,
+                    module,
+                    section.context_handle(),
+                )
+                .map_err(::std::convert::Into::<#error>::into)?;
+            self.load_generated_sst_children(section)
         }
     }
 }
