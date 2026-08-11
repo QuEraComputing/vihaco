@@ -102,7 +102,7 @@ Message sources are deliberately explicit:
 
 - `message none` passes `NoMessage`.
 - `message from field` calls `Supply<M>` on that field.
-- `message with method` calls a composite method with the instruction payload.
+- `message with method` calls the generated message-resolver trait with the instruction payload.
 
 Effect handlers are exclusive:
 
@@ -117,7 +117,7 @@ message, observer, and handler failures.
 `#[device(code, alias = "name")]` contributes device metadata and source-symbol
 aliases. Codes must be unique. `#[loadable]` marks a device that receives a
 direct child SST section through the generated loader. A composite that owns
-program data implements `LoadOwnSstSection` in ordinary Rust.
+program data implements `LoadSstProgram` in ordinary Rust.
 
 The composite macro can also declare structural composites with no
 `runtime` block. Those composites still provide fields, device

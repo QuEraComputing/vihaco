@@ -5,10 +5,12 @@ use super::{
     Effects,
     handle::{Absorb, Observe},
 };
+use vihaco::{LoadSstSubtree, SstSectionView};
 
 vihaco::component! {
     component DebugTrace {
         pub records: Vec<DebugRecord>,
+        pub loaded_section: Option<String>,
     }
 }
 
@@ -18,6 +20,7 @@ impl debug_trace::DebugTrace {
     pub fn new() -> Self {
         Self {
             records: Vec::new(),
+            loaded_section: None,
         }
     }
 
@@ -34,6 +37,16 @@ impl debug_trace::DebugTrace {
             route: "clock",
             effect: format!("tick {tick}: {effect:?}"),
         });
+    }
+}
+
+impl LoadSstSubtree<vihaco::NoContext> for debug_trace::DebugTrace {
+    fn load_sst_subtree<'src>(
+        &mut self,
+        section: SstSectionView<'src, vihaco::NoContext>,
+    ) -> eyre::Result<()> {
+        self.loaded_section = Some(section.sst().to_owned());
+        Ok(())
     }
 }
 

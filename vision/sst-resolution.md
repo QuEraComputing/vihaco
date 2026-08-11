@@ -83,7 +83,7 @@ shapes rather than aliases for one catch-all `String`.
 A parsed function's parameter and return types likewise use an author-selected surface type:
 
 ```text
-ParsedModule<MachineSurfaceInstruction, MachineSurfaceType, Header>
+ParsedModule<MachineModuleSyntax>
 ```
 
 The complete ownership and runtime relationship is defined in
@@ -133,7 +133,7 @@ creating an empty executable instruction sum.
 
 Pattern parsing and module resolution are consecutive but distinct boundaries. Parsing always
 constructs a surface instruction and author-defined module type products.
-`Resolve<SurfaceInstruction, SurfaceType, Header>` then uses module-wide context to construct
+`Resolve<ModuleSyntax>` then uses module-wide context to construct
 runtime instructions, constants, and runtime type metadata:
 
 - Labels and symbolic branch targets require symbol resolution.
@@ -151,8 +151,8 @@ pattern parsing:
     source text -> surface instruction
 
 module resolution:
-    ParsedModule<SurfaceInstruction, SurfaceType, Header>
-        -> Resolve<SurfaceInstruction, SurfaceType, Header>
+    ParsedModule<ModuleSyntax>
+        -> Resolve<ModuleSyntax>
         -> Module<RuntimeInstruction, Constant, RuntimeType, Info>
 
 runtime message resolution:
@@ -176,6 +176,6 @@ A consistent naming direction is:
 - `SurfaceInstruction` for the types constructed by the pattern parser.
 - `Instruction` for an individual runtime operation.
 - `MachineInstruction` or `InstructionSet` for the generated runtime sum.
-- `Resolve<SurfaceInstruction, SurfaceType, Header>` for module lowering.
+- `Resolve<ModuleSyntax>` for module lowering.
 
 The exact identifiers remain an API decision; the three roles must remain visible.

@@ -37,7 +37,14 @@ pub(super) fn generate_loadable_impls(
             let field_ty = &field.ty;
             let section_name = field.loadable.as_ref().expect("loadable field");
             quote! {
-                if let ::std::option::Option::Some(child) = section.child(#section_name) {
+                {
+                    let child = section.child(#section_name).ok_or_else(|| {
+                        ::eyre::eyre!(
+                            "section `{}` is missing expected child section `{}`",
+                            section.display_path(),
+                            #section_name,
+                        )
+                    })?;
                     <#field_ty as #root::loader::LoadSstSubtree<#context>>
                         ::load_sst_subtree(&mut self.#field_ident, child)?;
                 }
@@ -50,6 +57,7 @@ pub(super) fn generate_loadable_impls(
         .collect();
     let validate_children = quote! {
         let expected: &[&str] = &[#(#loadable_names),*];
+        let mut seen: ::std::vec::Vec<::std::string::String> = ::std::vec::Vec::new();
         for child in section.children() {
             let child_name = child.local_name().ok_or_else(|| {
                 ::eyre::eyre!(
@@ -57,11 +65,28 @@ pub(super) fn generate_loadable_impls(
                     section.display_path(),
                 )
             })?;
+            if seen.iter().any(|seen| seen == child_name) {
+                return Err(::eyre::eyre!(
+                    "section `{}` has duplicate child section `{}`",
+                    section.display_path(),
+                    child.display_path(),
+                ));
+            }
             if !expected.iter().any(|expected| *expected == child_name) {
                 return Err(::eyre::eyre!(
                     "section `{}` has unexpected child section `{}`",
                     section.display_path(),
                     child.display_path(),
+                ));
+            }
+            seen.push(child_name.to_owned());
+        }
+        for expected_name in expected {
+            if !seen.iter().any(|seen| seen == expected_name) {
+                return Err(::eyre::eyre!(
+                    "section `{}` is missing expected child section `{}`",
+                    section.display_path(),
+                    expected_name,
                 ));
             }
         }
@@ -113,12 +138,11 @@ pub(super) fn generate_loadable_impls(
                 &mut self,
                 section: #root::SstSectionView<'__vihaco_sst, #context>,
             ) -> ::eyre::Result<()> {
+                let program_section = section.clone();
                 #root::loader::LoadSstProgram::<#context>::load_sst_program(
                     self,
-                    section.clone(),
+                    program_section,
                 )?;
-                #validate_children
-                #forward_children
                 Ok(())
             }
         }

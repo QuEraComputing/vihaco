@@ -162,6 +162,10 @@ fn generated_program_loader_builds_and_installs_module() {
             return_ty: None,
             body: vec![test_machine::syntax::Instruction::Run],
         }],
+        labels: Vec::new(),
+        constants: Vec::new(),
+        strings: Vec::new(),
+        source_symbols: Vec::new(),
     };
     let mut machine = TestMachine {
         component: TestComponent {

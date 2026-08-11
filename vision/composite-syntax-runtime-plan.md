@@ -3,20 +3,26 @@
 ## Status
 
 Design plan for the SST-only instruction pipeline. This document defines how a
-composite declares source syntax, lowers parsed instructions into runtime
-instructions, and executes those instructions through typed component routes.
+composite declares a complete module syntax, resolves parsed headers and
+instructions into runtime instructions, and executes those instructions
+through typed component routes.
 
-Components provide reusable runtime products and `Execute<I>` implementations.
-Composites provide the machine-specific SST vocabulary, lowering policy, route
-selection, message resolution, and effect handling.
+The `ModuleSyntax` refactor and header-resolution design are detailed in
+[`module-syntax-plan.md`](module-syntax-plan.md).
+
+Components provide reusable instruction-set syntax, value/type syntax, runtime
+instruction products, and `Execute<I>` implementations. Composites compose those
+syntax contributions, own SST section headers, and provide the machine-specific
+lowering policy, route selection, message resolution, and effect handling.
 
 ## Pipeline
 
 ```text
 SST section
     -> generated composite surface parser
-    -> ParsedModule<SurfaceInstruction, SurfaceType, Header>
-    -> composite syntax-resolver trait
+    -> ParsedModule<CompositeModuleSyntax>
+    -> parsed-header resolution
+    -> composite syntax-resolver traits
     -> Vec<RuntimeInstruction>
     -> program-container module installation
     -> program-counter execution
@@ -42,7 +48,8 @@ resolution.
 An executable composite has three relevant parts:
 
 1. A `#[program]` field that owns the loaded program and program counter.
-2. A `syntax` block that defines the composite's public SST vocabulary.
+2. A `syntax` block that defines the composite's complete public SST dialect:
+   surface instructions, function types, and parsed headers.
 3. A `runtime` block that defines executable routes.
 
 Illustrative shape:
@@ -75,25 +82,21 @@ vihaco::composite! {
     }
 
     syntax {
-        #[pattern = "'processor::step $0"]
-        Step(StepSyntax) => lower_step;
+        header ControlHeaderBlock => resolve_header;
 
-        #[pattern = "'waveform::play $0"]
-        Play(PlaySyntax) => lower_play;
-
-        #[pattern = "'optical::clear"]
-        Clear => runtime Clear;
+        // Component instruction-set syntax is composed from the device fields.
+        // Composite-only sugar may also be declared here.
     }
 
     runtime {
-        Step(processor::instruction::Step) => processor {
+        ProcessorStep(processor::instruction::Step) => processor {
             message with resolve_step;
             effects {
                 handle with handle_step;
             }
         }
 
-        Play(waveform::instruction::Play) => waveform {
+        WaveformPlay(waveform::instruction::Play) => waveform {
             message with resolve_play;
             effects {
                 observe stdout;
@@ -101,7 +104,7 @@ vihaco::composite! {
             }
         }
 
-        Clear(optical::instruction::Clear) => optical {
+        OpticalClear(optical::instruction::Clear) => optical {
             message none;
             effects {
                 handle with handle_optical;
@@ -116,36 +119,68 @@ that syntax names and runtime route names are allowed to differ.
 
 ## Generated modules
 
+The complete module source dialect is represented by one syntax type:
+
+```rust
+pub trait ModuleSyntax {
+    type Instruction: SurfaceInstruction;
+    type Value;
+    type Type;
+    type Header: SstHeader;
+}
+```
+
 The composite macro generates namespaced modules rather than placing all
 products in the composite's parent namespace:
 
 ```rust
 pub mod control_machine {
     pub mod syntax {
+        pub struct Module;
+
         pub enum Instruction {
-            Step(StepSyntax),
-            Play(PlaySyntax),
-            Clear,
+            Processor(processor::syntax::Instruction),
+            Waveform(waveform::syntax::Instruction),
+            Optical(optical::syntax::Instruction),
+        }
+
+        pub enum Value {
+            Processor(processor::syntax::Value),
+            Waveform(waveform::syntax::Value),
+            Optical(optical::syntax::Value),
+        }
+
+        pub enum Type {
+            Processor(processor::syntax::Type),
+            Waveform(waveform::syntax::Type),
+            Optical(optical::syntax::Type),
+        }
+
+        impl ::vihaco::ModuleSyntax for Module {
+            type Instruction = Instruction;
+            type Value = Value;
+            type Type = Type;
+            type Header = ControlHeaderBlock;
         }
 
         pub trait Resolver {
-            fn lower_step(
+            fn resolve_header(
                 &mut self,
-                instruction: StepSyntax,
-            ) -> Result<Vec<super::runtime::Instruction>, ControlMachineFault>;
+                header: ControlHeaderBlock,
+            ) -> Result<(), ControlMachineFault>;
 
-            fn lower_play(
+            fn lower_processor(
                 &mut self,
-                instruction: PlaySyntax,
+                instruction: processor::syntax::Instruction,
             ) -> Result<Vec<super::runtime::Instruction>, ControlMachineFault>;
         }
     }
 
     pub mod runtime {
         pub enum Instruction {
-            Step(processor::instruction::Step),
-            Play(waveform::instruction::Play),
-            Clear(optical::instruction::Clear),
+            ProcessorStep(processor::instruction::Step),
+            WaveformPlay(waveform::instruction::Play),
+            OpticalClear(optical::instruction::Clear),
         }
 
         pub trait MessageResolver {
@@ -164,20 +199,23 @@ pub use control_machine::syntax::Resolver as ControlMachineSyntaxResolver;
 pub use control_machine::runtime::MessageResolver as ControlMachineMessageResolver;
 ```
 
-The generated syntax enum implements the parser's surface-instruction marker
-and parser interface. The runtime enum is the execution boundary and does not
-implement source parsing by default.
+The generated syntax enum is a sum over the participating component
+instruction sets and implements the parser's surface-instruction marker and
+parser interface. The generated `syntax::Type` is the corresponding sum over
+component and core source types. The generated `syntax::Module` identifies the
+complete source dialect consumed by `ParsedModule`. The runtime enum is the
+execution boundary and does not implement source parsing by default.
 
 ## Syntax declarations
 
-Composite syntax patterns use complete public spellings. The new pattern
-grammar does not require an instruction `head`:
+Component instruction sets own local instruction and operand syntax. The
+composite composes those sets, adds public namespaces and aliases, and may
+declare composite-only sugar. The new pattern grammar does not require an
+instruction `head`.
 
 ```rust
-syntax {
-    #[pattern = "'waveform::play $0"]
-    Play(PlaySyntax) => lower_play;
-}
+processor::syntax::Instruction
+waveform::syntax::Instruction
 ```
 
 Instruction tokens accept namespaced identifiers:
@@ -186,93 +224,187 @@ Instruction tokens accept namespaced identifiers:
 instruction-token = identifier, { "::", identifier } ;
 ```
 
-The composite syntax block establishes the instruction syntax class, so
-composite-generated instruction enums do not need an explicit
-`#[syntax_class(...)]` attribute. User-defined payload types continue to use
-the parser derive and syntax classes appropriate to their role.
+The composite-generated instruction and type sums do not need explicit user
+written `#[derive(Parse)]` declarations. Component-owned syntax types continue
+to use the parser derive and syntax classes appropriate to their role.
 
-### User-defined payload syntax
+### Component instruction sets
 
-The composite owns the instruction prefix. A payload type owns the grammar of
-its operands:
+Components may expose optional instruction-set syntax products:
 
 ```rust
-#[derive(vihaco_parser_derive::Parse)]
-#[syntax_class(value)]
-#[pattern = "$duration `,` $mode"]
-pub struct PlaySyntax {
-    pub duration: u64,
-    pub mode: PlayMode,
+pub trait InstructionSet {
+    type Instruction: SurfaceInstruction;
+    type Value;
+    type Type;
 }
+```
 
-vihaco::composite! {
-    // ...
-    syntax {
-        #[pattern = "'waveform::play $0"]
-        Play(PlaySyntax) => lower_play;
+The component owns its local instruction and value/type grammar, as well as
+the runtime instruction products that the composite can select. Runtime-only
+components do not need to implement `InstructionSet`.
+
+The composite adds public namespaces and delegates parsing to the selected
+component:
+
+```text
+processor::step 100
+    -> SurfaceInstruction::Processor(
+           processor::syntax::Instruction::Step(...)
+       )
+```
+
+The same component syntax may be mounted more than once under different
+aliases. Components do not know their device code, mounted alias, parent
+composite, or runtime route identity.
+
+### Component-owned payload syntax
+
+The component owns the grammar of its operands through the declarative pattern
+parser. Values and types are generated enums rather than user-written parser
+structs:
+
+```rust
+syntax {
+    value Value {
+        U32(u32),
+        Label(LabelRef),
+    }
+
+    type Type {
+        I64 = "`i64`";
+        U32 = "`u32`";
+    }
+
+    instruction {
+        Step(value: Value) = "'step $value";
+        Branch(target: Value) = "'br $target";
+        Add(ty: Type) = "'add $ty";
     }
 }
 ```
 
-`$0` invokes `PlaySyntax::parser()`. This keeps nested operand syntax
-composable and prevents the composite macro from becoming a second struct
-pattern parser.
+Primitive parser names such as `u32`, `i64`, and `ident` are built in. Named
+values and types can be referenced as nested parsers. The macro generates the
+`Parse` implementations using the shared pattern parser; users do not write
+Chumsky parsers manually.
 
-### Direct mappings
+### Composite-only syntax
 
-Direct mappings are limited initially to unit instructions:
+Composite-only syntax is available for machine-level operations that do not
+belong to a reusable component:
 
 ```rust
 syntax {
+    header ControlHeaderBlock => resolve_header;
+
     #[pattern = "'optical::clear"]
     Clear => runtime Clear;
 }
 ```
 
-The macro constructs the runtime route directly. Argument-bearing instructions
-use named lowerers because procedural macros cannot inspect arbitrary external
-runtime product definitions and infer safe conversions.
+Composite-only instructions are useful for machine-level operations that do
+not belong to a reusable component. Argument-bearing instructions use named
+lowerers because procedural macros cannot inspect arbitrary external runtime
+product definitions and infer safe conversions.
 
-### Delegated syntax
+### Component syntax composition
 
-Components do not provide parsers in the initial design. A composite may,
-however, explicitly delegate an existing syntax vocabulary in the future or
-where a reusable parser type already exists:
+The composite parser delegates public namespaced instructions to the syntax
+owned by the selected component:
 
 ```rust
 syntax {
-    #[delegate(host_vm::Instruction, prefix = "processor")]
-    Processor(host_vm::Instruction) => runtime Processor;
+    header ControlHeaderBlock => resolve_header;
+
+    #[pattern = "'halt"]
+    Halt => runtime Halt;
 }
 ```
 
-Delegation imports syntax; it does not make the component's instruction enum
-the composite execution boundary.
+Component syntax is selected separately, for example with a `#[syntax]` field
+attribute carrying the public prefix. The generated composite instruction
+variant wraps the component instruction; the runtime route remains a separate
+composite decision.
 
 ## Syntax resolution
 
-The macro generates a public syntax-resolver trait for named lowerers. The
-trait is implemented directly by the composite:
+Parsing and resolution are separate. A parsed header is source syntax, not
+runtime metadata. The resolver consumes the complete `ParsedModule` and must
+resolve the header before the runtime module is installed. This follows the
+Acamar model, where a parsed header block is applied to runtime `Info` such as
+`DeviceInfo`.
+
+The macro generates a public syntax-resolver trait for header resolution and
+named lowerers. The trait is implemented directly by the composite:
 
 ```rust
 impl ControlMachineSyntaxResolver for ControlMachine {
-    fn lower_play(
+    fn resolve_header(
         &mut self,
-        instruction: PlaySyntax,
-    ) -> Result<Vec<RuntimeInstruction>, ControlMachineFault> {
-        let duration_ns = instruction.duration.try_into()?;
+        header: ControlHeaderBlock,
+    ) -> Result<(), ControlMachineFault> {
+        // Validate and apply parsed header directives.
+        Ok(())
+    }
 
-        Ok(vec![RuntimeInstruction::Play(
-            waveform::instruction::Play { duration_ns },
-        )])
+    fn lower_processor(
+        &mut self,
+        instruction: processor::syntax::Instruction,
+    ) -> Result<Vec<RuntimeInstruction>, ControlMachineFault> {
+        match instruction {
+            processor::syntax::Instruction::Step(value) => {
+                let value = match value {
+                    processor::syntax::Value::U32(value) => value,
+                    other => {
+                        return Err(ControlFault::type_error(
+                            "processor::step expects a u32 value",
+                            other,
+                        ));
+                    }
+                };
+
+                Ok(vec![RuntimeInstruction::ProcessorStep(
+                    processor::instruction::Step { value },
+                )])
+            }
+            processor::syntax::Instruction::Branch(value) => {
+                let label = match value {
+                    processor::syntax::Value::Label(label) => label,
+                    other => {
+                        return Err(ControlFault::type_error(
+                            "processor::br expects a label",
+                            other,
+                        ));
+                    }
+                };
+                let target = self.program.resolve_label(&label)?;
+
+                Ok(vec![RuntimeInstruction::ProcessorBranch(
+                    processor::instruction::Branch { target },
+                )])
+            }
+            processor::syntax::Instruction::Add(ty) => {
+                let ty = self.program.resolve_type(ty)?;
+
+                Ok(vec![RuntimeInstruction::ProcessorAdd(
+                    processor::instruction::Add { ty },
+                )])
+            }
+            processor::syntax::Instruction::Reset => Ok(vec![
+                RuntimeInstruction::ProcessorReset(
+                    processor::instruction::Reset,
+                ),
+            ]),
+        }
     }
 }
 ```
 
-Lowerers receive only the parsed syntax value. They access module-resolution
-state through `self.program` and may use other composite fields when the
-machine explicitly permits it. The program object owns the resolution context;
-the composite owns the machine-specific lowering policy.
+Lowerers receive parsed syntax values and types. They perform semantic analysis
+through `self.program`, including label, type, constant, and metadata
+resolution. The program object owns the resolution context; the composite
+owns the machine-specific lowering policy.
 
 Every named lowerer returns an owned sequence:
 
@@ -285,8 +417,14 @@ Module-level resolution assigns final instruction addresses after expansion so
 labels and source symbols refer to the runtime program rather than the surface
 instruction sequence.
 
-The generated resolver trait contains only named lowerers. Direct mappings do
-not create user methods.
+The generated resolver trait contains the declared header resolver and named
+lowerers. Direct instruction mappings do not create user methods.
+
+The exact header-resolver return type remains open. It may mutate composite
+state, produce module `Info`, or use an explicit resolution context. If header
+results populate the program module's `Info`, `BuildProgramModule` needs an
+explicit metadata assignment operation. Header failures use the composite's
+declared error type and must be reported before installation.
 
 ## Multiple runtime routes
 
@@ -408,8 +546,8 @@ The framework keeps program behavior split across focused traits:
 ```rust
 ProgramCounter
 GetProgramInfo
-LoadOwnSstSection
-LoadSstSection
+LoadSstProgram
+LoadSstSubtree
 InstallProgramModule
 ```
 
@@ -437,42 +575,78 @@ Installation replaces the runtime module, context, and PC as one operation.
 Program-specific lookup APIs remain author-defined. The framework does not
 require a universal `resolve_string` or `resolve_constant` method.
 
+Parsed headers are resolved before installation. If a composite's resolved
+header data belongs in the program module's `Info` value, the builder must
+provide an explicit metadata assignment operation, for example:
+
+```rust
+fn set_info(module: &mut Self::Module, info: Self::Info);
+```
+
+A parsed `SstHeader` is source syntax, not the installed runtime metadata.
+
 ## SST loading
 
-The generated root loading path uses the existing multi-section loading model:
+The generated root loading path uses the multi-section loading model:
 
 ```text
-LoadSstSection(root)
-    -> generated composite LoadOwnSstSection
-        -> parse root syntax
-        -> lower through ControlMachineSyntaxResolver
-        -> build temporary runtime module
-        -> InstallProgramModule on #[program]
-    -> forward direct child sections to #[loadable] fields
+root.load_source(...)
+    -> parse ParsedModule<RootCompositeSyntax>
+    -> resolve the parsed header
+    -> lower through the generated syntax resolver
+    -> resolve module metadata
+    -> build a temporary runtime module
+    -> InstallProgramModule on #[program]
+    -> LoadSstSubtree for each direct child section
+
+LoadSstSubtree(child)
+    -> LoadSstProgram for the child composite's own #[program] section
+    -> LoadSstSubtree for each nested #[loadable] child
 ```
+
+`LoadSstProgram` is the capability for loading a composite's own program and
+associated SST data. `LoadSstSubtree` is the recursive capability for loading a
+complete device section, including the current device and all nested device
+sections. Leaf devices implement `LoadSstSubtree` directly; generated
+composites use it to load their own program and then forward child sections.
+
+Each composite owns a generated `ModuleSyntax` containing sums of its selected
+component instruction, value, and type syntax plus its composite-owned parsed
+header syntax. A nested composite's generated loader uses its own
+`ModuleSyntax`; the parent only requires the child's `LoadSstSubtree`
+implementation and never names the child's parser types.
 
 The root program is resolved independently of arbitrary live child-device
 state. Child sections may provide explicit load metadata through the program's
 resolution context, but syntax lowering does not inspect arbitrary device
 fields.
 
-The load is transactional. Parsing, lowering, expansion, label assignment, and
-module construction complete before the program container replaces its current
-module. A failure leaves the previously loaded program intact.
+Loading is one-shot. Parsing, lowering, expansion, label assignment, and module
+construction must complete before the program container is mutated. Malformed
+input returns an error and does not install a partially built program. The
+framework does not provide rollback to a previously installed program; these
+machines are intended to be loaded once unless a future use case requires
+reloading.
 
 Generated composite methods should include:
 
 ```rust
-fn load_source(&mut self, source: &str) -> Result<(), ControlMachineFault>;
-
-fn load_parsed(
+fn load_source<Context>(
     &mut self,
-    parsed: ParsedModule<SurfaceInstruction, SurfaceType, Header>,
-) -> Result<(), ControlMachineFault>;
+    section: SstSectionView<'_, Context>,
+) -> eyre::Result<()>;
+
+fn load_parsed<Context>(
+    &mut self,
+    parsed: ParsedModule<control_machine::syntax::Module>,
+    context: ContextHandle<Context>,
+) -> eyre::Result<()>;
 ```
 
 `load_parsed` is the primary unit-testing boundary for lowering. It avoids
 coupling resolver tests to text parsing or section-container construction.
+It must also exercise parsed-header resolution rather than discarding the
+header value.
 
 SST is the only loading format covered by this design. Bytecode loading is
 outside the scope of the new pipeline.
@@ -516,8 +690,21 @@ the initial design.
 
 ## Parser changes
 
-The parser derive and shared parser machinery need the following changes for
+The shared syntax layer and parser machinery need the following changes for
 the new composite model:
+
+- add `ModuleSyntax` as the complete module source-dialect boundary;
+- use `ParsedModule<Syntax>` as the complete parsed-module boundary;
+- make `ParsedFunction` obtain its instruction and type syntax from the
+  module dialect;
+- update `Resolve` to consume `ParsedModule<Syntax>` and therefore receive
+  parsed headers;
+- keep parsed headers distinct from resolved module metadata;
+- add component instruction-set syntax products for surface instructions and
+  source values and types, generated through the declarative pattern parser;
+- generate composite instruction, value, and source-type sums from
+  participating components;
+- keep SST section-header syntax and header resolution on the composite;
 
 - Remove the requirement for instruction `head`.
 - Support complete namespaced instruction tokens in patterns.
@@ -526,37 +713,115 @@ the new composite model:
   without requiring user-written `#[derive(Parse)]` declarations.
 - Keep payload parsing compositional through each payload type's `Parse`
   implementation.
-- Do not require reusable components to provide parsers.
+- Allow reusable components to provide optional instruction-set parsers.
 
 The parser derive's existing pattern validation remains valuable: field
 bindings must be complete, unambiguous, and type-directed.
 
 ## Implementation phases
 
-1. Audit `ProgramCounter`, `GetProgramInfo`, `LoadOwnSstSection`,
-   `LoadSstSection`, and the generated multi-section loading paths.
-2. Define and implement `InstallProgramModule` with transactional module,
-   context, and PC installation.
-3. Add composite-generated `syntax` and `runtime` modules.
-4. Generate surface instruction enums and parser implementations from
-   composite syntax entries.
-5. Remove instruction `head` requirements and add namespaced pattern tokens.
-6. Generate public syntax-resolver and message-resolver traits.
-7. Generate SST root loading and `load_parsed` paths for composites with
-   `#[program]` and `syntax`.
-8. Generate runtime route dispatch from the `runtime` block.
-9. Migrate a small composite with unit direct mappings and argument-bearing
-   named lowerers.
-10. Migrate a composite with one surface instruction selecting multiple
-    runtime routes.
-11. Add transactional-load, interning, one-to-many expansion, source-location,
-    and message-resolution tests.
+Status markers: **completed** means implemented and verified; **partial** means
+the listed sub-items are split between finished and remaining work; **remaining**
+means not implemented yet.
+
+Implementation checkpoint: Steps 1–11 and the core of Step 13 are implemented
+and covered by the workspace checks completed on 2026-08-11. The remaining
+items below are the deliberate follow-up work, not unreviewed plan items.
+
+1. **Completed — audit and runtime foundations.** Audit
+   `ProgramCounter`, `GetProgramInfo`, the loading paths, and generated
+   multi-section behavior.
+
+2. **Completed — `InstallProgramModule`.** Install a prevalidated module,
+   context, and PC state as one operation. One-shot loading semantics are now
+   intentional; rollback is not provided.
+
+3. **Completed — generated composite modules.** Generate composite `syntax`
+   and `runtime` modules. Extend the syntax module with a generated
+   `syntax::Module` dialect marker and component-contribution sums.
+
+4. **Completed — generated surface parsers.** Generate surface instruction
+   enums and parser implementations by composing participating component
+   instruction-set parsers.
+
+5. **Completed — parser pattern changes.** Remove instruction `head`
+   requirements and support namespaced pattern tokens.
+
+6. **Completed — `ModuleSyntax` source-dialect model.** `ParsedModule<Syntax>`,
+   `ParsedFunction<Syntax>`, `Param<Syntax>`, and `Resolve<Syntax>` now derive
+   instruction, value, type, and header syntax from one module dialect. Parsed
+   headers remain source syntax and are delivered to the resolver.
+
+7. **Completed — component syntax composition.** `InstructionSet` is optional
+   for components, runtime-only components remain valid, and generated
+   composite instruction/value/type sums support public namespaces, aliases,
+   repeated mounts, and explicit wrapping. Focused component and composite
+   codegen coverage exists.
+
+8. **Completed — header resolution boundary; metadata policy intentionally
+   composite-owned.** Composite-owned header syntax, `parse_header`, and the
+   generated header resolver are implemented. Headers are resolved before
+   lowering and installation, and invalid headers cannot partially install a
+   program. The current policy applies resolved header state through the
+   composite resolver; `BuildProgramModule::set_info` is not required by the
+   current implementation. Add it later only if installed `Info` must carry
+   header metadata.
+
+9. **Completed — SST program and subtree loading.** Generated loading uses
+   `ParsedModule<CompositeSyntax>`, has no caller-supplied syntax/header
+   generics, resolves headers before installation, supports one-to-many
+   lowering, and installs only after validation. `LoadSstProgram` and
+   `LoadSstSubtree` are the final capability names. Nested composites load
+   their own program with their own dialect before forwarding descendants;
+   missing, unexpected, duplicate, and invalid child sections are rejected
+   without installing the parent program.
+
+10. **Completed — runtime route dispatch.** Generate runtime route dispatch
+    from the `runtime` block, including message resolution and effect
+    handling.
+
+11. **Completed — simple composite migration.** Migrate and test direct
+    routes and named lowerers with arguments. Update the migration to use
+    component instruction-set syntax and the composite-generated module
+    syntax dialect.
+
+12. **Completed — multi-route composite migration.** Added a component-owned
+   arithmetic surface syntax mounted under a composite namespace. A named
+   component lowerer selects between two runtime routes carrying the same
+   component instruction product, and integration coverage verifies parsing,
+   module installation, route selection, and generated dispatch to the two
+   target components.
+
+13. **Completed — test coverage.** Coverage now includes:
+
+   - malformed root SST rejection;
+   - module installation and custom minimal program containers;
+   - message resolution and runtime-only component composition;
+   - basic string interning behavior;
+   - component instruction-set parsing and composite source-sum/alias coverage;
+   - `ModuleSyntax` parsing and `Resolve<Syntax>` coverage;
+   - parsed-header resolution, invalid-header diagnostics, and no-partial-install;
+   - one-to-many lowering and final expanded instruction addresses;
+   - function/instruction/surface-value lowering diagnostics;
+   - nested subtree loading with independent child syntax dialects;
+   - semantic source-type mismatch diagnostics with no partial installation;
+   - parsed labels, constants, strings, and source symbols carried into the
+     installed runtime module.
+
+   Resolved header state remains composite-owned, so `Module::Info` metadata
+   installation is intentionally not part of the current policy.
+
+14. **Completed — demo migration.** Arithmetic and channel components now own
+    their local syntax. The demo uses a `ProgramImage`-backed CPU program,
+    loads both CPU programs through the generated composite dialect and SST,
+    resolves and installs its composite-owned header, and forwards the debug
+    child section through `LoadSstSubtree` before execution.
 
 ## Non-goals
 
 This design does not initially provide:
 
-- component-owned parsers or default component syntax;
+- mandatory parsers for components that do not expose source syntax;
 - bytecode loading;
 - declarative field-by-field runtime constructors;
 - a universal program lookup API for strings or constants;

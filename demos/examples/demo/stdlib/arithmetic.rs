@@ -21,10 +21,27 @@ vihaco::component! {
         #[derive(Debug, Clone, Copy)]
         Mul
     }
+
+    syntax {
+        type ArithmeticType {
+            Integer = "`integer`";
+        }
+
+        value ArithmeticValue {
+            Zero = "`zero`";
+        }
+
+        instruction {
+            Add = "'add";
+            Sub = "'sub";
+            Mul = "'mul";
+        }
+    }
 }
 
 pub use arithmetic_unit::ArithmeticUnit;
 pub use arithmetic_unit::instruction::{Add, Mul, Sub};
+pub use arithmetic_unit::syntax;
 
 impl ArithmeticUnit {
     pub fn new() -> Self {

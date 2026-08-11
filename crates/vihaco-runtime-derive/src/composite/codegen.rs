@@ -58,6 +58,7 @@ fn generate_syntax_module(
     error: Option<&Type>,
     header: Option<&HeaderDeclaration>,
     syntax: &[SyntaxDeclaration],
+    routes: &[RouteDeclaration],
     fields: &[super::validate::FieldMetadata],
 ) -> TokenStream2 {
     let mounts = fields
@@ -121,6 +122,21 @@ fn generate_syntax_module(
                 ::std::vec::Vec<super::runtime::Instruction>,
                 #error,
             >;
+        })
+    });
+    let component_lowerer_methods = routes.iter().next().into_iter().flat_map(|_| {
+        mounts.iter().map(|field| {
+            let method = format_ident!("lower_{}", field.ident);
+            let ty = &field.ty;
+            quote! {
+                fn #method(
+                    &mut self,
+                    instruction: <#ty as #root::InstructionSet>::Instruction,
+                ) -> ::std::result::Result<
+                    ::std::vec::Vec<super::runtime::Instruction>,
+                    #error,
+                >;
+            }
         })
     });
     let header_method = header.iter().map(|header| {
@@ -354,6 +370,7 @@ fn generate_syntax_module(
             pub trait Resolver {
                 #( #header_method )*
                 #( #lowerer_methods )*
+                #( #component_lowerer_methods )*
             }
 
             #helper_declaration
@@ -368,9 +385,9 @@ fn generate_resolver_traits(
     routes: &[RouteDeclaration],
     fields: &[super::validate::FieldMetadata],
 ) -> TokenStream2 {
-    let Some(error) = error else {
+    if error.is_none() {
         return quote! {};
-    };
+    }
     let field_ty = |field: &Ident| -> &Type {
         &fields
             .iter()
@@ -407,8 +424,13 @@ fn generate_surface_lowering(
     syntax: &[SyntaxDeclaration],
     routes: &[RouteDeclaration],
     error: Option<&Type>,
+    fields: &[super::validate::FieldMetadata],
 ) -> TokenStream2 {
-    if syntax.is_empty() || routes.is_empty() || error.is_none() {
+    let mounts = fields
+        .iter()
+        .filter(|field| field.syntax.is_some())
+        .collect::<Vec<_>>();
+    if (syntax.is_empty() && mounts.is_empty()) || routes.is_empty() || error.is_none() {
         return quote! {};
     }
     let error = error.expect("checked above");
@@ -443,6 +465,16 @@ fn generate_surface_lowering(
             }
         })
     });
+    let component_lowerer_arms = mounts.iter().map(|field| {
+        let variant = syntax_variant_ident(&field.ident);
+        let method = format_ident!("lower_{}", field.ident);
+        quote! {
+            #module::syntax::Instruction::#variant(instruction) => {
+                <Self as #module::syntax::Resolver>::#method(self, instruction)
+                    .map_err(::std::convert::Into::<#error>::into)
+            }
+        }
+    });
     quote! {
         fn lower_surface_instruction(
             &mut self,
@@ -454,6 +486,7 @@ fn generate_surface_lowering(
             match instruction.clone() {
                 #( #arms, )*
                 #( #lowerer_arms, )*
+                #( #component_lowerer_arms, )*
             }
         }
     }
@@ -471,13 +504,14 @@ fn generate_program_loading(
     routes: &[RouteDeclaration],
     fields: &[super::validate::FieldMetadata],
 ) -> TokenStream2 {
-    let Some(error) = error else {
+    if error.is_none() {
         return quote! {};
-    };
+    }
     let Some(program) = fields.iter().find(|field| field.program) else {
         return quote! {};
     };
-    if syntax.is_empty() || routes.is_empty() {
+    let has_component_syntax = fields.iter().any(|field| field.syntax.is_some());
+    if (syntax.is_empty() && !has_component_syntax) || routes.is_empty() {
         return quote! {};
     }
 
@@ -520,8 +554,42 @@ fn generate_program_loading(
                     Instruction = #instruction_ident #route_ty_generics,
                 >,
         {
+            let #root::syntax::ParsedModule {
+                header,
+                functions,
+                labels,
+                constants,
+                strings,
+                source_symbols,
+            } = parsed;
+            let parsed = #root::syntax::ParsedModule {
+                header,
+                functions,
+                labels,
+                constants,
+                strings,
+                source_symbols,
+            };
             #( #header_resolution )*
             let mut module = <#program_ty as #root::BuildProgramModule>::empty_module();
+            for string in parsed.strings {
+                <#program_ty as #root::BuildProgramModule>::intern_string(&mut module, string);
+            }
+            for constant in parsed.constants {
+                <#program_ty as #root::BuildProgramModule>::add_constant(
+                    &mut module,
+                    constant,
+                );
+            }
+            for source_symbol in parsed.source_symbols {
+                <#program_ty as #root::BuildProgramModule>::add_source_symbol(
+                    &mut module,
+                    #root::module::SourceSymbolInfo {
+                        index: source_symbol.index,
+                        name: source_symbol.name.as_str().to_owned(),
+                    },
+                );
+            }
             for (function_index, function) in parsed.functions.into_iter().enumerate() {
                 let start_address =
                     <#program_ty as #root::BuildProgramModule>::instruction_count(&module);
@@ -529,9 +597,10 @@ fn generate_program_loading(
                     let lowered = self
                         .lower_surface_instruction(&instruction)
                         .map_err(|error| ::eyre::eyre!(
-                            "failed to lower function `{}` instruction {}: {:?}",
+                            "failed to lower function `{}` instruction {} ({:?}): {}",
                             function.name.as_str(),
                             instruction_index,
+                            instruction,
                             error,
                         ))?;
                     <#program_ty as #root::BuildProgramModule>::append_instructions(
@@ -576,6 +645,19 @@ fn generate_program_loading(
                         file: 0,
                     },
                 );
+                for label in parsed.labels.iter().filter(|label| label.function == function.name) {
+                    let name = <#program_ty as #root::BuildProgramModule>::intern_string(
+                        &mut module,
+                        label.name.as_str().to_owned(),
+                    );
+                    <#program_ty as #root::BuildProgramModule>::add_label(
+                        &mut module,
+                        #root::module::LabelInfo {
+                            address: start_address + label.instruction,
+                            name,
+                        },
+                    );
+                }
                 if function.name.as_str() == "main" {
                     <#program_ty as #root::BuildProgramModule>::set_main_function(
                         &mut module,
@@ -584,7 +666,6 @@ fn generate_program_loading(
                 }
             }
             <#program_ty as #root::BuildProgramModule>::finish(module)
-                .map_err(::std::convert::Into::<#error>::into)
         }
 
         pub fn load_parsed<#context_ty>(
@@ -603,7 +684,6 @@ fn generate_program_loading(
             let module = self.resolve_parsed(parsed)?;
             <#program_ty as #root::InstallProgramModule<#context_ty>>
                 ::install_program_module(&mut self.#program_field, module, context)
-                .map_err(::std::convert::Into::<#error>::into)
         }
 
         pub fn load_source<'__vihaco_sst, #context_ty>(
@@ -626,14 +706,14 @@ fn generate_program_loading(
             let parsed = #root::syntax::ParsedModule::<#module::syntax::Module>
                 ::parse_section(section.clone())?;
             let module = self.resolve_parsed(parsed)?;
+            let children_section = section.clone();
+            self.load_generated_sst_children(children_section)?;
             <#program_ty as #root::InstallProgramModule<#context_ty>>
                 ::install_program_module(
                     &mut self.#program_field,
                     module,
                     section.context_handle(),
                 )
-                .map_err(::std::convert::Into::<#error>::into)?;
-            self.load_generated_sst_children(section)
         }
     }
 }
@@ -687,6 +767,7 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
         error.as_ref(),
         header.as_ref(),
         &syntax,
+        &routes,
         &fields_metadata,
     );
     let resolver_traits =
@@ -698,6 +779,7 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
         &syntax,
         &routes,
         error.as_ref(),
+        &fields_metadata,
     );
     let program_loading = generate_program_loading(
         &root,
@@ -711,12 +793,13 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
         &fields_metadata,
     );
     let runtime_alias = quote! {};
-    let runtime_instruction_alias = if syntax.is_empty() {
+    let has_component_syntax = fields_metadata.iter().any(|field| field.syntax.is_some());
+    let runtime_instruction_alias = if routes.is_empty() {
         quote! {}
     } else {
         quote! { pub use super::super::#instruction_ident as Instruction; }
     };
-    let syntax_alias = if syntax.is_empty() {
+    let syntax_alias = if syntax.is_empty() && !has_component_syntax {
         quote! {}
     } else {
         let resolver_ident = format_ident!("{name}SyntaxResolver");
@@ -731,7 +814,6 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
         let resolver_ident = format_ident!("{name}MessageResolver");
         quote! { pub use #composite_module::runtime::MessageResolver as #resolver_ident; }
     };
-    let has_component_syntax = fields_metadata.iter().any(|field| field.syntax.is_some());
     let generated_modules =
         if syntax.is_empty() && routes.is_empty() && !has_component_syntax && header.is_none() {
             quote! {}

@@ -46,7 +46,7 @@ HeterogeneousMachine
 │   ├── ArithmeticUnit
 │   ├── ChannelEndpoint<i64, SharedTransport<i64>>  endpoint 0
 │   ├── DebugTrace
-│   └── program and pc
+│   └── SST-loaded program and pc
 └── Cpu B
     ├── Stack
     ├── ArithmeticUnit
@@ -79,22 +79,11 @@ its timing ratio; the root looks up the ratio for the selected instance and pass
 `step_at`, `resume`, and `next_boundary_at`. This keeps timing instance-specific without making it
 part of the reusable CPU's state.
 
-## Surface and runtime programs
+## SST and runtime programs
 
-The surface model is the small `SurfaceInstruction` enum:
-
-```rust
-enum SurfaceInstruction {
-    Add,
-    Sub,
-    Mul,
-    Send(&'static str),
-    Recv(&'static str),
-}
-```
-
-`resolve_program` lowers it to `RuntimeInstruction`. Arithmetic becomes a zero-sized runtime
-payload (`Add`, `Sub`, or `Mul`); channel names become `ChannelId` values:
+Arithmetic and channel components own their local syntax. The composite mounts those syntax sets
+under the `arithmetic` and `channel` namespaces, then resolves the parsed component instructions
+into runtime route products. Channel names become `ChannelId` values:
 
 ```text
 to_b | from_a  -> ChannelId(0)  // A to B
@@ -115,9 +104,9 @@ resolve_program(&[Recv("from_b"), Mul]);
 resolve_program(&[Sub, Mul, Send("to_a")]);
 ```
 
-There is no parser or module loader in this example yet. The surface values are authored directly,
-and resolution is a direct Rust function that demonstrates the required symbolic-to-runtime
-boundary.
+Both CPU programs are now loaded from SST sections through the generated composite loader. Header
+resolution, component syntax parsing, lowering, program installation, and debug-section forwarding
+all happen before the event loop starts.
 
 ## Components and routes
 

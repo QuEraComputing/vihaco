@@ -11,8 +11,8 @@ SST loading follows this path:
 ```text
 SST text
     -> pattern parser
-    -> ParsedModule<SurfaceInstruction, SurfaceType, Header>
-    -> Resolve<SurfaceInstruction, SurfaceType, Header>
+    -> ParsedModule<ModuleSyntax>
+    -> Resolve<ModuleSyntax>
     -> Module<RuntimeInstruction, Constant, RuntimeType, Info>
     -> runtime program image
 ```
@@ -26,7 +26,7 @@ the resulting module through `BuildProgramModule` and
 ```text
 SST section
     -> composite::syntax::Instruction parser
-    -> ParsedModule<SurfaceInstruction, SurfaceType, Header>
+    -> ParsedModule<ModuleSyntax>
     -> generated composite lowering
     -> BuildProgramModule
     -> load_parsed(parsed, ContextHandle)
@@ -39,7 +39,7 @@ convenience for executable composites and does not require the runtime
 instruction enum to implement bytecode encoding.
 
 `SurfaceType`, `Constant`, and `RuntimeType` are author-defined products rather than vihaco enums.
-`Resolve<SurfaceInstruction, SurfaceType, Header>` owns every transformation that requires
+`Resolve<ModuleSyntax>` owns every transformation that requires
 module-wide source context:
 
 - Building and consulting label tables.
@@ -53,12 +53,12 @@ module-wide source context:
 At the trait boundary, resolution consumes a parsed surface module and produces a runtime module:
 
 ```rust
-pub trait Resolve<S, Ty, H> {
+pub trait Resolve<S> {
     type Module;
 
     fn resolve_module(
         &mut self,
-        parsed: ParsedModule<S, Ty, H>,
+        parsed: ParsedModule<S>,
     ) -> eyre::Result<Self::Module>;
 }
 ```
@@ -137,7 +137,7 @@ rather than universal step behavior.
 
 Runtime message resolution supplies the owned, execution-time information that is intentionally
 absent from the instruction. It is distinct from
-`Resolve<SurfaceInstruction, SurfaceType, Header>`: module resolution transforms parsed source
+`Resolve<ModuleSyntax>`: module resolution transforms parsed source
 into a runtime program, while message resolution reads live machine state for an instruction that
 is already fully resolved.
 
@@ -365,7 +365,7 @@ outer machine instruction; it is not resolved globally from `Effect`.
 
 The composite declaration defines the available runtime routes, and the composite macro gives each
 one a machine instruction variant.
-`Resolve<MachineSurfaceInstruction, MachineSurfaceType, Header>` selects among those variants
+`Resolve<MachineModuleSyntax>` selects among those variants
 while lowering surface instructions into the runtime module.
 
 This separation allows one SST operation to select a machine-specific execution path after its

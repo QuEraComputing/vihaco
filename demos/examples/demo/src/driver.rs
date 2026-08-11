@@ -5,10 +5,9 @@
 mod tests {
     use crate::{
         arithmetic::Add,
-        channel::Recv,
+        channel::{CHANNEL_A_TO_B, Recv},
         clock::{ClockFault, GlobalTicksPerLocalCycle, LocalCycles, TimedInstruction},
         cpu::RuntimeInstruction,
-        surface::CHANNEL_A_TO_B,
     };
 
     #[test]

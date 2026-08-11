@@ -28,6 +28,23 @@ where
     /// The parsed source header. This is distinct from installed runtime metadata.
     pub header: S::Header,
     pub functions: Vec<ParsedFunction<S>>,
+    pub labels: Vec<ParsedLabel>,
+    pub constants: Vec<vihaco_abi::Value>,
+    pub strings: Vec<String>,
+    pub source_symbols: Vec<ParsedSourceSymbol>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedLabel {
+    pub name: Ident,
+    pub function: Ident,
+    pub instruction: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedSourceSymbol {
+    pub name: Ident,
+    pub index: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]

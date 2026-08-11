@@ -141,7 +141,7 @@ containment:
 | Closed value carrier for a particular architecture | The data-model or machine author |
 | Surface grammar for values and types | The surface product that implements `Parse` |
 | Module-level surface type | The author-selected SST dialect |
-| Source type checking and lowering | `Resolve<SurfaceInstruction, SurfaceType, Header>` |
+| Source type checking and lowering | `Resolve<ModuleSyntax>` |
 | Storage and invariant-preserving mutation | The component |
 | Concrete types used by fields and routes | The composite declaration |
 | Cross-domain conversion semantics | An explicit author-selected instruction, adapter, or handler |
@@ -220,22 +220,22 @@ instructions fail at the parser boundary rather than becoming generic mnemonic/o
 Module-level signatures must use an author-selected surface type:
 
 ```rust
-pub struct ParsedModule<I, Ty, H>
+pub struct ParsedModule<S>
 where
-    I: SurfaceInstruction,
+    S: ModuleSyntax,
 {
-    pub header: H,
-    pub functions: Vec<ParsedFunction<I, Ty>>,
+    pub header: S::Header,
+    pub functions: Vec<ParsedFunction<S>>,
 }
 
-pub struct ParsedFunction<I, Ty>
+pub struct ParsedFunction<S>
 where
-    I: SurfaceInstruction,
+    S: ModuleSyntax,
 {
     pub name: String,
-    pub params: Vec<Param<Ty>>,
-    pub return_ty: Option<Ty>,
-    pub body: Vec<I>,
+    pub params: Vec<Param<S>>,
+    pub return_ty: Option<S::Type>,
+    pub body: Vec<S::Instruction>,
 }
 
 pub struct Param<Ty> {
@@ -263,8 +263,8 @@ Types and values follow the same stage boundary as instructions:
 ```text
 SST text
     -> pattern parser
-    -> ParsedModule<SurfaceInstruction, SurfaceType, Header>
-    -> Resolve<SurfaceInstruction, SurfaceType, Header>
+    -> ParsedModule<ModuleSyntax>
+    -> Resolve<ModuleSyntax>
     -> Module<RuntimeInstruction, Constant, RuntimeType, Info>
     -> runtime program image
 ```

@@ -14,7 +14,9 @@ mod types;
 pub mod parse;
 pub mod resolve;
 
-pub use types::{ModuleSyntax, Param, ParsedFunction, ParsedModule};
+pub use types::{
+    ModuleSyntax, Param, ParsedFunction, ParsedLabel, ParsedModule, ParsedSourceSymbol,
+};
 pub use vihaco_parser::{InstructionSet, Parse, SurfaceInstruction};
 
 pub use parse::{block_i64_flat, block_i64_pairs, skip};

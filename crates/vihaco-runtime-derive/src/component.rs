@@ -12,6 +12,8 @@ use syn::{Attribute, Field, Fields, Generics, Ident, Result, Token, Visibility, 
 
 syn::custom_keyword!(component);
 syn::custom_keyword!(instruction);
+syn::custom_keyword!(syntax);
+syn::custom_keyword!(value);
 
 struct ComponentDeclaration {
     module: Option<Ident>,
@@ -20,6 +22,33 @@ struct ComponentDeclaration {
     generics: Generics,
     state: Fields,
     products: Vec<InstructionProduct>,
+    syntax: Option<ComponentSyntax>,
+}
+
+struct ComponentSyntax {
+    type_declaration: Option<SyntaxEnum>,
+    value_declaration: Option<SyntaxEnum>,
+    instruction_declaration: Option<SyntaxInstruction>,
+}
+
+struct SyntaxEnum {
+    name: Ident,
+    variants: Vec<SyntaxVariant>,
+}
+
+struct SyntaxVariant {
+    name: Ident,
+    pattern: syn::LitStr,
+}
+
+struct SyntaxInstruction {
+    variants: Vec<SyntaxInstructionVariant>,
+}
+
+struct SyntaxInstructionVariant {
+    name: Ident,
+    fields: Vec<syn::Type>,
+    pattern: syn::LitStr,
 }
 
 struct InstructionProduct {
@@ -55,6 +84,15 @@ impl Parse for ComponentDeclaration {
             Vec::new()
         };
 
+        let syntax_declaration = if input.peek(syntax) {
+            input.parse::<syntax>()?;
+            let content;
+            syn::braced!(content in input);
+            Some(content.parse()?)
+        } else {
+            None
+        };
+
         if !input.is_empty() {
             return Err(input.error("unexpected tokens after component declaration"));
         }
@@ -66,8 +104,105 @@ impl Parse for ComponentDeclaration {
             generics,
             state,
             products,
+            syntax: syntax_declaration,
         })
     }
+}
+
+impl Parse for ComponentSyntax {
+    fn parse(input: ParseStream<'_>) -> Result<Self> {
+        let mut type_declaration = None;
+        let mut value_declaration = None;
+        let mut instruction_declaration = None;
+
+        while !input.is_empty() {
+            if input.peek(Token![type]) {
+                input.parse::<Token![type]>()?;
+                let declaration = parse_syntax_enum(input)?;
+                if type_declaration.replace(declaration).is_some() {
+                    return Err(input.error("duplicate component syntax type declaration"));
+                }
+            } else if input.peek(value) {
+                input.parse::<value>()?;
+                let declaration = parse_syntax_enum(input)?;
+                if value_declaration.replace(declaration).is_some() {
+                    return Err(input.error("duplicate component syntax value declaration"));
+                }
+            } else if input.peek(instruction) {
+                input.parse::<instruction>()?;
+                let content;
+                syn::braced!(content in input);
+                let declaration = SyntaxInstruction {
+                    variants: parse_syntax_instruction_variants(&content)?,
+                };
+                if instruction_declaration.replace(declaration).is_some() {
+                    return Err(input.error("duplicate component syntax instruction declaration"));
+                }
+            } else {
+                return Err(input.error("expected `type`, `value`, or `instruction`"));
+            }
+        }
+
+        Ok(Self {
+            type_declaration,
+            value_declaration,
+            instruction_declaration,
+        })
+    }
+}
+
+fn parse_syntax_enum(input: ParseStream<'_>) -> Result<SyntaxEnum> {
+    let name = input.parse()?;
+    let content;
+    syn::braced!(content in input);
+    let mut variants = Vec::new();
+    while !content.is_empty() {
+        let variant = SyntaxVariant {
+            name: content.parse()?,
+            pattern: {
+                content.parse::<Token![=]>()?;
+                content.parse()?
+            },
+        };
+        variants.push(variant);
+        if content.peek(Token![,]) {
+            content.parse::<Token![,]>()?;
+        } else if content.peek(Token![;]) {
+            content.parse::<Token![;]>()?;
+        }
+    }
+    Ok(SyntaxEnum { name, variants })
+}
+
+fn parse_syntax_instruction_variants(
+    input: ParseStream<'_>,
+) -> Result<Vec<SyntaxInstructionVariant>> {
+    let mut variants = Vec::new();
+    while !input.is_empty() {
+        let name = input.parse()?;
+        let fields = if input.peek(syn::token::Paren) {
+            let content;
+            syn::parenthesized!(content in input);
+            syn::punctuated::Punctuated::<syn::Type, Token![,]>::parse_terminated(&content)?
+                .into_iter()
+                .collect()
+        } else {
+            Vec::new()
+        };
+        input.parse::<Token![=]>()?;
+        let pattern = input.parse()?;
+        variants.push(SyntaxInstructionVariant {
+            name,
+            fields,
+            pattern,
+        });
+        if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+        } else if input.peek(Token![;]) {
+            input.parse::<Token![;]>()?;
+        }
+    }
+    Ok(variants)
 }
 
 impl Parse for InstructionProduct {
@@ -163,6 +298,16 @@ fn validate(declaration: &ComponentDeclaration, module: &Ident) -> Result<()> {
             ));
         }
     }
+    if let Some(syntax) = &declaration.syntax
+        && (syntax.type_declaration.is_none()
+            || syntax.value_declaration.is_none()
+            || syntax.instruction_declaration.is_none())
+    {
+        return Err(syn::Error::new(
+            module.span(),
+            "component syntax requires `type`, `value`, and `instruction` declarations",
+        ));
+    }
     Ok(())
 }
 
@@ -240,11 +385,12 @@ pub fn expand(input: TokenStream) -> TokenStream {
         generics,
         state,
         products,
+        syntax,
         ..
     } = declaration;
     let state = parent_visible_fields(state);
     let visibility = public_by_default(visibility);
-    let (impl_generics, _, where_clause) = generics.split_for_impl();
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let products = products.into_iter().map(|product| {
         let InstructionProduct {
             attrs,
@@ -272,6 +418,78 @@ pub fn expand(input: TokenStream) -> TokenStream {
             #declaration
         }
     });
+    let syntax = syntax.map(|syntax| {
+        let type_declaration = syntax.type_declaration.expect("validated component syntax");
+        let value_declaration = syntax
+            .value_declaration
+            .expect("validated component syntax");
+        let instruction_declaration = syntax
+            .instruction_declaration
+            .expect("validated component syntax");
+        let type_name = type_declaration.name;
+        let value_name = value_declaration.name;
+        let type_variants = type_declaration.variants.into_iter().map(|variant| {
+            let name = variant.name;
+            let pattern = variant.pattern;
+            quote! {
+                #[pattern = #pattern]
+                #name
+            }
+        });
+        let value_variants = value_declaration.variants.into_iter().map(|variant| {
+            let name = variant.name;
+            let pattern = variant.pattern;
+            quote! {
+                #[pattern = #pattern]
+                #name
+            }
+        });
+        let instruction_variants = instruction_declaration.variants.into_iter().map(|variant| {
+            let name = variant.name;
+            let pattern = variant.pattern;
+            let fields = variant.fields;
+            if fields.is_empty() {
+                quote! {
+                    #[pattern = #pattern]
+                    #name
+                }
+            } else {
+                quote! {
+                    #[pattern = #pattern]
+                    #name(#(#fields),*)
+                }
+            }
+        });
+        quote! {
+            #visibility mod syntax {
+                use super::*;
+
+                #[derive(Clone, Debug, PartialEq, ::vihaco::Parse)]
+                #[syntax_class(type)]
+                #visibility enum #type_name {
+                    #( #type_variants, )*
+                }
+
+                #[derive(Clone, Debug, PartialEq, ::vihaco::Parse)]
+                #[syntax_class(value)]
+                #visibility enum #value_name {
+                    #( #value_variants, )*
+                }
+
+                #[derive(Clone, Debug, PartialEq, ::vihaco::Parse)]
+                #[syntax_class(instruction)]
+                #visibility enum Instruction {
+                    #( #instruction_variants, )*
+                }
+            }
+
+            impl #impl_generics ::vihaco::InstructionSet for #name #ty_generics #where_clause {
+                type Instruction = syntax::Instruction;
+                type Value = syntax::#value_name;
+                type Type = syntax::#type_name;
+            }
+        }
+    });
 
     quote! {
         #visibility mod #module_name {
@@ -284,6 +502,8 @@ pub fn expand(input: TokenStream) -> TokenStream {
 
                 #( #products )*
             }
+
+            #syntax
         }
     }
     .into()

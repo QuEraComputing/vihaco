@@ -70,8 +70,8 @@ The declaration contains runtime products only. Surface names and patterns are
 declared by a composite or a separate surface-instruction declaration selected
 by the composite.
 
-The planned optional component syntax declaration is a sibling block after the
-runtime `instruction` block. Its exact input shape is:
+An optional component syntax declaration is a sibling block after the runtime
+`instruction` block. Its input shape is:
 
 ```rust
 syntax {

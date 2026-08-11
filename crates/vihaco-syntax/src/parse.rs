@@ -170,6 +170,13 @@ where
             .into_result()
             .map_err(|errors| eyre::eyre!("failed to parse SST functions: {:?}", errors))?;
 
-        Ok(Self { header, functions })
+        Ok(Self {
+            header,
+            functions,
+            labels: Vec::new(),
+            constants: Vec::new(),
+            strings: Vec::new(),
+            source_symbols: Vec::new(),
+        })
     }
 }

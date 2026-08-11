@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: MIT
 
 use super::{
-    arithmetic::{Add, ArithmeticUnit, Mul, Sub},
+    arithmetic::{Add, ArithmeticUnit, Mul, Sub, syntax as arithmetic_syntax},
     channel::{
-        ChannelEndpoint, ReceiveCompletion, ReceiveContinuation, ReceiveEffect, Recv, Send,
-        SendEffect, SharedTransport,
+        CHANNEL_A_TO_B, CHANNEL_B_TO_A, ChannelEndpoint, ReceiveCompletion, ReceiveContinuation,
+        ReceiveEffect, Recv, Send, SendEffect, SharedTransport, syntax as channel_syntax,
     },
     clock::{
         ClockFault, ClockedComponent, GlobalTick, GlobalTicksPerLocalCycle, LocalCycles, Schedule,
@@ -17,17 +17,42 @@ use super::{
     resume::Resume,
     stack::{Stack, StackFault},
 };
+use std::convert::From;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CpuHeader(pub String);
+
+impl vihaco::FromText for CpuHeader {
+    fn from_text(text: &str) -> eyre::Result<Self> {
+        Ok(Self(text.trim().to_owned()))
+    }
+}
+
+impl vihaco::SstHeader for CpuHeader {}
 
 vihaco::composite! {
     pub composite Cpu {
         error = CpuFault;
 
         pub operand_stack: Stack,
+        #[syntax("arithmetic")]
         pub alu: ArithmeticUnit,
+
+        #[syntax("channel")]
         pub channel: ChannelEndpoint<i64, SharedTransport<i64>>,
+
+        pub header: Option<CpuHeader>,
+
+        #[device(0x01)]
+        #[loadable]
         pub debug: DebugTrace,
-        pub program: Vec<CpuInstruction>,
-        pub pc: usize,
+
+        #[program]
+        pub program: vihaco::ProgramImage<CpuInstruction, vihaco::NoContext, vihaco::Value, vihaco::Type>,
+    }
+
+    syntax {
+        header CpuHeader => resolve_header;
     }
 
     runtime {
@@ -67,9 +92,91 @@ vihaco::composite! {
             }
         }
     }
+
 }
 
 pub type RuntimeInstruction = CpuInstruction;
+
+impl From<cpu::syntax::Type> for vihaco::Type {
+    fn from(value: cpu::syntax::Type) -> Self {
+        match value {
+            cpu::syntax::Type::Alu(arithmetic_syntax::ArithmeticType::Integer) => Self::I64,
+            cpu::syntax::Type::Channel(channel_syntax::ChannelType::Channel) => Self::U64,
+        }
+    }
+}
+
+impl From<cpu::syntax::Value> for vihaco::Value {
+    fn from(value: cpu::syntax::Value) -> Self {
+        match value {
+            cpu::syntax::Value::Alu(arithmetic_syntax::ArithmeticValue::Zero)
+            | cpu::syntax::Value::Channel(channel_syntax::ChannelValue::ToA)
+            | cpu::syntax::Value::Channel(channel_syntax::ChannelValue::ToB)
+            | cpu::syntax::Value::Channel(channel_syntax::ChannelValue::FromA)
+            | cpu::syntax::Value::Channel(channel_syntax::ChannelValue::FromB) => Self::Undefined,
+        }
+    }
+}
+
+impl cpu::syntax::Resolver for Cpu {
+    fn resolve_header(&mut self, header: CpuHeader) -> Result<(), CpuFault> {
+        self.header = Some(header);
+        Ok(())
+    }
+
+    fn lower_alu(
+        &mut self,
+        instruction: arithmetic_syntax::Instruction,
+    ) -> Result<Vec<cpu::runtime::Instruction>, CpuFault> {
+        let instruction = match instruction {
+            arithmetic_syntax::Instruction::Add => cpu::runtime::Instruction::IntegerAdd(Add),
+            arithmetic_syntax::Instruction::Sub => cpu::runtime::Instruction::IntegerSub(Sub),
+            arithmetic_syntax::Instruction::Mul => cpu::runtime::Instruction::IntegerMul(Mul),
+        };
+        Ok(vec![instruction])
+    }
+
+    fn lower_channel(
+        &mut self,
+        instruction: channel_syntax::Instruction,
+    ) -> Result<Vec<cpu::runtime::Instruction>, CpuFault> {
+        let (channel, send) = match instruction {
+            channel_syntax::Instruction::Send(name) => {
+                let channel = match name {
+                    channel_syntax::ChannelValue::ToA => CHANNEL_B_TO_A,
+                    channel_syntax::ChannelValue::ToB => CHANNEL_A_TO_B,
+                    channel_syntax::ChannelValue::FromA => CHANNEL_A_TO_B,
+                    channel_syntax::ChannelValue::FromB => CHANNEL_B_TO_A,
+                };
+                (channel, true)
+            }
+            channel_syntax::Instruction::Recv(name) => {
+                let channel = match name {
+                    channel_syntax::ChannelValue::ToA => CHANNEL_B_TO_A,
+                    channel_syntax::ChannelValue::ToB => CHANNEL_A_TO_B,
+                    channel_syntax::ChannelValue::FromA => CHANNEL_A_TO_B,
+                    channel_syntax::ChannelValue::FromB => CHANNEL_B_TO_A,
+                };
+                (channel, false)
+            }
+        };
+        let instruction = if send {
+            cpu::runtime::Instruction::Send(Send { channel })
+        } else {
+            cpu::runtime::Instruction::Recv(Recv { channel })
+        };
+        Ok(vec![instruction])
+    }
+}
+
+impl vihaco::loader::LoadSstProgram<vihaco::NoContext> for Cpu {
+    fn load_sst_program<'src>(
+        &mut self,
+        section: vihaco::SstSectionView<'src, vihaco::NoContext>,
+    ) -> eyre::Result<()> {
+        self.load_source(section)
+    }
+}
 
 impl Cpu {
     fn handle_send(&mut self, effect: SendEffect) -> Result<(), CpuFault> {
@@ -99,11 +206,15 @@ impl TimedInstruction for RuntimeInstruction {
 
 impl Cpu {
     pub fn fetch(&self) -> Option<RuntimeInstruction> {
-        self.program.get(self.pc).cloned()
+        self.program
+            .module
+            .code
+            .get(self.program.pc as usize)
+            .cloned()
     }
 
     pub fn finished(&self) -> bool {
-        self.pc >= self.program.len() && !self.channel.is_parked()
+        self.program.pc as usize >= self.program.module.code.len() && !self.channel.is_parked()
     }
 
     pub fn is_parked(&self) -> bool {
@@ -150,7 +261,7 @@ impl Cpu {
         ticks_per_local_cycle: GlobalTicksPerLocalCycle,
     ) -> Result<Option<Schedule<CpuEvent>>, CpuFault> {
         if outcome == Execution::Complete {
-            self.pc += 1;
+            self.program.pc += 1;
         }
 
         if outcome == Execution::Parked {
@@ -243,10 +354,19 @@ impl ClockedComponent for Cpu {
 pub enum CpuFault {
     Stack(StackFault),
     Clock(ClockFault),
+    Loading(eyre::Report),
     UnknownEndpoint,
     MissingInstruction,
     MissingTiming,
 }
+
+impl std::fmt::Display for CpuFault {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+impl std::error::Error for CpuFault {}
 
 impl From<StackFault> for CpuFault {
     fn from(fault: StackFault) -> Self {
@@ -263,6 +383,12 @@ impl From<std::convert::Infallible> for CpuFault {
 impl From<ClockFault> for CpuFault {
     fn from(fault: ClockFault) -> Self {
         CpuFault::Clock(fault)
+    }
+}
+
+impl From<eyre::Report> for CpuFault {
+    fn from(fault: eyre::Report) -> Self {
+        CpuFault::Loading(fault)
     }
 }
 

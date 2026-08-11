@@ -31,7 +31,7 @@ the composite resolves it through one of the route clauses.
 ```text
 message none;                 // passes NoMessage
 message from operand_stack;   // calls Supply<M>
-message with resolve_message; // calls a composite method
+message with resolve_message; // calls the generated resolver trait
 ```
 
 `message from field` is useful when a reusable component already knows how to
@@ -39,7 +39,7 @@ produce the message. `message with method` is the right boundary when several
 fields or machine policy must be combined:
 
 ```rust ignore
-impl Calculator {
+impl calculator::runtime::MessageResolver for Calculator {
     fn resolve_add(
         &mut self,
         _instruction: &calculator::instruction::Add,

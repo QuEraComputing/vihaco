@@ -160,10 +160,32 @@ vihaco::component! {
         #[derive(Debug, Clone, Copy)]
         Recv { channel: ChannelId }
     }
+
+    syntax {
+        type ChannelType {
+            Channel = "`channel`";
+        }
+
+        value ChannelValue {
+            ToA = "`to_a`";
+            ToB = "`to_b`";
+            FromA = "`from_a`";
+            FromB = "`from_b`";
+        }
+
+        instruction {
+            Send(ChannelValue) = "'send $0";
+            Recv(ChannelValue) = "'recv $0";
+        }
+    }
 }
 
 pub use channel_endpoint::ChannelEndpoint;
 pub use channel_endpoint::instruction::{Recv, Send};
+pub use channel_endpoint::syntax;
+
+pub const CHANNEL_A_TO_B: ChannelId = ChannelId(0);
+pub const CHANNEL_B_TO_A: ChannelId = ChannelId(1);
 
 impl<M, T> ChannelEndpoint<M, T> {
     pub fn new(id: EndpointId, transport: T) -> Self {

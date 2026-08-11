@@ -10,7 +10,7 @@
 #![allow(dead_code)]
 
 use std::collections::HashMap;
-use vihaco::Effects;
+use vihaco::{Effects, LoadSstSubtree, NoContext, ProgramImage, SstFile, VERSION};
 
 #[path = "demo/stdlib/arithmetic.rs"]
 mod arithmetic;
@@ -42,9 +42,6 @@ mod route;
 mod stack;
 #[path = "demo/vihaco/supply.rs"]
 mod supply;
-#[path = "demo/src/surface.rs"]
-mod surface;
-
 use arithmetic::ArithmeticUnit;
 use channel::{ChannelEndpoint, ChannelFabric, EndpointId, SharedTransport};
 use clock::{GlobalClock, GlobalTicksPerLocalCycle};
@@ -52,18 +49,7 @@ use cpu::{Cpu, CpuFault};
 use debug_trace::DebugTrace;
 use machine::{CpuId, HeterogeneousMachine, RunOutcome};
 use stack::Stack;
-use surface::{SurfaceInstruction, resolve_program};
-
 fn main() -> Result<(), CpuFault> {
-    // The two CPU programs, authored with symbolic channel names, then resolved to runtime form.
-    let cpu_a_program =
-        resolve_program(&[SurfaceInstruction::Recv("from_b"), SurfaceInstruction::Mul]);
-    let cpu_b_program = resolve_program(&[
-        SurfaceInstruction::Sub,
-        SurfaceInstruction::Mul,
-        SurfaceInstruction::Send("to_a"),
-    ]);
-
     // Two instances of the same reusable `Cpu`. Their local-to-global ratios are owned by the
     // root machine and selected by CpuId when each child is stepped.
     let fabric = std::rc::Rc::new(std::cell::RefCell::new(
@@ -72,25 +58,18 @@ fn main() -> Result<(), CpuFault> {
     let transport_a = SharedTransport::new(fabric.clone());
     let transport_b = SharedTransport::new(fabric.clone());
 
-    let cpu_a = Cpu {
-        // CpuA starts with a receive and therefore parks at global tick 0. The value sent by
-        // CpuB becomes the second operand for its multiplication.
-        operand_stack: Stack::seeded(&[3]),
-        alu: ArithmeticUnit::new(),
-        channel: ChannelEndpoint::new(EndpointId(0), transport_a),
-        debug: DebugTrace::new(),
-        program: cpu_a_program,
-        pc: 0,
-    };
-    let cpu_b = Cpu {
-        // CpuB performs subtraction and multiplication before it reaches the send.
-        operand_stack: Stack::seeded(&[10, 4, 2]),
-        alu: ArithmeticUnit::new(),
-        channel: ChannelEndpoint::new(EndpointId(1), transport_b),
-        debug: DebugTrace::new(),
-        program: cpu_b_program,
-        pc: 0,
-    };
+    let cpu_a = load_cpu(
+        "channel::recv from_b\narithmetic::mul",
+        Stack::seeded(&[3]),
+        EndpointId(0),
+        transport_a,
+    )?;
+    let cpu_b = load_cpu(
+        "arithmetic::sub\narithmetic::mul\nchannel::send to_a",
+        Stack::seeded(&[10, 4, 2]),
+        EndpointId(1),
+        transport_b,
+    )?;
 
     let mut machine = HeterogeneousMachine {
         clock: GlobalClock::new(),
@@ -139,4 +118,31 @@ fn main() -> Result<(), CpuFault> {
 
     println!("OK: heterogeneous exchange completed with 60 on CpuA, no stale continuation");
     Ok(())
+}
+
+fn load_cpu(
+    body: &str,
+    operand_stack: Stack,
+    endpoint: EndpointId,
+    transport: SharedTransport<i64>,
+) -> Result<Cpu, CpuFault> {
+    let source = format!(
+        "sst v{VERSION}\n\n.global:\n.global.\n\n.section(root):\n\t.header(root):\n\t\tdemo-cpu\n\t.header(root).\n\t.text(root):\n\t\tfn @main() {{\n{body}\t\t}}\n\t.text(root).\n\t.section(debug):\n\t\t.text(debug):\n\t\t\tloaded by generated forwarding\n\t\t.text(debug).\n\t.section(debug).\n.section(root).\n",
+        body = body
+            .lines()
+            .map(|line| format!("\t\t\t{line}\n"))
+            .collect::<String>()
+    );
+    let file = SstFile::<NoContext>::from_text(&source).map_err(CpuFault::Loading)?;
+    let mut cpu = Cpu {
+        operand_stack,
+        alu: ArithmeticUnit::new(),
+        channel: ChannelEndpoint::new(endpoint, transport),
+        debug: DebugTrace::new(),
+        program: ProgramImage::new(),
+        header: None,
+    };
+    cpu.load_sst_subtree(file.root())
+        .map_err(CpuFault::Loading)?;
+    Ok(cpu)
 }

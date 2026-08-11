@@ -25,30 +25,33 @@ represented explicitly in the syntax type and its patterns.
 `vihaco::syntax` exposes the typed intermediate representation:
 
 ```rust ignore
-use vihaco::SurfaceInstruction;
+use vihaco::{ModuleSyntax, SurfaceInstruction};
 use vihaco_parser::Ident;
 
-pub struct ParsedModule<I, Ty, H>
+pub struct ParsedModule<S>
 where
-    I: SurfaceInstruction,
+    S: ModuleSyntax,
 {
-    pub header: H,
-    pub functions: Vec<ParsedFunction<I, Ty>>,
+    pub header: S::Header,
+    pub functions: Vec<ParsedFunction<S>>,
 }
 
-pub struct ParsedFunction<I, Ty>
+pub struct ParsedFunction<S>
 where
-    I: SurfaceInstruction,
+    S: ModuleSyntax,
 {
     pub name: Ident,
-    pub params: Vec<Param<Ty>>,
-    pub return_ty: Option<Ty>,
-    pub body: Vec<I>,
+    pub params: Vec<Param<S>>,
+    pub return_ty: Option<S::Type>,
+    pub body: Vec<S::Instruction>,
 }
 
-pub struct Param<Ty> {
+pub struct Param<S>
+where
+    S: ModuleSyntax,
+{
     pub name: Ident,
-    pub ty: Ty,
+    pub ty: S::Type,
 }
 ```
 
@@ -126,8 +129,16 @@ use vihaco::{NoContext, SstFile};
 use vihaco::syntax::ParsedModule;
 
 let file = SstFile::<NoContext>::from_text(source)?;
-let parsed =
-    ParsedModule::<DeviceInstruction, DeviceType, DeviceHeader>::parse_section(file.root())?;
+struct DeviceSyntax;
+
+impl ModuleSyntax for DeviceSyntax {
+    type Instruction = DeviceInstruction;
+    type Value = ();
+    type Type = DeviceType;
+    type Header = DeviceHeader;
+}
+
+let parsed = ParsedModule::<DeviceSyntax>::parse_section(file.root())?;
 ```
 
 `parsed.header` is the typed `DeviceHeader`, while each function body contains
@@ -135,8 +146,8 @@ only `DeviceInstruction` values and its signature uses `DeviceType`.
 
 ## Step 4: resolve into a runtime module
 
-`Resolve<I, Ty, H>` owns the application-specific conversion from a
-`ParsedModule<I, Ty, H>` to any output module type.
+`Resolve<S>` owns the application-specific conversion from a
+`ParsedModule<S>` to any output module type.
 
 ```rust ignore
 use vihaco::module::LocalModule;
@@ -146,12 +157,12 @@ use vihaco::{Type, Value};
 #[derive(Default)]
 struct DeviceResolver;
 
-impl Resolve<DeviceInstruction, DeviceType, DeviceHeader> for DeviceResolver {
+impl Resolve<DeviceSyntax> for DeviceResolver {
     type Module = LocalModule<DeviceInstruction, Value, Type>;
 
     fn resolve_module(
         &mut self,
-        parsed: ParsedModule<DeviceInstruction, DeviceType, DeviceHeader>,
+        parsed: ParsedModule<DeviceSyntax>,
     ) -> eyre::Result<Self::Module> {
         let mut module = LocalModule::default();
         for function in parsed.functions {
@@ -199,7 +210,7 @@ later conversion.
 A generated composite instruction enum is the runtime dispatch type. SST
 source is parsed through user-declared surface instruction types, each deriving
 `Parse` with its own namespace and patterns. Parse each component section as a
-`ParsedModule<ComponentSurface, ComponentType, ComponentHeader>`, resolve it,
+`ParsedModule<ComponentSyntax>`, resolve it,
 and load the resulting runtime instructions into that component.
 
 This keeps source syntax attached to the component that owns it. Composite

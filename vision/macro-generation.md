@@ -69,7 +69,7 @@ The composite/machine macro:
 - Requires every selected surface instruction to implement `vihaco_parser_core::Parse<'src>`.
 - Uses the author-selected module surface type for function signatures and declarations.
 - Generates the runtime instruction sum.
-- Requires a `Resolve<MachineSurfaceInstruction, MachineSurfaceType, Header>` implementation whose
+- Requires a `Resolve<MachineModuleSyntax>` implementation whose
   output module uses the machine runtime instruction sum and author-defined constant/type products.
 - Generates the outer execution match.
 - Generates or calls route-specific message resolvers.
