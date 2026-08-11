@@ -3,38 +3,53 @@
 
 //! Parsed-syntax data shapes. See module docs in [`super`].
 
+use vihaco_bytecode::SstHeader;
 use vihaco_parser::{Ident, SurfaceInstruction};
+
+/// The complete source dialect for one SST module.
+pub trait ModuleSyntax {
+    /// Surface instruction syntax accepted by this module.
+    type Instruction: SurfaceInstruction + std::fmt::Debug + Clone + PartialEq;
+    /// Source value syntax accepted by this module.
+    type Value;
+    /// Source type syntax accepted by this module.
+    type Type: std::fmt::Debug + Clone + PartialEq;
+    /// Parsed source syntax for this module's section header.
+    type Header: SstHeader + std::fmt::Debug + Clone + PartialEq;
+}
 
 /// Parsed `.sst` module before resolution.
 ///
-/// `I` is the consumer's surface instruction type, `Ty` is its source type
-/// syntax, and `H` is its section-header type.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ParsedModule<I, Ty, H>
+pub struct ParsedModule<S>
 where
-    I: SurfaceInstruction,
+    S: ModuleSyntax,
 {
-    pub header: H,
-    pub functions: Vec<ParsedFunction<I, Ty>>,
+    /// The parsed source header. This is distinct from installed runtime metadata.
+    pub header: S::Header,
+    pub functions: Vec<ParsedFunction<S>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ParsedFunction<I, Ty>
+pub struct ParsedFunction<S>
 where
-    I: SurfaceInstruction,
+    S: ModuleSyntax,
 {
     /// Function name with the leading `@` stripped (`@main` → `"main"`).
     pub name: Ident,
     /// Empty for the moment — `.sst` examples don't exercise parameters.
     /// Non-empty parameter syntax errors during parsing.
-    pub params: Vec<Param<Ty>>,
-    /// Return type parsed with the consumer-provided `Ty` syntax.
-    pub return_ty: Option<Ty>,
-    pub body: Vec<I>,
+    pub params: Vec<Param<S>>,
+    /// Return type parsed with the module's source type syntax.
+    pub return_ty: Option<S::Type>,
+    pub body: Vec<S::Instruction>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Param<Ty> {
+pub struct Param<S>
+where
+    S: ModuleSyntax,
+{
     pub name: Ident,
-    pub ty: Ty,
+    pub ty: S::Type,
 }

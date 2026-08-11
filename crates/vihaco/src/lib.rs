@@ -36,7 +36,7 @@ pub use instruction_syntax::{
     InstructionSugarVariantSyntax, OperandKind, SugarOperandKind,
 };
 pub use loader::{
-    BuildProgramModule, InstallProgramModule, LoadOwnSstSection, LoadSstSection, ProgramImage,
+    BuildProgramModule, InstallProgramModule, LoadSstProgram, LoadSstSubtree, ProgramImage,
 };
 pub use macros::{Instruction, component, composite};
 pub use program::{Type, Value};
@@ -46,8 +46,10 @@ pub use runtime::{
     expect_exactly_one_effect,
 };
 pub use traits::{FromBytes, FromText, GetProgramInfo, Reset};
-pub use vihaco_parser::{Parse, SurfaceInstruction};
+pub use vihaco_parser::{InstructionSet, Parse, SurfaceInstruction};
+pub use vihaco_parser::{Parser, Simple, bare_token, extra, namespaced_parser};
 pub use vihaco_parser_derive::Parse;
+pub use vihaco_syntax::ModuleSyntax;
 
 #[cfg(test)]
 mod public_api_tests {

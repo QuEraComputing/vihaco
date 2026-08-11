@@ -21,13 +21,13 @@ pub(super) fn generate_loadable_impls(
 
     let (_, ty_generics, _) = generics.split_for_impl();
     let own_sst_predicate = quote! {
-        #name #ty_generics: #root::loader::LoadOwnSstSection<#context>
+        #name #ty_generics: #root::loader::LoadSstProgram<#context>
     };
     let sst_method_predicates: Vec<_> = loadables
         .iter()
         .map(|field| {
             let field_ty = &field.ty;
-            quote! { #field_ty: #root::loader::LoadSstSection<#context> }
+            quote! { #field_ty: #root::loader::LoadSstSubtree<#context> }
         })
         .collect();
     let sst_children: Vec<_> = loadables
@@ -38,8 +38,8 @@ pub(super) fn generate_loadable_impls(
             let section_name = field.loadable.as_ref().expect("loadable field");
             quote! {
                 if let ::std::option::Option::Some(child) = section.child(#section_name) {
-                    <#field_ty as #root::loader::LoadSstSection<#context>>
-                        ::load_sst_section(&mut self.#field_ident, child)?;
+                    <#field_ty as #root::loader::LoadSstSubtree<#context>>
+                        ::load_sst_subtree(&mut self.#field_ident, child)?;
                 }
             }
         })
@@ -48,7 +48,7 @@ pub(super) fn generate_loadable_impls(
         .iter()
         .map(|field| field.loadable.as_ref().expect("loadable field").as_str())
         .collect();
-    let expected_children = quote! {
+    let validate_children = quote! {
         let expected: &[&str] = &[#(#loadable_names),*];
         for child in section.children() {
             let child_name = child.local_name().ok_or_else(|| {
@@ -66,6 +66,9 @@ pub(super) fn generate_loadable_impls(
             }
         }
     };
+    let forward_children = quote! {
+        #( #sst_children )*
+    };
 
     let mut sst_impl_generics = generics.clone();
     sst_impl_generics.params.push(syn::parse_quote!(#context));
@@ -78,7 +81,7 @@ pub(super) fn generate_loadable_impls(
             let field_ty = &field.ty;
             where_clause.predicates.push(
                 syn::parse2(quote! {
-                    #field_ty: #root::loader::LoadSstSection<#context>
+                    #field_ty: #root::loader::LoadSstSubtree<#context>
                 })
                 .expect("valid predicate"),
             );
@@ -89,21 +92,6 @@ pub(super) fn generate_loadable_impls(
 
     quote! {
         impl #impl_generics #name #ty_generics #where_clause {
-            pub fn load_generated_sst_sections<'__vihaco_sst, #context>(
-                &mut self,
-                section: #root::SstSectionView<'__vihaco_sst, #context>,
-            ) -> ::eyre::Result<()>
-            where
-                #name #ty_generics: #root::loader::LoadOwnSstSection<#context>,
-                #( #sst_method_predicates ),*
-            {
-                #root::loader::LoadOwnSstSection::<#context>::load_own_sst_section(
-                    self,
-                    section.clone(),
-                )?;
-                self.load_generated_sst_children(section)
-            }
-
             pub fn load_generated_sst_children<'__vihaco_sst, #context>(
                 &mut self,
                 section: #root::SstSectionView<'__vihaco_sst, #context>,
@@ -111,21 +99,27 @@ pub(super) fn generate_loadable_impls(
             where
                 #( #sst_method_predicates ),*
             {
-                #expected_children
-                #( #sst_children )*
+                #validate_children
+                #forward_children
                 Ok(())
             }
         }
 
-        impl #sst_impl_generics #root::loader::LoadSstSection<#context>
+        impl #sst_impl_generics #root::loader::LoadSstSubtree<#context>
             for #name #ty_generics
             #sst_where_clause
         {
-            fn load_sst_section<'__vihaco_sst>(
+            fn load_sst_subtree<'__vihaco_sst>(
                 &mut self,
                 section: #root::SstSectionView<'__vihaco_sst, #context>,
             ) -> ::eyre::Result<()> {
-                self.load_generated_sst_sections(section)
+                #root::loader::LoadSstProgram::<#context>::load_sst_program(
+                    self,
+                    section.clone(),
+                )?;
+                #validate_children
+                #forward_children
+                Ok(())
             }
         }
     }

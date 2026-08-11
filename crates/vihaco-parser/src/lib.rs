@@ -5,8 +5,8 @@ pub mod impls;
 
 pub use impls::{bare_token, ident, BareToken, Ident, QuotedString};
 
-use chumsky::error::Simple;
-use chumsky::extra;
+pub use chumsky::Parser;
+pub use chumsky::{error::Simple, extra};
 
 /// Marker for enums whose pattern-derived parser represents instruction
 /// syntax.
@@ -14,6 +14,39 @@ use chumsky::extra;
 /// `#[derive(vihaco_parser_derive::Parse)]` implements this trait for enums annotated
 /// with `#[syntax_class(instruction, ...)]`.
 pub trait SurfaceInstruction {}
+
+/// The optional source-syntax product owned by a runtime component.
+///
+/// Components implement this contract when they provide local instruction,
+/// value, and source-type syntax. The parser implementations are required for
+/// every input lifetime so a composite can compose the products without
+/// knowing how they are mounted.
+pub trait InstructionSet {
+    /// The component's surface instruction syntax.
+    type Instruction: SurfaceInstruction + for<'src> Parse<'src>;
+    /// The component's operand/value syntax.
+    type Value: for<'src> Parse<'src>;
+    /// The component's source-type syntax.
+    type Type: for<'src> Parse<'src>;
+}
+
+/// Prefix a component parser with a public composite namespace.
+///
+/// This helper keeps generated syntax code independent of the parser crate's
+/// implementation details while allowing a mounted component to retain its
+/// local grammar.
+pub fn namespaced_parser<'src, T>(
+    namespace: &'static str,
+) -> impl Parser<'src, &'src str, T, extra::Err<Simple<'src, char>>>
+where
+    T: Parse<'src> + 'src,
+{
+    chumsky::text::ascii::ident()
+        .to_slice()
+        .filter(move |name: &&str| *name == namespace)
+        .then_ignore(chumsky::primitive::just("::"))
+        .ignore_then(T::parser())
+}
 
 /// A parser whose input is `&'src str` (char stream) and whose error type is `Simple<char>`.
 ///

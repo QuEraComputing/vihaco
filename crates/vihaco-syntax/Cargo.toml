@@ -14,4 +14,5 @@ vihaco-bytecode = { workspace = true }
 vihaco-parser = { workspace = true }
 
 [dev-dependencies]
+vihaco-abi = { workspace = true }
 vihaco-parser-derive = { workspace = true }

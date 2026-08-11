@@ -21,6 +21,7 @@ syn::custom_keyword!(handle);
 syn::custom_keyword!(none);
 syn::custom_keyword!(from);
 syn::custom_keyword!(with);
+syn::custom_keyword!(header);
 
 pub(super) struct CompositeDeclaration {
     pub(super) attrs: Vec<Attribute>,
@@ -29,8 +30,14 @@ pub(super) struct CompositeDeclaration {
     pub(super) generics: Generics,
     pub(super) error: Option<Type>,
     pub(super) fields: Vec<Field>,
+    pub(super) header: Option<HeaderDeclaration>,
     pub(super) syntax: Vec<SyntaxDeclaration>,
     pub(super) routes: Vec<RouteDeclaration>,
+}
+
+pub(super) struct HeaderDeclaration {
+    pub(super) ty: Type,
+    pub(super) resolver: Ident,
 }
 
 pub(super) struct SyntaxDeclaration {
@@ -70,6 +77,31 @@ pub(super) struct DeviceArgs {
     pub(super) aliases: Vec<LitStr>,
 }
 
+pub(super) struct SyntaxArgs {
+    pub(super) aliases: Vec<LitStr>,
+}
+
+impl Parse for SyntaxArgs {
+    fn parse(input: ParseStream<'_>) -> Result<Self> {
+        if input.is_empty() {
+            return Ok(Self {
+                aliases: Vec::new(),
+            });
+        }
+        if input.peek(Token![=]) {
+            input.parse::<Token![=]>()?;
+            return Ok(Self {
+                aliases: vec![input.parse()?],
+            });
+        }
+        Ok(Self {
+            aliases: syn::punctuated::Punctuated::<LitStr, Token![,]>::parse_terminated(input)?
+                .into_iter()
+                .collect(),
+        })
+    }
+}
+
 impl Parse for CompositeDeclaration {
     fn parse(input: ParseStream<'_>) -> Result<Self> {
         let attrs = Attribute::parse_outer(input)?;
@@ -84,13 +116,13 @@ impl Parse for CompositeDeclaration {
         syn::braced!(body in input);
         let (error, fields) = parse_composite_body(&body)?;
 
-        let syntax = if input.peek(syntax) {
+        let (header, syntax) = if input.peek(syntax) {
             input.parse::<syntax>()?;
             let syntax_body;
             syn::braced!(syntax_body in input);
             parse_syntax(&syntax_body)?
         } else {
-            Vec::new()
+            (None, Vec::new())
         };
 
         let routes = if input.peek(runtime) {
@@ -120,13 +152,26 @@ impl Parse for CompositeDeclaration {
             generics,
             error,
             fields,
+            header,
             syntax,
             routes,
         })
     }
 }
 
-fn parse_syntax(input: ParseStream<'_>) -> Result<Vec<SyntaxDeclaration>> {
+fn parse_syntax(
+    input: ParseStream<'_>,
+) -> Result<(Option<HeaderDeclaration>, Vec<SyntaxDeclaration>)> {
+    let header = if input.peek(header) {
+        input.parse::<header>()?;
+        let ty = input.parse::<Type>()?;
+        input.parse::<Token![=>]>()?;
+        let resolver = input.parse::<Ident>()?;
+        input.parse::<Token![;]>()?;
+        Some(HeaderDeclaration { ty, resolver })
+    } else {
+        None
+    };
     let mut declarations = Vec::new();
     while !input.is_empty() {
         let attrs = Attribute::parse_outer(input)?;
@@ -178,7 +223,7 @@ fn parse_syntax(input: ParseStream<'_>) -> Result<Vec<SyntaxDeclaration>> {
             mapping,
         });
     }
-    Ok(declarations)
+    Ok((header, declarations))
 }
 
 fn parse_composite_body(input: ParseStream<'_>) -> Result<(Option<Type>, Vec<Field>)> {

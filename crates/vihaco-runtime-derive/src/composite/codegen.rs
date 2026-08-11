@@ -7,8 +7,8 @@ use quote::{format_ident, quote, quote_spanned};
 use syn::{Field, Generics, Ident, Result, Type};
 
 use super::syntax::{
-    CompositeDeclaration, Handler, MessageSource, RouteDeclaration, SyntaxDeclaration,
-    SyntaxMapping,
+    CompositeDeclaration, Handler, HeaderDeclaration, MessageSource, RouteDeclaration,
+    SyntaxDeclaration, SyntaxMapping,
 };
 use crate::common::{resolve_root, retain_generics};
 
@@ -29,11 +29,16 @@ fn marker_ident(variant: &Ident) -> Ident {
     format_ident!("__VihacoRoute_{name}")
 }
 
+fn syntax_variant_ident(field: &Ident) -> Ident {
+    format_ident!("{}", field.to_string().to_case(Case::Pascal))
+}
+
 fn strip_consumed_field_attrs(mut field: Field) -> Field {
     field.attrs.retain(|attr| {
         !attr.path().is_ident("device")
             && !attr.path().is_ident("loadable")
             && !attr.path().is_ident("program")
+            && !attr.path().is_ident("syntax")
     });
     field
 }
@@ -51,26 +56,55 @@ fn generate_syntax_module(
     root: &TokenStream2,
     generics: &Generics,
     error: Option<&Type>,
+    header: Option<&HeaderDeclaration>,
     syntax: &[SyntaxDeclaration],
+    fields: &[super::validate::FieldMetadata],
 ) -> TokenStream2 {
-    if syntax.is_empty() {
+    let mounts = fields
+        .iter()
+        .filter(|field| field.syntax.is_some())
+        .collect::<Vec<_>>();
+    if syntax.is_empty() && mounts.is_empty() && header.is_none() {
         return quote! {};
     }
 
     let enum_generics = syntax_generics(generics, syntax);
-    let variants = syntax.iter().map(|entry| {
-        let variant = &entry.variant;
-        let pattern = &entry.pattern;
-        let payload = entry
-            .payload
-            .as_ref()
-            .map(|payload| quote!((#payload)))
-            .unwrap_or_default();
-        quote! {
-            #[pattern = #pattern]
-            #variant #payload
-        }
-    });
+    let component_instruction_variants = mounts
+        .iter()
+        .map(|field| {
+            let variant = syntax_variant_ident(&field.ident);
+            let ty = &field.ty;
+            quote!(#variant(<#ty as #root::InstructionSet>::Instruction))
+        })
+        .collect::<Vec<_>>();
+    let component_value_variants = mounts
+        .iter()
+        .map(|field| {
+            let variant = syntax_variant_ident(&field.ident);
+            let ty = &field.ty;
+            quote!(#variant(<#ty as #root::InstructionSet>::Value))
+        })
+        .collect::<Vec<_>>();
+    let component_type_variants = mounts
+        .iter()
+        .map(|field| {
+            let variant = syntax_variant_ident(&field.ident);
+            let ty = &field.ty;
+            quote!(#variant(<#ty as #root::InstructionSet>::Type))
+        })
+        .collect::<Vec<_>>();
+    let public_variants = syntax
+        .iter()
+        .map(|entry| {
+            let variant = &entry.variant;
+            let payload = entry
+                .payload
+                .as_ref()
+                .map(|payload| quote!((#payload)))
+                .unwrap_or_default();
+            quote!(#variant #payload)
+        })
+        .collect::<Vec<_>>();
     let error = error
         .map(|error| quote!(#error))
         .unwrap_or_else(|| quote!(::core::convert::Infallible));
@@ -89,19 +123,240 @@ fn generate_syntax_module(
             >;
         })
     });
+    let header_method = header.iter().map(|header| {
+        let ty = &header.ty;
+        let method = &header.resolver;
+        quote! {
+            fn #method(
+                &mut self,
+                header: #ty,
+            ) -> ::std::result::Result<(), #error>;
+        }
+    });
+
+    let helper_variants = syntax
+        .iter()
+        .map(|entry| {
+            let variant = &entry.variant;
+            let pattern = &entry.pattern;
+            let payload = entry
+                .payload
+                .as_ref()
+                .map(|payload| quote!((#payload)))
+                .unwrap_or_default();
+            quote! {
+                #[pattern = #pattern]
+                #variant #payload
+            }
+        })
+        .collect::<Vec<_>>();
+    let parser_alternatives = mounts
+        .iter()
+        .flat_map(|field| {
+            let variant = syntax_variant_ident(&field.ident);
+            let ty = &field.ty;
+            field
+                .syntax
+                .as_ref()
+                .expect("validated syntax mount")
+                .aliases
+                .iter()
+                .map(move |alias| {
+                    let namespace = alias.value();
+                    quote! {
+                        #root::namespaced_parser::<
+                            <#ty as #root::InstructionSet>::Instruction
+                        >(#namespace)
+                        .map(Self::#variant)
+                    }
+                })
+        })
+        .collect::<Vec<_>>();
+    let composite_parser = if syntax.is_empty() {
+        None
+    } else {
+        let arms = syntax.iter().map(|entry| {
+            let variant = &entry.variant;
+            if entry.payload.is_some() {
+                quote!(__VihacoCompositeInstruction::#variant(value) => Self::#variant(value))
+            } else {
+                quote!(__VihacoCompositeInstruction::#variant => Self::#variant)
+            }
+        });
+        Some(quote! {
+            __VihacoCompositeInstruction::parser().map(|instruction| match instruction {
+                #( #arms ),*
+            })
+        })
+    };
+    let mut parser_alternatives = parser_alternatives;
+    if let Some(parser) = composite_parser {
+        parser_alternatives.push(parser);
+    }
+    let parser = parser_alternatives
+        .into_iter()
+        .reduce(|left, right| quote!(#left.or(#right)))
+        .expect("syntax module has a parser alternative");
+    let component_value_parser = mounts.iter().flat_map(|field| {
+        let variant = syntax_variant_ident(&field.ident);
+        let ty = &field.ty;
+        field
+            .syntax
+            .as_ref()
+            .expect("validated syntax mount")
+            .aliases
+            .iter()
+            .map(move |alias| {
+                let namespace = alias.value();
+                quote! {
+                    #root::namespaced_parser::<
+                        <#ty as #root::InstructionSet>::Value
+                    >(#namespace)
+                    .map(Self::#variant)
+                }
+            })
+    });
+    let component_type_parser = mounts.iter().flat_map(|field| {
+        let variant = syntax_variant_ident(&field.ident);
+        let ty = &field.ty;
+        field
+            .syntax
+            .as_ref()
+            .expect("validated syntax mount")
+            .aliases
+            .iter()
+            .map(move |alias| {
+                let namespace = alias.value();
+                quote! {
+                    #root::namespaced_parser::<
+                        <#ty as #root::InstructionSet>::Type
+                    >(#namespace)
+                    .map(Self::#variant)
+                }
+            })
+    });
+    let value_parser = component_value_parser
+        .reduce(|left, right| quote!(#left.or(#right)))
+        .unwrap_or_else(|| quote!(#root::bare_token().map(|_| unreachable!())));
+    let type_parser = component_type_parser
+        .reduce(|left, right| quote!(#left.or(#right)))
+        .unwrap_or_else(|| quote!(#root::bare_token().map(|_| unreachable!())));
+    let helper_declaration = if syntax.is_empty() {
+        quote! {}
+    } else {
+        quote! {
+            #[derive(Clone, Debug, PartialEq, #root::Parse)]
+            #[syntax_class(instruction)]
+            enum __VihacoCompositeInstruction #enum_generics {
+                #( #helper_variants ),*
+            }
+        }
+    };
+
+    let header_declaration = header
+        .map(|header| {
+            let ty = &header.ty;
+            quote!(pub type Header = #ty;)
+        })
+        .unwrap_or_else(|| {
+            quote! {
+                #[derive(Clone, Debug, PartialEq)]
+                pub struct Header;
+
+                impl #root::FromText for Header {
+                    fn from_text(_text: &str) -> ::eyre::Result<Self> {
+                        Ok(Self)
+                    }
+                }
+
+                impl #root::SstHeader for Header {}
+            }
+        });
+    let header_parser = header.iter().map(|_| {
+        quote! {
+            pub fn parse_header<'__vihaco_src, __VihacoContext>(
+                section: #root::SstSectionView<'__vihaco_src, __VihacoContext>,
+            ) -> ::eyre::Result<Header> {
+                section.parse_header::<Header>()
+            }
+        }
+    });
 
     quote! {
         pub mod syntax {
             use super::*;
-            #[derive(Clone, #root::Parse)]
-            #[syntax_class(instruction)]
+            use #root::Parser as _;
+
+            #[derive(Clone, Debug, PartialEq)]
+            #[allow(non_camel_case_types)]
             pub enum Instruction #enum_generics {
-                #( #variants ),*
+                #( #component_instruction_variants, )*
+                #( #public_variants, )*
+            }
+
+            impl #root::SurfaceInstruction for Instruction #enum_generics {}
+
+            impl<'__vihaco_src> #root::Parse<'__vihaco_src> for Instruction #enum_generics {
+                fn parser() -> impl #root::Parser<
+                    '__vihaco_src,
+                    &'__vihaco_src str,
+                    Self,
+                    #root::extra::Err<#root::Simple<'__vihaco_src, char>>,
+                > {
+                    #parser
+                }
+            }
+
+            #[derive(Clone, Debug, PartialEq)]
+            pub enum Value {
+                #( #component_value_variants, )*
+            }
+
+            impl<'__vihaco_src> #root::Parse<'__vihaco_src> for Value {
+                fn parser() -> impl #root::Parser<
+                    '__vihaco_src,
+                    &'__vihaco_src str,
+                    Self,
+                    #root::extra::Err<#root::Simple<'__vihaco_src, char>>,
+                > {
+                    #value_parser
+                }
+            }
+
+            #[derive(Clone, Debug, PartialEq)]
+            pub enum Type {
+                #( #component_type_variants, )*
+            }
+
+            impl<'__vihaco_src> #root::Parse<'__vihaco_src> for Type {
+                fn parser() -> impl #root::Parser<
+                    '__vihaco_src,
+                    &'__vihaco_src str,
+                    Self,
+                    #root::extra::Err<#root::Simple<'__vihaco_src, char>>,
+                > {
+                    #type_parser
+                }
+            }
+
+            #header_declaration
+            #( #header_parser )*
+
+            pub struct Module;
+
+            impl #root::ModuleSyntax for Module {
+                type Instruction = Instruction #enum_generics;
+                type Value = Value;
+                type Type = Type;
+                type Header = Header;
             }
 
             pub trait Resolver {
+                #( #header_method )*
                 #( #lowerer_methods )*
             }
+
+            #helper_declaration
         }
     }
 }
@@ -211,6 +466,7 @@ fn generate_program_loading(
     module: &Ident,
     generics: &Generics,
     error: Option<&Type>,
+    header: Option<&HeaderDeclaration>,
     syntax: &[SyntaxDeclaration],
     routes: &[RouteDeclaration],
     fields: &[super::validate::FieldMetadata],
@@ -230,45 +486,54 @@ fn generate_program_loading(
     let instruction_ident = format_ident!("{name}Instruction");
     let route_generics = retained_enum_generics(generics, routes);
     let (_, route_ty_generics, _) = route_generics.split_for_impl();
-    let syntax_generics = syntax_generics(generics, syntax);
-    let (_, syntax_ty_generics, _) = syntax_generics.split_for_impl();
-    let surface_ty = format_ident!("__VihacoSurfaceType");
-    let header_ty = format_ident!("__VihacoHeader");
     let context_ty = format_ident!("__VihacoContext");
     let loadable_predicates = fields
         .iter()
         .filter(|field| field.loadable.is_some())
         .map(|field| {
             let field_ty = &field.ty;
-            quote! { #field_ty: #root::loader::LoadSstSection<#context_ty> }
+            quote! { #field_ty: #root::loader::LoadSstSubtree<#context_ty> }
         });
+    let header_resolution = header.iter().map(|header| {
+        let method = &header.resolver;
+        quote! {
+            <Self as #module::syntax::Resolver>::#method(self, parsed.header)
+                .map_err(|error| ::eyre::eyre!(
+                    "failed to resolve section header: {:?}",
+                    error,
+                ))?;
+        }
+    });
 
     quote! {
-        pub fn resolve_parsed<#surface_ty, #header_ty>(
+        pub fn resolve_parsed(
             &mut self,
-            parsed: #root::syntax::ParsedModule<
-                #module::syntax::Instruction #syntax_ty_generics,
-                #surface_ty,
-                #header_ty,
-            >,
+            parsed: #root::syntax::ParsedModule<#module::syntax::Module>,
         ) -> ::eyre::Result<
             <#program_ty as #root::BuildProgramModule>::Module,
         >
         where
-            #surface_ty: ::std::clone::Clone
-                + ::std::convert::Into<
-                    <#program_ty as #root::BuildProgramModule>::Type,
-                >,
+            #module::syntax::Type: ::std::convert::Into<
+                <#program_ty as #root::BuildProgramModule>::Type,
+            >,
             #program_ty: #root::BuildProgramModule<
                     Instruction = #instruction_ident #route_ty_generics,
                 >,
         {
+            #( #header_resolution )*
             let mut module = <#program_ty as #root::BuildProgramModule>::empty_module();
             for (function_index, function) in parsed.functions.into_iter().enumerate() {
                 let start_address =
                     <#program_ty as #root::BuildProgramModule>::instruction_count(&module);
-                for instruction in function.body {
-                    let lowered = self.lower_surface_instruction(&instruction)?;
+                for (instruction_index, instruction) in function.body.into_iter().enumerate() {
+                    let lowered = self
+                        .lower_surface_instruction(&instruction)
+                        .map_err(|error| ::eyre::eyre!(
+                            "failed to lower function `{}` instruction {}: {:?}",
+                            function.name.as_str(),
+                            instruction_index,
+                            error,
+                        ))?;
                     <#program_ty as #root::BuildProgramModule>::append_instructions(
                         &mut module,
                         lowered,
@@ -291,7 +556,7 @@ fn generate_program_loading(
                         );
                         #root::module::Parameter {
                             name,
-                            ty: param.ty.into(),
+                        ty: param.ty.into(),
                         }
                     })
                     .collect();
@@ -322,20 +587,12 @@ fn generate_program_loading(
                 .map_err(::std::convert::Into::<#error>::into)
         }
 
-        pub fn load_parsed<#surface_ty, #header_ty, #context_ty>(
+        pub fn load_parsed<#context_ty>(
             &mut self,
-            parsed: #root::syntax::ParsedModule<
-                #module::syntax::Instruction #syntax_ty_generics,
-                #surface_ty,
-                #header_ty,
-            >,
+            parsed: #root::syntax::ParsedModule<#module::syntax::Module>,
             context: #root::ContextHandle<#context_ty>,
         ) -> ::eyre::Result<()>
         where
-            #surface_ty: ::std::clone::Clone
-                + ::std::convert::Into<
-                    <#program_ty as #root::BuildProgramModule>::Type,
-                >,
             #program_ty: #root::BuildProgramModule<
                     Instruction = #instruction_ident #route_ty_generics,
                 > + #root::InstallProgramModule<
@@ -349,20 +606,15 @@ fn generate_program_loading(
                 .map_err(::std::convert::Into::<#error>::into)
         }
 
-        pub fn load_source<'__vihaco_sst, #surface_ty, #header_ty, #context_ty>(
+        pub fn load_source<'__vihaco_sst, #context_ty>(
             &mut self,
             section: #root::SstSectionView<'__vihaco_sst, #context_ty>,
         ) -> ::eyre::Result<()>
         where
-            #module::syntax::Instruction #syntax_ty_generics:
-                #root::Parse<'__vihaco_sst> + '__vihaco_sst,
-            #surface_ty: #root::Parse<'__vihaco_sst>
-                + '__vihaco_sst
-                + ::std::clone::Clone
-                + ::std::convert::Into<
-                    <#program_ty as #root::BuildProgramModule>::Type,
-                >,
-            #header_ty: #root::SstHeader,
+            #module::syntax::Instruction: #root::Parse<'__vihaco_sst> + '__vihaco_sst,
+            #module::syntax::Type: ::std::convert::Into<
+                <#program_ty as #root::BuildProgramModule>::Type,
+            >,
             #program_ty: #root::BuildProgramModule<
                     Instruction = #instruction_ident #route_ty_generics,
                 > + #root::InstallProgramModule<
@@ -371,11 +623,8 @@ fn generate_program_loading(
                 >,
             #( #loadable_predicates ),*
         {
-            let parsed = #root::syntax::ParsedModule::<
-                #module::syntax::Instruction #syntax_ty_generics,
-                #surface_ty,
-                #header_ty,
-            >::parse_section(section.clone())?;
+            let parsed = #root::syntax::ParsedModule::<#module::syntax::Module>
+                ::parse_section(section.clone())?;
             let module = self.resolve_parsed(parsed)?;
             <#program_ty as #root::InstallProgramModule<#context_ty>>
                 ::install_program_module(
@@ -393,6 +642,7 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
     let root = resolve_root(&declaration.attrs)?;
     let fields_metadata = super::validate::metadata_fields(&declaration.fields)?;
     super::validate::validate_syntax(&declaration.syntax, &declaration.routes)?;
+    super::validate::validate_syntax_mounts(&fields_metadata)?;
     super::validate::validate_routes(&declaration.routes, &fields_metadata)?;
 
     let CompositeDeclaration {
@@ -402,6 +652,7 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
         generics,
         error,
         fields,
+        header,
         syntax,
         routes,
     } = declaration;
@@ -430,7 +681,14 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
         }
     };
 
-    let syntax_declaration = generate_syntax_module(&root, &generics, error.as_ref(), &syntax);
+    let syntax_declaration = generate_syntax_module(
+        &root,
+        &generics,
+        error.as_ref(),
+        header.as_ref(),
+        &syntax,
+        &fields_metadata,
+    );
     let resolver_traits =
         generate_resolver_traits(&root, &generics, error.as_ref(), &routes, &fields_metadata);
     let surface_lowering = generate_surface_lowering(
@@ -447,6 +705,7 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
         &composite_module,
         &generics,
         error.as_ref(),
+        header.as_ref(),
         &syntax,
         &routes,
         &fields_metadata,
@@ -472,24 +731,26 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
         let resolver_ident = format_ident!("{name}MessageResolver");
         quote! { pub use #composite_module::runtime::MessageResolver as #resolver_ident; }
     };
-    let generated_modules = if syntax.is_empty() && routes.is_empty() {
-        quote! {}
-    } else {
-        quote! {
-            pub mod #composite_module {
-                use super::*;
-                pub mod runtime {
+    let has_component_syntax = fields_metadata.iter().any(|field| field.syntax.is_some());
+    let generated_modules =
+        if syntax.is_empty() && routes.is_empty() && !has_component_syntax && header.is_none() {
+            quote! {}
+        } else {
+            quote! {
+                pub mod #composite_module {
                     use super::*;
-                    #runtime_instruction_alias
-                    #resolver_traits
+                    pub mod runtime {
+                        use super::*;
+                        #runtime_instruction_alias
+                        #resolver_traits
+                    }
+                    #syntax_declaration
                 }
-                #syntax_declaration
+                #runtime_alias
+                #syntax_alias
+                #message_alias
             }
-            #runtime_alias
-            #syntax_alias
-            #message_alias
-        }
-    };
+        };
 
     let route_markers = routes.iter().map(|route| {
         let marker = marker_ident(&route.variant);
@@ -558,7 +819,7 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
                 }
             }
             MessageSource::With(method) => quote! {
-                self.#method(instruction)
+                <Self as #composite_module::runtime::MessageResolver>::#method(self, instruction)
                     .map_err(::std::convert::Into::<#error_type>::into)?
             },
         };

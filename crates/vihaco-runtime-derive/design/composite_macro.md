@@ -327,10 +327,11 @@ borrow into the composite.
 
 ### `message with method`
 
-The named method is implemented on the composite and receives the instruction payload:
+The named method is implemented through the generated message-resolver trait and receives the
+instruction payload:
 
 ```rust
-impl Cpu {
+impl cpu::runtime::MessageResolver for Cpu {
     fn resolve_add_message(
         &mut self,
         instruction: &Add,
@@ -341,9 +342,9 @@ impl Cpu {
 }
 ```
 
-The macro calls the method uniformly even when the method does not need the instruction. This
-keeps route-specific resolution explicit without introducing a route-parameterized
-`ResolveMessage` trait.
+The macro calls the trait method uniformly even when the method does not need the instruction.
+This keeps route-specific resolution explicit while giving all `message with` routes one public
+implementation boundary.
 
 ## Structural composites
 
@@ -426,7 +427,7 @@ Cover at least:
 
 - a no-message route;
 - `message from` through `Supply`;
-- `message with` through a composite method;
+- `message with` through the generated message-resolver trait;
 - multiple routes sharing an instruction or effect type;
 - observers in declaration order;
 - `absorb with` delegation;

@@ -7,13 +7,15 @@ use syn::spanned::Spanned;
 use syn::{Field, Ident, LitStr, Result, Type};
 
 use super::syntax::{
-    DeviceArgs, Handler, MessageSource, RouteDeclaration, SyntaxDeclaration, SyntaxMapping,
+    DeviceArgs, Handler, MessageSource, RouteDeclaration, SyntaxArgs, SyntaxDeclaration,
+    SyntaxMapping,
 };
 
 pub(super) struct FieldMetadata {
     pub(super) ident: Ident,
     pub(super) ty: Type,
     pub(super) device: Option<DeviceArgs>,
+    pub(super) syntax: Option<SyntaxArgs>,
     pub(super) loadable: Option<String>,
     pub(super) program: bool,
 }
@@ -44,6 +46,7 @@ pub(super) fn metadata_fields(fields: &[Field]) -> Result<Vec<FieldMetadata>> {
         let mut device = None;
         let mut loadable = None;
         let mut program = false;
+        let mut syntax = None;
         for attr in &field.attrs {
             if attr.path().is_ident("device") {
                 if device.is_some() {
@@ -75,6 +78,39 @@ pub(super) fn metadata_fields(fields: &[Field]) -> Result<Vec<FieldMetadata>> {
                     ));
                 }
                 program = true;
+            } else if attr.path().is_ident("syntax") {
+                if syntax.is_some() {
+                    return Err(syn::Error::new(
+                        attr.span(),
+                        format!("duplicate syntax attribute on field `{ident}`"),
+                    ));
+                }
+                let mut args = match &attr.meta {
+                    syn::Meta::Path(_) => SyntaxArgs {
+                        aliases: Vec::new(),
+                    },
+                    syn::Meta::NameValue(value) => {
+                        let syn::Expr::Lit(syn::ExprLit {
+                            lit: syn::Lit::Str(alias),
+                            ..
+                        }) = &value.value
+                        else {
+                            return Err(syn::Error::new(
+                                value.value.span(),
+                                "syntax namespace must be a string literal",
+                            ));
+                        };
+                        SyntaxArgs {
+                            aliases: vec![alias.clone()],
+                        }
+                    }
+                    syn::Meta::List(_) => attr.parse_args::<SyntaxArgs>()?,
+                };
+                if args.aliases.is_empty() {
+                    args.aliases
+                        .push(syn::LitStr::new(&ident.to_string(), ident.span()));
+                }
+                syntax = Some(args);
             }
         }
         if loadable.is_some() && device.is_none() {
@@ -87,6 +123,7 @@ pub(super) fn metadata_fields(fields: &[Field]) -> Result<Vec<FieldMetadata>> {
             ident,
             ty: field.ty.clone(),
             device,
+            syntax,
             loadable,
             program,
         });
@@ -259,6 +296,34 @@ pub(super) fn validate_syntax(
                 ));
             }
             SyntaxMapping::Lower(_) => {}
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn validate_syntax_mounts(fields: &[FieldMetadata]) -> Result<()> {
+    let mut namespaces = BTreeMap::<String, Ident>::new();
+    for field in fields {
+        let Some(syntax) = &field.syntax else {
+            continue;
+        };
+        for alias in &syntax.aliases {
+            let namespace = alias.value();
+            if syn::parse_str::<Ident>(&namespace).is_err() {
+                return Err(syn::Error::new(
+                    alias.span(),
+                    format!("syntax namespace `{namespace}` must be a Rust identifier"),
+                ));
+            }
+            if let Some(previous) = namespaces.insert(namespace.clone(), field.ident.clone()) {
+                return Err(syn::Error::new(
+                    alias.span(),
+                    format!(
+                        "duplicate syntax namespace `{namespace}` for fields `{previous}` and `{}`",
+                        field.ident
+                    ),
+                ));
+            }
         }
     }
     Ok(())

@@ -4,8 +4,7 @@
 use chumsky::Parser as _;
 use eyre::Result;
 use vihaco::{
-    Effects, Execute, Execution, Observe, SstFile, SstGlobalContext, SstHeader, StepResult,
-    VERSION, composite,
+    Effects, Execute, Execution, Observe, SstFile, SstGlobalContext, StepResult, VERSION, composite,
 };
 use vihaco_parser::{Ident, Parse};
 
@@ -16,9 +15,11 @@ mod test_root {
 #[derive(Debug, Clone, Copy)]
 pub struct TestInstruction;
 
-struct TestMessage;
+pub struct TestMessage(u32);
 struct TestEffect;
-struct TestComponent;
+struct TestComponent {
+    received_message: Option<u32>,
+}
 struct TestContext;
 
 impl SstGlobalContext for TestContext {
@@ -34,16 +35,11 @@ enum TestType {
     Unit,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct TestHeader;
-
-impl vihaco::FromText for TestHeader {
-    fn from_text(_text: &str) -> Result<Self> {
-        Ok(Self)
+impl From<test_machine::syntax::Type> for TestType {
+    fn from(value: test_machine::syntax::Type) -> Self {
+        match value {}
     }
 }
-
-impl SstHeader for TestHeader {}
 
 impl Execute<TestInstruction> for TestComponent {
     type Message = TestMessage;
@@ -53,8 +49,9 @@ impl Execute<TestInstruction> for TestComponent {
     fn execute(
         &mut self,
         _instruction: &TestInstruction,
-        _message: Self::Message,
+        message: Self::Message,
     ) -> Result<StepResult<Self::Effect>, Self::Fault> {
+        self.received_message = Some(message.0);
         Ok(StepResult {
             effects: Effects::one(TestEffect),
             execution: Execution::Complete,
@@ -107,11 +104,13 @@ composite! {
     }
 }
 
-impl TestMachine {
+impl test_machine::runtime::MessageResolver for TestMachine {
     fn resolve_message(&mut self, _instruction: &TestInstruction) -> Result<TestMessage> {
-        Ok(TestMessage)
+        Ok(TestMessage(42))
     }
+}
 
+impl TestMachine {
     fn handle_effect(&mut self, _effect: TestEffect) -> Result<()> {
         Ok(())
     }
@@ -135,7 +134,9 @@ fn runtime_macros_honor_explicit_crate_override() {
     assert!(matches!(parsed, test_machine::syntax::Instruction::Run));
 
     let mut machine = TestMachine {
-        component: TestComponent,
+        component: TestComponent {
+            received_message: None,
+        },
         observer: TestObserver::default(),
         program: vihaco::ProgramImage::new(),
     };
@@ -143,6 +144,7 @@ fn runtime_macros_honor_explicit_crate_override() {
         .execute_generated(&TestMachineInstruction::Run(TestInstruction))
         .unwrap();
     assert_eq!(outcome, Execution::Complete);
+    assert_eq!(machine.component.received_message, Some(42));
     assert!(machine.observer.observed);
 
     let metadata = test_root::__private::GeneratedMachine::metadata(&machine);
@@ -153,22 +155,24 @@ fn runtime_macros_honor_explicit_crate_override() {
 #[test]
 fn generated_program_loader_builds_and_installs_module() {
     let parsed = vihaco::syntax::ParsedModule {
-        header: (),
+        header: test_machine::syntax::Header,
         functions: vec![vihaco::syntax::ParsedFunction {
             name: Ident("main".to_owned()),
-            params: Vec::<vihaco::syntax::Param<TestType>>::new(),
+            params: Vec::<vihaco::syntax::Param<test_machine::syntax::Module>>::new(),
             return_ty: None,
             body: vec![test_machine::syntax::Instruction::Run],
         }],
     };
     let mut machine = TestMachine {
-        component: TestComponent,
+        component: TestComponent {
+            received_message: None,
+        },
         observer: TestObserver::default(),
         program: vihaco::ProgramImage::new(),
     };
 
     machine
-        .load_parsed::<TestType, (), TestContext>(parsed, vihaco::ContextHandle::new(TestContext))
+        .load_parsed(parsed, vihaco::ContextHandle::new(TestContext))
         .unwrap();
 
     assert_eq!(machine.program.module.code.len(), 1);
@@ -184,14 +188,14 @@ fn generated_source_loader_parses_and_installs_module() {
     ))
     .unwrap();
     let mut machine = TestMachine {
-        component: TestComponent,
+        component: TestComponent {
+            received_message: None,
+        },
         observer: TestObserver::default(),
         program: vihaco::ProgramImage::new(),
     };
 
-    machine
-        .load_source::<TestType, TestHeader, TestContext>(file.root())
-        .unwrap();
+    machine.load_source(file.root()).unwrap();
 
     assert_eq!(machine.program.module.code.len(), 1);
     assert_eq!(machine.program.module.functions.len(), 1);

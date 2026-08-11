@@ -3,27 +3,11 @@
 
 use eyre::Result;
 use vihaco::{
-    ContextHandle, Effects, Execute, Execution, LoadOwnSstSection, LoadSstSection, NoEffect,
-    NoMessage, ProgramImage, SstFile, SstGlobalContext, SstHeader, SstSectionView, StepResult,
-    Type, Value,
+    ContextHandle, Effects, Execute, Execution, LoadSstProgram, LoadSstSubtree, NoEffect,
+    NoMessage, ProgramImage, SstFile, SstGlobalContext, SstSectionView, StepResult, Type, Value,
     syntax::{Param, ParsedFunction, ParsedModule},
-    traits::FromText,
 };
 use vihaco_parser::Ident;
-use vihaco_parser_derive::Parse;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Parse)]
-#[syntax_class(type)]
-enum ParsedType {
-    #[pattern = "`i64`"]
-    I64,
-}
-
-impl From<ParsedType> for Type {
-    fn from(_value: ParsedType) -> Self {
-        Self::I64
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeInstruction;
@@ -48,6 +32,12 @@ impl Execute<RuntimeInstruction> for TestComponent {
     }
 }
 
+impl From<test_machine::syntax::Type> for Type {
+    fn from(value: test_machine::syntax::Type) -> Self {
+        match value {}
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TestContext {
     name: String,
@@ -61,25 +51,14 @@ impl SstGlobalContext for TestContext {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct NoHeader;
-
-impl SstHeader for NoHeader {}
-
-impl FromText for NoHeader {
-    fn from_text(_text: &str) -> Result<Self> {
-        Ok(Self)
-    }
-}
-
 #[derive(Debug, Default)]
 struct ChildLoader {
     loaded_sst: Option<String>,
     context: Option<ContextHandle<TestContext>>,
 }
 
-impl LoadSstSection<TestContext> for ChildLoader {
-    fn load_sst_section<'src>(&mut self, section: SstSectionView<'src, TestContext>) -> Result<()> {
+impl LoadSstSubtree<TestContext> for ChildLoader {
+    fn load_sst_subtree<'src>(&mut self, section: SstSectionView<'src, TestContext>) -> Result<()> {
         self.loaded_sst = Some(section.sst().to_owned());
         self.context = Some(section.context_handle());
         Ok(())
@@ -106,31 +85,34 @@ vihaco::composite! {
     syntax {
         #[pattern = "'test::run"]
         Run => runtime Run;
+        #[pattern = "'test::burst $0"]
+        Burst(u32) => lower_burst;
     }
 
     runtime {
         Run(RuntimeInstruction) => component {
             message none;
+        },
+        Burst(RuntimeInstruction) => component {
+            message none;
         }
     }
 }
 
-impl LoadOwnSstSection<TestContext> for TestMachine {
-    fn load_own_sst_section<'src>(
+impl test_machine::syntax::Resolver for TestMachine {
+    fn lower_burst(
         &mut self,
-        section: SstSectionView<'src, TestContext>,
-    ) -> Result<()> {
-        let context = section.context_handle();
-        let parsed = ParsedModule {
-            header: NoHeader,
-            functions: vec![ParsedFunction {
-                name: Ident("main".to_owned()),
-                params: Vec::<Param<ParsedType>>::new(),
-                return_ty: None,
-                body: vec![test_machine::syntax::Instruction::Run],
-            }],
-        };
-        self.load_parsed(parsed, context)
+        count: u32,
+    ) -> std::result::Result<Vec<test_machine::runtime::Instruction>, eyre::Report> {
+        Ok((0..count)
+            .map(|_| TestMachineInstruction::Burst(RuntimeInstruction))
+            .collect())
+    }
+}
+
+impl LoadSstProgram<TestContext> for TestMachine {
+    fn load_sst_program<'src>(&mut self, section: SstSectionView<'src, TestContext>) -> Result<()> {
+        self.load_source(section)
     }
 }
 
@@ -160,7 +142,7 @@ fn generated_sst_root_loads_program_and_forwards_children() {
     let context = file.context_handle();
     let mut machine = TestMachine::default();
 
-    machine.load_sst_section(file.root()).unwrap();
+    machine.load_sst_subtree(file.root()).unwrap();
 
     assert_eq!(machine.program.module.code.len(), 1);
     assert_eq!(machine.program.module.functions.len(), 1);
@@ -184,6 +166,52 @@ fn generated_sst_root_loads_program_and_forwards_children() {
 }
 
 #[test]
+fn generated_load_parsed_installs_the_complete_module_dialect() {
+    let file = root_file(
+        ".section(root):\n\
+\t.text(root):\n\
+\t.text(root).\n\
+.section(root).\n",
+    );
+    let context = file.context_handle();
+    let mut machine = TestMachine::default();
+    let parsed = ParsedModule {
+        header: test_machine::syntax::Header,
+        functions: vec![ParsedFunction {
+            name: Ident("main".to_owned()),
+            params: Vec::<Param<test_machine::syntax::Module>>::new(),
+            return_ty: None,
+            body: vec![test_machine::syntax::Instruction::Run],
+        }],
+    };
+
+    machine.load_parsed(parsed, context).unwrap();
+
+    assert_eq!(machine.program.module.code.len(), 1);
+    assert!(machine.program.context.is_some());
+}
+
+#[test]
+fn generated_load_source_expands_one_surface_instruction_to_many() {
+    let file = root_file(
+        ".section(root):\n\
+\t.text(root):\n\
+\t\tfn @main() {\n\
+\t\t\ttest::burst 3\n\
+\t\t}\n\
+\t.text(root).\n\
+.section(root).\n",
+    );
+    let mut machine = TestMachine::default();
+
+    machine.load_source(file.root()).unwrap();
+
+    assert_eq!(machine.program.module.code.len(), 3);
+    assert_eq!(machine.program.module.functions[0].start_address, 0);
+    assert_eq!(machine.program.module.functions[0].end_address, 3);
+}
+
+#[test]
 fn malformed_root_source_is_rejected_before_program_installation() {
     let file = root_file(
         ".section(root):\n\
@@ -194,17 +222,10 @@ fn malformed_root_source_is_rejected_before_program_installation() {
 \t.text(root).\n\
 .section(root).\n",
     );
-    let result =
-        ParsedModule::<test_machine::syntax::Instruction, ParsedType, NoHeader>::parse_section(
-            file.root(),
-        );
-    let error = match result {
-        Ok(_) => panic!("malformed source unexpectedly parsed"),
-        Err(error) => error,
-    };
+    let mut machine = TestMachine::default();
+    let error = machine.load_source(file.root()).unwrap_err();
 
     assert!(!error.to_string().is_empty());
-    let machine = TestMachine::default();
     assert!(machine.program.module.code.is_empty());
     assert!(machine.program.context.is_none());
     assert_eq!(machine.child.loaded_sst, None);

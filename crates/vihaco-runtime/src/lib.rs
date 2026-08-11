@@ -20,6 +20,10 @@ pub use vihaco_abi::traits::{EffectSink, Reset};
 pub use vihaco_abi::{Effects, metadata};
 pub use vihaco_bytecode::{BytecodeSectionView, SstSectionView};
 pub use vihaco_module::loader;
+pub use vihaco_parser::{
+    InstructionSet, Parse, Parser, Simple, SurfaceInstruction, bare_token, extra, namespaced_parser,
+};
+pub use vihaco_syntax::ModuleSyntax;
 
 pub use execute::{Execute, Execution, NoEffect, NoMessage, StepResult};
 pub use generated::{CompositeMetadata, expect_exactly_one_effect};

@@ -130,4 +130,24 @@ mod tests {
             super::syntax::SyntaxMapping::Lower(_)
         ));
     }
+
+    #[test]
+    fn parses_composite_owned_header_declaration() {
+        let declaration: CompositeDeclaration = parse_str(
+            r#"
+                composite Machine {
+                    device: Device,
+                }
+                syntax {
+                    header DeviceHeader => resolve_header;
+                }
+            "#,
+        )
+        .unwrap();
+
+        let header = declaration.header.expect("header declaration");
+        let header_ty = &header.ty;
+        assert_eq!(header.resolver.to_string(), "resolve_header");
+        assert_eq!(quote::quote!(#header_ty).to_string(), "DeviceHeader");
+    }
 }

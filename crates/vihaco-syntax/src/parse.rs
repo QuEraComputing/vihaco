@@ -3,20 +3,17 @@
 
 //! chumsky-0.10 combinators for the parsed-syntax shape.
 //!
-//! `Parse` impls for `ParsedModule`/`ParsedFunction` are generic over the
-//! consumer's instruction type `I`, source type `Ty`, and device-header type
-//! `H`.
+//! `Parse` impls for [`ParsedFunction`] are generic over a complete module
+//! dialect.
 
 use chumsky::error::Simple;
 use chumsky::extra;
 use chumsky::prelude::*;
 use vihaco_parser::{Ident, Parse, QuotedString};
 
-use vihaco_bytecode::SstHeader;
 use vihaco_bytecode::SstSectionView;
-use vihaco_parser::SurfaceInstruction;
 
-use crate::{Param, ParsedFunction, ParsedModule};
+use crate::{ModuleSyntax, Param, ParsedFunction, ParsedModule};
 
 type E<'src> = extra::Err<Simple<'src, char>>;
 
@@ -101,34 +98,39 @@ pub fn block_i64_pairs<'src>() -> impl Parser<'src, &'src str, Vec<(i64, i64)>, 
 }
 
 /// Parse `i64`/`f64`/etc. parameter list. Currently only accepts empty `()`.
-fn param_list<'src, Ty>() -> impl Parser<'src, &'src str, Vec<Param<Ty>>, E<'src>> + Clone {
+fn param_list<'src, S>() -> impl Parser<'src, &'src str, Vec<Param<S>>, E<'src>> + Clone
+where
+    S: ModuleSyntax,
+{
     just('(')
         .padded()
         .then(just(')').padded())
         .map(|_| Vec::new())
 }
 
-fn functions<'src, I, Ty>() -> impl Parser<'src, &'src str, Vec<ParsedFunction<I, Ty>>, E<'src>>
+fn functions<'src, S>() -> impl Parser<'src, &'src str, Vec<ParsedFunction<S>>, E<'src>>
 where
-    I: SurfaceInstruction + Parse<'src> + 'src,
-    Ty: Parse<'src> + 'src,
+    S: ModuleSyntax,
+    S::Instruction: Parse<'src> + 'src,
+    S::Type: Parse<'src> + 'src,
 {
     skip()
-        .ignore_then(ParsedFunction::<I, Ty>::parser())
+        .ignore_then(ParsedFunction::<S>::parser())
         .repeated()
         .collect::<Vec<_>>()
         .then_ignore(skip())
 }
 
-impl<'src, I, Ty> Parse<'src> for ParsedFunction<I, Ty>
+impl<'src, S> Parse<'src> for ParsedFunction<S>
 where
-    I: SurfaceInstruction + Parse<'src> + 'src,
-    Ty: Parse<'src> + 'src,
+    S: ModuleSyntax,
+    S::Instruction: Parse<'src> + 'src,
+    S::Type: Parse<'src> + 'src,
 {
     fn parser() -> impl Parser<'src, &'src str, Self, E<'src>> {
-        let return_ty = just("->").padded().ignore_then(Ty::parser()).or_not();
+        let return_ty = just("->").padded().ignore_then(S::Type::parser()).or_not();
         let body = skip()
-            .ignore_then(I::parser())
+            .ignore_then(S::Instruction::parser())
             .repeated()
             .collect::<Vec<_>>()
             .then_ignore(skip());
@@ -137,7 +139,7 @@ where
             .padded()
             .ignore_then(just('@'))
             .ignore_then(Ident::parser())
-            .then(param_list::<Ty>())
+            .then(param_list::<S>())
             .then(return_ty)
             .then_ignore(just('{').padded())
             .then(body)
@@ -151,20 +153,19 @@ where
     }
 }
 
-impl<I, Ty, H> ParsedModule<I, Ty, H>
+impl<S> ParsedModule<S>
 where
-    I: SurfaceInstruction,
+    S: ModuleSyntax,
 {
     /// Parse a source section into a pre-resolution module.
     pub fn parse_section<'src, C>(section: SstSectionView<'src, C>) -> eyre::Result<Self>
     where
-        H: SstHeader,
-        I: vihaco_parser::Parse<'src> + 'src,
-        Ty: vihaco_parser::Parse<'src> + 'src,
+        S::Instruction: Parse<'src> + 'src,
+        S::Type: Parse<'src> + 'src,
     {
-        let header = section.parse_header::<H>()?;
+        let header = section.parse_header::<S::Header>()?;
         let text = section.sst();
-        let functions = functions::<I, Ty>()
+        let functions = functions::<S>()
             .parse(text)
             .into_result()
             .map_err(|errors| eyre::eyre!("failed to parse SST functions: {:?}", errors))?;

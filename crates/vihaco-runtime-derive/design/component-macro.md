@@ -70,6 +70,39 @@ The declaration contains runtime products only. Surface names and patterns are
 declared by a composite or a separate surface-instruction declaration selected
 by the composite.
 
+The planned optional component syntax declaration is a sibling block after the
+runtime `instruction` block. Its exact input shape is:
+
+```rust
+syntax {
+    value LabelRef = "'@' ident";
+
+    value Value {
+        U32(u32),
+        Label(LabelRef),
+    }
+
+    type Type {
+        I64 = "`i64`";
+        U32 = "`u32`";
+    }
+
+    instruction {
+        Step(value: Value) = "'step $value";
+        Branch(target: Value) = "'br $target";
+        Add(ty: Type) = "'add $ty";
+        Reset = "'reset";
+    }
+}
+```
+
+This block produces a component-local `syntax` module and an
+`InstructionSet` implementation. It does not receive an alias, device code,
+composite, or runtime route. Declarative parsing/code generation is reserved
+for the composite syntax implementation; until then, components can provide
+the same product with ordinary parser-derived types and a manual
+`InstructionSet` implementation.
+
 The syntax should eventually support named and tuple products as well:
 
 ```rust
