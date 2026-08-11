@@ -57,7 +57,13 @@ pub(super) struct RouteDeclaration {
     pub(super) payload: Type,
     pub(super) target: Ident,
     pub(super) message: MessageSource,
-    pub(super) observers: Vec<Ident>,
+    pub(super) observers: Vec<ObserverDeclaration>,
+    pub(super) handler: Option<Handler>,
+}
+
+pub(super) struct ObserverDeclaration {
+    pub(super) field: Ident,
+    pub(super) observers: Vec<ObserverDeclaration>,
     pub(super) handler: Option<Handler>,
 }
 
@@ -317,15 +323,32 @@ impl Parse for RouteDeclaration {
 
 fn parse_effects(
     input: ParseStream<'_>,
-    observers: &mut Vec<Ident>,
+    observers: &mut Vec<ObserverDeclaration>,
     handler: &mut Option<Handler>,
 ) -> Result<()> {
     while !input.is_empty() {
         if input.peek(observe) {
             input.parse::<observe>()?;
             let mut names = Vec::new();
+            let mut had_block = false;
             loop {
-                names.push(input.parse::<Ident>()?);
+                let field = input.parse::<Ident>()?;
+                let (nested, nested_handler) = if input.peek(syn::token::Brace) {
+                    had_block = true;
+                    let body;
+                    syn::braced!(body in input);
+                    let mut nested = Vec::new();
+                    let mut nested_handler = None;
+                    parse_effects(&body, &mut nested, &mut nested_handler)?;
+                    (nested, nested_handler)
+                } else {
+                    (Vec::new(), None)
+                };
+                names.push(ObserverDeclaration {
+                    field,
+                    observers: nested,
+                    handler: nested_handler,
+                });
                 if input.peek(Token![,]) {
                     input.parse::<Token![,]>()?;
                 } else {
@@ -336,7 +359,11 @@ fn parse_effects(
                 return Err(input.error("`observe` requires at least one field"));
             }
             observers.extend(names);
-            input.parse::<Token![;]>()?;
+            if input.peek(Token![;]) {
+                input.parse::<Token![;]>()?;
+            } else if !had_block && !input.is_empty() {
+                return Err(input.error("expected `;` after observer declaration"));
+            }
         } else if input.peek(absorb) || input.peek(handle) {
             let is_absorb = input.peek(absorb);
             if is_absorb {
@@ -365,9 +392,6 @@ fn parse_effects(
         }
     }
 
-    if handler.is_none() {
-        return Err(input.error("effects block is missing an effect handler"));
-    }
     Ok(())
 }
 

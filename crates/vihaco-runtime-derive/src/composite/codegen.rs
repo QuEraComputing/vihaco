@@ -7,8 +7,8 @@ use quote::{format_ident, quote, quote_spanned};
 use syn::{Field, Generics, Ident, Result, Type};
 
 use super::syntax::{
-    CompositeDeclaration, Handler, HeaderDeclaration, MessageSource, RouteDeclaration,
-    SyntaxDeclaration, SyntaxMapping,
+    CompositeDeclaration, Handler, HeaderDeclaration, MessageSource, ObserverDeclaration,
+    RouteDeclaration, SyntaxDeclaration, SyntaxMapping,
 };
 use crate::common::{resolve_root, retain_generics};
 
@@ -41,6 +41,60 @@ fn strip_consumed_field_attrs(mut field: Field) -> Field {
             && !attr.path().is_ident("syntax")
     });
     field
+}
+
+fn generate_observers(
+    root: &TokenStream2,
+    observers: &[ObserverDeclaration],
+    input: &TokenStream2,
+    marker: &TokenStream2,
+    error: &Type,
+    fields: &[super::validate::FieldMetadata],
+) -> TokenStream2 {
+    let field_ty = |field: &Ident| -> &Type {
+        &fields
+            .iter()
+            .find(|candidate| candidate.ident == *field)
+            .expect("validated observer field")
+            .ty
+    };
+    let branches = observers.iter().map(|observer| {
+        let field = &observer.field;
+        let observer_ty = field_ty(field);
+        let output = quote!(<#observer_ty as #root::Observe<#input, #marker>>::Effect);
+        let nested = generate_observers(root, &observer.observers, &output, marker, error, fields);
+        let terminal = if observer.observers.is_empty() && observer.handler.is_none() {
+            quote_spanned! {observer.field.span()=>
+                let _: #root::NoEffect = effect;
+            }
+        } else {
+            quote! {}
+        };
+        let handler = observer.handler.as_ref().map(|handler| match handler {
+            Handler::With(method) => quote! {
+                self.#method(effect)
+                    .map_err(::std::convert::Into::<#error>::into)?;
+            },
+            Handler::Absorb(field) => {
+                let destination_ty = field_ty(field);
+                quote! {
+                    <#destination_ty as #root::Absorb<#output>>::absorb(&mut self.#field, effect)
+                        .map_err(::std::convert::Into::<#error>::into)?;
+                }
+            }
+        }).unwrap_or_default();
+        quote! {
+            for effect in <#observer_ty as #root::Observe<#input, #marker>>::observe(
+                &mut self.#field,
+                &effect,
+            ).map_err(::std::convert::Into::<#error>::into)? {
+                #nested
+                #handler
+                #terminal
+            }
+        }
+    });
+    quote!( #( #branches )* )
 }
 
 fn syntax_generics(generics: &Generics, syntax: &[SyntaxDeclaration]) -> Generics {
@@ -905,20 +959,20 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
                     .map_err(::std::convert::Into::<#error_type>::into)?
             },
         };
-        let observers = route.observers.iter().map(|observer| {
-            let observer_ty = field_ty(observer);
-            quote! {
-                <#observer_ty as #root::Observe<
-                    <#target_ty as #root::Execute<#payload>>::Effect,
-                    #route_module::#marker
-                >>::observe(&mut self.#observer, &effect)
-                    .map_err(::std::convert::Into::<#error_type>::into)?;
-            }
-        });
+        let component_effect = quote!(<#target_ty as #root::Execute<#payload>>::Effect);
+        let route_marker = quote!(#route_module::#marker);
+        let observers = generate_observers(
+            &root,
+            &route.observers,
+            &component_effect,
+            &route_marker,
+            error_type,
+            &fields_metadata,
+        );
         let effect_handling = if route.handler.is_some() {
             quote! {
                 for effect in result.effects {
-                    #( #observers )*
+                    #observers
                     <Self as #root::Handle<
                         <#target_ty as #root::Execute<#payload>>::Effect,
                         #route_module::#marker
@@ -927,11 +981,16 @@ pub(super) fn try_expand(declaration: CompositeDeclaration) -> Result<TokenStrea
                 }
             }
         } else {
-            let no_effect_assertion = quote_spanned! {route.variant.span()=>
-                let _: #root::NoEffect = effect;
+            let no_effect_assertion = if route.observers.is_empty() {
+                quote_spanned! {route.variant.span()=>
+                    let _: #root::NoEffect = effect;
+                }
+            } else {
+                quote! {}
             };
             quote! {
                 for effect in result.effects {
+                    #observers
                     #no_effect_assertion
                 }
             }

@@ -5,7 +5,7 @@ use crate::Effects;
 
 /// A non-consuming effect observer selected by a composite-specific route marker.
 ///
-/// Composite route generation currently discards follow-up effects.
+/// The associated effect is routed to nested observers by generated composites.
 pub trait Observe<E, R = ()> {
     type Effect;
     type Error;

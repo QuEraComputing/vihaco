@@ -4,7 +4,7 @@
 use std::io::Write;
 
 use eyre::Result;
-use vihaco_runtime::{Effects, Observe};
+use vihaco_runtime::{Effects, NoEffect, Observe};
 
 #[derive(Debug, Clone)]
 pub struct StdoutEffect(pub String);
@@ -26,10 +26,10 @@ impl StdoutObserver {
 }
 
 impl Observe<StdoutEffect> for StdoutObserver {
-    type Effect = ();
+    type Effect = NoEffect;
     type Error = eyre::Report;
 
-    fn observe(&mut self, effect: &StdoutEffect) -> Result<Effects<()>> {
+    fn observe(&mut self, effect: &StdoutEffect) -> Result<Effects<NoEffect>> {
         self.write_stdout(&effect.0)?;
         Ok(Effects::none())
     }

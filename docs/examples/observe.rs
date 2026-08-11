@@ -1,5 +1,5 @@
 use eyre::Result;
-use vihaco::{Effects, Observe};
+use vihaco::{Effects, NoEffect, Observe};
 
 #[derive(Debug, Clone)]
 pub struct Line(pub String);
@@ -12,10 +12,10 @@ pub struct Collector {
 }
 
 impl Observe<Line> for Collector {
-    type Effect = ();
+    type Effect = NoEffect;
     type Error = eyre::Report;
 
-    fn observe(&mut self, effect: &Line) -> Result<Effects<()>> {
+    fn observe(&mut self, effect: &Line) -> Result<Effects<NoEffect>> {
         self.lines.push(effect.0.clone());
         Ok(Effects::none())
     }

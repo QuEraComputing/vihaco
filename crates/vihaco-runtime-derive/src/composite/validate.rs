@@ -223,22 +223,39 @@ pub(super) fn validate_routes(routes: &[RouteDeclaration], fields: &[FieldMetada
             }
             _ => {}
         }
-        let mut observer_names = BTreeSet::new();
-        for observer in &route.observers {
-            if !field_names.contains(&observer.to_string()) {
-                return Err(syn::Error::new(
-                    observer.span(),
-                    format!("unknown observer field `{observer}`"),
-                ));
-            }
-            if !observer_names.insert(observer.to_string()) {
-                return Err(syn::Error::new(
-                    observer.span(),
-                    format!("duplicate observer field `{observer}`"),
-                ));
-            }
-        }
+        validate_observers(&route.observers, &field_names)?;
         if let Some(Handler::Absorb(field)) = &route.handler
+            && !field_names.contains(&field.to_string())
+        {
+            return Err(syn::Error::new(
+                field.span(),
+                format!("unknown effect destination field `{field}`"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_observers(
+    observers: &[super::syntax::ObserverDeclaration],
+    field_names: &BTreeSet<String>,
+) -> Result<()> {
+    let mut names = BTreeSet::new();
+    for observer in observers {
+        if !field_names.contains(&observer.field.to_string()) {
+            return Err(syn::Error::new(
+                observer.field.span(),
+                format!("unknown observer field `{}`", observer.field),
+            ));
+        }
+        if !names.insert(observer.field.to_string()) {
+            return Err(syn::Error::new(
+                observer.field.span(),
+                format!("duplicate observer field `{}`", observer.field),
+            ));
+        }
+        validate_observers(&observer.observers, field_names)?;
+        if let Some(super::syntax::Handler::Absorb(field)) = &observer.handler
             && !field_names.contains(&field.to_string())
         {
             return Err(syn::Error::new(

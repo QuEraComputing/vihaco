@@ -43,7 +43,7 @@ impl Absorb<Effect> for Component {
 }
 
 impl Observe<Effect, Route> for Component {
-    type Effect = ();
+    type Effect = NoEffect;
     type Error = Fault;
 
     fn observe(&mut self, effect: &Effect) -> Result<Effects<Self::Effect>, Self::Error> {

@@ -5,7 +5,7 @@ use super::{
     Effects,
     handle::{Absorb, Observe},
 };
-use vihaco::{LoadSstSubtree, SstSectionView};
+use vihaco::{LoadSstSubtree, NoEffect, SstSectionView};
 
 vihaco::component! {
     component DebugTrace {
@@ -61,7 +61,7 @@ where
     E: std::fmt::Debug,
     R: 'static,
 {
-    type Effect = ();
+    type Effect = NoEffect;
     type Error = std::convert::Infallible;
 
     fn observe(&mut self, effect: &E) -> Result<Effects<Self::Effect>, Self::Error> {

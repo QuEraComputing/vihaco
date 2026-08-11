@@ -4,7 +4,8 @@
 use chumsky::Parser as _;
 use eyre::Result;
 use vihaco::{
-    Effects, Execute, Execution, Observe, SstFile, SstGlobalContext, StepResult, VERSION, composite,
+    Effects, Execute, Execution, NoEffect, Observe, SstFile, SstGlobalContext, StepResult, VERSION,
+    composite,
 };
 use vihaco_parser::{Ident, Parse};
 
@@ -17,6 +18,7 @@ pub struct TestInstruction;
 
 pub struct TestMessage(u32);
 struct TestEffect;
+struct IntermediateEffect;
 struct TestComponent {
     received_message: Option<u32>,
 }
@@ -65,10 +67,40 @@ struct TestObserver {
 }
 
 impl<R> Observe<TestEffect, R> for TestObserver {
-    type Effect = ();
+    type Effect = NoEffect;
     type Error = eyre::Report;
 
-    fn observe(&mut self, _effect: &TestEffect) -> Result<Effects<()>> {
+    fn observe(&mut self, _effect: &TestEffect) -> Result<Effects<NoEffect>> {
+        self.observed = true;
+        Ok(Effects::none())
+    }
+}
+
+#[derive(Default)]
+struct TransformObserver {
+    observed: bool,
+}
+
+#[derive(Default)]
+struct SinkObserver {
+    observed: bool,
+}
+
+impl<R> Observe<TestEffect, R> for TransformObserver {
+    type Effect = IntermediateEffect;
+    type Error = eyre::Report;
+
+    fn observe(&mut self, _effect: &TestEffect) -> Result<Effects<Self::Effect>> {
+        self.observed = true;
+        Ok(Effects::one(IntermediateEffect))
+    }
+}
+
+impl<R> Observe<IntermediateEffect, R> for SinkObserver {
+    type Effect = NoEffect;
+    type Error = eyre::Report;
+
+    fn observe(&mut self, _effect: &IntermediateEffect) -> Result<Effects<Self::Effect>> {
         self.observed = true;
         Ok(Effects::none())
     }
@@ -82,6 +114,8 @@ composite! {
         #[device(0x01)]
         component: TestComponent,
         observer: TestObserver,
+        transform: TransformObserver,
+        sink: SinkObserver,
         #[program]
         program: vihaco::ProgramImage<TestMachineInstruction, TestContext, vihaco::Value, TestType>,
     }
@@ -101,11 +135,24 @@ composite! {
                 handle with handle_effect;
             }
         }
+
+        Nested(TestInstruction) => component {
+            message with resolve_nested_message;
+            effects {
+                observe transform {
+                    observe sink;
+                }
+            }
+        }
     }
 }
 
 impl test_machine::runtime::MessageResolver for TestMachine {
     fn resolve_message(&mut self, _instruction: &TestInstruction) -> Result<TestMessage> {
+        Ok(TestMessage(42))
+    }
+
+    fn resolve_nested_message(&mut self, _instruction: &TestInstruction) -> Result<TestMessage> {
         Ok(TestMessage(42))
     }
 }
@@ -138,6 +185,8 @@ fn runtime_macros_honor_explicit_crate_override() {
             received_message: None,
         },
         observer: TestObserver::default(),
+        transform: TransformObserver::default(),
+        sink: SinkObserver::default(),
         program: vihaco::ProgramImage::new(),
     };
     let outcome = machine
@@ -150,6 +199,26 @@ fn runtime_macros_honor_explicit_crate_override() {
     let metadata = test_root::__private::GeneratedMachine::metadata(&machine);
     assert_eq!(metadata.devices[0].code, 0x01);
     assert_eq!(metadata.devices[0].name, "component");
+}
+
+#[test]
+fn nested_observers_receive_concrete_follow_up_effects() {
+    let mut machine = TestMachine {
+        component: TestComponent {
+            received_message: None,
+        },
+        observer: TestObserver::default(),
+        transform: TransformObserver::default(),
+        sink: SinkObserver::default(),
+        program: vihaco::ProgramImage::new(),
+    };
+
+    machine
+        .execute_generated(&TestMachineInstruction::Nested(TestInstruction))
+        .unwrap();
+
+    assert!(machine.transform.observed);
+    assert!(machine.sink.observed);
 }
 
 #[test]
@@ -172,6 +241,8 @@ fn generated_program_loader_builds_and_installs_module() {
             received_message: None,
         },
         observer: TestObserver::default(),
+        transform: TransformObserver::default(),
+        sink: SinkObserver::default(),
         program: vihaco::ProgramImage::new(),
     };
 
@@ -196,6 +267,8 @@ fn generated_source_loader_parses_and_installs_module() {
             received_message: None,
         },
         observer: TestObserver::default(),
+        transform: TransformObserver::default(),
+        sink: SinkObserver::default(),
         program: vihaco::ProgramImage::new(),
     };
 
