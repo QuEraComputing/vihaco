@@ -38,7 +38,8 @@ struct SyntaxEnum {
 
 struct SyntaxVariant {
     name: Ident,
-    pattern: syn::LitStr,
+    fields: Fields,
+    pattern: Option<syn::LitStr>,
 }
 
 struct SyntaxInstruction {
@@ -159,9 +160,14 @@ fn parse_syntax_enum(input: ParseStream<'_>) -> Result<SyntaxEnum> {
     while !content.is_empty() {
         let variant = SyntaxVariant {
             name: content.parse()?,
+            fields: parse_variant_fields(&content)?,
             pattern: {
-                content.parse::<Token![=]>()?;
-                content.parse()?
+                if content.peek(Token![=]) {
+                    content.parse::<Token![=]>()?;
+                    Some(content.parse()?)
+                } else {
+                    None
+                }
             },
         };
         variants.push(variant);
@@ -172,6 +178,32 @@ fn parse_syntax_enum(input: ParseStream<'_>) -> Result<SyntaxEnum> {
         }
     }
     Ok(SyntaxEnum { name, variants })
+}
+
+fn parse_variant_fields(input: ParseStream<'_>) -> Result<Fields> {
+    if input.peek(syn::token::Paren) {
+        let content;
+        syn::parenthesized!(content in input);
+        Ok(Fields::Unnamed(syn::FieldsUnnamed {
+            paren_token: Default::default(),
+            unnamed: syn::punctuated::Punctuated::<Field, Token![,]>::parse_terminated_with(
+                &content,
+                Field::parse_unnamed,
+            )?,
+        }))
+    } else if input.peek(syn::token::Brace) {
+        let content;
+        syn::braced!(content in input);
+        Ok(Fields::Named(syn::FieldsNamed {
+            brace_token: Default::default(),
+            named: syn::punctuated::Punctuated::<Field, Token![,]>::parse_terminated_with(
+                &content,
+                Field::parse_named,
+            )?,
+        }))
+    } else {
+        Ok(Fields::Unit)
+    }
 }
 
 fn parse_syntax_instruction_variants(
@@ -430,18 +462,32 @@ pub fn expand(input: TokenStream) -> TokenStream {
         let value_name = value_declaration.name;
         let type_variants = type_declaration.variants.into_iter().map(|variant| {
             let name = variant.name;
+            let fields = variant.fields;
             let pattern = variant.pattern;
+            let fields = match fields {
+                Fields::Unit => quote! {},
+                Fields::Named(fields) => quote! { #fields },
+                Fields::Unnamed(fields) => quote! { #fields },
+            };
+            let pattern = pattern.map(|pattern| quote! { #[pattern = #pattern] });
             quote! {
-                #[pattern = #pattern]
-                #name
+                #pattern
+                #name #fields
             }
         });
         let value_variants = value_declaration.variants.into_iter().map(|variant| {
             let name = variant.name;
+            let fields = variant.fields;
             let pattern = variant.pattern;
+            let fields = match fields {
+                Fields::Unit => quote! {},
+                Fields::Named(fields) => quote! { #fields },
+                Fields::Unnamed(fields) => quote! { #fields },
+            };
+            let pattern = pattern.map(|pattern| quote! { #[pattern = #pattern] });
             quote! {
-                #[pattern = #pattern]
-                #name
+                #pattern
+                #name #fields
             }
         });
         let instruction_variants = instruction_declaration.variants.into_iter().map(|variant| {
