@@ -68,10 +68,12 @@ The composite/machine macro:
 - Generates the surface instruction sum and its pattern parser.
 - Requires every selected surface instruction to implement `vihaco_parser_core::Parse<'src>`.
 - Uses the author-selected module surface type for function signatures and declarations.
-- Generates the runtime instruction sum.
+- Generates the composite-owned runtime instruction sum from the selected
+  component instruction products.
 - Requires a `Resolve<MachineModuleSyntax>` implementation whose
   output module uses the machine runtime instruction sum and author-defined constant/type products.
-- Generates the outer execution match.
+- Generates the outer execution match and routes each enum payload to the
+  target component's `Execute<I>` implementation.
 - Generates or calls route-specific message resolvers.
 - Generates or calls route-specific effect handlers.
 - Generates route-specific effect fanout directly in each `execute_generated` instruction arm; a
@@ -150,9 +152,12 @@ struct Cursa {
 ```
 
 The attribute form is the procedural-macro expansion target; authors normally write the
-`machine!` form. The macro generates the outer instruction enum, route dispatch, message resolver
-calls, effect continuation, and program-counter transitions. The named resolver and handler
-methods remain ordinary author code because they contain machine-specific semantics.
+`machine!` form. The macro generates the composite-owned outer instruction enum,
+route dispatch, message resolver calls, effect continuation, and program-counter
+transitions. The named resolver and handler methods remain ordinary author code
+because they contain machine-specific semantics. Component macros generate
+individual instruction products and validate `Execute<I>` implementations; they
+do not generate this enum or dispatch.
 
 A structural top-level runtime can use the same declaration without a local program:
 

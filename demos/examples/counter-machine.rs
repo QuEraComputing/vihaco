@@ -23,7 +23,7 @@ mod handle;
 mod machine;
 
 fn main() {
-    use counter::counter_group::instruction;
+    use counter::counter_group::runtime::instruction;
     use machine::{CounterMachine, CounterMachineInstruction};
 
     let program = vec![

@@ -8,9 +8,11 @@ vihaco::component! {
         items: Vec<i64>,
     }
 
-    instruction {
-        Push(i64),
-        Pop,
+    runtime {
+        instruction {
+            Push(i64),
+            Pop,
+        }
     }
 }
 

@@ -1,325 +1,187 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-use vihaco::Instruction;
-use vihaco::program::{Type, Value};
-use vihaco_parser::{BareToken, Ident};
+use crate::data::Heap;
+use crate::instruction::cpu::runtime::instruction;
+use vihaco::frame::Frame;
+use vihaco::program::Value;
+use vihaco_parser::{BareToken, Ident, QuotedString};
 
-/// Runtime bytecode instructions.
-///
-/// Source text parses into the separate [`SurfaceInstruction`] enum below.
-/// Keeping the source and runtime forms separate lets patterns carry symbolic
-/// names and surface types until a resolver converts them to runtime values.
-/// Runtime variant order remains stable because it determines derived opcodes.
-#[derive(Debug, Clone, PartialEq, Instruction)]
-#[instruction(width = 16)]
-pub enum RuntimeInstruction {
-    // no-ops
-    /// span <file:file_id> <start:u32> <end:u32>
-    /// `span 0 1 2` — three space-separated u32s.
-    Span(u32, u32, u32),
+vihaco::component! {
+    #[module = cpu]
+    pub component CPU {
+        pub(crate) frames: Vec<Frame>,
+        pub(crate) heap: Heap,
+        pub(crate) stack: Vec<Value>,
+        pub(crate) span: (u32, u32, u32),
+        pub(crate) pending_pc: Option<u32>,
+        pub(crate) current_pc: u32,
+        pub(crate) return_values: Vec<Value>,
+    }
 
-    /// Label definition.
-    Label,
+    runtime {
+        type Type = vihaco::Type;
+        value Value = vihaco::Value;
 
-    /// `func_start <name>` — marks function entry. `<name>` is symbolic and
-    /// orchestrator-resolved; the unit variant carries no payload.
-    FunctionStart,
-    /// `func_end <name>` — marks function exit (debug only).
-    FunctionEnd,
+        instruction {
+            Span(u32, u32, u32),
+            Label,
+            FunctionStart,
+            FunctionEnd,
+            Breakpoint,
+            Branch(u32),
+            ConditionalBranch(u32, u32),
+            Return(u32),
+            IndirectCall,
+            Call(u32, u32),
+            Halt,
+            Print,
+            Load(Type, u32),
+            Store(Type, u32),
+            Dup,
+            HeapAlloc(u32),
+            GetItem,
+            HeapDealloc,
+            Const(Value),
+            Add(Type),
+            Sub(Type),
+            Mul(Type),
+            Div(Type),
+            Rem(Type),
+            Neg(Type),
+            Shl(Type),
+            Shr(Type),
+            Rol(Type),
+            Ror(Type),
+            BitAnd(Type),
+            BitOr(Type),
+            BitXor(Type),
+            Not,
+            And,
+            Or,
+            Xor,
+            Eq(Type),
+            Ne(Type),
+            Lt(Type),
+            Gt(Type),
+            Le(Type),
+            Ge(Type),
+        }
+    }
 
-    /// `breakpoint`. Must precede `Branch` (whose token `br` would be a
-    /// prefix of `breakpoint`).
-    Breakpoint,
+    syntax {
+        type SurfaceType {
+            Undefined = "`undef`";
+            String = "`str`";
+            Bool = "`bool`";
+            I64 = "`i64`";
+            U32 = "`u32`";
+            U64 = "`u64`";
+            F64 = "`f64`";
+            FunctionRef = "`fn_ref`";
+            HeapRef = "`heap_ref`";
+        }
 
-    // control flows
-    /// `br <target>` — symbolic. Deferred to orchestrator.
-    Branch(u32),
+        value SurfaceValue {
+            Quoted(QuotedString) = "$0";
+            Bare(BareToken) = "$0";
+        }
 
-    /// `cond_br <true_target>, <false_target>` — symbolic. Deferred.
-    ConditionalBranch(u32, u32),
-
-    /// `ret` (bare) is the form real `.sst` uses; numeric `ret <n>` has no
-    /// precedent so we defer. Orchestrator emits `Return(0)` for bare `ret`.
-    Return(u32),
-
-    /// `call_indirect`. **Must precede `Call`** for the prefix check.
-    IndirectCall,
-
-    /// `call <arity>, <addr>` — symbolic addr. Deferred.
-    Call(u32, u32),
-
-    /// `halt` — stop execution.
-    Halt,
-
-    // traps / IO
-    /// `print` — write top-of-stack to stdout.
-    Print,
-
-    // memory operations
-    /// `load.<type> <address>` — two fields with single-space separator.
-    Load(Type, u32),
-    /// `store.<type> <address>`.
-    Store(Type, u32),
-
-    /// `dup`.
-    Dup,
-
-    /// `heap_alloc <n>`.
-    HeapAlloc(u32),
-
-    /// `get_item`. Must precede `Ge` (token `ge` ⊂ `get_item`).
-    GetItem,
-
-    /// `heap_dealloc` — pops a HeapRef and marks the slot dead, returning it
-    /// to the free list for reuse by the next `heap_alloc`.
-    HeapDealloc,
-
-    /// `const.<type> <literal>` — numeric/bool only here. `.str`/`.fn_ref`/
-    /// `.heap_ref` are orchestrator-handled.
-    Const(Value),
-
-    // arithmetic operations
-    Add(Type),
-    Sub(Type),
-    Mul(Type),
-    Div(Type),
-    Rem(Type),
-    Neg(Type),
-
-    // integer / bitwise operations
-    Shl(Type),
-    Shr(Type),
-    Rol(Type),
-    Ror(Type),
-    BitAnd(Type),
-    BitOr(Type),
-    BitXor(Type),
-
-    // boolean operations
-    Not,
-    And,
-    Or,
-    Xor,
-
-    // comparison operations
-    Eq(Type),
-    Ne(Type),
-    Lt(Type),
-    Gt(Type),
-    Le(Type),
-    Ge(Type),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, vihaco_parser_derive::Parse)]
-#[syntax_class(type)]
-pub enum SurfaceType {
-    #[pattern = "`undef`"]
-    Undefined,
-    #[pattern = "`str`"]
-    String,
-    #[pattern = "`bool`"]
-    Bool,
-    #[pattern = "`i64`"]
-    I64,
-    #[pattern = "`u32`"]
-    U32,
-    #[pattern = "`u64`"]
-    U64,
-    #[pattern = "`f64`"]
-    F64,
-    #[pattern = "`fn_ref`"]
-    FunctionRef,
-    #[pattern = "`heap_ref`"]
-    HeapRef,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, vihaco_parser_derive::Parse)]
-#[syntax_class(value)]
-pub enum SurfaceValue {
-    #[pattern = "$0"]
-    Quoted(vihaco_parser::QuotedString),
-    #[pattern = "$0"]
-    Bare(BareToken),
-}
-
-#[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
-#[syntax_class(instruction)]
-pub enum SurfaceInstruction {
-    // no-ops
-    /// span <file:file_id> <start:u32> <end:u32>
-    /// `span 0 1 2` — three space-separated u32s.
-    #[pattern = "'cpu::span $0 $1 $2"]
-    Span(u32, u32, u32),
-
-    /// Label definition.
-    #[pattern = "'cpu::label `@` $0"]
-    Label(Ident),
-
-    /// `func_start <name>` — marks function entry. `<name>` is symbolic and
-    /// orchestrator-resolved; the unit variant carries no payload.
-    #[pattern = "'cpu::func_start"]
-    FunctionStart,
-    /// `func_end <name>` — marks function exit (debug only).
-    #[pattern = "'cpu::func_end"]
-    FunctionEnd,
-
-    /// `breakpoint`. Must precede `Branch` (whose token `br` would be a
-    /// prefix of `breakpoint`).
-    #[pattern = "'cpu::breakpoint"]
-    Breakpoint,
-
-    // control flows
-    /// `br <target>` — symbolic. Deferred to orchestrator.
-    #[pattern = "'cpu::br `@` $0"]
-    Branch(Ident),
-
-    /// `cond_br <true_target>, <false_target>` — symbolic. Deferred.
-    #[pattern = "'cpu::cond_br `@` $0 `,` `@` $1"]
-    ConditionalBranch(Ident, Ident),
-
-    /// `ret` (bare) is the form real `.sst` uses; numeric `ret <n>` has no
-    /// precedent so we defer. Orchestrator emits `Return(0)` for bare `ret`.
-    #[pattern = "'cpu::ret"]
-    Return,
-
-    /// `call_indirect`. **Must precede `Call`** for the prefix check.
-    #[pattern = "'cpu::call_indirect"]
-    IndirectCall,
-
-    /// `call <arity>, <addr>` — symbolic addr. Deferred.
-    #[pattern = "'cpu::call $0 `,` $1"]
-    Call(u32, Ident),
-
-    /// `halt` — stop execution.
-    #[pattern = "'cpu::halt"]
-    Halt,
-
-    // traps / IO
-    /// `print` — write top-of-stack to stdout.
-    #[pattern = "'cpu::print"]
-    Print,
-
-    // memory operations
-    /// `load.<type> <address>` — two fields with single-space separator.
-    #[pattern = "'cpu::load $0 `,` $1"]
-    Load(SurfaceType, u32),
-
-    /// `store.<type> <address>`.
-    #[pattern = "'cpu::store $0 `,` $1"]
-    Store(SurfaceType, u32),
-
-    /// `dup`.
-    #[pattern = "'cpu::dup"]
-    Dup,
-
-    /// `heap_alloc <n>`.
-    #[pattern = "'cpu::heap_alloc $0"]
-    HeapAlloc(u32),
-
-    /// `get_item`. Must precede `Ge` (token `ge` ⊂ `get_item`).
-    #[pattern = "'cpu::get_item"]
-    GetItem,
-
-    /// `heap_dealloc` — pops a HeapRef and marks the slot dead, returning it
-    /// to the free list for reuse by the next `heap_alloc`.
-    #[pattern = "'cpu::heap_dealloc"]
-    HeapDealloc,
-
-    /// `const.<type> <literal>` — numeric/bool only here. `.str`/`.fn_ref`/
-    /// `.heap_ref` are orchestrator-handled.
-    #[pattern = "'cpu::const $0 `,` $1"]
-    Const(SurfaceType, SurfaceValue),
-
-    // arithmetic operations
-    #[pattern = "'cpu::add $0"]
-    Add(SurfaceType),
-    #[pattern = "'cpu::sub $0"]
-    Sub(SurfaceType),
-    #[pattern = "'cpu::mul $0"]
-    Mul(SurfaceType),
-    #[pattern = "'cpu::div $0"]
-    Div(SurfaceType),
-    #[pattern = "'cpu::rem $0"]
-    Rem(SurfaceType),
-    #[pattern = "'cpu::neg $0"]
-    Neg(SurfaceType),
-
-    // integer / bitwise operations
-    #[pattern = "'cpu::shl $0"]
-    Shl(SurfaceType),
-    #[pattern = "'cpu::shr $0"]
-    Shr(SurfaceType),
-    #[pattern = "'cpu::rol $0"]
-    Rol(SurfaceType),
-    #[pattern = "'cpu::ror $0"]
-    Ror(SurfaceType),
-    #[pattern = "'cpu::bitand $0"]
-    BitAnd(SurfaceType),
-    #[pattern = "'cpu::bitor $0"]
-    BitOr(SurfaceType),
-    #[pattern = "'cpu::bitxor $0"]
-    BitXor(SurfaceType),
-
-    // boolean operations
-    #[pattern = "'cpu::not"]
-    Not,
-    #[pattern = "'cpu::and"]
-    And,
-    #[pattern = "'cpu::or"]
-    Or,
-    #[pattern = "'cpu::xor"]
-    Xor,
-
-    // comparison operations
-    #[pattern = "'cpu::eq $0"]
-    Eq(SurfaceType),
-    #[pattern = "'cpu::ne $0"]
-    Ne(SurfaceType),
-    #[pattern = "'cpu::lt $0"]
-    Lt(SurfaceType),
-    #[pattern = "'cpu::gt $0"]
-    Gt(SurfaceType),
-    #[pattern = "'cpu::le $0"]
-    Le(SurfaceType),
-    #[pattern = "'cpu::ge $0"]
-    Ge(SurfaceType),
-}
-
-impl<T: Into<Value>> From<T> for RuntimeInstruction {
-    fn from(value: T) -> Self {
-        RuntimeInstruction::Const(value.into())
+        instruction {
+            Span(u32, u32, u32) = "'cpu::span $0 $1 $2";
+            Label(Ident) = "'cpu::label `@` $0";
+            FunctionStart = "'cpu::func_start";
+            FunctionEnd = "'cpu::func_end";
+            Breakpoint = "'cpu::breakpoint";
+            Branch(Ident) = "'cpu::br `@` $0";
+            ConditionalBranch(Ident, Ident) = "'cpu::cond_br `@` $0 `,` `@` $1";
+            Return = "'cpu::ret";
+            IndirectCall = "'cpu::call_indirect";
+            Call(u32, Ident) = "'cpu::call $0 `,` $1";
+            Halt = "'cpu::halt";
+            Print = "'cpu::print";
+            Load(SurfaceType, u32) = "'cpu::load $0 `,` $1";
+            Store(SurfaceType, u32) = "'cpu::store $0 `,` $1";
+            Dup = "'cpu::dup";
+            HeapAlloc(u32) = "'cpu::heap_alloc $0";
+            GetItem = "'cpu::get_item";
+            HeapDealloc = "'cpu::heap_dealloc";
+            Const(SurfaceType, SurfaceValue) = "'cpu::const $0 `,` $1";
+            Add(SurfaceType) = "'cpu::add $0";
+            Sub(SurfaceType) = "'cpu::sub $0";
+            Mul(SurfaceType) = "'cpu::mul $0";
+            Div(SurfaceType) = "'cpu::div $0";
+            Rem(SurfaceType) = "'cpu::rem $0";
+            Neg(SurfaceType) = "'cpu::neg $0";
+            Shl(SurfaceType) = "'cpu::shl $0";
+            Shr(SurfaceType) = "'cpu::shr $0";
+            Rol(SurfaceType) = "'cpu::rol $0";
+            Ror(SurfaceType) = "'cpu::ror $0";
+            BitAnd(SurfaceType) = "'cpu::bitand $0";
+            BitOr(SurfaceType) = "'cpu::bitor $0";
+            BitXor(SurfaceType) = "'cpu::bitxor $0";
+            Not = "'cpu::not";
+            And = "'cpu::and";
+            Or = "'cpu::or";
+            Xor = "'cpu::xor";
+            Eq(SurfaceType) = "'cpu::eq $0";
+            Ne(SurfaceType) = "'cpu::ne $0";
+            Lt(SurfaceType) = "'cpu::lt $0";
+            Gt(SurfaceType) = "'cpu::gt $0";
+            Le(SurfaceType) = "'cpu::le $0";
+            Ge(SurfaceType) = "'cpu::ge $0";
+        }
     }
 }
 
-impl vihaco::CanonicalInstructionSyntax for RuntimeInstruction {
-    fn variants() -> &'static [vihaco::CanonicalInstructionVariantSyntax] {
-        &[
-            vihaco::CanonicalInstructionVariantSyntax {
-                mnemonic: "cpu::const_i64",
-                operands: &[vihaco::OperandKind::I64],
-            },
-            vihaco::CanonicalInstructionVariantSyntax {
-                mnemonic: "cpu::const_f64",
-                operands: &[vihaco::OperandKind::F64],
-            },
-            vihaco::CanonicalInstructionVariantSyntax {
-                mnemonic: "cpu::const_bool",
-                operands: &[vihaco::OperandKind::Bool],
-            },
-            vihaco::CanonicalInstructionVariantSyntax {
-                mnemonic: "cpu::const_u64",
-                operands: &[vihaco::OperandKind::NonNegativeU64],
-            },
-            vihaco::CanonicalInstructionVariantSyntax {
-                mnemonic: "cpu::fn_ref",
-                operands: &[vihaco::OperandKind::Symbol],
-            },
-            vihaco::CanonicalInstructionVariantSyntax {
-                mnemonic: "cpu::call_direct",
-                operands: &[vihaco::OperandKind::Symbol],
-            },
-        ]
+#[allow(clippy::derivable_impls)]
+impl Default for cpu::CPU {
+    fn default() -> Self {
+        Self {
+            frames: Vec::new(),
+            heap: Heap::default(),
+            stack: Vec::new(),
+            span: (0, 0, 0),
+            pending_pc: None,
+            current_pc: 0,
+            return_values: Vec::new(),
+        }
+    }
+}
+
+impl Clone for cpu::CPU {
+    fn clone(&self) -> Self {
+        Self {
+            frames: self.frames.clone(),
+            heap: self.heap.clone(),
+            stack: self.stack.clone(),
+            span: self.span,
+            pending_pc: self.pending_pc,
+            current_pc: self.current_pc,
+            return_values: self.return_values.clone(),
+        }
+    }
+}
+
+impl std::fmt::Debug for cpu::CPU {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CPU")
+            .field("frames", &self.frames)
+            .field("heap", &self.heap)
+            .field("stack", &self.stack)
+            .field("span", &self.span)
+            .field("pending_pc", &self.pending_pc)
+            .field("current_pc", &self.current_pc)
+            .field("return_values", &self.return_values)
+            .finish()
+    }
+}
+
+pub use cpu::syntax::{Instruction as SurfaceInstruction, SurfaceType, SurfaceValue};
+
+impl<T: Into<Value>> From<T> for instruction::Const {
+    fn from(value: T) -> Self {
+        instruction::Const(value.into())
     }
 }
 

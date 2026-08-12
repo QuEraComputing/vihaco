@@ -12,9 +12,15 @@ visible.
 ```rust
 component! {
     component Stack { items: Vec<i64>, }
-    instruction { Push(i64), Pop, }
+    runtime {
+        instruction { Push(i64), Pop, }
+    }
 }
 ```
+
+This declaration generates `Stack` and the `Push`/`Pop` product structs. It
+does not generate a component-wide instruction enum; the containing composite
+chooses which products to expose and owns that sum.
 
 The implementation is per product. The demo's arithmetic unit implements
 `Execute<Add>`, `Execute<Sub>`, and `Execute<Mul>` independently. Each

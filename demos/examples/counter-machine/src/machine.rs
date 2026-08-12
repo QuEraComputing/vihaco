@@ -37,10 +37,10 @@ vihaco::composite! {
     }
 
     runtime {
-        Queue(counter_group::instruction::Queue) => counter_group {
+        Queue(counter_group::runtime::instruction::Queue) => counter_group {
             message none;
         }
-        Play(counter_group::instruction::Play) => counter_group {
+        Play(counter_group::runtime::instruction::Play) => counter_group {
             message none;
             effects {
                 absorb with debug;
@@ -146,7 +146,7 @@ pub enum RunOutcome {
 #[cfg(test)]
 mod tests {
     use super::{CounterMachine, CounterMachineInstruction, RunOutcome};
-    use crate::counter::counter_group::instruction;
+    use crate::counter::counter_group::runtime::instruction;
 
     #[test]
     fn queued_counters_are_advanced_on_shared_global_ticks() {

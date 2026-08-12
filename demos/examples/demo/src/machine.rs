@@ -4,7 +4,7 @@
 use super::{
     channel::{EndpointId, ReceiveCompletion, ReceiveContinuation, SharedTransport, Transport},
     clock::{ClockedComponent, GlobalClock, GlobalTick, GlobalTicksPerLocalCycle, Schedule},
-    cpu::{Cpu, CpuEvent, CpuFault, RuntimeInstruction},
+    cpu::{Cpu, CpuEvent, CpuFault, CpuInstruction},
 };
 use std::collections::HashMap;
 
@@ -128,14 +128,14 @@ impl HeterogeneousMachine {
         };
 
         let (detail, parked_detail) = match instruction {
-            RuntimeInstruction::IntegerAdd(_) => ("Add".to_owned(), "Add parks".to_owned()),
-            RuntimeInstruction::IntegerSub(_) => ("Sub".to_owned(), "Sub parks".to_owned()),
-            RuntimeInstruction::IntegerMul(_) => ("Mul".to_owned(), "Mul parks".to_owned()),
-            RuntimeInstruction::Send(send) => (
+            CpuInstruction::IntegerAdd(_) => ("Add".to_owned(), "Add parks".to_owned()),
+            CpuInstruction::IntegerSub(_) => ("Sub".to_owned(), "Sub parks".to_owned()),
+            CpuInstruction::IntegerMul(_) => ("Mul".to_owned(), "Mul parks".to_owned()),
+            CpuInstruction::Send(send) => (
                 format!("send on {:?}", send.channel),
                 format!("send parks on {:?}", send.channel),
             ),
-            RuntimeInstruction::Recv(recv) => (
+            CpuInstruction::Recv(recv) => (
                 format!("recv on {:?}", recv.channel),
                 format!("recv parks on {:?}", recv.channel),
             ),

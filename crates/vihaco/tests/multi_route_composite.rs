@@ -13,9 +13,11 @@ use vihaco_parser::Ident;
 component! {
     component Arithmetic {}
 
-    instruction {
-        #[derive(Clone)]
-        Add(super::syntax::ArithmeticType),
+    runtime {
+        instruction {
+            #[derive(Clone)]
+            Add(super::syntax::ArithmeticType),
+        }
     }
 
     syntax {
@@ -52,14 +54,14 @@ struct AddressStack {
     calls: usize,
 }
 
-impl Execute<arithmetic::instruction::Add> for IntegerStack {
+impl Execute<arithmetic::runtime::instruction::Add> for IntegerStack {
     type Message = NoMessage;
     type Effect = NoEffect;
     type Fault = eyre::Report;
 
     fn execute(
         &mut self,
-        _instruction: &arithmetic::instruction::Add,
+        _instruction: &arithmetic::runtime::instruction::Add,
         _message: Self::Message,
     ) -> Result<StepResult<Self::Effect>, Self::Fault> {
         self.calls += 1;
@@ -70,14 +72,14 @@ impl Execute<arithmetic::instruction::Add> for IntegerStack {
     }
 }
 
-impl Execute<arithmetic::instruction::Add> for AddressStack {
+impl Execute<arithmetic::runtime::instruction::Add> for AddressStack {
     type Message = NoMessage;
     type Effect = NoEffect;
     type Fault = eyre::Report;
 
     fn execute(
         &mut self,
-        _instruction: &arithmetic::instruction::Add,
+        _instruction: &arithmetic::runtime::instruction::Add,
         _message: Self::Message,
     ) -> Result<StepResult<Self::Effect>, Self::Fault> {
         self.calls += 1;
@@ -105,11 +107,11 @@ composite! {
     }
 
     runtime {
-        IntegerAdd(arithmetic::instruction::Add) => integer_stack {
+        IntegerAdd(arithmetic::runtime::instruction::Add) => integer_stack {
             message none;
         }
 
-        AddressAdd(arithmetic::instruction::Add) => address_stack {
+        AddressAdd(arithmetic::runtime::instruction::Add) => address_stack {
             message none;
         }
     }
@@ -146,7 +148,9 @@ impl multi_route_machine::syntax::Resolver for MultiRouteMachine {
         instruction: arithmetic::syntax::Instruction,
     ) -> Result<Vec<multi_route_machine::runtime::Instruction>, eyre::Report> {
         let runtime_instruction = match instruction {
-            arithmetic::syntax::Instruction::Add(kind) => arithmetic::instruction::Add(kind),
+            arithmetic::syntax::Instruction::Add(kind) => {
+                arithmetic::runtime::instruction::Add(kind)
+            }
         };
 
         match runtime_instruction.0 {

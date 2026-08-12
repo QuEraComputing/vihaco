@@ -7,16 +7,7 @@ use vihaco::{
     traits::{FrameMemory, StackFrame, StackMemory},
 };
 
-#[derive(Debug, Clone, Default)]
-pub struct CPU {
-    pub(crate) frames: Vec<Frame>,
-    pub(crate) heap: Heap,
-    pub(crate) stack: Vec<Value>,
-    pub(crate) span: (u32, u32, u32),
-    pub(crate) pending_pc: Option<u32>,
-    pub(crate) current_pc: u32,
-    pub(crate) return_values: Vec<Value>,
-}
+pub use crate::instruction::cpu::CPU;
 
 type HeapSlot = Option<Box<[Value]>>;
 
@@ -64,11 +55,6 @@ impl Heap {
     pub fn clear(&mut self) {
         self.slots.clear();
         self.free_list.clear();
-    }
-
-    #[cfg(test)]
-    pub fn is_empty(&self) -> bool {
-        self.slots.is_empty()
     }
 }
 

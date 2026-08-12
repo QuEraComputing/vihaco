@@ -7,17 +7,17 @@ mod tests {
         arithmetic::Add,
         channel::{CHANNEL_A_TO_B, Recv},
         clock::{ClockFault, GlobalTicksPerLocalCycle, LocalCycles, TimedInstruction},
-        cpu::RuntimeInstruction,
+        cpu::CpuInstruction,
     };
 
     #[test]
     fn instruction_timing_belongs_to_the_instruction() {
         assert_eq!(
-            RuntimeInstruction::IntegerAdd(Add).local_cycles(),
+            CpuInstruction::IntegerAdd(Add).local_cycles(),
             LocalCycles::ONE
         );
         assert_eq!(
-            RuntimeInstruction::Recv(Recv {
+            CpuInstruction::Recv(Recv {
                 channel: CHANNEL_A_TO_B,
             })
             .local_cycles(),

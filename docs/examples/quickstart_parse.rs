@@ -2,8 +2,9 @@ use chumsky::Parser as _;
 use vihaco::Instruction;
 use vihaco_parser::Parse;
 
-// The same enum can derive both `Instruction` (bytecode + runtime) and
-// `Parse` (SST). The two derives are orthogonal.
+// This standalone source/bytecode enum is independent of component products.
+// A composite owns the runtime instruction sum when it combines components.
+// The two derives remain orthogonal.
 #[derive(Debug, Clone, PartialEq, Instruction, vihaco_parser_derive::Parse)]
 #[syntax_class(instruction)]
 pub enum CounterInst {

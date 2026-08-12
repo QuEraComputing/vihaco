@@ -19,6 +19,9 @@ pub fn composite(input: TokenStream) -> TokenStream {
 /// the owned runtime instruction types that can be executed by the component. The macro generates
 /// a public module whose name is the snake-case form of the component name; instruction types are
 /// nested in that module's `instruction` namespace.
+/// An optional `runtime` block groups runtime type/value aliases and runtime instruction products
+/// in the generated module's `runtime` namespace. Runtime instruction products use the same syntax
+/// as the top-level `instruction` block and are nested under `runtime::instruction`.
 ///
 /// State fields without an explicit visibility are available to component implementations in
 /// the surrounding module through `pub(super)`. Instruction fields without an explicit visibility
@@ -39,14 +42,16 @@ pub fn composite(input: TokenStream) -> TokenStream {
 ///         value: u64,
 ///     }
 ///
-///     instruction {
-///         Add(u64),
-///         Reset,
+///     runtime {
+///         instruction {
+///             Add(u64),
+///             Reset,
+///         }
 ///     }
 /// }
 ///
-/// let _: counter::instruction::Add = counter::instruction::Add(1);
-/// let _: counter::instruction::Reset = counter::instruction::Reset;
+/// let _: counter::runtime::instruction::Add = counter::runtime::instruction::Add(1);
+/// let _: counter::runtime::instruction::Reset = counter::runtime::instruction::Reset;
 /// let _: counter::Counter = counter::Counter { value: 0 };
 /// ```
 ///

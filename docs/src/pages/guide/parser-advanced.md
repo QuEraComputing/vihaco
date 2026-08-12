@@ -207,15 +207,21 @@ later conversion.
 
 ## Parse composite sections by component
 
-A generated composite instruction enum is the runtime dispatch type. SST
-source is parsed through user-declared surface instruction types, each deriving
-`Parse` with its own namespace and patterns. Parse each component section as a
-`ParsedModule<ComponentSyntax>`, resolve it,
-and load the resulting runtime instructions into that component.
+A generated composite instruction enum is the runtime dispatch type. It is
+owned by `composite!` and contains payloads consisting of the individual
+instruction structs exposed by its component fields. Components do not need a
+component-wide runtime enum or dispatch implementation.
 
-This keeps source syntax attached to the component that owns it. Composite
-loading routes sections to components; it does not require a second source
-grammar for the generated machine instruction enum.
+SST source is parsed through user-declared surface instruction types, each
+deriving `Parse` with its own namespace and patterns. Parse each component
+section as a `ParsedModule<ComponentSyntax>`, resolve it into the composite's
+runtime instruction sum, and load the resulting instructions into the program
+container.
+
+This keeps source syntax attached to the component that owns it while leaving
+machine-wide route selection to the composite. The generated runtime enum is
+not a second source grammar: it is the composite-owned dispatch representation
+produced after surface parsing and resolution.
 
 For an executable composite with a `#[program]` field, the composite can own
 this final step instead of requiring a separate handwritten `Resolve`

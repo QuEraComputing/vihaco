@@ -247,14 +247,13 @@ VariantName(PayloadType) => target_field {
 
 `VariantName` must be unique in the runtime block. `PayloadType` is passed
 unchanged to `Execute<PayloadType>` and becomes the payload of the generated
-instruction enum variant. The target field must exist. There is no implicit
-conversion between payload types and no component-wide instruction enum
-inferred by the macro.
+composite instruction variant. The target field must exist. There is no
+implicit conversion between payload types.
 
-### 3.1 Generated runtime instruction enum
+### 3.1 Generated composite instruction sum
 
 For routes `Add(AddInstruction) => alu` and `Reset(ResetInstruction) => alu`,
-the macro emits the public enum:
+the composite macro emits the machine-local instruction sum:
 
 ```rust ignore
 pub enum MachineInstruction {
@@ -263,7 +262,11 @@ pub enum MachineInstruction {
 }
 ```
 
-Construct instructions as ordinary Rust values:
+The payload types in this enum are the individual instruction structs exposed
+by components. Components do not generate or own this enum; the composite
+selects which of their products are admitted into its instruction set.
+
+Construct composite instructions as ordinary Rust values:
 
 ```rust ignore
 let instruction = MachineInstruction::Add(AddInstruction { /* ... */ });
@@ -273,7 +276,8 @@ let execution = machine.execute_generated(&instruction)?;
 The enum derives `Clone`, but not `Debug`, `PartialEq`, or encoding traits. Its
 generic parameters are limited to those used by route payloads. The enum is
 public even though dispatch internals are private, so a runtime root, resolver,
-or program container can construct it.
+or program container can construct it. Encoding, when needed, is likewise a
+composite/program concern rather than a component concern.
 
 ### 3.2 Message clauses
 
@@ -605,7 +609,7 @@ instruction index, and source instruction.
 
 The surface syntax type must convert into the program builder's associated
 `Type` type. The program builder's associated instruction type must be the
-generated runtime instruction enum.
+composite-generated runtime instruction sum.
 
 ### 6.2 `load_parsed`
 

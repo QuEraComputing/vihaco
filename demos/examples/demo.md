@@ -110,6 +110,10 @@ all happen before the event loop starts.
 
 ## Components and routes
 
+The reusable components contribute only instruction product structs. The `Cpu` composite owns
+the generated `CpuInstruction` sum, maps its variants to component products in its routes, and
+dispatches those products to the corresponding `Execute<I>` implementations.
+
 `Stack` is a reusable `i64` operand stack. It supplies messages by popping values and absorbs
 arithmetic results by pushing them. `ArithmeticUnit` is stateless and implements `Execute<Add>`,
 `Execute<Sub>`, and `Execute<Mul>` with `BinaryOperands -> ValueResult`:

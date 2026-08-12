@@ -95,8 +95,6 @@ vihaco::composite! {
 
 }
 
-pub type RuntimeInstruction = CpuInstruction;
-
 impl From<cpu::syntax::Type> for vihaco::Type {
     fn from(value: cpu::syntax::Type) -> Self {
         match value {
@@ -127,11 +125,11 @@ impl cpu::syntax::Resolver for Cpu {
     fn lower_alu(
         &mut self,
         instruction: arithmetic_syntax::Instruction,
-    ) -> Result<Vec<cpu::runtime::Instruction>, CpuFault> {
+    ) -> Result<Vec<CpuInstruction>, CpuFault> {
         let instruction = match instruction {
-            arithmetic_syntax::Instruction::Add => cpu::runtime::Instruction::IntegerAdd(Add),
-            arithmetic_syntax::Instruction::Sub => cpu::runtime::Instruction::IntegerSub(Sub),
-            arithmetic_syntax::Instruction::Mul => cpu::runtime::Instruction::IntegerMul(Mul),
+            arithmetic_syntax::Instruction::Add => CpuInstruction::IntegerAdd(Add),
+            arithmetic_syntax::Instruction::Sub => CpuInstruction::IntegerSub(Sub),
+            arithmetic_syntax::Instruction::Mul => CpuInstruction::IntegerMul(Mul),
         };
         Ok(vec![instruction])
     }
@@ -139,7 +137,7 @@ impl cpu::syntax::Resolver for Cpu {
     fn lower_channel(
         &mut self,
         instruction: channel_syntax::Instruction,
-    ) -> Result<Vec<cpu::runtime::Instruction>, CpuFault> {
+    ) -> Result<Vec<CpuInstruction>, CpuFault> {
         let (channel, send) = match instruction {
             channel_syntax::Instruction::Send(name) => {
                 let channel = match name {
@@ -161,9 +159,9 @@ impl cpu::syntax::Resolver for Cpu {
             }
         };
         let instruction = if send {
-            cpu::runtime::Instruction::Send(Send { channel })
+            CpuInstruction::Send(Send { channel })
         } else {
-            cpu::runtime::Instruction::Recv(Recv { channel })
+            CpuInstruction::Recv(Recv { channel })
         };
         Ok(vec![instruction])
     }
@@ -192,20 +190,20 @@ impl Cpu {
     }
 }
 
-impl TimedInstruction for RuntimeInstruction {
+impl TimedInstruction for CpuInstruction {
     fn local_cycles(&self) -> LocalCycles {
         match self {
-            RuntimeInstruction::IntegerAdd(_)
-            | RuntimeInstruction::IntegerSub(_)
-            | RuntimeInstruction::IntegerMul(_)
-            | RuntimeInstruction::Send(_)
-            | RuntimeInstruction::Recv(_) => LocalCycles::ONE,
+            CpuInstruction::IntegerAdd(_)
+            | CpuInstruction::IntegerSub(_)
+            | CpuInstruction::IntegerMul(_)
+            | CpuInstruction::Send(_)
+            | CpuInstruction::Recv(_) => LocalCycles::ONE,
         }
     }
 }
 
 impl Cpu {
-    pub fn fetch(&self) -> Option<RuntimeInstruction> {
+    pub fn fetch(&self) -> Option<CpuInstruction> {
         self.program
             .module
             .code

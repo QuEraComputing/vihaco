@@ -9,11 +9,13 @@ vihaco::component! {
         next_id: CounterId,
     }
 
-    instruction {
-        #[derive(Debug, Clone)]
-        Queue { start: u32, duration: u32 },
-        #[derive(Debug, Clone)]
-        Play,
+    runtime {
+        instruction {
+            #[derive(Debug, Clone)]
+            Queue { start: u32, duration: u32 },
+            #[derive(Debug, Clone)]
+            Play,
+        }
     }
 }
 
@@ -125,14 +127,14 @@ impl CounterGroup {
     }
 }
 
-impl Execute<instruction::Queue> for CounterGroup {
+impl Execute<runtime::instruction::Queue> for CounterGroup {
     type Message = NoMessage;
     type Effect = NoEffect;
     type Fault = Infallible;
 
     fn execute(
         &mut self,
-        instruction: &instruction::Queue,
+        instruction: &runtime::instruction::Queue,
         _message: Self::Message,
     ) -> Result<vihaco::StepResult<Self::Effect>, Self::Fault> {
         self.queue(instruction.start, instruction.duration);
@@ -145,14 +147,14 @@ pub struct Playing {
     pub channels: usize,
 }
 
-impl Execute<instruction::Play> for CounterGroup {
+impl Execute<runtime::instruction::Play> for CounterGroup {
     type Message = NoMessage;
     type Effect = Playing;
     type Fault = Infallible;
 
     fn execute(
         &mut self,
-        _instruction: &instruction::Play,
+        _instruction: &runtime::instruction::Play,
         _message: Self::Message,
     ) -> Result<StepResult<Self::Effect>, Self::Fault> {
         let channels = self.play();

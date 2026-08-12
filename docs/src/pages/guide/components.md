@@ -31,10 +31,12 @@ trailing commas are accepted where the grammar permits them.
 Component       ::= OuterAttribute* `#[module = Ident]`? Visibility?
                     `component` Ident Generics? WhereClause?
                     `{` NamedField* `}`
-                    InstructionBlock? SyntaxBlock?
+                    RuntimeBlock? SyntaxBlock?
 
 NamedField      ::= Attribute* Visibility? Ident `:` Type `,`?
 
+RuntimeBlock     ::= `runtime` `{` RuntimeAlias* InstructionBlock? `}`
+RuntimeAlias    ::= Visibility? (`type` | `value`) Ident `=` Type `;`
 InstructionBlock
                 ::= `instruction` `{` Product* `}`
 Product         ::= OuterAttribute* Visibility? Ident ProductFields? `,`?
@@ -76,22 +78,24 @@ component! {
         value: T,
     }
 
-    instruction {
-        Add(T),
-        Reset,
+    runtime {
+        instruction {
+            Add(T),
+            Reset,
+        }
     }
 }
 ```
 
 The macro generates a module, and places the component struct and product
 types inside that module. With the default naming rules, the declaration above
-produces `counter::Counter`, `counter::instruction::Add<T>`, and
-`counter::instruction::Reset`.
+produces `counter::Counter`, `counter::runtime::instruction::Add<T>`, and
+`counter::runtime::instruction::Reset`.
 
 ### 2.1 Component visibility
 
 The component's `Visibility` applies to the generated module, the component
-struct, the `instruction` module, and the optional `syntax` module. If no
+struct, the `runtime` and `instruction` modules, and the optional `syntax` module. If no
 visibility is written, these generated items are `pub`.
 
 ```rust ignore
@@ -158,7 +162,7 @@ valid.
 
 ### 2.4 Empty components
 
-The state block may be empty. The `instruction` block may be omitted when the
+The state block may be empty. The `runtime` block may be omitted when the
 component has no products:
 
 ```rust ignore
@@ -167,13 +171,13 @@ component! {
 }
 ```
 
-This still generates `clock::Clock`. No `clock::instruction` module is
-generated unless an instruction block is present. An empty `instruction {}`
-block generates the instruction module with no product structs.
+This still generates `clock::Clock`. No `clock::runtime::instruction` module is
+generated unless a runtime instruction block is present. An empty runtime
+`instruction {}` block generates the instruction module with no product structs.
 
 ## 3. Runtime instruction products
 
-The optional `instruction` block is a catalog of independent runtime product
+The optional `runtime { instruction { ... } }` block is a catalog of independent runtime product
 types. It is not an enum and does not impose common message, effect, or fault
 types.
 
@@ -183,10 +187,12 @@ component! {
         values: Vec<i64>,
     }
 
-    instruction {
-        Read { slot: usize },
-        Write(usize, i64),
-        Reset,
+    runtime {
+        instruction {
+            Read { slot: usize },
+            Write(usize, i64),
+            Reset,
+        }
     }
 }
 ```
@@ -199,12 +205,14 @@ pub mod register_file {
         pub(super) values: Vec<i64>,
     }
 
-    pub mod instruction {
-        pub struct Read {
-            pub slot: usize,
+    pub mod runtime {
+        pub mod instruction {
+            pub struct Read {
+                pub slot: usize,
+            }
+            pub struct Write(pub usize, pub i64);
+            pub struct Reset;
         }
-        pub struct Write(pub usize, pub i64);
-        pub struct Reset;
     }
 }
 ```
@@ -219,7 +227,7 @@ Reset,
 ```
 
 generates a unit-like struct. Construct it as
-`register_file::instruction::Reset`.
+`register_file::runtime::instruction::Reset`.
 
 ### 3.2 Tuple products
 
@@ -232,7 +240,7 @@ generates a tuple struct. Tuple fields without explicit visibility are made
 construct products:
 
 ```rust ignore
-let instruction = register_file::instruction::Write(3, 42);
+let instruction = register_file::runtime::instruction::Write(3, 42);
 ```
 
 Tuple field attributes and explicit visibilities are preserved.
@@ -247,7 +255,7 @@ generates a named-field struct. Named fields without explicit visibility are
 made `pub` for the same construction boundary:
 
 ```rust ignore
-let instruction = register_file::instruction::Read { slot: 3 };
+let instruction = register_file::runtime::instruction::Read { slot: 3 };
 ```
 
 Use explicit visibility when a product field needs a different Rust visibility.
@@ -257,11 +265,13 @@ Use explicit visibility when a product field needs a different Rust visibility.
 The product declaration accepts outer attributes and an optional visibility:
 
 ```rust ignore
-instruction {
-    #[derive(Clone, Debug, PartialEq)]
-    pub Add(i64),
-    #[doc = "Stops the device."]
-    Reset,
+runtime {
+    instruction {
+        #[derive(Clone, Debug, PartialEq)]
+        pub Add(i64),
+        #[doc = "Stops the device."]
+        Reset,
+    }
 }
 ```
 
@@ -275,10 +285,12 @@ used by the product's fields and its relevant where predicates.
 Products support all three Rust struct forms:
 
 ```rust ignore
-instruction {
-    Unit,
-    Tuple(T, const_value_type),
-    Named { value: T, index: usize },
+runtime {
+    instruction {
+        Unit,
+        Tuple(T, const_value_type),
+        Named { value: T, index: usize },
+    }
 }
 ```
 
@@ -291,14 +303,14 @@ named struct constructors. It does not box, wrap, or convert product fields.
 Implement `Execute<I>` separately for each product and component type:
 
 ```rust ignore
-impl Execute<counter::instruction::Add> for counter::Counter {
+impl Execute<counter::runtime::instruction::Add> for counter::Counter {
     type Message = NoMessage;
     type Effect = NoEffect;
     type Fault = eyre::Report;
 
     fn execute(
         &mut self,
-        instruction: &counter::instruction::Add,
+        instruction: &counter::runtime::instruction::Add,
         _message: NoMessage,
     ) -> Result<StepResult<NoEffect>, Self::Fault> {
         self.value += instruction.0;
@@ -396,8 +408,10 @@ The canonical form is:
 component! {
     component Arithmetic {}
 
-    instruction {
-        Add(ArithmeticType),
+    runtime {
+        instruction {
+            Add(ArithmeticType),
+        }
     }
 
     syntax {
@@ -513,13 +527,15 @@ For:
 
 ```rust ignore
 component! {
-    pub component GateBeam<T> where T: Clone {
+    pub component Sensor<T> where T: Clone {
         state: T,
     }
 
-    instruction {
-        Measure(T),
-        Reset,
+    runtime {
+        instruction {
+            Measure(T),
+            Reset,
+        }
     }
 }
 ```
@@ -527,17 +543,17 @@ component! {
 the generated public shape is:
 
 ```text
-gate_beam::GateBeam<T>
-gate_beam::instruction::Measure<T>
-gate_beam::instruction::Reset
+sensor::Sensor<T>
+sensor::runtime::instruction::Measure<T>
+sensor::runtime::instruction::Reset
 ```
 
 More precisely:
 
-* the module is `gate_beam` by default, or the identifier supplied by
+* the module is `sensor` by default, or the identifier supplied by
   `#[module = ...]`;
-* the component struct is `<module>::GateBeam`;
-* products are `<module>::instruction::<Product>`;
+* the component struct is `<module>::Sensor`;
+* products are `<module>::runtime::instruction::<Product>`;
 * state fields without explicit visibility are `pub(super)`;
 * product fields without explicit visibility are `pub`;
 * a syntax block adds `<module>::syntax`, the declared enums, and
@@ -564,10 +580,12 @@ component! {
         value: T,
     }
 
-    instruction {
-        Unit,
-        Tuple(T),
-        Array([T; N]),
+    runtime {
+        instruction {
+            Unit,
+            Tuple(T),
+            Array([T; N]),
+        }
     }
 }
 ```
@@ -576,9 +594,9 @@ The component is `generic_component::GenericComponent<T, N>`. The products
 are:
 
 ```text
-generic_component::instruction::Unit
-generic_component::instruction::Tuple<T>
-generic_component::instruction::Array<T, N>
+generic_component::runtime::instruction::Unit
+generic_component::runtime::instruction::Tuple<T>
+generic_component::runtime::instruction::Array<T, N>
 ```
 
 `Unit` does not retain `T` or `N`, `Tuple` retains `T`, and `Array` retains
@@ -627,10 +645,11 @@ The following remain author- or composite-defined Rust:
 * scheduling, timing, parking, and resume policy; and
 * a universal machine execution trait.
 
-If a single encoded instruction enum is required, define it explicitly or use
-`#[derive(Instruction)]` on an appropriate enum. The independent product types
-generated by `component!` are the normal inputs to `Execute<I>` and to
-composite route declarations.
+The machine-local encoded instruction enum is normally generated by
+`composite!`. If a custom machine representation is needed, it may be defined
+separately, but it should contain the component products as payloads. The
+independent product types generated by `component!` are the normal inputs to
+`Execute<I>` and to composite route declarations.
 
 ## 11. Integration with `composite!`
 
@@ -646,14 +665,14 @@ composite! {
     }
 
     runtime {
-        Add(arithmetic::instruction::Add) => arithmetic {
+        Add(arithmetic::runtime::instruction::Add) => arithmetic {
             message none;
         }
     }
 }
 ```
 
-The component owns `arithmetic::instruction::Add`, its state, its
+The component owns `arithmetic::runtime::instruction::Add`, its state, its
 `Execute<Add>` implementation, and optionally its local parser vocabulary.
 The composite owns the public machine route, source namespace, message policy,
 and effect policy. A component product may be selected by multiple composites
@@ -661,5 +680,5 @@ or by multiple routes, and one product type may be executed by multiple
 component state types when their `Execute<I>` implementations permit it.
 
 For route grammar and generated machine behavior, see the
-[`composite!` Language Reference](/guide/composites). For encoding an enum,
-see [Defining Instructions](/guide/instructions).
+[`composite!` Language Reference](/guide/composites). For machine-level
+encoding and widths, see [Defining Instructions](/guide/instructions).

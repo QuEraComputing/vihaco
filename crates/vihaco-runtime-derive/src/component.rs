@@ -8,10 +8,13 @@ use proc_macro2::Span;
 use quote::{format_ident, quote};
 use std::collections::BTreeMap;
 use syn::parse::{Parse, ParseStream};
-use syn::{Attribute, Field, Fields, Generics, Ident, Result, Token, Visibility, WhereClause};
+use syn::{
+    Attribute, Field, Fields, Generics, Ident, Result, Token, Type, Visibility, WhereClause,
+};
 
 syn::custom_keyword!(component);
 syn::custom_keyword!(instruction);
+syn::custom_keyword!(runtime);
 syn::custom_keyword!(syntax);
 syn::custom_keyword!(value);
 
@@ -21,8 +24,20 @@ struct ComponentDeclaration {
     name: Ident,
     generics: Generics,
     state: Fields,
-    products: Vec<InstructionProduct>,
+    runtime: Option<RuntimeDeclaration>,
     syntax: Option<ComponentSyntax>,
+}
+
+struct RuntimeDeclaration {
+    type_alias: Option<RuntimeAlias>,
+    value_alias: Option<RuntimeAlias>,
+    products: Vec<InstructionProduct>,
+}
+
+struct RuntimeAlias {
+    visibility: Visibility,
+    name: Ident,
+    target: Type,
 }
 
 struct ComponentSyntax {
@@ -52,6 +67,7 @@ struct SyntaxInstructionVariant {
     pattern: syn::LitStr,
 }
 
+#[derive(Clone)]
 struct InstructionProduct {
     attrs: Vec<Attribute>,
     visibility: Visibility,
@@ -72,17 +88,13 @@ impl Parse for ComponentDeclaration {
         syn::braced!(content in input);
         let state = parse_fields(&content)?;
 
-        let products = if input.peek(instruction) {
-            input.parse::<instruction>()?;
+        let runtime_declaration = if input.peek(runtime) {
+            input.parse::<runtime>()?;
             let content;
             syn::braced!(content in input);
-            syn::punctuated::Punctuated::<InstructionProduct, Token![,]>::parse_terminated(
-                &content,
-            )?
-            .into_iter()
-            .collect()
+            Some(content.parse()?)
         } else {
-            Vec::new()
+            None
         };
 
         let syntax_declaration = if input.peek(syntax) {
@@ -104,8 +116,78 @@ impl Parse for ComponentDeclaration {
             name,
             generics,
             state,
-            products,
+            runtime: runtime_declaration,
             syntax: syntax_declaration,
+        })
+    }
+}
+
+impl Parse for RuntimeDeclaration {
+    fn parse(input: ParseStream<'_>) -> Result<Self> {
+        let mut type_alias = None;
+        let mut value_alias = None;
+        let mut products = None;
+
+        while !input.is_empty() {
+            let _attrs = Attribute::parse_outer(input)?;
+            let visibility: Visibility = input.parse()?;
+            if input.peek(Token![type]) {
+                input.parse::<Token![type]>()?;
+                let name = input.parse()?;
+                input.parse::<Token![=]>()?;
+                let target = input.parse()?;
+                input.parse::<Token![;]>()?;
+                if type_alias
+                    .replace(RuntimeAlias {
+                        visibility,
+                        name,
+                        target,
+                    })
+                    .is_some()
+                {
+                    return Err(input.error("duplicate component runtime type alias"));
+                }
+            } else if input.peek(value) {
+                input.parse::<value>()?;
+                let name = input.parse()?;
+                input.parse::<Token![=]>()?;
+                let target = input.parse()?;
+                input.parse::<Token![;]>()?;
+                if value_alias
+                    .replace(RuntimeAlias {
+                        visibility,
+                        name,
+                        target,
+                    })
+                    .is_some()
+                {
+                    return Err(input.error("duplicate component runtime value alias"));
+                }
+            } else if input.peek(instruction) {
+                input.parse::<instruction>()?;
+                let content;
+                syn::braced!(content in input);
+                if products.is_some() {
+                    return Err(input.error("duplicate component runtime instruction declaration"));
+                }
+                products = Some(
+                    syn::punctuated::Punctuated::<InstructionProduct, Token![,]>::parse_terminated(
+                        &content,
+                    )?
+                    .into_iter()
+                    .collect(),
+                );
+            } else {
+                return Err(
+                    input.error("expected `type`, `value`, or `instruction` runtime declaration")
+                );
+            }
+        }
+
+        Ok(Self {
+            type_alias,
+            value_alias,
+            products: products.unwrap_or_default(),
         })
     }
 }
@@ -319,17 +401,6 @@ fn product_generics(generics: &Generics, fields: &Fields) -> Generics {
 
 fn validate(declaration: &ComponentDeclaration, module: &Ident) -> Result<()> {
     validate_generated_name(&module.to_string(), module.span())?;
-    let mut names = BTreeMap::new();
-    for product in &declaration.products {
-        let normalized = module_name(&product.name).to_case(Case::Snake);
-        validate_generated_name(&normalized, product.name.span())?;
-        if let Some(previous) = names.insert(normalized, product.name.clone()) {
-            return Err(syn::Error::new(
-                product.name.span(),
-                format!("instruction name collides with `{previous}` after normalization"),
-            ));
-        }
-    }
     if let Some(syntax) = &declaration.syntax
         && (syntax.type_declaration.is_none()
             || syntax.value_declaration.is_none()
@@ -339,6 +410,23 @@ fn validate(declaration: &ComponentDeclaration, module: &Ident) -> Result<()> {
             module.span(),
             "component syntax requires `type`, `value`, and `instruction` declarations",
         ));
+    }
+    if let Some(runtime) = &declaration.runtime {
+        validate_products(&runtime.products)?;
+    }
+    Ok(())
+}
+
+fn validate_products(products: &[InstructionProduct]) -> Result<()> {
+    let mut names = BTreeMap::new();
+    for product in products {
+        let normalized = module_name(&product.name).to_case(Case::Snake);
+        if let Some(previous) = names.insert(normalized, product.name.clone()) {
+            return Err(syn::Error::new(
+                product.name.span(),
+                format!("instruction name collides with `{previous}` after normalization"),
+            ));
+        }
     }
     Ok(())
 }
@@ -416,38 +504,68 @@ pub fn expand(input: TokenStream) -> TokenStream {
         name,
         generics,
         state,
-        products,
+        runtime,
         syntax,
         ..
     } = declaration;
     let state = parent_visible_fields(state);
     let visibility = public_by_default(visibility);
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-    let products = products.into_iter().map(|product| {
-        let InstructionProduct {
-            attrs,
-            visibility: product_visibility,
-            name,
-            fields,
-        } = product;
-        let fields = public_fields(fields);
-        let product_visibility = public_by_default(product_visibility);
-        let product_generics = product_generics(&generics, &fields);
-        let (product_impl_generics, _, product_where_clause) = product_generics.split_for_impl();
-        let declaration = match fields {
-            Fields::Unit => quote! {
-                #product_visibility struct #name #product_impl_generics #product_where_clause;
-            },
-            Fields::Named(fields) => quote! {
-                #product_visibility struct #name #product_impl_generics #product_where_clause #fields
-            },
-            Fields::Unnamed(fields) => quote! {
-                #product_visibility struct #name #product_impl_generics #fields #product_where_clause;
-            },
-        };
+    let runtime = runtime.map(|runtime| {
+        let type_alias = runtime.type_alias.map(|alias| {
+            let visibility = public_by_default(alias.visibility);
+            let RuntimeAlias { name, target, .. } = alias;
+            quote! {
+                #visibility type #name = #target;
+            }
+        });
+        let value_alias = runtime.value_alias.map(|alias| {
+            let visibility = public_by_default(alias.visibility);
+            let RuntimeAlias { name, target, .. } = alias;
+            quote! {
+                #visibility type #name = #target;
+            }
+        });
+        let products = runtime.products.into_iter().map(|product| {
+            let InstructionProduct {
+                attrs,
+                visibility: product_visibility,
+                name,
+                fields,
+            } = product;
+            let fields = public_fields(fields);
+            let product_visibility = public_by_default(product_visibility);
+            let product_generics = product_generics(&generics, &fields);
+            let (product_impl_generics, _, product_where_clause) = product_generics.split_for_impl();
+            let declaration = match fields {
+                Fields::Unit => quote! {
+                    #product_visibility struct #name #product_impl_generics #product_where_clause;
+                },
+                Fields::Named(fields) => quote! {
+                    #product_visibility struct #name #product_impl_generics #product_where_clause #fields
+                },
+                Fields::Unnamed(fields) => quote! {
+                    #product_visibility struct #name #product_impl_generics #fields #product_where_clause;
+                },
+            };
+            quote! {
+                #(#attrs)*
+                #declaration
+            }
+        });
         quote! {
-            #(#attrs)*
-            #declaration
+            #visibility mod runtime {
+                use super::*;
+
+                #type_alias
+                #value_alias
+
+                #visibility mod instruction {
+                    use super::*;
+
+                    #( #products )*
+                }
+            }
         }
     });
     let syntax = syntax.map(|syntax| {
@@ -543,12 +661,7 @@ pub fn expand(input: TokenStream) -> TokenStream {
 
             #visibility struct #name #impl_generics #where_clause #state
 
-            #visibility mod instruction {
-                use super::*;
-
-                #( #products )*
-            }
-
+            #runtime
             #syntax
         }
     }

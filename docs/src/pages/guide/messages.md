@@ -42,7 +42,7 @@ fields or machine policy must be combined:
 impl calculator::runtime::MessageResolver for Calculator {
     fn resolve_add(
         &mut self,
-        _instruction: &calculator::instruction::Add,
+        _instruction: &calculator::runtime::instruction::Add,
     ) -> eyre::Result<BinaryOperands> {
         Ok(BinaryOperands { lhs: 1, rhs: 2 })
     }

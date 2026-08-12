@@ -2,30 +2,30 @@
 layout: ../../layouts/Guide.astro
 title: Advanced Instruction Usage
 slug: instructions-advanced
-description: Explicit opcode assignment, explicit instruction widths, and machine-level wrapper instructions that compose several component instruction sets.
+description: How composites assign opcodes, encoding widths, and machine-level instruction routes across component products.
 ---
 
 # Advanced Instruction Usage
 
-This guide covers explicit opcode assignment, explicit instruction widths, and machine-level wrapper instructions.
+This guide covers the composite-owned parts of an instruction set: opcode
+assignment, encoding widths, machine-local instruction variants, and routing
+across component products.
 
-For the basics of defining instruction enums and how width inference works, see [Defining Instructions With `vihaco`](/guide/instructions).
+For the component-side product model, see [Defining Instructions With `vihaco`](/guide/instructions).
 
 ## Setting An Explicit Opcode
 
-Use `#[opcode = ...]` on a variant when you want to choose the encoded opcode value yourself instead of using the default variant-order assignment.
+Assign opcodes to the variants of the machine-local instruction representation
+owned by the composite. Component products do not carry opcode attributes.
 
-```rust
-use vihaco::Instruction;
+The exact opcode declaration belongs to the composite's machine encoding
+configuration. It is not an attribute on a component product.
 
-#[derive(Debug, Clone, Instruction)]
-#[instruction(width = 16)]
-pub enum BranchInst {
-    #[opcode = 0x10]
-    Jump(u32),
-    #[opcode = 0x11]
-    Select(u32, u32),
-}
+```text
+MachineInstruction::Jump(Branch { target: ... })
+    => machine opcode 0x10
+MachineInstruction::Select(ConditionalBranch { ... })
+    => machine opcode 0x11
 ```
 
 This is useful when:
@@ -34,144 +34,142 @@ This is useful when:
 - you want specific opcode numbers for compatibility or tooling
 - you want to leave gaps for future instructions
 
-If you do not need that control, leaving opcodes inferred from variant order is the simpler default.
+If you do not need stable values, letting the composite assign them from route
+order is the simpler default.
 
 ## Setting An Explicit Width
 
-Use `#[instruction(width = ...)]` when you want the encoded record size to stay fixed even if the enum could be smaller.
+Set the width on the composite-owned encoding when you want the encoded record
+size to stay fixed. This is a machine-format decision, not a component-product
+decision.
 
 A fixed-width device instruction type is a common case — for example a signal generator that takes a channel address and a `Play`:
 
-```rust
-use vihaco::Instruction;
-
-#[derive(Debug, Clone, Instruction)]
-#[instruction(width = 8)]
-pub enum SignalInst {
-    Poly(u32),
-    Play,
-}
-```
-
-This says that every encoded `SignalInst` record is `8` bytes wide.
-
-Conceptually:
-
 ```text
-SignalInst::Play
-=> [opcode for Play][0][0][0][0][0][0][0]
+MachineInstruction::Poly(Poly { channel: ..., value: ... })
+    => fixed-width machine record
+MachineInstruction::Play(Play)
+    => the same fixed-width record, with padding as required
 ```
 
-```text
-SignalInst::Poly(addr)
-=> [opcode for Poly][encoded address bytes...][zero padding if needed]
-```
+This says that every encoded machine record is `8` bytes wide. The width is a
+machine-format decision; the `Poly` and `Play` products remain ordinary
+component structs.
 
-This is useful when you want a stable instruction record size at a component boundary.
+This is useful when you want a stable instruction record size at a composite
+boundary.
 
 ## When To Leave Width Inferred
 
 Leave width inferred when:
 
 - you want the enum width to naturally track its largest payload
-- the instruction type is only used as a reusable building block inside a larger wrapper enum
+- the composite owns the machine encoding and can assign the width there
 - you do not need a fixed external record size
 
 Set an explicit width when:
 
 - the instruction format should always occupy a fixed number of bytes
 - you want smaller variants padded up to a known record size
-- the component already has a width contract you want to preserve as the enum evolves
+- the machine format has a width contract you want to preserve as routes evolve
 
 ## Machine-Level Wrapper Instructions
 
-`vihaco` also supports instruction enums that wrap other instruction enums.
-This is how a machine can expose several component instruction sets through one outer instruction type.
+`composite!` builds the machine-local instruction sum from products supplied by
+its component routes. This is how a machine exposes several component
+instruction families through one outer instruction type.
 
 A machine that drives a CPU plus a signal generator can wrap both:
 
-```rust
-use vihaco::Instruction;
-use vihaco_cpu as cpu;
-# #[derive(Debug, Clone, Instruction)]
-# #[instruction(width = 8)]
-# pub enum SignalInst {
-#     Poly(u32),
-#     Play,
-# }
+```rust,ignore
+use vihaco::composite;
 
-#[derive(Debug, Clone, Instruction)]
-pub enum MachineInst {
-    Cpu(cpu::RuntimeInstruction),
-    Signal(SignalInst),
+composite! {
+    composite Machine {
+        error = eyre::Report;
+        cpu: cpu::CPU,
+        signal: Signal,
+    }
+
+    runtime {
+        CpuBranch(cpu::runtime::instruction::Branch) => cpu {
+            message none;
+        }
+        SignalPlay(signal::runtime::instruction::Play) => signal {
+            message none;
+        }
+    }
 }
 ```
 
-Each outer variant identifies which nested instruction family is being used.
-The nested instruction then becomes the payload of that outer variant.
+Each route becomes a variant in the generated machine-local instruction enum.
+The component product is the payload, and the route target identifies the
+component whose `Execute<I>` implementation receives it.
 
-Conceptually:
-
-```text
-MachineInst::Signal(SignalInst::Play)
-=> [opcode for outer Signal variant][encoded SignalInst][padding if needed]
-```
+Conceptually, a machine record contains the composite route discriminator
+followed by the encoded product payload and any required padding.
 
 This keeps composition straightforward:
 
-- each component keeps its own instruction type
-- the machine exposes one outer instruction type
-- the wrapper enum handles outer dispatch without forcing every inner instruction type to be rewritten
+- each component keeps independent product structs
+- the composite exposes one machine-local instruction type
+- the composite handles encoding, routing, and dispatch without rewriting the
+  component products
 
 > A `composite!` declaration generates the machine-local runtime sum as
 > `<MachineName>Instruction`, with one explicitly declared route per product.
 
 ## How Nested Widths Compose
 
-For wrapper enums, the outer instruction width is computed from the outer enum, not by changing the inner types.
+For composite-owned instruction sums, the machine encoding width is computed
+from the machine routes, not by changing the component products.
 
 That means:
 
-- each inner instruction keeps its own width
-- a nested instruction payload contributes its full encoded width as payload
-- the outer enum width is `1` opcode byte plus the largest nested payload used by any variant
-- smaller nested payloads are padded inside the outer record
+- component products remain independent of encoding width
+- each route contributes its payload width to the machine encoding
+- the machine width is chosen from the largest route payload, plus any machine
+  opcode/header bytes
+- smaller route payloads are padded according to the machine format
 
 For example, imagine:
 
-- `cpu::RuntimeInstruction` is `16` bytes wide
-- `SignalInst` is `8` bytes wide
+- the CPU branch route has a payload width determined by its product
+- the signal play route is a unit product
 
-Then the outer machine instruction width becomes `17` bytes:
+The machine instruction width is then determined by the composite's selected
+record format and largest route payload:
 
-- `1` byte for the outer machine opcode
-- `16` bytes for the largest nested payload
+- the machine opcode/route discriminator
+- the largest payload required by any routed product
 
-So a smaller instruction such as `MachineInst::Signal(...)` still occupies the full outer width once encoded.
-
-Conceptually:
-
-```text
-MachineInst::Signal(signal_inst)
-=> [opcode for Signal][encoded signal instruction][zero padding...]
-```
+So a smaller product such as `Play` still occupies the full machine record
+width once encoded.
 
 This is what makes nested instruction composition deterministic:
 
 - decoding always reads one full outer instruction record
-- the outer opcode decides which nested instruction type should decode the payload
-- the nested type decodes only the bytes it understands
+- the composite route discriminator decides which product type receives the
+  payload
+- the composite's encoder/decoder defines how many bytes that payload uses
 
 ## Practical Guidance
 
-- Use `#[opcode = ...]` when opcode numbers are part of the bytecode contract.
-- Use `#[instruction(width = ...)]` when record size is part of the component contract.
-- Wrap inner instruction enums in an outer machine enum instead of flattening all instructions into one giant type.
-- Let the outer enum own machine-visible composition and padding behavior.
+- Use route-level opcode metadata when opcode numbers are part of the machine
+  bytecode contract.
+- Use composite-level width metadata when record size is part of the machine
+  format.
+- Add products to `composite!` routes instead of creating component-side
+  instruction enums.
+- Let the generated machine instruction enum own machine-visible composition,
+  encoding, padding, and dispatch.
 
 ## What Comes Next
 
-`#[derive(Instruction)]` covers bytecode and runtime semantics; source-text parsing is owned by an orthogonal `#[derive(vihaco_parser_derive::Parse)]` on the same enum. See [Pattern Parser Integration for Component Instructions](/guide/parser) for the parser-side workflow and [Module Parsing and Resolution](/guide/parser-advanced) for section headers, typed function bodies, and module resolution.
+Component syntax and machine encoding are separate concerns. A composite may
+lower parsed surface instructions into its generated machine instruction enum,
+then route the product to `Execute<I>`. See [Pattern Parser Integration for
+Component Instructions](/guide/parser) and [Module Parsing and Resolution](/guide/parser-advanced).
 
 After defining an instruction type, implement `Execute<I>` for the relevant
 component product and select it from a `composite!` route.

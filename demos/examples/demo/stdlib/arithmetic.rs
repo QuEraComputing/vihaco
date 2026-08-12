@@ -13,13 +13,15 @@ use super::{
 vihaco::component! {
     component ArithmeticUnit {}
 
-    instruction {
-        #[derive(Debug, Clone, Copy)]
-        Add,
-        #[derive(Debug, Clone, Copy)]
-        Sub,
-        #[derive(Debug, Clone, Copy)]
-        Mul
+    runtime {
+        instruction {
+            #[derive(Debug, Clone, Copy)]
+            Add,
+            #[derive(Debug, Clone, Copy)]
+            Sub,
+            #[derive(Debug, Clone, Copy)]
+            Mul
+        }
     }
 
     syntax {
@@ -40,7 +42,7 @@ vihaco::component! {
 }
 
 pub use arithmetic_unit::ArithmeticUnit;
-pub use arithmetic_unit::instruction::{Add, Mul, Sub};
+pub use arithmetic_unit::runtime::instruction::{Add, Mul, Sub};
 pub use arithmetic_unit::syntax;
 
 impl ArithmeticUnit {

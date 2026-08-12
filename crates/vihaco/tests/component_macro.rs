@@ -11,8 +11,38 @@ component! {
         context: ParentContext,
     }
 
-    instruction {
-        ParentProduct { context: ParentContext },
+    runtime {
+        instruction {
+            ParentProduct { context: ParentContext },
+        }
+    }
+}
+
+component! {
+    component RuntimeBlockComponent {}
+
+    runtime {
+        type Type = vihaco::Type;
+        value Value = vihaco::Value;
+
+        instruction {
+            Add(Type, Value),
+            Halt,
+        }
+    }
+
+    syntax {
+        type SurfaceType {
+            U32 = "`u32`";
+        }
+
+        value SurfaceValue {
+            Bare(BareToken),
+        }
+
+        instruction {
+            Second(SurfaceValue) = "'second $0";
+        }
     }
 }
 
@@ -28,11 +58,13 @@ component! {
         _value: T,
     }
 
-    instruction {
-        Unit,
-        Tuple(T),
-        Named { value: T },
-        Array([T; N]),
+    runtime {
+        instruction {
+            Unit,
+            Tuple(T),
+            Named { value: T },
+            Array([T; N]),
+        }
     }
 }
 
@@ -41,8 +73,10 @@ component! {
         state: u8,
     }
 
-    instruction {
-        Runtime(u32),
+    runtime {
+        instruction {
+            Runtime(u32),
+        }
     }
 
     syntax {
@@ -68,24 +102,43 @@ fn components_without_instructions_still_generate_the_component_module() {
 }
 
 #[test]
+fn runtime_instruction_products_use_runtime_aliases_and_coexist_with_syntax() {
+    let _: runtime_block_component::runtime::instruction::Add =
+        runtime_block_component::runtime::instruction::Add(
+            vihaco::Type::I64,
+            vihaco::Value::I64(1),
+        );
+    let _: runtime_block_component::runtime::instruction::Halt =
+        runtime_block_component::runtime::instruction::Halt;
+    let _: runtime_block_component::syntax::Instruction =
+        runtime_block_component::syntax::Instruction::Second(
+            runtime_block_component::syntax::SurfaceValue::Bare(vihaco_parser::BareToken(
+                "second".to_owned(),
+            )),
+        );
+}
+
+#[test]
 fn generated_modules_can_use_names_from_the_parent_module() {
     let _: uses_parent_context::UsesParentContext = uses_parent_context::UsesParentContext {
         context: ParentContext,
     };
-    let _: uses_parent_context::instruction::ParentProduct =
-        uses_parent_context::instruction::ParentProduct {
+    let _: uses_parent_context::runtime::instruction::ParentProduct =
+        uses_parent_context::runtime::instruction::ParentProduct {
             context: ParentContext,
         };
 }
 
 #[test]
 fn generated_products_support_all_field_forms() {
-    let _: generic_component::instruction::Unit = generic_component::instruction::Unit;
-    let _: generic_component::instruction::Tuple<u8> = generic_component::instruction::Tuple(1);
-    let _: generic_component::instruction::Named<u8> =
-        generic_component::instruction::Named { value: 1 };
-    let _: generic_component::instruction::Array<u8, 2> =
-        generic_component::instruction::Array([1, 2]);
+    let _: generic_component::runtime::instruction::Unit =
+        generic_component::runtime::instruction::Unit;
+    let _: generic_component::runtime::instruction::Tuple<u8> =
+        generic_component::runtime::instruction::Tuple(1);
+    let _: generic_component::runtime::instruction::Named<u8> =
+        generic_component::runtime::instruction::Named { value: 1 };
+    let _: generic_component::runtime::instruction::Array<u8, 2> =
+        generic_component::runtime::instruction::Array([1, 2]);
     let _: core::marker::PhantomData<generic_component::GenericComponent<u8, 2>> =
         core::marker::PhantomData;
 }
@@ -126,4 +179,14 @@ fn syntax_declarations_support_payloads_and_derived_value_patterns() {
 
     let _: <syntax_component::SyntaxComponent as InstructionSet>::Type =
         syntax_component::syntax::SyntaxType::U32;
+}
+
+#[test]
+fn runtime_blocks_generate_aliases_alongside_syntax() {
+    let _: runtime_block_component::runtime::Type = vihaco::Type::I64;
+    let _: runtime_block_component::runtime::Value = vihaco::Value::I64(7);
+    let _: runtime_block_component::syntax::Instruction =
+        runtime_block_component::syntax::Instruction::Second(
+            runtime_block_component::syntax::SurfaceValue::Bare(BareToken("value".to_owned())),
+        );
 }

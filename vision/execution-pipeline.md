@@ -13,7 +13,7 @@ SST text
     -> pattern parser
     -> ParsedModule<ModuleSyntax>
     -> Resolve<ModuleSyntax>
-    -> Module<RuntimeInstruction, Constant, RuntimeType, Info>
+    -> Module<CompositeInstruction, Constant, RuntimeType, Info>
     -> runtime program image
 ```
 
@@ -83,8 +83,9 @@ supplied runtime instruction
     -> return the step outcome and any root-facing work
 ```
 
-The composite macro generates one outer `step` dispatcher from the selected runtime routes. Users
-do not hand-write this match. A representative expansion is:
+The composite macro generates the machine-local instruction sum and one outer
+`step` dispatcher from the selected runtime routes. Users do not hand-write
+this match. A representative expansion is:
 
 ```rust
 fn step(
@@ -356,7 +357,7 @@ machine instruction variant
     -> route outcome and root-facing work
 ```
 
-The generated machine instruction variant is the canonical route identity during dispatch. The
+The generated composite instruction variant is the canonical route identity during dispatch. The
 `step` match selects the message resolver, target component, effect handler, and route outcome
 associated with that variant. Effect handling therefore remains within the route selected by the
 outer machine instruction; it is not resolved globally from `Effect`.

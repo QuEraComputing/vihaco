@@ -28,14 +28,19 @@ use vihaco::{component, Effects, Execute, Execution, StepResult};
 
 component! {
     component Counter { value: i64, }
-    instruction { Add(i64), Read, }
+    runtime {
+        instruction { Add(i64), Read, }
+    }
 }
 
-impl Execute<counter::instruction::Add> for counter::Counter {
+// `component!` generates the component and these instruction structs.
+// A containing `composite!` owns the machine-local instruction sum.
+
+impl Execute<counter::runtime::instruction::Add> for counter::Counter {
     type Message = ();
     type Effect = ();
     type Fault = eyre::Report;
-    fn execute(&mut self, instruction: &counter::instruction::Add, _: ()) -> Result<StepResult<()>> {
+    fn execute(&mut self, instruction: &counter::runtime::instruction::Add, _: ()) -> Result<StepResult<()>> {
         self.value += instruction.0;
         Ok(StepResult { effects: Effects::none(), execution: Execution::Complete })
     }

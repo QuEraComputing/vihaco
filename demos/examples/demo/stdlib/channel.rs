@@ -154,11 +154,13 @@ vihaco::component! {
         _message: PhantomData<fn() -> M>,
     }
 
-    instruction {
-        #[derive(Debug, Clone, Copy)]
-        Send { channel: ChannelId },
-        #[derive(Debug, Clone, Copy)]
-        Recv { channel: ChannelId }
+    runtime {
+        instruction {
+            #[derive(Debug, Clone, Copy)]
+            Send { channel: ChannelId },
+            #[derive(Debug, Clone, Copy)]
+            Recv { channel: ChannelId }
+        }
     }
 
     syntax {
@@ -181,7 +183,7 @@ vihaco::component! {
 }
 
 pub use channel_endpoint::ChannelEndpoint;
-pub use channel_endpoint::instruction::{Recv, Send};
+pub use channel_endpoint::runtime::instruction::{Recv, Send};
 pub use channel_endpoint::syntax;
 
 pub const CHANNEL_A_TO_B: ChannelId = ChannelId(0);

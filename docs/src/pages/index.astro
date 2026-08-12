@@ -78,9 +78,10 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, "");
         <div role="tabpanel" id="hero-panel-counter" aria-labelledby="hero-tab-counter" data-example-pane="counter">
           <pre><code class="language-rust">{counterSrc}</code></pre>
           <p class="hero-code-note">
-            A component is an execution unit: it takes a typed instruction plus
-            a resolved message and returns typed <em>effects</em>. The derives
-            handle opcodes, encoding, and the runtime glue.
+            A component is an execution unit: it takes an individual product
+            plus a resolved message and returns typed <em>effects</em>. A
+            composite owns the machine instruction enum, encoding, routing,
+            and dispatch.
           </p>
         </div>
         <div role="tabpanel" id="hero-panel-observe" aria-labelledby="hero-tab-observe" data-example-pane="observe" hidden>
@@ -99,11 +100,12 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, "");
     <section class="triptych" aria-label="What vihaco is for">
       <div class="panel">
         <span class="num">i. Instruction sets</span>
-        <h2>Bytecode as Rust enums</h2>
+        <h2>Machine instructions as Rust enums</h2>
         <p>
-          <code>#[derive(Instruction)]</code> turns an enum into an opcode
-          set with inferred (or fixed) encoding width. Nest enums to compose
-          several component instruction families under one machine type.
+          Components declare individual instruction product structs. A
+          <code>composite!</code> assembles those products into the machine
+          instruction enum, owns opcodes and encoding width, and dispatches
+          each route to its component's <code>Execute&lt;I&gt;</code> implementation.
         </p>
       </div>
       <div class="panel">

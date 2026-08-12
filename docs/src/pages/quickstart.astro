@@ -1,7 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
 import quickstartSrc from "../../examples/quickstart.rs?raw";
-import parseSrc from "../../examples/quickstart_parse.rs?raw";
 const base = import.meta.env.BASE_URL.replace(/\/$/, "");
 const toc = [
   { label: "§ 1 Workspace at a glance", href: "#workspace" },
@@ -49,11 +48,11 @@ const toc = [
       <dt><code>vihaco-cpu</code> <span class="crate-tag">component</span></dt>
       <dd>
         A ready-made CPU/host component — a small stack machine with
-        <code>cpu::RuntimeInstruction</code> (constants, arithmetic, branches,
-        <code>halt</code>, …), a pattern-derived
-        <code>cpu::SurfaceInstruction</code>, and the
-        execution component. Use it directly, or as a reference for writing
-        your own components.
+        individual runtime instruction structs for constants, arithmetic,
+        branches, <code>halt</code>, and more, plus a pattern-derived
+        <code>cpu::SurfaceInstruction</code>. A composite supplies the machine
+        instruction enum and routes those products to the CPU. Use it directly,
+        or as a reference for writing your own components.
       </dd>
       <dt><code>vihaco-parser-derive</code> <span class="crate-tag">parser</span></dt>
       <dd>
@@ -133,13 +132,27 @@ eyre                 = "0.6"   # vihaco APIs return eyre::Result</code></pre>
     <h2 id="parsing"><span class="sec-num">§ 5</span>Parsing source text</h2>
 
     <p>
-      Source-text parsing is orthogonal to bytecode. A user-declared surface
-      enum derives <code>vihaco_parser::Parse</code> from its syntax class and
-      patterns. When the source and runtime representations match, that enum
-      can also derive <code>Instruction</code>:
+      Source-text parsing is orthogonal to component runtime products. A
+      component can expose a surface instruction enum for parsing, while a
+      composite lowers parsed instructions into its machine-local instruction
+      enum and routes the corresponding product:
     </p>
 
-<pre><code class="language-rust">{parseSrc}</code></pre>
+<pre><code class="language-rust">use chumsky::Parser as _;
+use vihaco_parser::Parse;
+
+#[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
+#[syntax_class(instruction)]
+enum SurfaceInstruction {
+    #[pattern = "'counter::add $0"]
+    Add(i64),
+}
+
+let instruction = SurfaceInstruction::parser()
+    .parse("counter::add 5")
+    .into_result()?;
+// A composite resolves `SurfaceInstruction::Add` to its routed runtime
+// product and dispatches that product through `Execute<I>`.</code></pre>
 
     <p>
       That is the whole instruction-level surface. Module-level parsing adds
