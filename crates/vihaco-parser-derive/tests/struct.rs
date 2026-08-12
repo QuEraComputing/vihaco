@@ -14,8 +14,8 @@ struct Named {
 }
 
 #[derive(Parse, Debug, PartialEq)]
-#[syntax_class(instruction, head = "test")]
-#[pattern = "'pair $0 $1"]
+#[syntax_class(instruction)]
+#[pattern = "'test::pair $0 $1"]
 struct Tuple(i64, bool);
 
 #[derive(Parse, Debug, PartialEq)]

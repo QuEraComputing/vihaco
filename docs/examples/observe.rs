@@ -1,5 +1,5 @@
 use eyre::Result;
-use vihaco::{Effects, observe};
+use vihaco::{Effects, NoEffect, Observe};
 
 #[derive(Debug, Clone)]
 pub struct Line(pub String);
@@ -11,11 +11,11 @@ pub struct Collector {
     lines: Vec<String>,
 }
 
-// `#[observe(T)]` generates `Observe<T>`; the handler is named
-// `observe_<snake_case_effect>` and may return follow-up effects.
-#[observe(Line)]
-impl Collector {
-    fn observe_line(&mut self, effect: &Line) -> Result<Effects<()>> {
+impl Observe<Line> for Collector {
+    type Effect = NoEffect;
+    type Error = eyre::Report;
+
+    fn observe(&mut self, effect: &Line) -> Result<Effects<NoEffect>> {
         self.lines.push(effect.0.clone());
         Ok(Effects::none())
     }

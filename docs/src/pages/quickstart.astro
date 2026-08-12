@@ -1,7 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
 import quickstartSrc from "../../examples/quickstart.rs?raw";
-import parseSrc from "../../examples/quickstart_parse.rs?raw";
 const base = import.meta.env.BASE_URL.replace(/\/$/, "");
 const toc = [
   { label: "§ 1 Workspace at a glance", href: "#workspace" },
@@ -40,9 +39,8 @@ const toc = [
       <dt><code>vihaco</code> <span class="crate-tag">foundation</span></dt>
       <dd>
         The framework. The <code>Instruction</code> / <code>Message</code> /
-        <code>Effects</code> types and their derives, the
-        <code>#[component]</code>, <code>#[observe]</code>, and
-        <code>#[composite]</code> macros, the <code>module</code> /
+        <code>Effects</code> types, the <code>component!</code> and
+        <code>composite!</code> macros, the <code>module</code> /
         <code>syntax</code> / <code>runtime</code> layers, and the
         <code>Value</code> / <code>Type</code> value model. Re-exports the
         macros, so most projects depend only on this crate.
@@ -50,11 +48,11 @@ const toc = [
       <dt><code>vihaco-cpu</code> <span class="crate-tag">component</span></dt>
       <dd>
         A ready-made CPU/host component — a small stack machine with
-        <code>cpu::RuntimeInstruction</code> (constants, arithmetic, branches,
-        <code>halt</code>, …), a pattern-derived
-        <code>cpu::SurfaceInstruction</code>, and the
-        <code>StepOutcome</code> control-flow effect. Use it directly, or as a
-        reference for writing your own components.
+        individual runtime instruction structs for constants, arithmetic,
+        branches, <code>halt</code>, and more, plus a pattern-derived
+        <code>cpu::SurfaceInstruction</code>. A composite supplies the machine
+        instruction enum and routes those products to the CPU. Use it directly,
+        or as a reference for writing your own components.
       </dd>
       <dt><code>vihaco-parser-derive</code> <span class="crate-tag">parser</span></dt>
       <dd>
@@ -74,9 +72,8 @@ const toc = [
       </dd>
       <dt><code>vihaco-runtime-derive</code> <span class="crate-tag">internal</span></dt>
       <dd>
-        The procedural macros behind <code>#[derive(Message)]</code>,
-        <code>#[component]</code>, <code>#[observe]</code>, and
-        <code>#[composite]</code> (<code>#[derive(Instruction)]</code> lives in
+        The procedural macros behind <code>component!</code> and
+        <code>composite!</code> (<code>#[derive(Instruction)]</code> lives in
         <code>vihaco-abi-derive</code>). Both are re-exported through
         <code>vihaco</code> — you rarely depend on them directly.
       </dd>
@@ -117,20 +114,17 @@ eyre                 = "0.6"   # vihaco APIs return eyre::Result</code></pre>
     <h2 id="component"><span class="sec-num">§ 4</span>A first component</h2>
 
     <p>
-      A component bundles three things: an <code>Instruction</code> enum (the
-      operations), an optional <code>Message</code> (resolved execution input),
-      and an optional effect type (what execution returns). The
-      <code>#[component(...)]</code> attribute generates the runtime glue from a
-      single <code>execute</code> method.
+      A component declares instruction products with <code>component!</code>.
+      Each product gets its own <code>Execute&lt;I&gt;</code> implementation, so its
+      message, effect, and fault types can be specific to that operation.
     </p>
 
 <pre><code class="language-rust">{quickstartSrc}</code></pre>
 
     <p>
-      <code>execute_generated</code> is the runtime entry point the macro
-      generates (via the <code>GeneratedComponent</code> trait);
-      <code>expect_exactly_one_effect</code> is a helper for the common
-      single-effect case. For the full data-flow model — when to use a
+      A composite's generated <code>execute_generated</code> method is the
+      route-dispatch boundary; components themselves use <code>Execute</code>
+      directly. For the full data-flow model — when to use a
       <code>Message</code>, how effects are delivered to observers — read
       <a href={`${base}/guide/components`}>Building Components</a>.
     </p>
@@ -138,13 +132,27 @@ eyre                 = "0.6"   # vihaco APIs return eyre::Result</code></pre>
     <h2 id="parsing"><span class="sec-num">§ 5</span>Parsing source text</h2>
 
     <p>
-      Source-text parsing is orthogonal to bytecode. A user-declared surface
-      enum derives <code>vihaco_parser::Parse</code> from its syntax class and
-      patterns. When the source and runtime representations match, that enum
-      can also derive <code>Instruction</code>:
+      Source-text parsing is orthogonal to component runtime products. A
+      component can expose a surface instruction enum for parsing, while a
+      composite lowers parsed instructions into its machine-local instruction
+      enum and routes the corresponding product:
     </p>
 
-<pre><code class="language-rust">{parseSrc}</code></pre>
+<pre><code class="language-rust">use chumsky::Parser as _;
+use vihaco_parser::Parse;
+
+#[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
+#[syntax_class(instruction)]
+enum SurfaceInstruction {
+    #[pattern = "'counter::add $0"]
+    Add(i64),
+}
+
+let instruction = SurfaceInstruction::parser()
+    .parse("counter::add 5")
+    .into_result()?;
+// A composite resolves `SurfaceInstruction::Add` to its routed runtime
+// product and dispatches that product through `Execute<I>`.</code></pre>
 
     <p>
       That is the whole instruction-level surface. Module-level parsing adds

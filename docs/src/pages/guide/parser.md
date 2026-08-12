@@ -33,10 +33,11 @@ use vihaco_parser::Parse as ParseTrait;
 
 #[derive(Debug, Clone, PartialEq, Instruction, Parse)]
 #[instruction(width = 8)]
-#[syntax_class(instruction, head = "counter")]
+#[syntax_class(instruction)]
 enum CounterInstruction {
-    #[pattern = "'add $0"]
+    #[pattern = "'counter::add $0"]
     Add(i64),
+    #[pattern = "'counter::print"]
     Print,
 }
 
@@ -59,10 +60,11 @@ The two derives are independent:
 - `Instruction` defines bytecode encoding and runtime opcode behavior.
 - `Parse` defines source syntax.
 
-`#[syntax_class(instruction, head = "counter")]` places every instruction in
-the `counter::` namespace. A unit variant receives a conventional lowercase
-pattern automatically. `#[pattern = "'add $0"]` spells out the mnemonic and
-binds the first tuple field. The derive also implements
+`#[syntax_class(instruction)]` marks an instruction parser. Each instruction
+pattern contains its complete source token, including any namespace. A unit
+variant receives a conventional lowercase pattern automatically.
+`#[pattern = "'counter::add $0"]` spells out the complete mnemonic and binds
+the first tuple field. The derive also implements
 `SurfaceInstruction` for an instruction-class enum.
 
 ## The `Parse` trait
@@ -102,7 +104,7 @@ Every derived parser declares exactly one syntax class:
 
 | Attribute | Role |
 |---|---|
-| `#[syntax_class(instruction, head = "dialect")]` | A namespaced instruction such as `dialect::load` |
+| `#[syntax_class(instruction)]` | An instruction whose patterns contain complete tokens such as `dialect::load` |
 | `#[syntax_class(value)]` | A value expression |
 | `#[syntax_class(type)]` | A type expression with an explicit pattern |
 
@@ -126,11 +128,11 @@ use vihaco_parser_derive::Parse;
 use vihaco_parser::{Ident, Parse as ParseTrait};
 
 #[derive(Debug, PartialEq, Parse)]
-#[syntax_class(instruction, head = "control")]
+#[syntax_class(instruction)]
 enum ControlInstruction {
-    #[pattern = "'branch `@` $0"]
+    #[pattern = "'control::branch `@` $0"]
     Branch(Ident),
-    #[pattern = "'select $0 `,` $1"]
+    #[pattern = "'control::select $0 `,` $1"]
     Select(bool, u32),
 }
 
@@ -168,9 +170,9 @@ use vihaco_parser::{Ident, Parse as ParseTrait};
 struct Address(Ident);
 
 #[derive(Debug, PartialEq, Parse)]
-#[syntax_class(instruction, head = "control")]
+#[syntax_class(instruction)]
 enum ControlInstruction {
-    #[pattern = "'branch `@` $0"]
+    #[pattern = "'control::branch `@` $0"]
     Branch(Address),
 }
 

@@ -1,0 +1,5 @@
+error: expected curly braces
+  --> tests/compile_fail/composite_machine/unsupported-to-clause.rs:13:21
+   |
+13 |             effects to target;
+   |                     ^^

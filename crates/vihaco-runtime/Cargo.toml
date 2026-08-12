@@ -12,6 +12,8 @@ eyre = { workspace = true }
 vihaco-abi = { workspace = true }
 vihaco-bytecode = { workspace = true }
 vihaco-module = { workspace = true }
+vihaco-parser = { workspace = true }
+vihaco-syntax = { workspace = true }
 vihaco-runtime-derive = { workspace = true, optional = true }
 
 [features]

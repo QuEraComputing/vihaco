@@ -14,6 +14,7 @@ members = [
     "crates/vihaco-runtime-derive",
     "crates/vihaco-stdlib",
     "crates/vihaco-syntax",
+    "demos",
 ]
 
 [workspace.package]

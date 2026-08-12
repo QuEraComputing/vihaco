@@ -82,7 +82,7 @@ Complete set of `::vihaco::…` paths emitted by the current derive:
   `CompositeMetadata`, `BytecodeSectionView`, `SstSectionView`.
 - `instruction::{OpCode, FromBytes, FromBytesWithOpcode, WriteBytes}`
 - `metadata::{DeviceMetadata, SourceSymbolAliasMetadata}`
-- `loader::{LoadOwnBytecodeSection, LoadBytecodeSection, LoadOwnSstSection, LoadSstSection}`
+- `loader::{LoadOwnBytecodeSection, LoadBytecodeSection, LoadSstProgram, LoadSstSubtree}`
 - `runtime::Message`
 - `__private::GeneratedMachine`
 

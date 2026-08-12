@@ -1,0 +1,148 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
+//! Heterogeneous two-CPU demo. This is the end-to-end integration reference from
+//! `demos/examples/demo.md`.
+//!
+//! The implementation is split into three layers under `demo/`: framework contracts in
+//! `vihaco/`, reusable components in `stdlib/`, and this demo's user-written machine in `src/`.
+
+#![allow(dead_code)]
+
+use std::collections::HashMap;
+use vihaco::{Effects, LoadSstSubtree, NoContext, ProgramImage, SstFile, VERSION};
+
+#[path = "demo/stdlib/arithmetic.rs"]
+mod arithmetic;
+#[path = "demo/stdlib/channel.rs"]
+mod channel;
+#[path = "demo/stdlib/clock.rs"]
+mod clock;
+#[path = "demo/stdlib/counter.rs"]
+mod counter;
+#[path = "demo/src/cpu.rs"]
+mod cpu;
+#[path = "demo/stdlib/debug_trace.rs"]
+mod debug_trace;
+#[path = "demo/src/driver.rs"]
+mod driver;
+#[path = "demo/vihaco/execute.rs"]
+mod execute;
+#[path = "demo/vihaco/handle.rs"]
+mod handle;
+#[path = "demo/src/machine.rs"]
+mod machine;
+#[path = "demo/vihaco/machine_macro.rs"]
+mod machine_macro;
+#[path = "demo/vihaco/resume.rs"]
+mod resume;
+#[path = "demo/vihaco/route.rs"]
+mod route;
+#[path = "demo/stdlib/stack.rs"]
+mod stack;
+#[path = "demo/vihaco/supply.rs"]
+mod supply;
+use arithmetic::ArithmeticUnit;
+use channel::{ChannelEndpoint, ChannelFabric, EndpointId, SharedTransport};
+use clock::{GlobalClock, GlobalTicksPerLocalCycle};
+use cpu::{Cpu, CpuFault};
+use debug_trace::DebugTrace;
+use machine::{CpuId, HeterogeneousMachine, RunOutcome};
+use stack::Stack;
+fn main() -> Result<(), CpuFault> {
+    // Two instances of the same reusable `Cpu`. Their local-to-global ratios are owned by the
+    // root machine and selected by CpuId when each child is stepped.
+    let fabric = std::rc::Rc::new(std::cell::RefCell::new(
+        ChannelFabric::<i64>::with_channels(2),
+    ));
+    let transport_a = SharedTransport::new(fabric.clone());
+    let transport_b = SharedTransport::new(fabric.clone());
+
+    let cpu_a = load_cpu(
+        "channel::recv from_b\narithmetic::mul",
+        Stack::seeded(&[3]),
+        EndpointId(0),
+        transport_a,
+    )?;
+    let cpu_b = load_cpu(
+        "arithmetic::sub\narithmetic::mul\nchannel::send to_a",
+        Stack::seeded(&[10, 4, 2]),
+        EndpointId(1),
+        transport_b,
+    )?;
+
+    let mut machine = HeterogeneousMachine {
+        clock: GlobalClock::new(),
+        transport: SharedTransport::new(fabric),
+        ticks_per_local_cycle: HashMap::from([
+            (CpuId::A, GlobalTicksPerLocalCycle::new(3)?),
+            (CpuId::B, GlobalTicksPerLocalCycle::new(2)?),
+        ]),
+        // CpuA has three global ticks per local tick. CpuB has one global tick per local tick.
+        cpu_a,
+        cpu_b,
+        execution_trace: Vec::new(),
+    };
+
+    let outcome = machine.run()?;
+
+    println!("global trace:");
+    for line in &machine.execution_trace {
+        println!("  {line}");
+    }
+    println!("outcome        = {outcome:?}");
+    println!("CpuA stack     = {:?}", machine.cpu_a.operand_stack.view());
+    println!("CpuB stack     = {:?}", machine.cpu_b.operand_stack.view());
+    println!("CpuA debug      = {:?}", machine.cpu_a.debug.records);
+    println!("CpuB debug      = {:?}", machine.cpu_b.debug.records);
+
+    // Acceptance: CpuA's receive is woken at global tick 3, the next local boundary after
+    // CpuB's send at global tick 2. CpuA then executes its multiply at tick 6.
+    assert_eq!(outcome, RunOutcome::Completed);
+    assert_eq!(
+        machine.execution_trace,
+        vec![
+            "global  0: CpuA recv parks on ChannelId(1)",
+            "global  0: CpuB Sub",
+            "global  2: CpuB Mul",
+            "global  4: CpuB send on ChannelId(1)",
+            "global  6: CpuA wakes, recv 20",
+            "global  9: CpuA Mul",
+        ]
+    );
+    assert_eq!(machine.cpu_a.operand_stack.top(), Some(60));
+    assert!(!machine.cpu_a.channel.is_parked());
+    assert!(!machine.cpu_b.channel.is_parked());
+    assert!(machine.cpu_a.finished());
+    assert!(machine.cpu_b.finished());
+
+    println!("OK: heterogeneous exchange completed with 60 on CpuA, no stale continuation");
+    Ok(())
+}
+
+fn load_cpu(
+    body: &str,
+    operand_stack: Stack,
+    endpoint: EndpointId,
+    transport: SharedTransport<i64>,
+) -> Result<Cpu, CpuFault> {
+    let source = format!(
+        "sst v{VERSION}\n\n.global:\n.global.\n\n.section(root):\n\t.header(root):\n\t\tdemo-cpu\n\t.header(root).\n\t.text(root):\n\t\tfn @main() {{\n{body}\t\t}}\n\t.text(root).\n\t.section(debug):\n\t\t.text(debug):\n\t\t\tloaded by generated forwarding\n\t\t.text(debug).\n\t.section(debug).\n.section(root).\n",
+        body = body
+            .lines()
+            .map(|line| format!("\t\t\t{line}\n"))
+            .collect::<String>()
+    );
+    let file = SstFile::<NoContext>::from_text(&source).map_err(CpuFault::Loading)?;
+    let mut cpu = Cpu {
+        operand_stack,
+        alu: ArithmeticUnit::new(),
+        channel: ChannelEndpoint::new(endpoint, transport),
+        debug: DebugTrace::new(),
+        program: ProgramImage::new(),
+        header: None,
+    };
+    cpu.load_sst_subtree(file.root())
+        .map_err(CpuFault::Loading)?;
+    Ok(cpu)
+}

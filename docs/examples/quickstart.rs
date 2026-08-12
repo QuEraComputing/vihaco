@@ -1,48 +1,54 @@
 use eyre::Result;
-use vihaco::{
-    Effects, GeneratedComponent, Instruction, Message, component, expect_exactly_one_effect,
-};
+use vihaco::{component, Effects, Execute, Execution, StepResult};
 
-#[derive(Debug, Clone, Instruction)]
-pub enum CounterInst {
-    Add(i64),
-    Print,
-}
+component! {
+    component Counter {
+        value: i64,
+    }
 
-#[derive(Debug, Clone, Message)]
-pub struct Prefix(pub String);
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Line(pub String);
-
-#[derive(Debug, Default)]
-pub struct Counter {
-    value: i64,
-}
-
-#[component(instruction = CounterInst, message = Prefix, effect = Line)]
-impl Counter {
-    fn execute(&mut self, inst: CounterInst, msg: Prefix) -> Result<Effects<Line>> {
-        match inst {
-            CounterInst::Add(v) => {
-                self.value += v;
-                Ok(Effects::none())
-            }
-            CounterInst::Print => Ok(Effects::one(Line(format!("{}{}", msg.0, self.value)))),
+    runtime {
+        instruction {
+            Add(i64),
+            Read,
         }
     }
 }
 
+// The component owns these product structs; a composite assembles them into
+// its machine-local instruction enum when it is used in a machine.
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Value(pub i64);
+
+impl Execute<counter::runtime::instruction::Add> for counter::Counter {
+    type Message = ();
+    type Effect = ();
+    type Fault = eyre::Report;
+
+    fn execute(&mut self, instruction: &counter::runtime::instruction::Add, _: ()) -> Result<StepResult<()>> {
+        self.value += instruction.0;
+        Ok(StepResult { effects: Effects::none(), execution: Execution::Complete })
+    }
+}
+
+impl Execute<counter::runtime::instruction::Read> for counter::Counter {
+    type Message = ();
+    type Effect = Value;
+    type Fault = eyre::Report;
+
+    fn execute(&mut self, _: &counter::runtime::instruction::Read, _: ()) -> Result<StepResult<Value>> {
+        Ok(StepResult { effects: Effects::one(Value(self.value)), execution: Execution::Complete })
+    }
+}
+
 fn main() -> Result<()> {
-    let mut counter = Counter::default();
-
-    // `Add` ignores its message and returns no effects.
-    counter.execute_generated(CounterInst::Add(2), Prefix(String::new()))?;
-    counter.execute_generated(CounterInst::Add(3), Prefix(String::new()))?;
-
-    // `Print` returns exactly one `Line` effect.
-    let effects = counter.execute_generated(CounterInst::Print, Prefix("total = ".into()))?;
-    let line = expect_exactly_one_effect(effects)?;
-    assert_eq!(line, Line("total = 5".into()));
+    let mut counter = counter::Counter { value: 0 };
+    Execute::execute(&mut counter, &counter::runtime::instruction::Add(5), ())?;
+    let value = Execute::execute(&mut counter, &counter::runtime::instruction::Read, ())?
+        .effects
+        .into_iter()
+        .next()
+        .expect("Read emits one value");
+    assert_eq!(value, Value(5));
     Ok(())
 }

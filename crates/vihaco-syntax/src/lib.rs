@@ -14,8 +14,10 @@ mod types;
 pub mod parse;
 pub mod resolve;
 
-pub use types::{Param, ParsedFunction, ParsedModule};
-pub use vihaco_parser::SurfaceInstruction;
+pub use types::{
+    ModuleSyntax, Param, ParsedFunction, ParsedLabel, ParsedModule, ParsedSourceSymbol,
+};
+pub use vihaco_parser::{InstructionSet, Parse, SurfaceInstruction};
 
 pub use parse::{block_i64_flat, block_i64_pairs, skip};
 pub use resolve::Resolve;
@@ -24,14 +26,18 @@ pub use resolve::Resolve;
 mod tests {
     use super::*;
     use chumsky::Parser as _;
+    use vihaco_abi::traits::FromText;
+    use vihaco_bytecode::SstHeader;
     use vihaco_parser::Parse;
 
     // Minimal stub: an enum that derives Parse and has just two unit variants.
     // Avoids pulling vihaco-cpu/-fpga into the test (cycle).
     #[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
-    #[syntax_class(instruction, head = "stub")]
+    #[syntax_class(instruction)]
     enum StubInst {
+        #[pattern = "'stub::halt"]
         Halt,
+        #[pattern = "'stub::print"]
         Print,
     }
 
@@ -42,10 +48,34 @@ mod tests {
         Unit,
     }
 
+    #[derive(Debug, Clone, PartialEq)]
+    struct StubHeader;
+
+    impl FromText for StubHeader {
+        fn from_text(text: &str) -> eyre::Result<Self> {
+            if text.trim().is_empty() {
+                Ok(Self)
+            } else {
+                Err(eyre::eyre!("unexpected header text"))
+            }
+        }
+    }
+
+    impl SstHeader for StubHeader {}
+
+    struct StubSyntax;
+
+    impl ModuleSyntax for StubSyntax {
+        type Instruction = StubInst;
+        type Value = ();
+        type Type = StubType;
+        type Header = StubHeader;
+    }
+
     #[test]
     fn parses_empty_function() {
         let src = "fn @main() {}";
-        let f = ParsedFunction::<StubInst, StubType>::parser()
+        let f = ParsedFunction::<StubSyntax>::parser()
             .parse(src)
             .into_result()
             .unwrap();
@@ -56,7 +86,7 @@ mod tests {
     #[test]
     fn parses_function_with_canonical_body() {
         let src = "fn @main() {\n  stub::halt\n  stub::print\n  stub::halt\n}";
-        let f = ParsedFunction::<StubInst, StubType>::parser()
+        let f = ParsedFunction::<StubSyntax>::parser()
             .parse(src)
             .into_result()
             .unwrap();
@@ -70,7 +100,7 @@ mod tests {
     fn rejects_unknown_instruction() {
         let src = "fn @main() { foo bar 1 2.0 }";
         assert!(
-            ParsedFunction::<StubInst, StubType>::parser()
+            ParsedFunction::<StubSyntax>::parser()
                 .parse(src)
                 .has_errors()
         );
@@ -79,7 +109,7 @@ mod tests {
     #[test]
     fn parses_consumer_provided_return_type() {
         let src = "fn @main() -> unit { stub::halt }";
-        let f = ParsedFunction::<StubInst, StubType>::parser()
+        let f = ParsedFunction::<StubSyntax>::parser()
             .parse(src)
             .into_result()
             .unwrap();
@@ -108,7 +138,7 @@ fn @main() {
     stub::halt
 }
 ";
-        let f = ParsedFunction::<StubInst, StubType>::parser()
+        let f = ParsedFunction::<StubSyntax>::parser()
             .parse(src)
             .into_result()
             .unwrap();
@@ -118,14 +148,24 @@ fn @main() {
     #[test]
     fn rejects_malformed_known_instruction() {
         #[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
-        #[syntax_class(instruction, head = "stub")]
+        #[syntax_class(instruction)]
         enum OnlyOne {
+            #[pattern = "'stub::dump $0"]
             Dump(u32),
+        }
+
+        struct OnlyOneSyntax;
+
+        impl ModuleSyntax for OnlyOneSyntax {
+            type Instruction = OnlyOne;
+            type Value = ();
+            type Type = StubType;
+            type Header = StubHeader;
         }
 
         let src = "fn @main() { stub::dump foo }";
         assert!(
-            ParsedFunction::<OnlyOne, StubType>::parser()
+            ParsedFunction::<OnlyOneSyntax>::parser()
                 .parse(src)
                 .has_errors()
         );

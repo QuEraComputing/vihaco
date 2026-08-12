@@ -1,0 +1,5 @@
+error: route is missing a message clause
+  --> tests/compile_fail/composite_machine/missing-message-clause.rs:11:9
+   |
+11 |         Run(Instruction) => target {}
+   |         ^^^

@@ -1,9 +1,10 @@
 struct Child;
 
-#[vihaco::composite]
-struct BadMachine {
+vihaco::composite! {
+composite BadMachine {
     #[loadable("child")]
     child: Child,
+}
 }
 
 fn main() {}

@@ -11,7 +11,9 @@ authors.workspace = true
 chumsky = { workspace = true }
 eyre = { workspace = true }
 vihaco-bytecode = { workspace = true }
+vihaco-abi = { workspace = true }
 vihaco-parser = { workspace = true }
 
 [dev-dependencies]
+vihaco-abi = { workspace = true }
 vihaco-parser-derive = { workspace = true }
