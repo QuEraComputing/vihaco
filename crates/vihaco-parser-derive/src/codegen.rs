@@ -97,11 +97,12 @@ impl<'p> PatternAtom<'p, BindingRef<'p>> {
 }
 
 fn pattern_syntax_parser<'p>(
+    metadata: bool,
 ) -> impl Parser<'p, &'p str, Vec<PatternAtom<'p, BindingRef<'p>>>, extra::Err<Rich<'p, char>>> {
     let ident = text::ascii::ident();
     let digits = text::int(10);
 
-    let token = just('\'').ignore_then(ident).map(Token);
+    let token = just('\'').ignore_then(ident).map(Token).boxed();
 
     let binding_index = digits
         .to_slice()
@@ -109,24 +110,46 @@ fn pattern_syntax_parser<'p>(
             s.parse::<u32>()
                 .map_err(|_| Rich::custom(span, "binding index must be a valid number"))
         })
-        .map(Index);
+        .map(Index)
+        .boxed();
 
-    let binding_field = ident.map(Field);
+    let binding_field = ident.map(Field).boxed();
 
     let binding = just('$')
         .ignore_then(choice((binding_field, binding_index)))
-        .map(Binding);
+        .map(Binding)
+        .boxed();
 
-    let symbol = choice((just(','), just('@'))).map(Symbol);
+    let symbol = choice((just(','), just('@'))).map(Symbol).boxed();
 
-    let keyword = ident.map(Keyword);
+    let dotted_ident = ident
+        .then(just('.').ignore_then(ident).repeated())
+        .to_slice();
+
+    let keyword = if metadata {
+        dotted_ident.map(Keyword).boxed()
+    } else {
+        ident.map(Keyword).boxed()
+    };
 
     let literal = choice((symbol, keyword))
         .delimited_by(just('`'), just('`'))
-        .map(Literal);
+        .map(Literal)
+        .boxed();
 
-    choice((token, binding, literal))
-        .separated_by(just(' '))
+    let atom = if metadata {
+        choice((
+            token,
+            binding,
+            literal,
+            dotted_ident.map(|name| Literal(Keyword(name))).boxed(),
+        ))
+        .boxed()
+    } else {
+        choice((token, binding, literal)).boxed()
+    };
+
+    atom.separated_by(just(' '))
         .collect::<Vec<PatternAtom<BindingRef<'p>>>>()
 }
 
@@ -217,7 +240,7 @@ impl<'p> PatternAtoms<'p, BindingRef<'p>> {
 
 impl<'p> UnparsedPatternInfo<'p> {
     fn parse(self) -> eyre::Result<ValidatedPatternInfo<'p>> {
-        let tokens = pattern_syntax_parser()
+        let tokens = pattern_syntax_parser(matches!(self.class, SyntaxClassAttr::Metadata { .. }))
             .parse(self.pattern)
             .into_result()
             .map_err(|errors| {
@@ -269,6 +292,7 @@ impl fmt::Display for SyntaxClassAttr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Instruction { .. } => write!(f, "instruction"),
+            Self::Metadata { .. } => write!(f, "metadata"),
             Self::Type => write!(f, "type"),
             Self::Value => write!(f, "value"),
         }
@@ -745,10 +769,7 @@ fn generate_pattern<'src>(
             };
             info.with_new_info(pattern, span)
         }
-        Fields::Unit => info.with_new_info(
-            prefix.expect("must be an instruction with a prefix at this point in the execution"),
-            span,
-        ),
+        Fields::Unit => info.with_new_info(prefix.unwrap_or(name), span),
     })
 }
 
@@ -882,6 +903,13 @@ fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
             let head = format!("{head}::");
             quote! {
                 ::chumsky::primitive::just(#head)
+                .ignore_then(#or_chain)
+            }
+        }
+        Some(SyntaxClassAttr::Metadata { head }) => {
+            let head = format!("{head} ");
+            quote! {
+                ::chumsky::primitive::just(#head)
                     .ignore_then(#or_chain)
             }
         }
@@ -971,6 +999,13 @@ fn expand_struct(input: StructInfo) -> Result<TokenStream> {
     let parser = match &struct_attrs.syntax_class {
         Some(SyntaxClassAttr::Instruction { head }) => {
             let head = format!("{head}::");
+            quote! {
+                ::chumsky::primitive::just(#head)
+                .ignore_then(#ident)
+            }
+        }
+        Some(SyntaxClassAttr::Metadata { head }) => {
+            let head = format!("{head} ");
             quote! {
                 ::chumsky::primitive::just(#head)
                     .ignore_then(#ident)
