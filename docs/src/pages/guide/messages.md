@@ -66,7 +66,7 @@ A component can then declare that message type in its `#[component(...)]` impl:
 
 ```rust
 use eyre::Result;
-use vihaco::{Effects, Instruction, Message, component};
+use vihaco::{Effects, Instruction, Message, component_attr as component};
 
 #[derive(Debug, Clone, Instruction)]
 pub enum WaveInst {
@@ -141,7 +141,7 @@ That is the mental model to keep throughout the rest of this guide.
 
 ```rust
 use eyre::Result;
-use vihaco::{Effects, GeneratedComponent, Instruction, Message, component, composite};
+use vihaco::{Effects, GeneratedComponent, Instruction, Message, component_attr as component, composite};
 
 #[derive(Debug, Clone, Instruction)]
 enum DeviceInst {
@@ -201,7 +201,7 @@ In other words, the component defines the input shape, but the composite decides
 A real runtime shows a richer version of the same idea. A signal-generator component expects a `SignalMessage`:
 
 ```rust ignore
-use vihaco::{Effects, Message, component};
+use vihaco::{Effects, Message, component_attr as component};
 
 #[derive(Debug, Clone, Copy, PartialEq, Message)]
 pub enum SignalMessage {
@@ -279,7 +279,7 @@ For example:
 
 ```rust
 use eyre::Result;
-use vihaco::{Effects, Instruction, component};
+use vihaco::{Effects, Instruction, component_attr as component};
 
 #[derive(Debug, Clone, Instruction)]
 pub enum LampInst {

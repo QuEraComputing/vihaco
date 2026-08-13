@@ -1,6 +1,6 @@
 use eyre::Result;
 use vihaco::{
-    Effects, GeneratedComponent, Instruction, Message, component, expect_exactly_one_effect,
+    Effects, GeneratedComponent, Instruction, Message, component_attr as component, expect_exactly_one_effect,
 };
 
 #[derive(Debug, Clone, Instruction)]

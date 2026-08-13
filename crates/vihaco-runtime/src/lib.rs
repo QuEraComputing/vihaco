@@ -35,4 +35,6 @@ pub use vihaco_abi::Instruction;
 
 // Re-export the runtime derives behind the `derive` feature (serde convention).
 #[cfg(feature = "derive")]
-pub use vihaco_runtime_derive::{Message, component, composite, machine, observe};
+pub use vihaco_runtime_derive::{
+    Message, component_attr, component_macro, composite, machine, observe,
+};

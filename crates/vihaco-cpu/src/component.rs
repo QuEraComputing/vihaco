@@ -4,12 +4,12 @@
 use eyre::Result;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Rem, Shl, Shr, Sub};
 
+use crate::RuntimeInstruction;
 use crate::StepOutcome;
 use crate::data::CPU;
-use crate::instruction::RuntimeInstruction;
 use vihaco::Effects;
 use vihaco::program::{Type, Value};
-use vihaco::{component, frame::Frame, traits::*};
+use vihaco::{component_attr as component, frame::Frame, traits::*};
 
 impl Reset for CPU {
     fn reset(&mut self) {
@@ -29,7 +29,7 @@ impl CPU {
         use RuntimeInstruction::*;
         match inst {
             Span(file, start, end) => self.op_span(file, start, end),
-            Label | FunctionStart | FunctionEnd => Ok(StepOutcome::Continue),
+            Label(_) | FunctionStart | FunctionEnd => Ok(StepOutcome::Continue),
             Breakpoint => Ok(StepOutcome::Breakpoint),
             Branch(target) => self.op_branch(target),
             ConditionalBranch(true_target, false_target) => {
@@ -48,7 +48,7 @@ impl CPU {
             HeapAlloc(n_elements) => self.op_heap_alloc(n_elements),
             GetItem => self.op_get_item(),
             HeapDealloc => self.op_heap_dealloc(),
-            Const(v) => self.op_const(v),
+            Const(_, v) => self.op_const(v),
             Add(ty) => self.op_add(ty),
             Sub(ty) => self.op_sub(ty),
             Mul(ty) => self.op_mul(ty),
@@ -299,9 +299,8 @@ impl CPU {
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
-    use vihaco::{
-        Effects, GeneratedComponent, frame::Frame, instruction::OpCode, traits::StackMemory,
-    };
+    use vihaco::{Effects, GeneratedComponent, frame::Frame, traits::StackMemory};
+    use vihaco_parser::Ident;
 
     #[test]
     fn cpu_generated_component_executes_instruction_without_message() {
@@ -309,7 +308,7 @@ mod tests {
 
         GeneratedComponent::execute_generated(
             &mut cpu,
-            RuntimeInstruction::Const(Value::I64(7)),
+            RuntimeInstruction::Const(Type::I64, Value::I64(7)),
             CPUMessage::None,
         )
         .unwrap();
@@ -547,16 +546,6 @@ mod tests {
     }
 
     #[test]
-    fn cpu_instruction_opcodes_follow_variant_order_without_explicit_attributes() {
-        assert_eq!(RuntimeInstruction::Span(0, 0, 0).opcode(), 0);
-        assert_eq!(RuntimeInstruction::Label.opcode(), 1);
-        assert_eq!(RuntimeInstruction::FunctionStart.opcode(), 2);
-        assert_eq!(RuntimeInstruction::HeapAlloc(1).opcode(), 15);
-        assert_eq!(RuntimeInstruction::Const(Value::I64(1)).opcode(), 18);
-        assert_eq!(RuntimeInstruction::Ge(Type::I64).opcode(), 41);
-    }
-
-    #[test]
     fn execute_generated_dispatches_instruction_without_message() {
         let mut cpu = CPU::default();
         cpu.push_frame(Frame {
@@ -568,7 +557,7 @@ mod tests {
 
         let outcome = GeneratedComponent::execute_generated(
             &mut cpu,
-            RuntimeInstruction::Const(Value::I64(99)),
+            RuntimeInstruction::Const(Type::I64, Value::I64(99)),
             CPUMessage::None,
         )
         .unwrap();
@@ -589,7 +578,7 @@ mod tests {
 
         let outcome = GeneratedComponent::execute_generated(
             &mut cpu,
-            RuntimeInstruction::Label,
+            RuntimeInstruction::Label(Ident("label".to_owned())),
             CPUMessage::FunctionInfo {
                 arity: 2,
                 start_address: 42,

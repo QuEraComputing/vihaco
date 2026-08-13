@@ -51,7 +51,7 @@ In normal component code, this instruction type is the `instruction = ...` value
 
 ```rust
 use eyre::Result;
-use vihaco::{Instruction, component};
+use vihaco::{Instruction, component_attr as component};
 
 #[derive(Debug, Clone, Instruction)]
 pub enum LampInst {

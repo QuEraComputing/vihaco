@@ -1,22 +1,128 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+use crate::instruction::{SurfaceType, SurfaceValue};
 use vihaco::value::Value;
 use vihaco::{
     frame::Frame,
     traits::{FrameMemory, StackFrame, StackMemory},
 };
+use vihaco_parser::Ident;
 
-#[derive(Debug, Clone, Default)]
-pub struct CPU {
-    pub(crate) frames: Vec<Frame>,
-    pub(crate) heap: Heap,
-    pub(crate) stack: Vec<Value>,
-    pub(crate) span: (u32, u32, u32),
-    pub(crate) pending_pc: Option<u32>,
-    pub(crate) current_pc: u32,
-    pub(crate) return_values: Vec<Value>,
+vihaco::component! {
+    #[derive(Default, Debug)]
+    pub component CPU {
+        pub(crate) frames: Vec<Frame>,
+        pub(crate) heap: Heap,
+        pub(crate) stack: Vec<Value>,
+        pub(crate) span: (u32, u32, u32),
+        pub(crate) pending_pc: Option<u32>,
+        pub(crate) current_pc: u32,
+        pub(crate) return_values: Vec<Value>,
+    }
+
+    type Type = vihaco::Type;
+    value Value = vihaco::Value;
+
+    instruction {
+        #[pattern = "'span $0 $1 $2"]
+        Span(u32, u32, u32),
+
+        #[pattern = "'label `@` $0"]
+        Label(Ident),
+
+        #[pattern = "'func_start"]
+        FunctionStart,
+
+        #[pattern = "'func_end"]
+        FunctionEnd,
+
+        Breakpoint,
+
+        #[pattern = "'br `@` $0"]
+        Branch(Ident => u32),
+
+        #[pattern = "'cond_br `@` $0 `,` `@` $1"]
+        ConditionalBranch(Ident => u32, Ident => u32),
+
+        #[pattern = "'ret $0"]
+        Return(u32),
+
+        #[pattern = "'call_indirect"]
+        IndirectCall,
+
+        Call(u32, Ident => u32),
+
+        Halt,
+
+        Print,
+
+        Load(SurfaceType => Type, u32),
+
+        Store(SurfaceType => Type, u32),
+
+        Dup,
+
+        #[pattern = "'heap_alloc $0"]
+        HeapAlloc(u32),
+
+        #[pattern = "'get_item"]
+        GetItem,
+
+        #[pattern = "'heap_dealloc"]
+        HeapDealloc,
+
+        Const(SurfaceType => Type, SurfaceValue => Value),
+
+        Add(SurfaceType => Type),
+
+        Sub(SurfaceType => Type),
+
+        Mul(SurfaceType => Type),
+
+        Div(SurfaceType => Type),
+
+        Rem(SurfaceType => Type),
+
+        Neg(SurfaceType => Type),
+
+        Shl(SurfaceType => Type),
+
+        Shr(SurfaceType => Type),
+
+        Rol(SurfaceType => Type),
+
+        Ror(SurfaceType => Type),
+
+        #[pattern = "'bitand $0"]
+        BitAnd(SurfaceType => Type),
+
+        #[pattern = "'bitor $0"]
+        BitOr(SurfaceType => Type),
+
+        #[pattern = "'bitxor $0"]
+        BitXor(SurfaceType => Type),
+
+        Not,
+
+        And,
+
+        Or,
+
+        Xor,
+
+        Eq(SurfaceType => Type),
+        Ne(SurfaceType => Type),
+        Lt(SurfaceType => Type),
+        Gt(SurfaceType => Type),
+        Le(SurfaceType => Type),
+        Ge(SurfaceType => Type),
+    }
 }
+
+pub use cpu::CPU;
+pub use cpu::runtime::Instruction as RuntimeInstruction;
+pub use cpu::syntax::Instruction as SurfaceInstruction;
 
 type HeapSlot = Option<Box<[Value]>>;
 

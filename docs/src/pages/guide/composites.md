@@ -49,7 +49,7 @@ Now you can compose a runtime root:
 
 ```rust
 # use eyre::Result;
-# use vihaco::{Effects, Instruction, component, observe};
+# use vihaco::{Effects, Instruction, component_attr as component, observe};
 # #[derive(Debug, Clone, Instruction)]
 # pub enum CounterInst { Print }
 # #[derive(Debug, Default)]
@@ -313,7 +313,7 @@ The SST parser preserves the original header and bytecode ranges, including thei
 
 ## Effect Continuation Is Hand-Written
 
-`#[composite]` generates the instruction enum and metadata, but it does **not** auto-deliver effects to observers. Continuing effects is something the runtime does explicitly: execute a component, then hand each returned effect to the types that observe it by calling their `Observe` impls.
+`#[composite]` generates the instruction enum and metadata, but it does **not** auto-deliver effects to observers. Continuing effects is something the runtime does explicitly: execute a component_attr as component, then hand each returned effect to the types that observe it by calling their `Observe` impls.
 
 ```rust ignore
 use vihaco::{GeneratedComponent, Observe};

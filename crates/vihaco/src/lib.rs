@@ -38,14 +38,16 @@ pub use instruction_syntax::{
 pub use loader::{
     LoadBytecodeSection, LoadOwnBytecodeSection, LoadOwnSstSection, LoadSstSection, ProgramImage,
 };
-pub use macros::{Instruction, Message, component, composite, observe};
+pub use macros::{Instruction, Message, component, component_attr, composite, observe};
 pub use program::{Type, Value};
 pub use runtime::{
     CompositeMetadata, EffectSink, GeneratedComponent, Message as MessageMarker, Observe,
     expect_exactly_one_effect,
 };
 pub use traits::{FromBytes, FromText, GetProgramInfo, Reset};
+pub use vihaco_parser::Parse;
 pub use vihaco_parser::SurfaceInstruction;
+pub use vihaco_parser_derive::Parse;
 
 #[cfg(test)]
 mod public_api_tests {

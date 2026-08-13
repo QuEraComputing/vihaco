@@ -38,7 +38,7 @@ Example:
 
 ```rust
 use eyre::Result;
-use vihaco::{Effects, Instruction, Message, component};
+use vihaco::{Effects, Instruction, Message, component_attr as component};
 
 #[derive(Debug, Clone, Instruction)]
 pub enum CounterInst {
@@ -64,7 +64,7 @@ Component execution lives on an impl block annotated with `#[component(...)]`.
 
 ```rust
 # use eyre::Result;
-# use vihaco::{Effects, Instruction, Message, component};
+# use vihaco::{Effects, Instruction, Message, component_attr as component};
 # #[derive(Debug, Clone, Instruction)]
 # pub enum CounterInst { Add(i64), Print }
 # #[derive(Debug, Clone, Message)]
@@ -116,7 +116,7 @@ Use `message = ()` when the component can execute directly from its instruction 
 
 ```rust
 use eyre::Result;
-use vihaco::{Effects, Instruction, component};
+use vihaco::{Effects, Instruction, component_attr as component};
 
 #[derive(Debug, Clone, Instruction)]
 pub enum LampInst {
@@ -169,7 +169,7 @@ Component execution depends only on explicit inputs and returned effects.
 By default, `execute(...)` returns `Result<Effects<()>>`. When a component needs to return a real effect, use the `effect` parameter:
 
 ```rust
-use vihaco::{Effects, Instruction, Message, component};
+use vihaco::{Effects, Instruction, Message, component_attr as component};
 use vihaco_cpu::StepOutcome;
 
 #[derive(Debug, Clone, Instruction)]
