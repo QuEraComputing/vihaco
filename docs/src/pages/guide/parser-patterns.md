@@ -70,11 +70,33 @@ Every type using pattern generation must declare a syntax class.
 | Attribute | Meaning | Additional rules |
 |---|---|---|
 | `#[syntax_class(instruction, head = "dialect")]` | An instruction in the `dialect::` namespace. | Every pattern starts with an instruction token such as `'load`. |
+| `#[syntax_class(metadata, head = "device")]` | Metadata lines in the `device ` namespace. | Patterns use bare names such as `module.setting`; instruction tokens are not required. |
 | `#[syntax_class(value)]` | A value expression. | Instruction tokens are forbidden. Simple defaults are available. |
 | `#[syntax_class(type)]` | A type expression. | Instruction tokens are forbidden and every variant or struct needs an explicit pattern. |
 
 Put `#[syntax_class]` on the enum or struct definition, never on a variant or
-field. An instruction head is required and is written without trailing `::`.
+field. An instruction or metadata head is required and is written without its
+separator. Instruction heads use `::`; metadata heads use one ASCII space.
+
+Metadata patterns are useful for line-oriented headers:
+
+```rust
+use chumsky::Parser as _;
+use vihaco_parser::Parse as ParseTrait;
+use vihaco_parser_derive::Parse;
+
+#[derive(Debug, PartialEq, Parse)]
+#[syntax_class(metadata, head = "device")]
+enum DeviceHeader {
+    #[pattern = "module.setting $0 `,` $1"]
+    ModuleSetting(i64, i64),
+}
+
+assert_eq!(
+    DeviceHeader::parser().parse("device module.setting 3, 4").into_result(),
+    Ok(DeviceHeader::ModuleSetting(3, 4)),
+);
+```
 
 ## Generated patterns
 
@@ -96,8 +118,8 @@ Defaults intentionally stop there:
 - A value with more than one field must spell out how those fields are
   separated.
 - A type always requires an explicit pattern.
-- A unit value defaults to its lowercase name, while a unit instruction
-  defaults to its lowercase instruction token.
+- A unit value or metadata variant defaults to its lowercase name, while a
+  unit instruction defaults to its lowercase instruction token.
 
 Explicit patterns may reorder fields. Bindings identify constructor fields,
 not capture order, so <code>#[pattern = "$right `,` $left"]</code> still constructs a
@@ -109,8 +131,9 @@ The complete grammar is small:
 
 ```text
 pattern       = atom, { " ", atom } ;
-atom          = instruction-token | binding | literal ;
+atom          = instruction-token | metadata-name | binding | literal ;
 instruction-token = "'", ascii-identifier ;
+metadata-name = ascii-identifier, { ".", ascii-identifier } ;
 binding       = "$", (ascii-identifier | decimal-index) ;
 literal       = "`", (ascii-identifier | "," | "@"), "`" ;
 ```
@@ -120,13 +143,15 @@ The atoms mean:
 | Form | Purpose | Example |
 |---|---|---|
 | `'name` | Match an instruction mnemonic. It is not included in the constructed value. | `'load` |
+| `name` or `name.part` | Match a metadata name. It is not included in the constructed value. | `module.setting` |
 | `$0`, `$1`, … | Parse and capture a tuple field by zero-based index. | `$1` |
 | `$field` | Parse and capture a named field. Raw Rust identifiers bind by their unraw name, so `r#type` uses `$type`. | `$address` |
 | `` `word` `` | Match an exact, case-sensitive keyword. | `` `before` `` |
 | `` `,` `` | Match a comma with punctuation-aware spacing. | <code>$0 `,` $1</code> |
 | `` `@` `` | Match an at sign with punctuation-aware spacing. | <code>$0 `@` $1</code> |
 
-Only comma and at sign are currently supported as symbol literals. Arbitrary
+Only comma and at sign are currently supported as punctuation literals.
+Metadata names may additionally contain dots without backticks. Arbitrary
 punctuation and quoted strings are not part of the pattern language.
 
 ## Whitespace is part of the grammar

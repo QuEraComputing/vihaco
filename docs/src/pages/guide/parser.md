@@ -103,11 +103,13 @@ Every derived parser declares exactly one syntax class:
 | Attribute | Role |
 |---|---|
 | `#[syntax_class(instruction, head = "dialect")]` | A namespaced instruction such as `dialect::load` |
+| `#[syntax_class(metadata, head = "device")]` | A line-oriented metadata record such as `device module.setting ...` |
 | `#[syntax_class(value)]` | A value expression |
 | `#[syntax_class(type)]` | A type expression with an explicit pattern |
 
 Put the attribute on the enum or struct definition. Instruction heads omit the
-trailing `::`; the derive supplies it.
+trailing `::`; the derive supplies it. Metadata heads omit their trailing
+space; the derive supplies that separator instead.
 
 ## Patterns
 
