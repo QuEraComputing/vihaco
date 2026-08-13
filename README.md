@@ -44,7 +44,7 @@ pub struct Counter {
     value: i64,
 }
 
-#[component(instruction = CounterInst, message = Prefix, effect = Line)]
+#[dispatch(instruction = CounterInst, message = Prefix, effect = Line)]
 impl Counter {
     fn execute(&mut self, inst: CounterInst, msg: Prefix) -> Result<Effects<Line>> {
         match inst {

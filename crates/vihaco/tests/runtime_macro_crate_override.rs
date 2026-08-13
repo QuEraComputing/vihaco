@@ -3,8 +3,7 @@
 
 use eyre::Result;
 use vihaco::{
-    Effects, GeneratedComponent, Instruction, Observe, component_attr as component, composite,
-    observe,
+    Component, Effects, GeneratedComponent, Instruction, Observe, composite, dispatch, observe,
 };
 
 mod test_root {
@@ -20,9 +19,21 @@ struct TestMessage;
 
 struct TestEffect;
 
+#[derive(Debug, Clone, PartialEq, vihaco::Parse)]
+#[syntax_class(instruction, head = "legacy")]
+enum LegacySyntax {
+    #[pattern = "'noop"]
+    Noop,
+}
+
 struct TestComponent;
 
-#[component(instruction = TestInstruction, message = TestMessage, effect = TestEffect)]
+impl Component for TestComponent {
+    type Runtime = TestInstruction;
+    type Syntax = LegacySyntax;
+}
+
+#[dispatch(instruction = TestInstruction, message = TestMessage, effect = TestEffect)]
 #[vihaco(crate = crate::test_root)]
 impl TestComponent {
     fn execute(

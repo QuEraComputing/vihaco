@@ -48,7 +48,7 @@ pub fn composite(_attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
-pub fn component_attr(attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
     attr_component::expand(attr, item)
 }
 

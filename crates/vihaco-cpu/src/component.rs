@@ -9,7 +9,7 @@ use crate::StepOutcome;
 use crate::data::CPU;
 use vihaco::Effects;
 use vihaco::program::{Type, Value};
-use vihaco::{component_attr as component, frame::Frame, traits::*};
+use vihaco::{dispatch, frame::Frame, traits::*};
 
 impl Reset for CPU {
     fn reset(&mut self) {
@@ -83,7 +83,7 @@ pub enum CPUMessage {
     Print(String),
 }
 
-#[component(instruction = RuntimeInstruction, message = CPUMessage, effect = StepOutcome)]
+#[dispatch(instruction = RuntimeInstruction, message = CPUMessage, effect = StepOutcome)]
 impl CPU {
     fn execute(
         &mut self,
