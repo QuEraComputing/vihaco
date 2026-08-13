@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: MIT
 
 use eyre::Result;
-use vihaco::{Effects, GeneratedComponent, Instruction, Observe, component, composite, observe};
+use vihaco::{
+    Effects, GeneratedComponent, Instruction, Observe, component_attr as component, composite,
+    observe,
+};
 
 mod test_root {
     pub use ::vihaco::*;

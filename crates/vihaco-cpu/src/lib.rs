@@ -8,7 +8,8 @@ mod instruction;
 mod outcome;
 pub use component::CPUMessage;
 pub use data::CPU;
-pub use instruction::{RuntimeInstruction, SurfaceInstruction, SurfaceType, SurfaceValue};
+pub use data::{RuntimeInstruction, SurfaceInstruction};
+pub use instruction::{SurfaceType, SurfaceValue};
 pub use outcome::StepOutcome;
 
 #[cfg(test)]

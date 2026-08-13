@@ -1,5 +1,5 @@
 use eyre::Result;
-use vihaco::{Effects, Instruction, Message, component};
+use vihaco::{Effects, Instruction, Message, component_attr as component};
 
 #[derive(Instruction)]
 enum DemoInst {

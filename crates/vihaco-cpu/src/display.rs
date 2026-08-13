@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-use crate::instruction::RuntimeInstruction;
+use crate::RuntimeInstruction;
 use vihaco::color::{Themed, show_instruction};
 
 impl std::fmt::Display for RuntimeInstruction {
@@ -19,7 +19,7 @@ impl std::fmt::Display for RuntimeInstruction {
                     format!("0x{:X}", end)
                 )
             }
-            Label => show_instruction!(f, "label"),
+            Label(_) => show_instruction!(f, "label"),
             FunctionStart => show_instruction!(f, "function_start"),
             FunctionEnd => show_instruction!(f, "function_end"),
             Breakpoint => show_instruction!(f, "breakpoint"),
@@ -52,7 +52,7 @@ impl std::fmt::Display for RuntimeInstruction {
             HeapAlloc(n_elements) => show_instruction!(f, "heap_alloc ", n_elements),
             GetItem => show_instruction!(f, "get_item"),
             HeapDealloc => show_instruction!(f, "heap_dealloc"),
-            Const(v) => show_instruction!(f, "const.", v.type_of(), " ", v),
+            Const(_, v) => show_instruction!(f, "const.", v.type_of(), " ", v),
             Add(ty) => show_instruction!(f, "add.", ty),
             Sub(ty) => show_instruction!(f, "sub.", ty),
             Mul(ty) => show_instruction!(f, "mul.", ty),

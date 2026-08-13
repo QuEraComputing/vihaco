@@ -1,5 +1,5 @@
 use eyre::Result;
-use vihaco::{Effects, Instruction, Message, component};
+use vihaco::{Effects, Instruction, Message, component_attr as component};
 
 /// Bytecode-visible operations. Each variant becomes an opcode; tuple
 /// fields become the payload bytes that follow it.

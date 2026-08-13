@@ -191,5 +191,5 @@ newtype, another syntax enum or struct, `Vec<T>`, or a tuple.
 
 - For section headers, functions, typed bodies, and `Resolve`, see
   [Module Parsing and Resolution](/guide/parser-advanced).
-- To attach an instruction type to a component, see
+- To attach an instruction type to a component_attr as component, see
   [Building Components With `vihaco`](/guide/components).

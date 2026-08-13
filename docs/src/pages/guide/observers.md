@@ -231,7 +231,7 @@ The important design shift is that the observer sees the effect directly. If it 
 
 ```rust ignore
 use eyre::Result;
-use vihaco::{Effects, component, observe};
+use vihaco::{Effects, component_attr as component, observe};
 
 pub struct ChannelFrame {
     pub channel: u32,
@@ -302,7 +302,7 @@ The example below shows the full picture:
 
 ```rust
 use eyre::Result;
-use vihaco::{Effects, Instruction, Message, component, observe};
+use vihaco::{Effects, Instruction, Message, component_attr as component, observe};
 
 #[derive(Debug, Clone, Instruction)]
 pub enum WaveInst {
@@ -331,7 +331,7 @@ pub struct ChannelSample {
 
 ```rust
 # use eyre::Result;
-# use vihaco::{Effects, Instruction, Message, component};
+# use vihaco::{Effects, Instruction, Message, component_attr as component};
 # #[derive(Debug, Clone, Instruction)]
 # pub enum WaveInst { SetAmplitude(f64), Play }
 # #[derive(Debug, Clone, Message)]
@@ -386,7 +386,7 @@ impl StdoutCollector {
 
 ```rust
 # use eyre::Result;
-# use vihaco::{Effects, Instruction, component, observe};
+# use vihaco::{Effects, Instruction, component_attr as component, observe};
 # #[derive(Debug, Clone, PartialEq)]
 # pub struct StdoutEffect(pub String);
 # #[derive(Debug, Clone, PartialEq)]
