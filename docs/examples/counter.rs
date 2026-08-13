@@ -1,5 +1,5 @@
 use eyre::Result;
-use vihaco::{Effects, Instruction, Message, component_attr as component};
+use vihaco::{dispatch, Effects, Instruction, Message};
 
 /// Bytecode-visible operations. Each variant becomes an opcode; tuple
 /// fields become the payload bytes that follow it.
@@ -24,7 +24,7 @@ pub struct Counter {
 }
 
 // One `execute` per component: (instruction, message) in, effects out.
-#[component(instruction = CounterInst, message = Prefix, effect = Line)]
+#[dispatch(instruction = CounterInst, message = Prefix, effect = Line)]
 impl Counter {
     fn execute(&mut self, inst: CounterInst, msg: Prefix) -> Result<Effects<Line>> {
         match inst {

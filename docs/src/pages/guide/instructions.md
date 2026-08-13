@@ -51,7 +51,7 @@ In normal component code, this instruction type is the `instruction = ...` value
 
 ```rust
 use eyre::Result;
-use vihaco::{Instruction, component_attr as component};
+use vihaco::{dispatch, Instruction};
 
 #[derive(Debug, Clone, Instruction)]
 pub enum LampInst {
@@ -64,7 +64,7 @@ pub struct Lamp {
     on: bool,
 }
 
-#[component(instruction = LampInst, message = ())]
+#[dispatch(instruction = LampInst, message = ())]
 impl Lamp {
     fn execute(&mut self, inst: LampInst, _msg: ()) -> Result<vihaco::Effects<()>> {
         self.on = matches!(inst, LampInst::On);
@@ -127,6 +127,6 @@ For explicit opcode assignment, explicit widths, and machine-level wrapper instr
 
 `#[derive(Instruction)]` covers bytecode and runtime semantics; source-text parsing is owned by an orthogonal `#[derive(vihaco_parser_derive::Parse)]` on the same enum. See [Pattern Parser Integration for Component Instructions](/guide/parser) for the parser-side workflow and [Module Parsing and Resolution](/guide/parser-advanced) for section headers, typed function bodies, and module resolution.
 
-After defining an instruction type, the next step is usually to attach it to a component impl with `#[component(...)]`.
+After defining an instruction type, the next step is usually to attach it to a component impl with `#[dispatch(...)]`.
 
 See [Building Components With `vihaco`](/guide/components) for the execution side of that model.

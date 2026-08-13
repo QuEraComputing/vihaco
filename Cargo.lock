@@ -728,10 +728,12 @@ dependencies = [
 name = "vihaco-runtime"
 version = "0.2.0"
 dependencies = [
+ "chumsky",
  "eyre",
  "vihaco-abi",
  "vihaco-bytecode",
  "vihaco-module",
+ "vihaco-parser",
  "vihaco-runtime-derive",
 ]
 

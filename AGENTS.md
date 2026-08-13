@@ -90,7 +90,7 @@ self-contained component you can use directly or copy as a starting point.
 - **Effects<T>** (`effect.rs`): `None | One | Many(SmallVec)` — what `execute`
   returns. Composable via `append`/`extend`/`map`/`flat_map`;
   `expect_exactly_one_effect` is the common extractor.
-- **Component** (`#[component(instruction=, message=, effect=, outcome=)]`):
+- **Dispatch** (`#[dispatch(instruction=, message=, effect=, outcome=)]`):
   wraps an `impl` block with an `execute(&mut self, inst, msg)` method into an
   impl of the `GeneratedComponent` trait (`runtime/generated.rs`).
 - **Composite / Machine** (`#[composite]`, which is `#[derive(Machine)]` plus

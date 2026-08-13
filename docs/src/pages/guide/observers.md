@@ -231,7 +231,7 @@ The important design shift is that the observer sees the effect directly. If it 
 
 ```rust ignore
 use eyre::Result;
-use vihaco::{Effects, component_attr as component, observe};
+use vihaco::{dispatch, Effects, observe};
 
 pub struct ChannelFrame {
     pub channel: u32,
@@ -247,7 +247,7 @@ pub enum DisplayOutcome {
     Ready(f64),
 }
 
-#[component(instruction = DisplayInst, message = DisplayMsg, effect = DisplayOutcome)]
+#[dispatch(instruction = DisplayInst, message = DisplayMsg, effect = DisplayOutcome)]
 impl Display {
     fn execute(
         &mut self,
@@ -302,7 +302,7 @@ The example below shows the full picture:
 
 ```rust
 use eyre::Result;
-use vihaco::{Effects, Instruction, Message, component_attr as component, observe};
+use vihaco::{dispatch, Effects, Instruction, Message, observe};
 
 #[derive(Debug, Clone, Instruction)]
 pub enum WaveInst {
@@ -331,7 +331,7 @@ pub struct ChannelSample {
 
 ```rust
 # use eyre::Result;
-# use vihaco::{Effects, Instruction, Message, component_attr as component};
+# use vihaco::{dispatch, Effects, Instruction, Message};
 # #[derive(Debug, Clone, Instruction)]
 # pub enum WaveInst { SetAmplitude(f64), Play }
 # #[derive(Debug, Clone, Message)]
@@ -343,7 +343,7 @@ pub struct WaveGenerator {
     amplitude: f64,
 }
 
-#[component(instruction = WaveInst, message = PlayMsg, effect = ChannelSample)]
+#[dispatch(instruction = WaveInst, message = PlayMsg, effect = ChannelSample)]
 impl WaveGenerator {
     fn execute(&mut self, inst: WaveInst, msg: PlayMsg) -> Result<Effects<ChannelSample>> {
         match inst {
@@ -386,7 +386,7 @@ impl StdoutCollector {
 
 ```rust
 # use eyre::Result;
-# use vihaco::{Effects, Instruction, component_attr as component, observe};
+# use vihaco::{dispatch, Effects, Instruction, observe};
 # #[derive(Debug, Clone, PartialEq)]
 # pub struct StdoutEffect(pub String);
 # #[derive(Debug, Clone, PartialEq)]
@@ -402,7 +402,7 @@ pub enum RecorderInst {
     GetCount,
 }
 
-#[component(instruction = RecorderInst, message = (), effect = StdoutEffect)]
+#[dispatch(instruction = RecorderInst, message = (), effect = StdoutEffect)]
 impl Recorder {
     fn execute(&mut self, inst: RecorderInst, _msg: ()) -> Result<Effects<StdoutEffect>> {
         match inst {

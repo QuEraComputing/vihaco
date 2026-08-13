@@ -8,6 +8,8 @@ use std::collections::BTreeSet;
 use syn::parse::{Parse, ParseStream};
 use syn::{Attribute, Fields, Generics, Ident, Result, Token, Type, Visibility, WhereClause};
 
+use crate::common::resolve_root;
+
 syn::custom_keyword!(component);
 syn::custom_keyword!(instruction);
 syn::custom_keyword!(value);
@@ -224,6 +226,10 @@ fn validate(declaration: &Declaration) -> Result<()> {
 
 pub fn expand(input: TokenStream) -> TokenStream {
     let declaration = syn::parse_macro_input!(input as Declaration);
+    let root = match resolve_root(&declaration.attrs) {
+        Ok(root) => root,
+        Err(error) => return error.into_compile_error().into(),
+    };
     if let Err(error) = validate(&declaration) {
         return error.into_compile_error().into();
     }
@@ -331,6 +337,11 @@ pub fn expand(input: TokenStream) -> TokenStream {
             #visibility struct #name #impl_generics #where_clause #state
             #generated_instructions
             #aliases_only
+        }
+
+        impl #impl_generics #root::Component for #module_name::#name #where_clause {
+            type Runtime = #module_name::runtime::Instruction;
+            type Syntax = #module_name::syntax::Instruction;
         }
     }
     .into()

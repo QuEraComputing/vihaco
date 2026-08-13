@@ -1,5 +1,5 @@
 use eyre::Result;
-use vihaco::{Effects, Instruction, Message, component_attr as component};
+use vihaco::{dispatch, Effects, Instruction, Message};
 
 #[derive(Instruction)]
 enum DemoInst {
@@ -11,7 +11,7 @@ struct DemoMsg;
 
 struct DemoDevice;
 
-#[component(instruction = DemoInst, message = DemoMsg)]
+#[dispatch(instruction = DemoInst, message = DemoMsg)]
 impl DemoDevice {
     fn execute(&mut self, _inst: DemoInst, _msg: DemoMsg) -> Result<Effects<()>> {
         Ok(Effects::none())

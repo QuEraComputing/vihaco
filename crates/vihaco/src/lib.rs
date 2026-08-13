@@ -30,6 +30,7 @@ pub use binary::{
     SstFile, SstGlobalContext, SstHeader, SstSectionView, VERSION, WriteBytecodeHeader,
     decode_instruction_stream,
 };
+pub use chumsky;
 pub use effect::Effects;
 pub use instruction_syntax::{
     CanonicalInstructionSyntax, CanonicalInstructionVariantSyntax, InstructionSugarSyntax,
@@ -38,11 +39,11 @@ pub use instruction_syntax::{
 pub use loader::{
     LoadBytecodeSection, LoadOwnBytecodeSection, LoadOwnSstSection, LoadSstSection, ProgramImage,
 };
-pub use macros::{Instruction, Message, component, component_attr, composite, observe};
+pub use macros::{Instruction, Message, component, composite, dispatch, observe};
 pub use program::{Type, Value};
 pub use runtime::{
-    CompositeMetadata, EffectSink, GeneratedComponent, Message as MessageMarker, Observe,
-    expect_exactly_one_effect,
+    Component, CompositeMetadata, EffectSink, GeneratedComponent, Message as MessageMarker,
+    Observe, expect_exactly_one_effect,
 };
 pub use traits::{FromBytes, FromText, GetProgramInfo, Reset};
 pub use vihaco_parser::Parse;

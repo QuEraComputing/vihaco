@@ -1,6 +1,6 @@
 use eyre::Result;
 use vihaco::{
-    Effects, GeneratedComponent, Instruction, Message, component_attr as component, expect_exactly_one_effect,
+    dispatch, Effects, GeneratedComponent, Instruction, Message, expect_exactly_one_effect,
 };
 
 #[derive(Debug, Clone, Instruction)]
@@ -20,7 +20,7 @@ pub struct Counter {
     value: i64,
 }
 
-#[component(instruction = CounterInst, message = Prefix, effect = Line)]
+#[dispatch(instruction = CounterInst, message = Prefix, effect = Line)]
 impl Counter {
     fn execute(&mut self, inst: CounterInst, msg: Prefix) -> Result<Effects<Line>> {
         match inst {

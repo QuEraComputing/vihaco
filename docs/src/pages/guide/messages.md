@@ -62,11 +62,11 @@ pub struct PlayMsg {
 }
 ```
 
-A component can then declare that message type in its `#[component(...)]` impl:
+A component can then declare that message type in its `#[dispatch(...)]` impl:
 
-```rust
+```rust ignore
 use eyre::Result;
-use vihaco::{Effects, Instruction, Message, component_attr as component};
+use vihaco::{dispatch, Effects, Instruction, Message};
 
 #[derive(Debug, Clone, Instruction)]
 pub enum WaveInst {
@@ -92,7 +92,7 @@ pub struct WaveGenerator {
     amplitude: f64,
 }
 
-#[component(instruction = WaveInst, message = PlayMsg, effect = ChannelSample)]
+#[dispatch(instruction = WaveInst, message = PlayMsg, effect = ChannelSample)]
 impl WaveGenerator {
     fn execute(&mut self, inst: WaveInst, msg: PlayMsg) -> Result<Effects<ChannelSample>> {
         match inst {
@@ -139,14 +139,18 @@ That is the mental model to keep throughout the rest of this guide.
 
 `#[composite]` generates the device wiring (the outer instruction enum and device metadata), but message resolution is plain Rust that you write next to the composite: build the message from runtime context, then hand `(instruction, message)` to the component via the generated `execute_generated` method.
 
-```rust
+```rust ignore
 use eyre::Result;
-use vihaco::{Effects, GeneratedComponent, Instruction, Message, component_attr as component, composite};
+use vihaco::{dispatch, Component, Effects, GeneratedComponent, Instruction, Message, Parse, composite};
 
 #[derive(Debug, Clone, Instruction)]
 enum DeviceInst {
     Pulse,
 }
+
+#[derive(Debug, Clone, PartialEq, Parse)]
+#[syntax_class(instruction, head = "device")]
+enum DeviceSyntax { #[pattern = "'pulse"] Pulse }
 
 #[derive(Message)]
 struct DeviceMsg(&'static str);
@@ -156,7 +160,7 @@ struct Device {
     seen: Vec<&'static str>,
 }
 
-#[component(instruction = DeviceInst, message = DeviceMsg)]
+#[dispatch(instruction = DeviceInst, message = DeviceMsg)]
 impl Device {
     fn execute(&mut self, inst: DeviceInst, msg: DeviceMsg) -> Result<Effects<()>> {
         match inst {
@@ -166,6 +170,11 @@ impl Device {
             }
         }
     }
+}
+
+impl Component for Device {
+    type Runtime = DeviceInst;
+    type Syntax = DeviceSyntax;
 }
 
 #[composite]
@@ -201,7 +210,7 @@ In other words, the component defines the input shape, but the composite decides
 A real runtime shows a richer version of the same idea. A signal-generator component expects a `SignalMessage`:
 
 ```rust ignore
-use vihaco::{Effects, Message, component_attr as component};
+use vihaco::{dispatch, Effects, Message};
 
 #[derive(Debug, Clone, Copy, PartialEq, Message)]
 pub enum SignalMessage {
@@ -210,7 +219,7 @@ pub enum SignalMessage {
     Duration(u64),
 }
 
-#[component(instruction = SignalInst, message = SignalMessage)]
+#[dispatch(instruction = SignalInst, message = SignalMessage)]
 impl SignalGenerator {
     fn execute(&mut self, inst: SignalInst, msg: SignalMessage) -> eyre::Result<Effects<()>> {
         // component consumes a resolved message here
@@ -279,7 +288,7 @@ For example:
 
 ```rust
 use eyre::Result;
-use vihaco::{Effects, Instruction, component_attr as component};
+use vihaco::{dispatch, Effects, Instruction};
 
 #[derive(Debug, Clone, Instruction)]
 pub enum LampInst {
@@ -292,7 +301,7 @@ pub struct Lamp {
     on: bool,
 }
 
-#[component(instruction = LampInst, message = ())]
+#[dispatch(instruction = LampInst, message = ())]
 impl Lamp {
     fn execute(&mut self, inst: LampInst, _msg: ()) -> Result<Effects<()>> {
         self.on = matches!(inst, LampInst::On);

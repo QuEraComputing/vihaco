@@ -184,6 +184,13 @@ struct TextLoadedDevice {
     program: TextProgram,
 }
 
+#[derive(Debug, Clone, PartialEq, vihaco::Parse)]
+#[syntax_class(instruction, head = "legacy")]
+enum LegacySyntax {
+    #[pattern = "'noop"]
+    Noop,
+}
+
 impl GeneratedComponent for LoadedDevice {
     type Instruction = TestInst;
     type Message = ();
@@ -198,6 +205,11 @@ impl GeneratedComponent for LoadedDevice {
     }
 }
 
+impl vihaco::Component for LoadedDevice {
+    type Runtime = TestInst;
+    type Syntax = LegacySyntax;
+}
+
 impl GeneratedComponent for TextLoadedDevice {
     type Instruction = TextInst;
     type Message = ();
@@ -210,6 +222,11 @@ impl GeneratedComponent for TextLoadedDevice {
     ) -> eyre::Result<Effects<Self::Effect>> {
         Ok(Effects::none())
     }
+}
+
+impl vihaco::Component for TextLoadedDevice {
+    type Runtime = TextInst;
+    type Syntax = LegacySyntax;
 }
 
 impl LoadBytecodeSection<TextContext> for LoadedDevice {
@@ -270,6 +287,11 @@ impl GeneratedComponent for NestedMachine {
     ) -> eyre::Result<Effects<Self::Effect>> {
         Ok(Effects::none())
     }
+}
+
+impl vihaco::Component for NestedMachine {
+    type Runtime = NestedMachineInstruction;
+    type Syntax = LegacySyntax;
 }
 
 #[vihaco::composite]
@@ -333,6 +355,11 @@ impl GeneratedComponent for TextNestedMachine {
     ) -> eyre::Result<Effects<Self::Effect>> {
         Ok(Effects::none())
     }
+}
+
+impl vihaco::Component for TextNestedMachine {
+    type Runtime = TextNestedMachineInstruction;
+    type Syntax = LegacySyntax;
 }
 
 #[vihaco::composite]
