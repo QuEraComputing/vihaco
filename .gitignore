@@ -32,3 +32,7 @@ target
 CLAUDE.md
 .agents/skills/agents-update
 .claude/skills/agents-update
+
+# docs
+node_modules
+.pnpm-store
