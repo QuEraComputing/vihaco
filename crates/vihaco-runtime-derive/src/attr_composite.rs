@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+use convert_case::{Case, Casing};
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{ToTokens, format_ident, quote};
@@ -328,44 +329,70 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
         }
     }
 
-    let machine_instruction_ident = format_ident!("{}Instruction", ident);
+    let module_ident = format_ident!("{}", ident.to_string().to_case(Case::Snake));
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let enum_generics = enum_generics_for_device_fields(&generics, &devices);
     let (_, enum_ty_generics, _) = enum_generics.split_for_impl();
+    let mut syntax_parser_generics = enum_generics.clone();
+    let syntax_lifetime = Lifetime::new("'__vihaco_src", proc_macro2::Span::call_site());
+    syntax_parser_generics
+        .params
+        .insert(0, syn::parse_quote!(#syntax_lifetime));
+    let (syntax_impl_generics, _, syntax_where_clause) = syntax_parser_generics.split_for_impl();
+    let (enum_impl_generics, _, enum_where_clause) = enum_generics.split_for_impl();
 
-    let machine_instruction_variants: Vec<_> = devices
+    let runtime_instruction_variants: Vec<_> = devices
         .iter()
         .map(|(field, field_ty, _)| {
             let variant_ident = pascal_case(field);
             quote! {
-                #variant_ident(<#field_ty as #root::GeneratedComponent>::Instruction)
+                #variant_ident(<#field_ty as #root::Component>::Runtime)
             }
         })
         .collect();
 
-    let device_entries: Vec<_> = devices
+    let syntax_instruction_variants: Vec<_> = devices
         .iter()
-        .map(|(field, _, args)| {
-            let name = field.to_string();
-            let code = args.code;
-            quote! { #root::metadata::DeviceMetadata { code: #code, name: #name } }
+        .map(|(field, field_ty, _)| {
+            let variant_ident = pascal_case(field);
+            quote! {
+                #variant_ident(<#field_ty as #root::Component>::Syntax)
+            }
         })
         .collect();
-    let source_symbol_alias_entries: Vec<_> = devices
+
+    let syntax_parser_alternatives: Vec<_> = devices
         .iter()
-        .flat_map(|(_, _, args)| {
-            let code = args.code;
+        .flat_map(|(field, field_ty, args)| {
+            let variant_ident = pascal_case(field);
             let root = root.clone();
-            args.aliases.iter().map(move |alias| {
+            let mut prefixes = vec![field.to_string()];
+            prefixes.extend(args.aliases.iter().map(|alias| alias.value()));
+            prefixes.into_iter().map(move |prefix| {
                 quote! {
-                    #root::metadata::SourceSymbolAliasMetadata {
-                        name: #alias,
-                        device_code: #code,
-                    }
+                    #root::chumsky::primitive::just(concat!(#prefix, "::"))
+                        .ignore_then(
+                            <#field_ty as #root::Component>::Syntax::parser()
+                        )
+                        .map(Self::#variant_ident)
+                        .boxed()
                 }
             })
         })
         .collect();
+
+    if syntax_parser_alternatives.is_empty() {
+        return Err(syn::Error::new(
+            ident.span(),
+            "a composite must have at least one #[device] field",
+        ));
+    }
+    let syntax_parser = if syntax_parser_alternatives.len() == 1 {
+        let parser = &syntax_parser_alternatives[0];
+        quote! { #parser }
+    } else {
+        quote! { #root::chumsky::primitive::choice((#(#syntax_parser_alternatives),*)) }
+    };
 
     let bc_lifetime = Lifetime::new("'__vihaco_bc", proc_macro2::Span::call_site());
     let loadable_context_param = format_ident!("__VihacoContext");
@@ -564,24 +591,46 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
     };
 
     Ok(quote! {
-        #[derive(Debug, Clone, #root::Instruction)]
-        pub enum #machine_instruction_ident #enum_generics {
-            #( #machine_instruction_variants ),*
-        }
+        #[doc(hidden)]
+        pub mod #module_ident {
+            use super::*;
 
-        impl #impl_generics #root::__private::GeneratedMachine for #ident #ty_generics #where_clause {
-            type Instruction = #machine_instruction_ident #enum_ty_generics;
+            pub mod syntax {
+                use super::*;
 
-            fn metadata(&self) -> #root::CompositeMetadata {
-                static DEVICES: &[#root::metadata::DeviceMetadata] = &[
-                    #( #device_entries ),*
-                ];
-                static SOURCE_SYMBOL_ALIASES: &[#root::metadata::SourceSymbolAliasMetadata] = &[
-                    #( #source_symbol_alias_entries ),*
-                ];
-                #root::CompositeMetadata {
-                    devices: DEVICES,
-                    source_symbol_aliases: SOURCE_SYMBOL_ALIASES,
+                #[derive(Debug, Clone, PartialEq)]
+                pub enum Instruction #enum_generics {
+                    #( #syntax_instruction_variants ),*
+                }
+
+                impl #syntax_impl_generics #root::Parse<'__vihaco_src>
+                    for Instruction #enum_ty_generics
+                    #syntax_where_clause
+                {
+                    fn parser() -> impl #root::chumsky::Parser<
+                        '__vihaco_src,
+                        &'__vihaco_src str,
+                        Self,
+                        #root::chumsky::extra::Err<
+                            #root::chumsky::error::Simple<'__vihaco_src, char>
+                        >,
+                    > {
+                        use #root::chumsky::Parser as _;
+                        #syntax_parser
+                    }
+                }
+
+                impl #enum_impl_generics #root::SurfaceInstruction for Instruction #enum_ty_generics
+                    #enum_where_clause
+                {}
+            }
+
+            pub mod runtime {
+                use super::*;
+
+                #[derive(Debug, Clone)]
+                pub enum Instruction #enum_generics {
+                    #( #runtime_instruction_variants ),*
                 }
             }
         }

@@ -4,13 +4,12 @@
 use eyre::Result;
 
 use vihaco_abi::frame::Frame;
-use vihaco_abi::traits::Instruction;
 use vihaco_bytecode::ConstantId;
 
 use crate::module::FunctionInfo;
 
 pub trait ProgramCounter {
-    type Instruction: Instruction;
+    type Instruction;
 
     /// Get the current program counter.
     fn pc(&self) -> u32;

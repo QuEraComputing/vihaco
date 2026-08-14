@@ -12,8 +12,6 @@ pub use vihaco_syntax as syntax;
 // The runtime layer and standard-library observers now live in their focused
 // crates; re-export them at the original paths (see design/crate-split.md §7).
 pub use vihaco_runtime as runtime;
-#[doc(hidden)]
-pub use vihaco_runtime::__private;
 pub use vihaco_stdlib::observer;
 pub mod instruction;
 pub mod machine;
@@ -30,6 +28,7 @@ pub use binary::{
     SstFile, SstGlobalContext, SstHeader, SstSectionView, VERSION, WriteBytecodeHeader,
     decode_instruction_stream,
 };
+pub use chumsky;
 pub use effect::Effects;
 pub use instruction_syntax::{
     CanonicalInstructionSyntax, CanonicalInstructionVariantSyntax, InstructionSugarSyntax,
@@ -38,14 +37,16 @@ pub use instruction_syntax::{
 pub use loader::{
     LoadBytecodeSection, LoadOwnBytecodeSection, LoadOwnSstSection, LoadSstSection, ProgramImage,
 };
-pub use macros::{Instruction, Message, component, composite, observe};
+pub use macros::{Instruction, Message, component, composite, dispatch, observe};
 pub use program::{Type, Value};
 pub use runtime::{
-    CompositeMetadata, EffectSink, GeneratedComponent, Message as MessageMarker, Observe,
-    expect_exactly_one_effect,
+    Component, CompositeMetadata, EffectSink, GeneratedComponent, Message as MessageMarker,
+    Observe, expect_exactly_one_effect,
 };
 pub use traits::{FromBytes, FromText, GetProgramInfo, Reset};
+pub use vihaco_parser::Parse;
 pub use vihaco_parser::SurfaceInstruction;
+pub use vihaco_parser_derive::Parse;
 
 #[cfg(test)]
 mod public_api_tests {

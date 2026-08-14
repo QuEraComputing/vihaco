@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 use vihaco_abi::program::{Type, Value};
-use vihaco_abi::traits::Instruction;
 use vihaco_bytecode::{BytecodeSectionView, ConstantId, ContextHandle, SstSectionView};
 
 use crate::host::{GetProgramInfo, ProgramCounter};
@@ -100,7 +99,7 @@ impl<I, C, V, Ty, Info> ProgramImage<I, C, V, Ty, Info> {
     }
 }
 
-impl<I: Instruction, C, V, Ty, Info> ProgramCounter for ProgramImage<I, C, V, Ty, Info> {
+impl<I, C, V, Ty, Info> ProgramCounter for ProgramImage<I, C, V, Ty, Info> {
     type Instruction = I;
 
     fn pc(&self) -> u32 {
@@ -122,7 +121,7 @@ impl<I: Instruction, C, V, Ty, Info> ProgramCounter for ProgramImage<I, C, V, Ty
     }
 }
 
-impl<I: Instruction, C, V, Ty, Info> GetProgramInfo for ProgramImage<I, C, V, Ty, Info>
+impl<I, C, V, Ty, Info> GetProgramInfo for ProgramImage<I, C, V, Ty, Info>
 where
     Ty: Clone,
 {

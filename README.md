@@ -12,8 +12,9 @@ machine.
 
 vihaco is a framework for building small virtual machines. You define
 
-- the **instruction set** — an enum, with `#[derive(Instruction)]`;
-- the **components** that execute it — with `#[component]`;
+- the **instruction set** — usually inside a `component!` declaration (or a
+  standalone enum with `#[derive(Instruction)]`);
+- the **components** that execute it — with `component!`;
 - the **effects** they emit; and
 - (optionally) **SST source syntax** — with `#[derive(Parse)]`,
 
@@ -22,14 +23,21 @@ all as ordinary Rust, then compose them into a machine. A component is one
 
 ```rust
 use eyre::Result;
-use vihaco::{Effects, Instruction, Message, component};
+use vihaco::{component, dispatch, Effects, Message};
 
-// Bytecode-visible operations: each variant is an opcode, tuple fields its payload.
-#[derive(Debug, Clone, Instruction)]
-pub enum CounterInst {
-    Add(i64),
-    Print,
+component! {
+    #[derive(Debug, Default)]
+    pub component Counter {
+        value: i64,
+    }
+
+    instruction {
+        Add(i64),
+        Print,
+    }
 }
+
+use counter::runtime::Instruction as CounterInst;
 
 // Runtime-supplied input, not encoded in the instruction stream.
 #[derive(Debug, Clone, Message)]
@@ -39,13 +47,8 @@ pub struct Prefix(pub String);
 #[derive(Debug, Clone, PartialEq)]
 pub struct Line(pub String);
 
-#[derive(Debug, Default)]
-pub struct Counter {
-    value: i64,
-}
-
-#[component(instruction = CounterInst, message = Prefix, effect = Line)]
-impl Counter {
+#[dispatch(instruction = counter::runtime::Instruction, message = Prefix, effect = Line)]
+impl counter::Counter {
     fn execute(&mut self, inst: CounterInst, msg: Prefix) -> Result<Effects<Line>> {
         match inst {
             CounterInst::Add(v) => {
@@ -65,13 +68,13 @@ needs; there is no umbrella crate.
 
 | Crate | Role |
 |---|---|
-| [`vihaco`](crates/vihaco) | The batteries-included facade: re-exports every crate below at stable paths (`Instruction` / `Message` / `Effects`, the `#[component]` / `#[observe]` / `#[composite]` macros, the module / syntax / runtime layers, the `Value` / `Type` model), so most projects depend only on this crate. |
+| [`vihaco`](crates/vihaco) | The batteries-included facade: re-exports every crate below at stable paths (`Message` / `Effects`, the `component!` / `#[observe]` / `#[composite]` macros, the module / syntax / runtime layers, the `Value` / `Type` model), so most projects depend only on this crate. |
 | [`vihaco-abi`](crates/vihaco-abi) | The ISA vocabulary: the `Instruction` / `Effects` types, the `Value` / `Type` model, and the encoding + host-VM traits. |
 | [`vihaco-abi-derive`](crates/vihaco-abi-derive) | `#[derive(Instruction)]`, re-exported through `vihaco-abi`'s `derive` feature. |
 | [`vihaco-bytecode`](crates/vihaco-bytecode) | The binary / SST container format: headers, sections, and instruction (de)coding. |
 | [`vihaco-module`](crates/vihaco-module) | The loadable `Module` model, program loader, host-VM traits, and assembly-style `Display`. |
 | [`vihaco-runtime`](crates/vihaco-runtime) | The component/machine runtime: `GeneratedComponent`, effect sinks, and observation machinery. |
-| [`vihaco-runtime-derive`](crates/vihaco-runtime-derive) | `#[derive(Message)]`, `#[component]`, `#[composite]`, `#[observe]`, re-exported through `vihaco-runtime`'s `derive` feature. |
+| [`vihaco-runtime-derive`](crates/vihaco-runtime-derive) | `#[derive(Message)]`, `component!`, `#[composite]`, `#[observe]`, re-exported through `vihaco-runtime`'s `derive` feature. |
 | [`vihaco-stdlib`](crates/vihaco-stdlib) | Standard-library components and observers, including `StdoutObserver`. |
 | [`vihaco-syntax`](crates/vihaco-syntax) | Typed SST parsing and module construction (`Resolve`). |
 | [`vihaco-cpu`](crates/vihaco-cpu) | A ready-made CPU/host component — a small stack machine (constants, arithmetic, branches, halt, …) with a `StepOutcome` control-flow effect. Use directly, or as a reference for writing your own. |

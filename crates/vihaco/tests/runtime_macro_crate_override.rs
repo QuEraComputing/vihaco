@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 use eyre::Result;
-use vihaco::{Effects, GeneratedComponent, Instruction, Observe, component, composite, observe};
+use vihaco::{Component, Effects, GeneratedComponent, Instruction, Observe, dispatch, observe};
 
 mod test_root {
     pub use ::vihaco::*;
@@ -17,9 +17,21 @@ struct TestMessage;
 
 struct TestEffect;
 
+#[derive(Debug, Clone, PartialEq, vihaco::Parse)]
+#[syntax_class(instruction, head = "legacy")]
+enum LegacySyntax {
+    #[pattern = "'noop"]
+    Noop,
+}
+
 struct TestComponent;
 
-#[component(instruction = TestInstruction, message = TestMessage, effect = TestEffect)]
+impl Component for TestComponent {
+    type Runtime = TestInstruction;
+    type Syntax = LegacySyntax;
+}
+
+#[dispatch(instruction = TestInstruction, message = TestMessage, effect = TestEffect)]
 #[vihaco(crate = crate::test_root)]
 impl TestComponent {
     fn execute(
@@ -45,13 +57,6 @@ impl TestObserver {
     }
 }
 
-#[composite]
-#[vihaco(crate = crate::test_root)]
-struct TestMachine {
-    #[device(0x01)]
-    component: TestComponent,
-}
-
 #[test]
 fn runtime_macros_honor_explicit_crate_override() {
     let mut component = TestComponent;
@@ -66,10 +71,4 @@ fn runtime_macros_honor_explicit_crate_override() {
         .into_iter()
         .for_each(drop);
     assert!(observer.observed);
-
-    let machine = TestMachine { component };
-    let _ = &machine.component;
-    let metadata = test_root::__private::GeneratedMachine::metadata(&machine);
-    assert_eq!(metadata.devices[0].code, 0x01);
-    assert_eq!(metadata.devices[0].name, "component");
 }

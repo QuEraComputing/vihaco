@@ -5,6 +5,7 @@ mod attr_component;
 mod attr_composite;
 mod attr_observe;
 mod common;
+mod component;
 mod derive_message;
 
 use crate::common::strip_vihaco_attrs;
@@ -47,8 +48,13 @@ pub fn composite(_attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
-pub fn component(attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
     attr_component::expand(attr, item)
+}
+
+#[proc_macro]
+pub fn component_macro(input: TokenStream) -> TokenStream {
+    component::expand(input)
 }
 
 #[proc_macro_attribute]

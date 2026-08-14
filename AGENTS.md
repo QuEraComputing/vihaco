@@ -90,15 +90,14 @@ self-contained component you can use directly or copy as a starting point.
 - **Effects<T>** (`effect.rs`): `None | One | Many(SmallVec)` — what `execute`
   returns. Composable via `append`/`extend`/`map`/`flat_map`;
   `expect_exactly_one_effect` is the common extractor.
-- **Component** (`#[component(instruction=, message=, effect=, outcome=)]`):
+- **Dispatch** (`#[dispatch(instruction=, message=, effect=, outcome=)]`):
   wraps an `impl` block with an `execute(&mut self, inst, msg)` method into an
   impl of the `GeneratedComponent` trait (`runtime/generated.rs`).
 - **Composite / Machine** (`#[composite]`, which is `#[derive(Machine)]` plus
   field-attr stripping): a struct of devices. Each `#[device(code, alias=...)]`
-  field becomes a variant of a generated `<Name>Instruction` enum (one opcode
-  per device); one field may be `#[program]` to delegate `ProgramCounter`. The
-  derive emits a `GeneratedMachine` impl exposing `CompositeMetadata` (device
-  codes + source-symbol aliases). See `vihaco-runtime-derive/src/attr_composite.rs`.
+  field becomes a variant of generated runtime and syntax instruction enums;
+  one field may be `#[program]` to delegate `ProgramCounter`. See
+  `vihaco-runtime-derive/src/attr_composite.rs`.
 
 ### Layers inside `vihaco`
 
