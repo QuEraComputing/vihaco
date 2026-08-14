@@ -217,7 +217,7 @@ The `effect` parameter is optional. When omitted, the macro sets `type Effect = 
 
 - Hand-written runtime code can call `execute_generated` directly and extract the returned effects. For single-effect control flow, `expect_exactly_one_effect(...)` is the common helper.
 - When a runtime needs to mix control-flow effects with other follow-ups, it usually defines a runtime-local sum-effect enum, gathers those values, and continues them in one place.
-- Transitional `#[composite]` wiring generates the device dispatch and metadata; continuing returned effects to observers is something the hand-written runtime does (see [Defining A Composite With `vihaco`](/guide/composites)), and it does not interpret `StepOutcome` for you.
+- Transitional `#[composite]` wiring generates component instruction types; continuing returned effects to observers is something the hand-written runtime does (see [Defining A Composite With `vihaco`](/guide/composites)), and it does not interpret `StepOutcome` for you.
 
 As a rule: use plain effect types for observer-delivered outputs, and use runtime-local sum-effect enums when a hand-written runtime needs extra per-step interpretation.
 

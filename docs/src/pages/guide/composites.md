@@ -2,7 +2,7 @@
 layout: ../../layouts/Guide.astro
 title: Defining a Composite
 slug: composites
-description: "Composite structs are the composition root in vihaco — #[composite] generates the outer instruction enum and device metadata; message resolution and effect delivery are hand-written."
+description: "Composite structs are the composition root in vihaco — #[composite] generates component instruction modules; message resolution and effect delivery are hand-written."
 ---
 
 # Defining A Composite With `vihaco`
@@ -93,16 +93,14 @@ pub struct CounterComposite {
 
 `#[composite]` is transitional scaffolding that generates the repetitive composition glue from the `#[device(...)]` fields:
 
-- **An outer instruction enum** named `<StructName>Instruction`, with one variant per device field. Each variant is the PascalCase of the field name and wraps that component's instruction type. For `CounterComposite` above the macro emits, roughly:
+- **Runtime and syntax instruction enums** in a snake_case module named after the composite. Each has one variant per device field. For `CounterComposite` above, the runtime module contains an enum shaped roughly like:
 
   ```rust ignore
-  #[derive(Debug, Clone, Instruction)]
-  pub enum CounterCompositeInstruction {
-      Counter(<Counter as GeneratedComponent>::Instruction),
+  #[derive(Debug, Clone)]
+  pub enum Instruction {
+      Counter(<Counter as Component>::Runtime),
   }
   ```
-
-- **Composite metadata** — an `impl GeneratedMachine` whose `metadata()` returns a `CompositeMetadata` listing each device's code and field name, plus the source-symbol aliases (so a loader can map a name like `"counter"` to its device code).
 
 - **Section loading glue** — `LoadBytecodeSection` and `LoadSstSection` impls that call your own-section loader for the composite's own section, then route direct child sections to `#[loadable]` devices.
 
@@ -122,7 +120,7 @@ Device aliases can replace the first prefix, so the alias `count` accepts
 
 The `#[device]` and `#[loadable]` attributes are stripped from the struct the macro emits, so they don't leak into your type.
 
-The long-term model is still explicit Rust composition. The macro is convenience for the device dispatch and metadata, not the semantic center of the design — message resolution and effect delivery stay in hand-written runtime code.
+The long-term model is still explicit Rust composition. The macro is convenience for device instruction wiring, not the semantic center of the design — message resolution and effect delivery stay in hand-written runtime code.
 
 ## The Field Attributes
 
@@ -334,7 +332,7 @@ The SST parser preserves the original header and bytecode ranges, including thei
 
 ## Effect Continuation Is Hand-Written
 
-`#[composite]` generates the instruction enum and metadata, but it does **not** auto-deliver effects to observers. Continuing effects is something the runtime does explicitly: execute a component through `GeneratedComponent`, then hand each returned effect to the types that observe it by calling their `Observe` impls.
+`#[composite]` generates component instruction enums, but it does **not** auto-deliver effects to observers. Continuing effects is something the runtime does explicitly: execute a component through `GeneratedComponent`, then hand each returned effect to the types that observe it by calling their `Observe` impls.
 
 ```rust ignore
 use vihaco::{GeneratedComponent, Observe};
@@ -379,7 +377,7 @@ The common pattern is:
 - Implement `LoadOwnBytecodeSection` / `LoadOwnSstSection` for headers and program streams owned by the current section.
 - Implement `ProgramCounter` manually when the composite drives an instruction pointer.
 - Prefer staged effect types over hidden cross-component observer context.
-- Let generated code own the device dispatch and metadata; keep effect delivery and message resolution in one clear place in your runtime.
+- Let generated code own the device instruction wiring; keep effect delivery and message resolution in one clear place in your runtime.
 
 ## What Comes Next
 

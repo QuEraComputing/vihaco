@@ -71,8 +71,8 @@ traits, module, effect), `syntax` (→ binary, parser). Top: `observer` (→ run
    `binary`) — `traits/machine.rs:6,8`. So these traits belong *above* `module`
    and `bytecode`; the `traits` module must be split across crates.
 2. **Derive-emitted paths.** Generated code currently hard-codes `::vihaco::…`
-   paths (crate root + `instruction`, `metadata`, `loader`, `runtime`,
-   `__private`). Inside the workspace, `extern crate self as vihaco;`
+   paths (crate root + `instruction`, `metadata`, `loader`, `runtime`). Inside
+   the workspace, `extern crate self as vihaco;`
    (`lib.rs:4`) is what makes those resolve. Splitting changes where generated
    code lives, so we address this head-on in §5 (root resolution).
 
@@ -84,7 +84,6 @@ Complete set of `::vihaco::…` paths emitted by the current derive:
 - `metadata::{DeviceMetadata, SourceSymbolAliasMetadata}`
 - `loader::{LoadOwnBytecodeSection, LoadBytecodeSection, LoadOwnSstSection, LoadSstSection}`
 - `runtime::Message`
-- `__private::GeneratedMachine`
 
 ## 4. Target crate graph
 
@@ -96,7 +95,7 @@ Eleven framework crates (plus unchanged `vihaco-cpu`, `vihaco-doctests`):
 | **vihaco-abi-derive** | `#[derive(Instruction)]` | syn, quote, proc-macro2, proc-macro-crate |
 | **vihaco-bytecode** | `binary/*` (headers, sections, contexts, `decode_instruction_stream`) **+ absorbed container codec** | vihaco-abi, byteorder, chumsky |
 | **vihaco-module** | `color`, `module`, host-VM traits (`host.rs`), `loader` | vihaco-abi, vihaco-bytecode, colored |
-| **vihaco-runtime** | `runtime/*`, `__private`. Re-exports its derive behind `derive` feature. | vihaco-abi, vihaco-bytecode, vihaco-module |
+| **vihaco-runtime** | `runtime/*`. Re-exports its derive behind `derive` feature. | vihaco-abi, vihaco-bytecode, vihaco-module |
 | **vihaco-runtime-derive** | `#[derive(Message)]`, `#[derive(Machine)]`/`#[composite]`, `#[component]`, `#[observe]` | syn, quote, proc-macro2, proc-macro-crate |
 | **vihaco-stdlib** | Standard-library components and observers (`observer/*`). | vihaco-runtime, eyre |
 | **vihaco-parser** | *(renamed from vihaco-parser-core)* `Parse`, `SurfaceInstruction`, primitive/lexical/collection impls. Re-exports its derive behind `derive` feature. | chumsky |
@@ -173,20 +172,17 @@ mirrors sub-crate paths; §5.3 makes `vihaco-runtime` mirror the rest.
 
 ### 5.3 `vihaco-runtime` must re-export what its derive emits
 
-`#[composite]` is cross-cutting: generated code touches `Effects` (abi),
-`metadata::*` (abi), `BytecodeSectionView`/`SstSectionView` (bytecode),
-`loader::Load*` (module), `CompositeMetadata`/`GeneratedComponent`/`__private::GeneratedMachine`
-(runtime), and the `Instruction` derive (abi-derive). To keep `vihaco-runtime`
+`#[composite]` is cross-cutting: generated code touches `BytecodeSectionView`/
+`SstSectionView` (bytecode), `loader::Load*` (module), `Component` (runtime),
+and the parser traits. To keep `vihaco-runtime`
 the single root for its derive, `vihaco-runtime` re-exports all of these under
 its own namespace:
 
 ```rust
 // vihaco-runtime/src/lib.rs (sketch)
-pub use vihaco_abi::{Effects, metadata};                 // ::vihaco_runtime::Effects, ::vihaco_runtime::metadata::*
 pub use vihaco_bytecode::{BytecodeSectionView, SstSectionView};
 pub use vihaco_module::loader;                            // ::vihaco_runtime::loader::Load*
 pub use vihaco_runtime_derive::{Message, Machine, component, composite, observe}; // feature = "derive"
-pub mod __private { /* GeneratedMachine */ }
 ```
 
 This is the rule "**each derive emits paths only into its paired crate**"
@@ -229,7 +225,6 @@ modules that invoke derives take the facade (or the specific derive crate) as a
 | `loader.rs` | vihaco-module | `crate::binary::*`→`vihaco_bytecode::*`; `crate::program::*`→`vihaco_abi::program::*`; host traits→`crate::host::*` | widest fan-in |
 | `runtime/{mod,generated,marker,observe}.rs` | vihaco-runtime | `crate::metadata`→`vihaco_abi::metadata`; `crate::module::LocalModule`→`vihaco_module::module::LocalModule`; `crate::Effects`→`vihaco_abi::Effects` | + re-exports from §5.3 |
 | `observer/{mod,stdio}.rs` | vihaco-stdlib | `#[observe]` from `vihaco-runtime-derive` through `vihaco-runtime` | the one non-test derive user; no longer forces the facade cycle |
-| `__private.rs` | vihaco-runtime | `crate::runtime::CompositeMetadata`→`crate::CompositeMetadata` | `GeneratedMachine` |
 | `syntax/{mod,types,parse,resolve}.rs` | vihaco-syntax | `crate::{SstHeader,SstSectionView}`→`vihaco_bytecode::*`; `crate::SurfaceInstruction`→`vihaco_parser::SurfaceInstruction` | tests: `vihaco-parser-derive` + `vihaco` dev-deps |
 | `macros/mod.rs`, `instruction.rs`, `machine.rs`, `lib.rs` (+ `public_api_tests`) | vihaco (facade) | rewritten as re-exports | see §7 |
 | `crates/vihaco-derive/src/derive_instruction.rs` (+ needed `common.rs`) | vihaco-abi-derive | repoint `::vihaco::instruction::*`→resolved-root (§5.2) | |
@@ -251,7 +246,6 @@ pub use vihaco_abi::{effect, frame, instruction_syntax, metadata, program};
 pub use vihaco_module::{color, loader, module, show, show_instruction};
 pub use vihaco_syntax as syntax;
 pub use vihaco_runtime::{observer, runtime};
-#[doc(hidden)] pub use vihaco_runtime::__private;
 
 pub mod instruction { pub use vihaco_abi::traits::{FromBytes, FromBytesWithOpcode, Instruction, OpCode, WriteBytes}; }
 pub mod machine     { pub use vihaco_module::host::{FrameMemory, GetProgramInfo, ProgramCounter, StackFrame, StackMemory, Stdout}; }
@@ -321,7 +315,7 @@ Bottom-up so each crate compiles against already-extracted deps.
 3. **vihaco-bytecode** — includes absorbing the container codec (§8.2).
 4. **rename parser crates** (§8.3) — `-core`→`vihaco-parser`, derive→`vihaco-parser-derive`.
 5. **vihaco-module** — color + module + `host.rs` + loader.
-6. **vihaco-runtime** + **vihaco-runtime-derive** — runtime + observer + `__private`; the §5.3 re-exports.
+6. **vihaco-runtime** + **vihaco-runtime-derive** — runtime + observer; the §5.3 re-exports.
 7. **vihaco-syntax**.
 8. **Gut `vihaco` to the facade** (§7); verify `public_api_tests` + full CI green.
 9. **Parser idiomaticity cleanup** (§8.4–8.6) — after the split settles.
@@ -431,7 +425,7 @@ branches mergeable:
 | 1 | **2 agents ∥** | (a) `vihaco-abi` + `vihaco-abi-derive`; (b) rename `vihaco-parser-core`→`vihaco-parser` and `vihaco-parser`→`vihaco-parser-derive` | agent (a) also wires the `derive` feature + `proc-macro-crate` root resolution — the pattern every later derive reuses. Agent (b) leaves `container/` in place (bytecode takes it in wave 2). |
 | 2 | 1 agent | `vihaco-bytecode` | extract `binary/*`; absorb `container/*` out of `vihaco-parser` |
 | 3 | **2 agents ∥** | `vihaco-module`; `vihaco-syntax` | module = color+module+`host.rs`+loader; syntax = `syntax/*` |
-| 4 | 1 agent | `vihaco-runtime` + `vihaco-runtime-derive` | runtime+observer+`__private`; §5.3 re-exports |
+| 4 | 1 agent | `vihaco-runtime` + `vihaco-runtime-derive` | runtime+observer; §5.3 re-exports |
 | 5 | driver | `vihaco` façade | final `lib.rs` rewrite to §7; whole-workspace green |
 
 ### 12.5 CI gate (run by driver after every wave merge)

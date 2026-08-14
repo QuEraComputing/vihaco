@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 use eyre::Result;
-use vihaco::{
-    Component, Effects, GeneratedComponent, Instruction, Observe, composite, dispatch, observe,
-};
+use vihaco::{Component, Effects, GeneratedComponent, Instruction, Observe, dispatch, observe};
 
 mod test_root {
     pub use ::vihaco::*;
@@ -59,13 +57,6 @@ impl TestObserver {
     }
 }
 
-#[composite]
-#[vihaco(crate = crate::test_root)]
-struct TestMachine {
-    #[device(0x01)]
-    component: TestComponent,
-}
-
 #[test]
 fn runtime_macros_honor_explicit_crate_override() {
     let mut component = TestComponent;
@@ -80,10 +71,4 @@ fn runtime_macros_honor_explicit_crate_override() {
         .into_iter()
         .for_each(drop);
     assert!(observer.observed);
-
-    let machine = TestMachine { component };
-    let _ = &machine.component;
-    let metadata = test_root::__private::GeneratedMachine::metadata(&machine);
-    assert_eq!(metadata.devices[0].code, 0x01);
-    assert_eq!(metadata.devices[0].name, "component");
 }

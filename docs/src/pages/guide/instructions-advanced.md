@@ -123,7 +123,7 @@ This keeps composition straightforward:
 - the machine exposes one outer instruction type
 - the wrapper enum handles outer dispatch without forcing every inner instruction type to be rewritten
 
-> When you use the [`#[composite]`](/guide/composites) attribute, this outer wrapper enum is generated for you (as `<MachineName>Instruction`). Writing it by hand, as above, is the same shape — useful when you want full control over the wrapper.
+> When you use the [`#[composite]`](/guide/composites) attribute, it generates component-local runtime and syntax enums in a snake_case module. If you need one outer wrapper instruction type, write it by hand as above.
 
 ## How Nested Widths Compose
 
