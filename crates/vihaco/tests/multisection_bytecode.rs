@@ -276,7 +276,7 @@ struct NestedMachine {
 }
 
 impl GeneratedComponent for NestedMachine {
-    type Instruction = NestedMachineInstruction;
+    type Instruction = nested_machine::runtime::Instruction;
     type Message = ();
     type Effect = ();
 
@@ -290,7 +290,7 @@ impl GeneratedComponent for NestedMachine {
 }
 
 impl vihaco::Component for NestedMachine {
-    type Runtime = NestedMachineInstruction;
+    type Runtime = nested_machine::runtime::Instruction;
     type Syntax = LegacySyntax;
 }
 
@@ -344,7 +344,7 @@ struct TextNestedMachine {
 }
 
 impl GeneratedComponent for TextNestedMachine {
-    type Instruction = TextNestedMachineInstruction;
+    type Instruction = text_nested_machine::runtime::Instruction;
     type Message = ();
     type Effect = ();
 
@@ -358,7 +358,7 @@ impl GeneratedComponent for TextNestedMachine {
 }
 
 impl vihaco::Component for TextNestedMachine {
-    type Runtime = TextNestedMachineInstruction;
+    type Runtime = text_nested_machine::runtime::Instruction;
     type Syntax = LegacySyntax;
 }
 

@@ -196,7 +196,7 @@ later conversion.
 
 ## Parse composite sections by component
 
-A generated composite instruction enum is the runtime dispatch type. SST
+A generated composite runtime instruction enum is the runtime dispatch type. SST
 source is parsed through user-declared surface instruction types, each deriving
 `Parse` with its own namespace and patterns. Parse each component section as a
 `ParsedModule<ComponentSurface, ComponentType, ComponentHeader>`, resolve it,
@@ -204,4 +204,4 @@ and load the resulting runtime instructions into that component.
 
 This keeps source syntax attached to the component that owns it. Composite
 loading routes sections to components; it does not require a second source
-grammar for the generated machine instruction enum.
+grammar for the generated composite runtime instruction enum.

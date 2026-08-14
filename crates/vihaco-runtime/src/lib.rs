@@ -7,9 +7,6 @@ mod generated;
 mod marker;
 mod observe;
 
-#[doc(hidden)]
-pub mod __private;
-
 // Re-export the sub-paths the runtime derive (`vihaco-runtime-derive`) emits so
 // that `vihaco-runtime` is a valid derive root on its own, mirroring the facade
 // (see design/crate-split.md §5.3).

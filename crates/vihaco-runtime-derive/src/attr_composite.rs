@@ -329,7 +329,6 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
         }
     }
 
-    let machine_instruction_ident = format_ident!("{}Instruction", ident);
     let module_ident = format_ident!("{}", ident.to_string().to_case(Case::Snake));
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let enum_generics = enum_generics_for_device_fields(&generics, &devices);
@@ -342,12 +341,12 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
     let (syntax_impl_generics, _, syntax_where_clause) = syntax_parser_generics.split_for_impl();
     let (enum_impl_generics, _, enum_where_clause) = enum_generics.split_for_impl();
 
-    let machine_instruction_variants: Vec<_> = devices
+    let runtime_instruction_variants: Vec<_> = devices
         .iter()
         .map(|(field, field_ty, _)| {
             let variant_ident = pascal_case(field);
             quote! {
-                #variant_ident(<#field_ty as #root::GeneratedComponent>::Instruction)
+                #variant_ident(<#field_ty as #root::Component>::Runtime)
             }
         })
         .collect();
@@ -394,30 +393,6 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
     } else {
         quote! { #root::chumsky::primitive::choice((#(#syntax_parser_alternatives),*)) }
     };
-
-    let device_entries: Vec<_> = devices
-        .iter()
-        .map(|(field, _, args)| {
-            let name = field.to_string();
-            let code = args.code;
-            quote! { #root::metadata::DeviceMetadata { code: #code, name: #name } }
-        })
-        .collect();
-    let source_symbol_alias_entries: Vec<_> = devices
-        .iter()
-        .flat_map(|(_, _, args)| {
-            let code = args.code;
-            let root = root.clone();
-            args.aliases.iter().map(move |alias| {
-                quote! {
-                    #root::metadata::SourceSymbolAliasMetadata {
-                        name: #alias,
-                        device_code: #code,
-                    }
-                }
-            })
-        })
-        .collect();
 
     let bc_lifetime = Lifetime::new("'__vihaco_bc", proc_macro2::Span::call_site());
     let loadable_context_param = format_ident!("__VihacoContext");
@@ -653,31 +628,9 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
             pub mod runtime {
                 use super::*;
 
-                #[derive(Debug, Clone, #root::Instruction)]
+                #[derive(Debug, Clone)]
                 pub enum Instruction #enum_generics {
-                    #( #machine_instruction_variants ),*
-                }
-            }
-        }
-
-        #[derive(Debug, Clone, #root::Instruction)]
-        pub enum #machine_instruction_ident #enum_generics {
-            #( #machine_instruction_variants ),*
-        }
-
-        impl #impl_generics #root::__private::GeneratedMachine for #ident #ty_generics #where_clause {
-            type Instruction = #machine_instruction_ident #enum_ty_generics;
-
-            fn metadata(&self) -> #root::CompositeMetadata {
-                static DEVICES: &[#root::metadata::DeviceMetadata] = &[
-                    #( #device_entries ),*
-                ];
-                static SOURCE_SYMBOL_ALIASES: &[#root::metadata::SourceSymbolAliasMetadata] = &[
-                    #( #source_symbol_alias_entries ),*
-                ];
-                #root::CompositeMetadata {
-                    devices: DEVICES,
-                    source_symbol_aliases: SOURCE_SYMBOL_ALIASES,
+                    #( #runtime_instruction_variants ),*
                 }
             }
         }

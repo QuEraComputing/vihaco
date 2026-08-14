@@ -221,7 +221,7 @@ pub struct WaveComposite {
 }
 ```
 
-`#[composite]` is transitional scaffolding for the generated device wiring (the outer instruction enum and the device metadata). The underlying model is still ordinary component execution plus typed effect observation, continued by hand-written runtime code.
+`#[composite]` is transitional scaffolding for generated device instruction wiring. The underlying model is still ordinary component execution plus typed effect observation, continued by hand-written runtime code.
 
 ## Components That Also Observe
 

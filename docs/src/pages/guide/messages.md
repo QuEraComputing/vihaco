@@ -137,7 +137,7 @@ That is the mental model to keep throughout the rest of this guide.
 
 ## A Small Composite-Author Example
 
-`#[composite]` generates the device wiring (the outer instruction enum and device metadata), but message resolution is plain Rust that you write next to the composite: build the message from runtime context, then hand `(instruction, message)` to the component via the generated `execute_generated` method.
+`#[composite]` generates component instruction types, but message resolution is plain Rust that you write next to the composite: build the message from runtime context, then hand `(instruction, message)` to the component via the generated `execute_generated` method.
 
 ```rust ignore
 use eyre::Result;

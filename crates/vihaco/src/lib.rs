@@ -12,8 +12,6 @@ pub use vihaco_syntax as syntax;
 // The runtime layer and standard-library observers now live in their focused
 // crates; re-export them at the original paths (see design/crate-split.md §7).
 pub use vihaco_runtime as runtime;
-#[doc(hidden)]
-pub use vihaco_runtime::__private;
 pub use vihaco_stdlib::observer;
 pub mod instruction;
 pub mod machine;
