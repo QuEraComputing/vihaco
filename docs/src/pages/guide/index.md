@@ -30,7 +30,8 @@ For the type-by-type API reference, see the generated [rustdoc](/reference).
 3. [Using Messages With `vihaco`](/guide/messages)
    How a runtime resolves execution input and supplies messages to components.
 4. [Building Components With `vihaco`](/guide/components)
-   Connect instructions, messages, effects, and `#[dispatch(...)]`.
+   Define component state and instructions with `component!`, then connect
+   messages and effects with `#[dispatch(...)]`.
 5. [Observing Effects With `#[observe]`](/guide/observers)
    How `#[observe]` works — on standalone observers and on components that also
    react to effects.

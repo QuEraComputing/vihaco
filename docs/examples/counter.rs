@@ -1,13 +1,21 @@
 use eyre::Result;
-use vihaco::{dispatch, Effects, Instruction, Message};
+use vihaco::{component, dispatch, Effects, Message};
 
-/// Bytecode-visible operations. Each variant becomes an opcode; tuple
-/// fields become the payload bytes that follow it.
-#[derive(Debug, Clone, Instruction)]
-pub enum CounterInst {
-    Add(i64),
-    Print,
+// Bytecode-visible operations. Each variant becomes an opcode; tuple fields
+// become the payload bytes that follow it.
+component! {
+    #[derive(Debug, Default)]
+    pub component Counter {
+        value: i64,
+    }
+
+    instruction {
+        Add(i64),
+        Print,
+    }
 }
+
+use counter::runtime::Instruction as CounterInst;
 
 /// Resolved execution input — supplied by the runtime, not encoded in
 /// the instruction stream.
@@ -18,14 +26,9 @@ pub struct Prefix(pub String);
 #[derive(Debug, Clone, PartialEq)]
 pub struct Line(pub String);
 
-#[derive(Debug, Default)]
-pub struct Counter {
-    value: i64,
-}
-
 // One `execute` per component: (instruction, message) in, effects out.
-#[dispatch(instruction = CounterInst, message = Prefix, effect = Line)]
-impl Counter {
+#[dispatch(instruction = counter::runtime::Instruction, message = Prefix, effect = Line)]
+impl counter::Counter {
     fn execute(&mut self, inst: CounterInst, msg: Prefix) -> Result<Effects<Line>> {
         match inst {
             CounterInst::Add(v) => {
