@@ -175,12 +175,12 @@ pub struct WaveComposite {
     stdout: StdoutCollector,
 }
 </code></pre>
-<p><code>#[composite]</code> is transitional scaffolding for the generated device wiring (the outer instruction enum and the device metadata). The underlying model is still ordinary component execution plus typed effect observation, continued by hand-written runtime code.</p>
+<p><code>#[composite]</code> is transitional scaffolding for generated device instruction wiring. The underlying model is still ordinary component execution plus typed effect observation, continued by hand-written runtime code.</p>
 <h2 id="components-that-also-observe">Components That Also Observe</h2>
 <p><code>#[observe]</code> is not limited to standalone observer types. A component that executes instructions can also observe delivered effects.</p>
 <p>The important design shift is that the observer sees the effect directly. If it needs post-processed data, an earlier step should emit a richer staged effect rather than relying on borrowed context.</p>
 <pre><code class="language-rust">use eyre::Result;
-use vihaco::{Effects, component, observe};
+use vihaco::{dispatch, Effects, observe};
 
 pub struct ChannelFrame {
     pub channel: u32,
@@ -196,7 +196,7 @@ pub enum DisplayOutcome {
     Ready(f64),
 }
 
-#[component(instruction = DisplayInst, message = DisplayMsg, effect = DisplayOutcome)]
+#[dispatch(instruction = DisplayInst, message = DisplayMsg, effect = DisplayOutcome)]
 impl Display {
     fn execute(
         &#x26;mut self,
@@ -244,7 +244,7 @@ impl Display {
 </ul>
 <h3 id="define-the-types">Define The Types</h3>
 <pre><code class="language-rust">use eyre::Result;
-use vihaco::{Effects, Instruction, Message, component, observe};
+use vihaco::{dispatch, Effects, Instruction, Message, observe};
 
 #[derive(Debug, Clone, Instruction)]
 pub enum WaveInst {
@@ -274,7 +274,7 @@ pub struct WaveGenerator {
     amplitude: f64,
 }
 
-#[component(instruction = WaveInst, message = PlayMsg, effect = ChannelSample)]
+#[dispatch(instruction = WaveInst, message = PlayMsg, effect = ChannelSample)]
 impl WaveGenerator {
     fn execute(&#x26;mut self, inst: WaveInst, msg: PlayMsg) -> Result&#x3C;Effects&#x3C;ChannelSample>> {
         match inst {
@@ -317,7 +317,7 @@ pub enum RecorderInst {
     GetCount,
 }
 
-#[component(instruction = RecorderInst, message = (), effect = StdoutEffect)]
+#[dispatch(instruction = RecorderInst, message = (), effect = StdoutEffect)]
 impl Recorder {
     fn execute(&#x26;mut self, inst: RecorderInst, _msg: ()) -> Result&#x3C;Effects&#x3C;StdoutEffect>> {
         match inst {
@@ -387,7 +387,7 @@ impl WaveComposite {
 <h2 id="design-guidance">Design Guidance</h2>
 <ul>
 <li>Use standalone <code>#[observe]</code> when a type only reacts to effects.</li>
-<li>Use <code>#[observe]</code> alongside <code>#[component]</code> when a device needs to react to effects from other components.</li>
+<li>Use <code>#[observe]</code> alongside <code>component!</code> when a device needs to react to effects from other components.</li>
 <li>Make effect types plain standalone Rust types.</li>
 <li>Prefer putting <code>#[observe]</code> on the real consumer type, not a forwarding wrapper.</li>
 <li>If a type is conceptually a log sink, recorder, projection, renderer, or simulation consumer with no instructions of its own, model it as a standalone observer.</li>
@@ -547,7 +547,7 @@ impl WaveComposite {
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-08-13</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-08-14</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

@@ -18,15 +18,23 @@ A virtual ISA and machine framework for orchestrating hybrid
           effects, and parsers as ordinary Rust — then compose them into a
           machine.
 </p> <div class="meta"> <span><strong>Rust</strong> 2024</span> <span><strong>License</strong> MIT</span> <span><strong>Source</strong> <a href="https://github.com/QuEraComputing/vihaco">github.com/QuEraComputing/vihaco</a></span> </div> <div class="hero-cta"> <a class="btn btn--primary" href="/vihaco/quickstart">Quick Start</a> <a class="btn" href="/vihaco/guide">Guides</a> <a class="btn" href="/vihaco/reference">API Reference</a> </div> </div> <figure class="hero-code" data-example-active="counter"> <figcaption> <div class="hero-code-tabs" role="tablist" aria-label="Example"> <button type="button" role="tab" id="hero-tab-counter" aria-controls="hero-panel-counter" aria-selected="true" tabindex="0" data-example-set="counter" class="hero-code-tab">A component</button> <button type="button" role="tab" id="hero-tab-observe" aria-controls="hero-panel-observe" aria-selected="false" tabindex="-1" data-example-set="observe" class="hero-code-tab">An observer</button> </div> <span class="hero-code-file"> <code data-example-pane="counter">counter.rs</code><code data-example-pane="observe" hidden>observe.rs</code> </span> </figcaption> <div role="tabpanel" id="hero-panel-counter" aria-labelledby="hero-tab-counter" data-example-pane="counter"> <pre><code class="language-rust">use eyre::Result;
-use vihaco::{Effects, Instruction, Message, component};
+use vihaco::{component, dispatch, Effects, Message};
 
-/// Bytecode-visible operations. Each variant becomes an opcode; tuple
-/// fields become the payload bytes that follow it.
-#[derive(Debug, Clone, Instruction)]
-pub enum CounterInst {
-    Add(i64),
-    Print,
+// Bytecode-visible operations. Each variant becomes an opcode; tuple fields
+// become the payload bytes that follow it.
+component! {
+    #[derive(Debug, Default)]
+    pub component Counter {
+        value: i64,
+    }
+
+    instruction {
+        Add(i64),
+        Print,
+    }
 }
+
+use counter::runtime::Instruction as CounterInst;
 
 /// Resolved execution input — supplied by the runtime, not encoded in
 /// the instruction stream.
@@ -37,14 +45,9 @@ pub struct Prefix(pub String);
 #[derive(Debug, Clone, PartialEq)]
 pub struct Line(pub String);
 
-#[derive(Debug, Default)]
-pub struct Counter {
-    value: i64,
-}
-
 // One `execute` per component: (instruction, message) in, effects out.
-#[component(instruction = CounterInst, message = Prefix, effect = Line)]
-impl Counter {
+#[dispatch(instruction = counter::runtime::Instruction, message = Prefix, effect = Line)]
+impl counter::Counter {
     fn execute(&amp;mut self, inst: CounterInst, msg: Prefix) -&gt; Result&lt;Effects&lt;Line&gt;&gt; {
         match inst {
             CounterInst::Add(v) =&gt; {
@@ -270,7 +273,7 @@ Continue to the
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-08-13</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-08-14</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

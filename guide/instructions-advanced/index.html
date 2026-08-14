@@ -74,7 +74,7 @@ This is how a machine can expose several component instruction sets through one 
 <pre><code class="language-rust">use vihaco::Instruction;
 use vihaco_cpu as cpu;
 
-#[derive(Debug, Clone, Instruction)]
+#[derive(Debug, Clone)]
 pub enum MachineInst {
     Cpu(cpu::RuntimeInstruction),
     Signal(SignalInst),
@@ -93,7 +93,7 @@ The nested instruction then becomes the payload of that outer variant.</p>
 <li>the wrapper enum handles outer dispatch without forcing every inner instruction type to be rewritten</li>
 </ul>
 <blockquote>
-<p>When you use the <a href="/vihaco/guide/composites"><code>#[composite]</code></a> attribute, this outer wrapper enum is generated for you (as <code>&#x3C;MachineName>Instruction</code>). Writing it by hand, as above, is the same shape — useful when you want full control over the wrapper.</p>
+<p>When you use the <a href="/vihaco/guide/composites"><code>#[composite]</code></a> attribute, it generates component-local runtime and syntax enums in a snake_case module. If you need one outer wrapper instruction type, write it by hand as above.</p>
 </blockquote>
 <h2 id="how-nested-widths-compose">How Nested Widths Compose</h2>
 <p>For wrapper enums, the outer instruction width is computed from the outer enum, not by changing the inner types.</p>
@@ -134,7 +134,7 @@ The nested instruction then becomes the payload of that outer variant.</p>
 </ul>
 <h2 id="what-comes-next">What Comes Next</h2>
 <p><code>#[derive(Instruction)]</code> covers bytecode and runtime semantics; source-text parsing is owned by an orthogonal <code>#[derive(vihaco_parser_derive::Parse)]</code> on the same enum. See <a href="/vihaco/guide/parser">Pattern Parser Integration for Component Instructions</a> for the parser-side workflow and <a href="/vihaco/guide/parser-advanced">Module Parsing and Resolution</a> for section headers, typed function bodies, and module resolution.</p>
-<p>After defining an instruction type, the next step is usually to attach it to a component impl with <code>#[component(...)]</code>.</p>
+<p>After defining an instruction type, the next step is usually to attach it to a component impl with <code>#[dispatch(...)]</code>.</p>
 <p>See <a href="/vihaco/guide/components">Building Components With <code>vihaco</code></a> for the execution side of that model.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/guide/instructions" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Defining Instructions</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/guide/parser" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Parser Integration</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#setting-an-explicit-opcode" data-toc-link="#setting-an-explicit-opcode">Setting An Explicit Opcode</a></li><li><a href="#setting-an-explicit-width" data-toc-link="#setting-an-explicit-width">Setting An Explicit Width</a></li><li><a href="#when-to-leave-width-inferred" data-toc-link="#when-to-leave-width-inferred">When To Leave Width Inferred</a></li><li><a href="#machine-level-wrapper-instructions" data-toc-link="#machine-level-wrapper-instructions">Machine-Level Wrapper Instructions</a></li><li><a href="#how-nested-widths-compose" data-toc-link="#how-nested-widths-compose">How Nested Widths Compose</a></li><li><a href="#practical-guidance" data-toc-link="#practical-guidance">Practical Guidance</a></li><li><a href="#what-comes-next" data-toc-link="#what-comes-next">What Comes Next</a></li> </ol> </details> </div> </main> <script>
         // Scroll-spy: mark the TOC link for the section currently in view.
         (() => {
@@ -287,7 +287,7 @@ The nested instruction then becomes the payload of that outer variant.</p>
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-08-13</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-08-14</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

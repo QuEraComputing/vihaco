@@ -88,9 +88,32 @@ own local enum or struct with <code>#[derive(Parse)]</code>.</p>
 
 
 
-<table><thead><tr><th>Attribute</th><th>Meaning</th><th>Additional rules</th></tr></thead><tbody><tr><td><code>#[syntax_class(instruction, head = "dialect")]</code></td><td>An instruction in the <code>dialect::</code> namespace.</td><td>Every pattern starts with an instruction token such as <code>'load</code>.</td></tr><tr><td><code>#[syntax_class(value)]</code></td><td>A value expression.</td><td>Instruction tokens are forbidden. Simple defaults are available.</td></tr><tr><td><code>#[syntax_class(type)]</code></td><td>A type expression.</td><td>Instruction tokens are forbidden and every variant or struct needs an explicit pattern.</td></tr></tbody></table>
+
+
+
+
+
+<table><thead><tr><th>Attribute</th><th>Meaning</th><th>Additional rules</th></tr></thead><tbody><tr><td><code>#[syntax_class(instruction, head = "dialect")]</code></td><td>An instruction in the <code>dialect::</code> namespace.</td><td>Every pattern starts with an instruction token such as <code>'load</code>.</td></tr><tr><td><code>#[syntax_class(metadata, head = "device")]</code></td><td>Metadata lines in the <code>device </code> namespace.</td><td>Patterns use bare names such as <code>module.setting</code>; instruction tokens are not required.</td></tr><tr><td><code>#[syntax_class(value)]</code></td><td>A value expression.</td><td>Instruction tokens are forbidden. Simple defaults are available.</td></tr><tr><td><code>#[syntax_class(type)]</code></td><td>A type expression.</td><td>Instruction tokens are forbidden and every variant or struct needs an explicit pattern.</td></tr></tbody></table>
 <p>Put <code>#[syntax_class]</code> on the enum or struct definition, never on a variant or
-field. An instruction head is required and is written without trailing <code>::</code>.</p>
+field. An instruction or metadata head is required and is written without its
+separator. Instruction heads use <code>::</code>; metadata heads use one ASCII space.</p>
+<p>Metadata patterns are useful for line-oriented headers:</p>
+<pre><code class="language-rust">use chumsky::Parser as _;
+use vihaco_parser::Parse as ParseTrait;
+use vihaco_parser_derive::Parse;
+
+#[derive(Debug, PartialEq, Parse)]
+#[syntax_class(metadata, head = "device")]
+enum DeviceHeader {
+    #[pattern = "module.setting $0 `,` $1"]
+    ModuleSetting(i64, i64),
+}
+
+assert_eq!(
+    DeviceHeader::parser().parse("device module.setting 3, 4").into_result(),
+    Ok(DeviceHeader::ModuleSetting(3, 4)),
+);
+</code></pre>
 <h2 id="generated-patterns">Generated patterns</h2>
 <p>You can omit <code>#[pattern]</code> when the conventional syntax is sufficient. Names
 are the lowercase Rust variant or struct name; acronym boundaries are not
@@ -141,8 +164,8 @@ split (<code>HttpServer</code> becomes <code>httpserver</code>).</p>
 <li>A value with more than one field must spell out how those fields are
 separated.</li>
 <li>A type always requires an explicit pattern.</li>
-<li>A unit value defaults to its lowercase name, while a unit instruction
-defaults to its lowercase instruction token.</li>
+<li>A unit value or metadata variant defaults to its lowercase name, while a
+unit instruction defaults to its lowercase instruction token.</li>
 </ul>
 <p>Explicit patterns may reorder fields. Bindings identify constructor fields,
 not capture order, so <code>#[pattern = “$right <code>,</code> $left”]</code> still constructs a
@@ -150,8 +173,9 @@ named type using the correct field names.</p>
 <h2 id="pattern-grammar">Pattern grammar</h2>
 <p>The complete grammar is small:</p>
 <pre><code class="language-text">pattern       = atom, { " ", atom } ;
-atom          = instruction-token | binding | literal ;
+atom          = instruction-token | metadata-name | binding | literal ;
 instruction-token = "'", ascii-identifier ;
+metadata-name = ascii-identifier, { ".", ascii-identifier } ;
 binding       = "$", (ascii-identifier | decimal-index) ;
 literal       = "`", (ascii-identifier | "," | "@"), "`" ;
 </code></pre>
@@ -196,8 +220,14 @@ literal       = "`", (ascii-identifier | "," | "@"), "`" ;
 
 
 
-<table><thead><tr><th>Form</th><th>Purpose</th><th>Example</th></tr></thead><tbody><tr><td><code>'name</code></td><td>Match an instruction mnemonic. It is not included in the constructed value.</td><td><code>'load</code></td></tr><tr><td><code>$0</code>, <code>$1</code>, …</td><td>Parse and capture a tuple field by zero-based index.</td><td><code>$1</code></td></tr><tr><td><code>$field</code></td><td>Parse and capture a named field. Raw Rust identifiers bind by their unraw name, so <code>r#type</code> uses <code>$type</code>.</td><td><code>$address</code></td></tr><tr><td><code>`word`</code></td><td>Match an exact, case-sensitive keyword.</td><td><code>`before`</code></td></tr><tr><td><code>`,`</code></td><td>Match a comma with punctuation-aware spacing.</td><td><code>$0 <code>,</code> $1</code></td></tr><tr><td><code>`@`</code></td><td>Match an at sign with punctuation-aware spacing.</td><td><code>$0 <code>@</code> $1</code></td></tr></tbody></table>
-<p>Only comma and at sign are currently supported as symbol literals. Arbitrary
+
+
+
+
+
+<table><thead><tr><th>Form</th><th>Purpose</th><th>Example</th></tr></thead><tbody><tr><td><code>'name</code></td><td>Match an instruction mnemonic. It is not included in the constructed value.</td><td><code>'load</code></td></tr><tr><td><code>name</code> or <code>name.part</code></td><td>Match a metadata name. It is not included in the constructed value.</td><td><code>module.setting</code></td></tr><tr><td><code>$0</code>, <code>$1</code>, …</td><td>Parse and capture a tuple field by zero-based index.</td><td><code>$1</code></td></tr><tr><td><code>$field</code></td><td>Parse and capture a named field. Raw Rust identifiers bind by their unraw name, so <code>r#type</code> uses <code>$type</code>.</td><td><code>$address</code></td></tr><tr><td><code>`word`</code></td><td>Match an exact, case-sensitive keyword.</td><td><code>`before`</code></td></tr><tr><td><code>`,`</code></td><td>Match a comma with punctuation-aware spacing.</td><td><code>$0 <code>,</code> $1</code></td></tr><tr><td><code>`@`</code></td><td>Match an at sign with punctuation-aware spacing.</td><td><code>$0 <code>@</code> $1</code></td></tr></tbody></table>
+<p>Only comma and at sign are currently supported as punctuation literals.
+Metadata names may additionally contain dots without backticks. Arbitrary
 punctuation and quoted strings are not part of the pattern language.</p>
 <h2 id="whitespace-is-part-of-the-grammar">Whitespace is part of the grammar</h2>
 <p>Pattern atoms must be separated by exactly one ASCII space inside the Rust
@@ -459,7 +489,7 @@ sugar, continue to
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-08-13</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-08-14</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

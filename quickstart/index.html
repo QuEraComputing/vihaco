@@ -22,7 +22,7 @@ is the foundation; everything else builds on it. Depend on what your
 </p> <dl class="crate-list"> <dt><code>vihaco</code> <span class="crate-tag">foundation</span></dt> <dd>
 The framework. The <code>Instruction</code> / <code>Message</code> /
 <code>Effects</code> types and their derives, the
-<code>#[component]</code>, <code>#[observe]</code>, and
+<code>component!</code>, <code>#[observe]</code>, and
 <code>#[composite]</code> macros, the <code>module</code> /
 <code>syntax</code> / <code>runtime</code> layers, and the
 <code>Value</code> / <code>Type</code> value model. Re-exports the
@@ -48,7 +48,7 @@ The <code>Parse&lt;'src&gt;</code> and
         tuples.
 </dd> <dt><code>vihaco-runtime-derive</code> <span class="crate-tag">internal</span></dt> <dd>
 The procedural macros behind <code>#[derive(Message)]</code>,
-<code>#[component]</code>, <code>#[observe]</code>, and
+<code>component!</code>, <code>#[observe]</code>, and
 <code>#[composite]</code> (<code>#[derive(Instruction)]</code> lives in
 <code>vihaco-abi-derive</code>). Both are re-exported through
 <code>vihaco</code> — you rarely depend on them directly.
@@ -68,21 +68,29 @@ vihaco-cpu           = { git = &quot;https://github.com/QuEraComputing/vihaco&qu
 vihaco-parser        = { git = &quot;https://github.com/QuEraComputing/vihaco&quot; }
 vihaco-parser-derive = { git = &quot;https://github.com/QuEraComputing/vihaco&quot; }
 eyre                 = "0.6"   # vihaco APIs return eyre::Result</code></pre> <h2 id="component"><span class="sec-num">§ 4</span>A first component</h2> <p>
-A component bundles three things: an <code>Instruction</code> enum (the
-      operations), an optional <code>Message</code> (resolved execution input),
-      and an optional effect type (what execution returns). The
-<code>#[component(...)]</code> attribute generates the runtime glue from a
+A component bundles its state and operations in a <code>component!</code>
+declaration, plus an optional <code>Message</code> (resolved execution
+      input) and effect type (what execution returns). The
+<code>#[dispatch(...)]</code> attribute generates the runtime glue from a
       single <code>execute</code> method.
 </p> <pre><code class="language-rust">use eyre::Result;
 use vihaco::{
-    Effects, GeneratedComponent, Instruction, Message, component, expect_exactly_one_effect,
+    component, dispatch, Effects, GeneratedComponent, Message, expect_exactly_one_effect,
 };
 
-#[derive(Debug, Clone, Instruction)]
-pub enum CounterInst {
-    Add(i64),
-    Print,
+component! {
+    #[derive(Debug, Default)]
+    pub component Counter {
+        value: i64,
+    }
+
+    instruction {
+        Add(i64),
+        Print,
+    }
 }
+
+use counter::runtime::Instruction as CounterInst;
 
 #[derive(Debug, Clone, Message)]
 pub struct Prefix(pub String);
@@ -90,13 +98,8 @@ pub struct Prefix(pub String);
 #[derive(Debug, Clone, PartialEq)]
 pub struct Line(pub String);
 
-#[derive(Debug, Default)]
-pub struct Counter {
-    value: i64,
-}
-
-#[component(instruction = CounterInst, message = Prefix, effect = Line)]
-impl Counter {
+#[dispatch(instruction = counter::runtime::Instruction, message = Prefix, effect = Line)]
+impl counter::Counter {
     fn execute(&amp;mut self, inst: CounterInst, msg: Prefix) -&gt; Result&lt;Effects&lt;Line&gt;&gt; {
         match inst {
             CounterInst::Add(v) =&gt; {
@@ -109,7 +112,7 @@ impl Counter {
 }
 
 fn main() -&gt; Result&lt;()&gt; {
-    let mut counter = Counter::default();
+    let mut counter = counter::Counter::default();
 
     // `Add` ignores its message and returns no effects.
     counter.execute_generated(CounterInst::Add(2), Prefix(String::new()))?;
@@ -316,7 +319,7 @@ Ready for the full authoring model — instructions, messages, components, obser
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-08-13</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-08-14</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

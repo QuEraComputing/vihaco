@@ -57,9 +57,9 @@ pub struct PlayMsg {
     pub channel_id: u32,
 }
 </code></pre>
-<p>A component can then declare that message type in its <code>#[component(...)]</code> impl:</p>
+<p>A component can then declare that message type in its <code>#[dispatch(...)]</code> impl:</p>
 <pre><code class="language-rust">use eyre::Result;
-use vihaco::{Effects, Instruction, Message, component};
+use vihaco::{dispatch, Effects, Instruction, Message};
 
 #[derive(Debug, Clone, Instruction)]
 pub enum WaveInst {
@@ -85,7 +85,7 @@ pub struct WaveGenerator {
     amplitude: f64,
 }
 
-#[component(instruction = WaveInst, message = PlayMsg, effect = ChannelSample)]
+#[dispatch(instruction = WaveInst, message = PlayMsg, effect = ChannelSample)]
 impl WaveGenerator {
     fn execute(&#x26;mut self, inst: WaveInst, msg: PlayMsg) -> Result&#x3C;Effects&#x3C;ChannelSample>> {
         match inst {
@@ -123,14 +123,18 @@ It just consumes the already-resolved <code>PlayMsg</code>.</p>
 </ol>
 <p>That is the mental model to keep throughout the rest of this guide.</p>
 <h2 id="a-small-composite-author-example">A Small Composite-Author Example</h2>
-<p><code>#[composite]</code> generates the device wiring (the outer instruction enum and device metadata), but message resolution is plain Rust that you write next to the composite: build the message from runtime context, then hand <code>(instruction, message)</code> to the component via the generated <code>execute_generated</code> method.</p>
+<p><code>#[composite]</code> generates component instruction types, but message resolution is plain Rust that you write next to the composite: build the message from runtime context, then hand <code>(instruction, message)</code> to the component via the generated <code>execute_generated</code> method.</p>
 <pre><code class="language-rust">use eyre::Result;
-use vihaco::{Effects, GeneratedComponent, Instruction, Message, component, composite};
+use vihaco::{dispatch, Component, Effects, GeneratedComponent, Instruction, Message, Parse, composite};
 
 #[derive(Debug, Clone, Instruction)]
 enum DeviceInst {
     Pulse,
 }
+
+#[derive(Debug, Clone, PartialEq, Parse)]
+#[syntax_class(instruction, head = "device")]
+enum DeviceSyntax { #[pattern = "'pulse"] Pulse }
 
 #[derive(Message)]
 struct DeviceMsg(&#x26;'static str);
@@ -140,7 +144,7 @@ struct Device {
     seen: Vec&#x3C;&#x26;'static str>,
 }
 
-#[component(instruction = DeviceInst, message = DeviceMsg)]
+#[dispatch(instruction = DeviceInst, message = DeviceMsg)]
 impl Device {
     fn execute(&#x26;mut self, inst: DeviceInst, msg: DeviceMsg) -> Result&#x3C;Effects&#x3C;()>> {
         match inst {
@@ -150,6 +154,11 @@ impl Device {
             }
         }
     }
+}
+
+impl Component for Device {
+    type Runtime = DeviceInst;
+    type Syntax = DeviceSyntax;
 }
 
 #[composite]
@@ -180,7 +189,7 @@ impl Pilot {
 <p>In other words, the component defines the input shape, but the composite decides the actual input value for that step.</p>
 <h2 id="a-richer-example-resolving-a-signal-message">A Richer Example: Resolving A Signal Message</h2>
 <p>A real runtime shows a richer version of the same idea. A signal-generator component expects a <code>SignalMessage</code>:</p>
-<pre><code class="language-rust">use vihaco::{Effects, Message, component};
+<pre><code class="language-rust">use vihaco::{dispatch, Effects, Message};
 
 #[derive(Debug, Clone, Copy, PartialEq, Message)]
 pub enum SignalMessage {
@@ -189,7 +198,7 @@ pub enum SignalMessage {
     Duration(u64),
 }
 
-#[component(instruction = SignalInst, message = SignalMessage)]
+#[dispatch(instruction = SignalInst, message = SignalMessage)]
 impl SignalGenerator {
     fn execute(&#x26;mut self, inst: SignalInst, msg: SignalMessage) -> eyre::Result&#x3C;Effects&#x3C;()>> {
         // component consumes a resolved message here
@@ -248,7 +257,7 @@ assert_eq!(effects, Effects::one(()));
 </ul>
 <p>For example:</p>
 <pre><code class="language-rust">use eyre::Result;
-use vihaco::{Effects, Instruction, component};
+use vihaco::{dispatch, Effects, Instruction};
 
 #[derive(Debug, Clone, Instruction)]
 pub enum LampInst {
@@ -261,7 +270,7 @@ pub struct Lamp {
     on: bool,
 }
 
-#[component(instruction = LampInst, message = ())]
+#[dispatch(instruction = LampInst, message = ())]
 impl Lamp {
     fn execute(&#x26;mut self, inst: LampInst, _msg: ()) -> Result&#x3C;Effects&#x3C;()>> {
         self.on = matches!(inst, LampInst::On);
@@ -476,7 +485,7 @@ enum CompositeMsg {
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-08-13</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-08-14</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {
