@@ -218,6 +218,31 @@ fn instruction_heads_select_the_dialect() {
 }
 
 #[derive(Parse, Debug, PartialEq)]
+#[syntax_class(metadata, head = "device")]
+enum DeviceHeader {
+    #[pattern = "module.setting $0 `,` $1"]
+    ModuleSetting(i64, i64),
+    #[pattern = "runtime.timeout_ms $0"]
+    RuntimeTimeoutMs(i64),
+    Generic,
+}
+
+#[test]
+fn metadata_heads_use_spaces_and_bare_dotted_patterns() {
+    assert_eq!(
+        parse("device module.setting 3, 4"),
+        Ok(DeviceHeader::ModuleSetting(3, 4))
+    );
+    assert_eq!(
+        parse("device runtime.timeout_ms 100"),
+        Ok(DeviceHeader::RuntimeTimeoutMs(100))
+    );
+    assert_eq!(parse("device generic"), Ok(DeviceHeader::Generic));
+
+    assert!(parse::<DeviceHeader>("device::module.setting 3, 4").is_err());
+}
+
+#[derive(Parse, Debug, PartialEq)]
 #[syntax_class(value)]
 enum GeneratedValue {
     Nothing,

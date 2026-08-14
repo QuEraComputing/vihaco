@@ -11,6 +11,7 @@ use syn::{
 mod kw {
     syn::custom_keyword!(head);
     syn::custom_keyword!(instruction);
+    syn::custom_keyword!(metadata);
     syn::custom_keyword!(value);
 }
 
@@ -19,6 +20,7 @@ mod kw {
 #[derive(Clone)]
 pub enum SyntaxClassAttr {
     Instruction { head: String },
+    Metadata { head: String },
     Type,
     Value,
 }
@@ -40,6 +42,21 @@ impl Parse for SyntaxClassAttr {
             return Ok(Self::Instruction { head });
         }
 
+        if input.peek(kw::metadata) {
+            input.parse::<kw::metadata>()?;
+
+            if input.is_empty() {
+                return Err(input.error("metadata syntax class must have `head` argument"));
+            }
+
+            input.parse::<Token![,]>()?;
+            input.parse::<kw::head>()?;
+            input.parse::<Token![=]>()?;
+            let head = input.parse::<LitStr>()?.value();
+
+            return Ok(Self::Metadata { head });
+        }
+
         if input.peek(kw::value) {
             input.parse::<kw::value>()?;
             return Ok(Self::Value);
@@ -50,7 +67,7 @@ impl Parse for SyntaxClassAttr {
             return Ok(Self::Type);
         }
 
-        Err(input.error("expected `instruction`, `value`, or `type`"))
+        Err(input.error("expected `instruction`, `metadata`, `value`, or `type`"))
     }
 }
 
