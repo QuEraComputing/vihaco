@@ -477,7 +477,7 @@ The flow:
 ## Design Guidance
 
 - Use standalone `#[observe]` when a type only reacts to effects.
-- Use `#[observe]` alongside `#[component]` when a device needs to react to effects from other components.
+- Use `#[observe]` alongside `component!` when a device needs to react to effects from other components.
 - Make effect types plain standalone Rust types.
 - Prefer putting `#[observe]` on the real consumer type, not a forwarding wrapper.
 - If a type is conceptually a log sink, recorder, projection, renderer, or simulation consumer with no instructions of its own, model it as a standalone observer.

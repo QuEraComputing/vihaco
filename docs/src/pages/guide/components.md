@@ -2,7 +2,7 @@
 layout: ../../layouts/Guide.astro
 title: Building Components
 slug: components
-description: "Components are the basic execution units in vihaco — an instruction type, an optional message, an optional effect, and one #[dispatch(...)] impl that executes the instruction."
+description: "Components are the basic execution units in vihaco — a component! declaration defines its state and instruction surface, while #[dispatch(...)] supplies execution."
 ---
 
 # Building Components With `vihaco`
@@ -10,10 +10,10 @@ description: "Components are the basic execution units in vihaco — an instruct
 Components are the basic execution units in `vihaco`.
 You define:
 
-- an instruction type
+- a component with `component!`, including its state and instruction surface
 - an optional resolved message type
 - an optional effect type
-- one `#[dispatch(...)]` impl that executes the instruction
+- one `#[dispatch(...)]` impl that executes the component's runtime instruction
 
 This guide shows the current public authoring model for defining your own component.
 
@@ -22,15 +22,15 @@ If you want a focused guide to resolved execution input and composite-side messa
 
 ## The Core Pieces
 
-A component usually starts with two or three data types:
+A component usually starts with a `component!` declaration and one or two supporting data types:
 
-- an instruction enum with `#[derive(Instruction)]`
+- a `component!` declaration containing the component state and instructions
 - a message type with `#[derive(Message)]` when execution needs pre-resolved input
 - one or more plain Rust effect types when execution needs to return output
 
 Use them this way:
 
-- `Instruction`: the operation the component should execute
+- `component!`: the component state plus its syntax and runtime instruction types
 - `Message`: resolved execution input delivered into the component for that step
 - `Effect`: value returned from execution and later interpreted by the runtime or delivered to observers
 
@@ -38,12 +38,18 @@ Example:
 
 ```rust
 use eyre::Result;
-use vihaco::{dispatch, Effects, Instruction, Message};
+use vihaco::{component, dispatch, Effects, Message};
 
-#[derive(Debug, Clone, Instruction)]
-pub enum CounterInst {
-    Add(i64),
-    Print,
+component! {
+    #[derive(Debug, Default)]
+    pub component Counter {
+        value: i64,
+    }
+
+    instruction {
+        Add(i64),
+        Print,
+    }
 }
 
 #[derive(Debug, Clone, Message)]
@@ -52,10 +58,8 @@ pub struct PrintPrefix(pub String);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StdoutEffect(pub String);
 
-#[derive(Debug, Default)]
-pub struct Counter {
-    value: i64,
-}
+use counter::runtime::Instruction as CounterInst;
+use counter::Counter;
 ```
 
 ## Defining `#[dispatch(...)]`
@@ -64,17 +68,19 @@ Component execution lives on an impl block annotated with `#[dispatch(...)]`.
 
 ```rust
 # use eyre::Result;
-# use vihaco::{dispatch, Effects, Instruction, Message};
-# #[derive(Debug, Clone, Instruction)]
-# pub enum CounterInst { Add(i64), Print }
+# use vihaco::{component, dispatch, Effects, Message};
+# component! {
+#     #[derive(Debug, Default)]
+#     pub component Counter { value: i64, }
+#     instruction { Add(i64), Print, }
+# }
+# use counter::runtime::Instruction as CounterInst;
 # #[derive(Debug, Clone, Message)]
 # pub struct PrintPrefix(pub String);
 # #[derive(Debug, Clone, PartialEq, Eq)]
 # pub struct StdoutEffect(pub String);
-# #[derive(Debug, Default)]
-# pub struct Counter { value: i64 }
-#[dispatch(instruction = CounterInst, message = PrintPrefix, effect = StdoutEffect)]
-impl Counter {
+#[dispatch(instruction = counter::runtime::Instruction, message = PrintPrefix, effect = StdoutEffect)]
+impl counter::Counter {
     fn execute(&mut self, inst: CounterInst, msg: PrintPrefix) -> Result<Effects<StdoutEffect>> {
         match inst {
             CounterInst::Add(v) => {
@@ -116,24 +122,27 @@ Use `message = ()` when the component can execute directly from its instruction 
 
 ```rust
 use eyre::Result;
-use vihaco::{dispatch, Effects, Instruction};
+use vihaco::{component, dispatch, Effects};
 
-#[derive(Debug, Clone, Instruction)]
-pub enum LampInst {
-    On,
-    Off,
+component! {
+    #[derive(Debug, Default)]
+    pub component Lamp {
+        on: bool,
+    }
+
+    instruction {
+        On,
+        Off,
+    }
 }
+
+use lamp::runtime::Instruction as LampInst;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LampChanged(pub bool);
 
-#[derive(Debug, Default)]
-pub struct Lamp {
-    on: bool,
-}
-
-#[dispatch(instruction = LampInst, message = (), effect = LampChanged)]
-impl Lamp {
+#[dispatch(instruction = lamp::runtime::Instruction, message = (), effect = LampChanged)]
+impl lamp::Lamp {
     fn execute(&mut self, inst: LampInst, _msg: ()) -> Result<Effects<LampChanged>> {
         self.on = matches!(inst, LampInst::On);
         Ok(Effects::one(LampChanged(self.on)))
@@ -158,7 +167,7 @@ Component execution depends only on explicit inputs and returned effects.
 
 ## Component Instruction Types
 
-`component!` also records the two instruction types that make up a component's
+`component!` defines the component and records the two instruction types that make up a component's
 public instruction surface. It implements `vihaco::Component` with:
 
 - `Runtime = component_module::runtime::Instruction`
@@ -170,8 +179,8 @@ is used by execution and bytecode-facing composition; the second implements
 `Parse` and `SurfaceInstruction` for source text.
 
 The attribute form, `#[dispatch(...)]`, is intentionally separate. It wires
-an execution implementation onto an existing instruction type and does not
-generate a `Component` implementation.
+an execution implementation onto the component's generated runtime instruction
+type; `component!` supplies the `Component` implementation.
 
 ## Design Guidance
 
@@ -186,22 +195,24 @@ generate a `Component` implementation.
 By default, `execute(...)` returns `Result<Effects<()>>`. When a component needs to return a real effect, use the `effect` parameter:
 
 ```rust
-use vihaco::{dispatch, Effects, Instruction, Message};
+use vihaco::{component, dispatch, Effects, Message};
 use vihaco_cpu::StepOutcome;
 
-#[derive(Debug, Clone, Instruction)]
-pub enum CpuInst {
-    Nop,
-    Halt,
+component! {
+    pub component CpuCore {}
+    instruction {
+        Nop,
+        Halt,
+    }
 }
+
+use cpu_core::runtime::Instruction as CpuInst;
 
 #[derive(Debug, Clone, Message)]
 pub struct CpuMsg;
 
-pub struct CpuCore;
-
-#[dispatch(instruction = CpuInst, message = CpuMsg, effect = StepOutcome)]
-impl CpuCore {
+#[dispatch(instruction = cpu_core::runtime::Instruction, message = CpuMsg, effect = StepOutcome)]
+impl cpu_core::CpuCore {
     fn execute(&mut self, inst: CpuInst, _msg: CpuMsg) -> eyre::Result<Effects<StepOutcome>> {
         match inst {
             CpuInst::Nop => Ok(Effects::one(StepOutcome::Continue)),
