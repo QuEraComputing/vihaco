@@ -50,7 +50,52 @@ mod tests {
             .into_result()
             .unwrap();
         assert_eq!(f.name.as_str(), "main");
+        assert!(f.params.is_empty());
         assert!(f.body.is_empty());
+    }
+
+    #[test]
+    fn parses_function_parameters() {
+        let src = "fn @main(input: unit, output: unit) {}";
+        let f = ParsedFunction::<StubInst, StubType>::parser()
+            .parse(src)
+            .into_result()
+            .unwrap();
+        assert_eq!(
+            f.params,
+            vec![
+                Param {
+                    name: vihaco_parser::Ident("input".to_owned()),
+                    ty: StubType::Unit,
+                },
+                Param {
+                    name: vihaco_parser::Ident("output".to_owned()),
+                    ty: StubType::Unit,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn parses_function_parameters_with_whitespace() {
+        let src = "fn @main( input : unit , output:unit ) {}";
+        let f = ParsedFunction::<StubInst, StubType>::parser()
+            .parse(src)
+            .into_result()
+            .unwrap();
+        assert_eq!(f.params.len(), 2);
+        assert_eq!(f.params[0].name.as_str(), "input");
+        assert_eq!(f.params[1].name.as_str(), "output");
+    }
+
+    #[test]
+    fn rejects_parameter_without_type() {
+        let src = "fn @main(input) {}";
+        assert!(
+            ParsedFunction::<StubInst, StubType>::parser()
+                .parse(src)
+                .has_errors()
+        );
     }
 
     #[test]
