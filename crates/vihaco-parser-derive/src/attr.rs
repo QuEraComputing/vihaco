@@ -19,7 +19,7 @@ mod kw {
 
 #[derive(Clone)]
 pub enum SyntaxClassAttr {
-    Instruction { head: String },
+    Instruction { head: Option<String> },
     Metadata { head: String },
     Type,
     Value,
@@ -31,7 +31,7 @@ impl Parse for SyntaxClassAttr {
             input.parse::<kw::instruction>()?;
 
             if input.is_empty() {
-                return Err(input.error("instruction syntax class must have `head` argument"));
+                return Ok(Self::Instruction { head: None });
             }
 
             input.parse::<Token![,]>()?;
@@ -39,7 +39,7 @@ impl Parse for SyntaxClassAttr {
             input.parse::<Token![=]>()?;
             let head = input.parse::<LitStr>()?.value();
 
-            return Ok(Self::Instruction { head });
+            return Ok(Self::Instruction { head: Some(head) });
         }
 
         if input.peek(kw::metadata) {

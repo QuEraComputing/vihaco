@@ -102,6 +102,7 @@ Every derived parser declares exactly one syntax class:
 
 | Attribute | Role |
 |---|---|
+| `#[syntax_class(instruction)]` | An unnamespaced instruction such as `load`; this is the form generated for component-local syntax so a composite can add the device head. |
 | `#[syntax_class(instruction, head = "dialect")]` | A namespaced instruction such as `dialect::load` |
 | `#[syntax_class(metadata, head = "device")]` | A line-oriented metadata record such as `device module.setting ...` |
 | `#[syntax_class(value)]` | A value expression |
@@ -110,6 +111,12 @@ Every derived parser declares exactly one syntax class:
 Put the attribute on the enum or struct definition. Instruction heads omit the
 trailing `::`; the derive supplies it. Metadata heads omit their trailing
 space; the derive supplies that separator instead.
+
+The `head` argument is optional for instruction syntax. Without it, the parser
+consumes only the instruction pattern itself. This is useful for component
+instruction types: `component!` generates headless syntax, and `#[composite]`
+adds the device field name (or one of its aliases) as the head when it builds
+the composite parser.
 
 ## Patterns
 

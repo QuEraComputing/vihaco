@@ -12,7 +12,7 @@ use chumsky::extra;
 /// syntax.
 ///
 /// `#[derive(vihaco_parser_derive::Parse)]` implements this trait for enums annotated
-/// with `#[syntax_class(instruction, ...)]`.
+/// with `#[syntax_class(instruction)]` or `#[syntax_class(instruction, head = "...")]`.
 pub trait SurfaceInstruction {}
 
 /// A parser whose input is `&'src str` (char stream) and whose error type is `Simple<char>`.
