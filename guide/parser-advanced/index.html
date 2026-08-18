@@ -15,7 +15,7 @@
 pattern-derived parser handles one syntax type. The module layer adds:</p>
 <ul>
 <li>an SST section header;</li>
-<li>one or more <code>fn @name() { ... }</code> blocks;</li>
+<li>one or more <code>fn @name(params) { ... }</code> blocks;</li>
 <li>indentation, blank lines, and <code>//</code> comments; and</li>
 <li>a resolver that turns the typed parsed module into the runtime module your
 machine loads.</li>
@@ -55,6 +55,12 @@ pub struct Param&#x3C;Ty> {
 instruction or a partially matched pattern makes the function parse fail.
 The consumer-provided <code>Ty</code> parses parameter and return-type syntax, so the
 framework does not impose a universal type language.</p>
+<p>Parameters are written as comma-separated <code>name: type</code> pairs. An empty
+parameter list is written as <code>()</code>, as in <code>fn @main() { ... }</code>:</p>
+<pre><code class="language-text">fn @compute(input: i64, output: f64) {
+    // ...
+}
+</code></pre>
 <h2 id="step-1-define-the-instruction-and-type-syntax">Step 1: define the instruction and type syntax</h2>
 <p>Types used in parsed function bodies implement the <code>SurfaceInstruction</code>
 marker in addition to <code>Parse</code>. The pattern derive emits both implementations
@@ -325,7 +331,7 @@ grammar for the generated composite runtime instruction enum.</p> </article>  <n
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-08-14</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-08-18</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {
