@@ -100,12 +100,39 @@ pub fn block_i64_pairs<'src>() -> impl Parser<'src, &'src str, Vec<(i64, i64)>, 
         .then_ignore(ws)
 }
 
-/// Parse `i64`/`f64`/etc. parameter list. Currently only accepts empty `()`.
-fn param_list<'src, Ty>() -> impl Parser<'src, &'src str, Vec<Param<Ty>>, E<'src>> + Clone {
-    just('(')
+/// Parse a parameter name, excluding `:` from the identifier grammar so it
+/// can serve as the parameter/type separator.
+fn parameter_name<'src>() -> impl Parser<'src, &'src str, Ident, E<'src>> + Clone {
+    any()
+        .filter(|c: &char| {
+            !c.is_whitespace()
+                && !matches!(
+                    *c,
+                    ':' | ',' | ';' | '(' | ')' | '{' | '}' | '[' | ']' | '"' | '\'' | '`'
+                )
+                && *c != '@'
+        })
+        .repeated()
+        .at_least(1)
+        .collect::<String>()
+        .map(Ident)
         .padded()
-        .then(just(')').padded())
-        .map(|_| Vec::new())
+}
+
+/// Parse a comma-separated list of `name: type` parameters.
+fn param_list<'src, Ty>() -> impl Parser<'src, &'src str, Vec<Param<Ty>>, E<'src>>
+where
+    Ty: Parse<'src> + 'src,
+{
+    let parameter = parameter_name()
+        .then_ignore(just(':').padded())
+        .then(Ty::parser().padded())
+        .map(|(name, ty)| Param { name, ty });
+
+    parameter
+        .separated_by(just(',').padded())
+        .collect::<Vec<_>>()
+        .delimited_by(just('(').padded(), just(')').padded())
 }
 
 fn functions<'src, I, Ty>() -> impl Parser<'src, &'src str, Vec<ParsedFunction<I, Ty>>, E<'src>>

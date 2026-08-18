@@ -11,7 +11,7 @@ This guide picks up where [Pattern Parser Integration](/guide/parser) ends. A
 pattern-derived parser handles one syntax type. The module layer adds:
 
 - an SST section header;
-- one or more `fn @name() { ... }` blocks;
+- one or more `fn @name(params) { ... }` blocks;
 - indentation, blank lines, and `//` comments; and
 - a resolver that turns the typed parsed module into the runtime module your
   machine loads.
@@ -56,6 +56,15 @@ Whitespace and `//` comments are skipped between instructions. An unknown
 instruction or a partially matched pattern makes the function parse fail.
 The consumer-provided `Ty` parses parameter and return-type syntax, so the
 framework does not impose a universal type language.
+
+Parameters are written as comma-separated `name: type` pairs. An empty
+parameter list is written as `()`, as in `fn @main() { ... }`:
+
+```text
+fn @compute(input: i64, output: f64) {
+    // ...
+}
+```
 
 ## Step 1: define the instruction and type syntax
 

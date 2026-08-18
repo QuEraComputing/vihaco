@@ -25,8 +25,7 @@ where
 {
     /// Function name with the leading `@` stripped (`@main` → `"main"`).
     pub name: Ident,
-    /// Empty for the moment — `.sst` examples don't exercise parameters.
-    /// Non-empty parameter syntax errors during parsing.
+    /// Function parameters parsed from `name: type` declarations.
     pub params: Vec<Param<Ty>>,
     /// Return type parsed with the consumer-provided `Ty` syntax.
     pub return_ty: Option<Ty>,
