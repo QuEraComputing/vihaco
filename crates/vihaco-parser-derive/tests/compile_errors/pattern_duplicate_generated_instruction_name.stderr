@@ -1,0 +1,13 @@
+error: duplicate instruction name `foo`
+  --> tests/compile_errors/pattern_duplicate_generated_instruction_name.rs:10:5
+   |
+10 |     foo,
+   |     ^^^
+
+warning: variant `foo` should have an upper camel case name
+  --> tests/compile_errors/pattern_duplicate_generated_instruction_name.rs:10:5
+   |
+10 |     foo,
+   |     ^^^ help: convert the identifier to upper camel case (notice the capitalization): `Foo`
+   |
+   = note: `#[warn(non_camel_case_types)]` (part of `#[warn(nonstandard_style)]`) on by default
