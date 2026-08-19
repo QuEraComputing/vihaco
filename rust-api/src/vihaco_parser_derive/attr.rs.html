@@ -19,7 +19,7 @@
 <a href=#19 id=19 data-nosnippet>19</a>
 <a href=#20 id=20 data-nosnippet>20</a></span><span class="attr">#[derive(Clone)]
 <a href=#21 id=21 data-nosnippet>21</a></span><span class="kw">pub enum </span>SyntaxClassAttr {
-<a href=#22 id=22 data-nosnippet>22</a>    Instruction { head: String },
+<a href=#22 id=22 data-nosnippet>22</a>    Instruction { head: <span class="prelude-ty">Option</span>&lt;String&gt; },
 <a href=#23 id=23 data-nosnippet>23</a>    Metadata { head: String },
 <a href=#24 id=24 data-nosnippet>24</a>    Type,
 <a href=#25 id=25 data-nosnippet>25</a>    Value,
@@ -31,7 +31,7 @@
 <a href=#31 id=31 data-nosnippet>31</a>            input.parse::&lt;kw::instruction&gt;()<span class="question-mark">?</span>;
 <a href=#32 id=32 data-nosnippet>32</a>
 <a href=#33 id=33 data-nosnippet>33</a>            <span class="kw">if </span>input.is_empty() {
-<a href=#34 id=34 data-nosnippet>34</a>                <span class="kw">return </span><span class="prelude-val">Err</span>(input.error(<span class="string">"instruction syntax class must have `head` argument"</span>));
+<a href=#34 id=34 data-nosnippet>34</a>                <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="self">Self</span>::Instruction { head: <span class="prelude-val">None </span>});
 <a href=#35 id=35 data-nosnippet>35</a>            }
 <a href=#36 id=36 data-nosnippet>36</a>
 <a href=#37 id=37 data-nosnippet>37</a>            input.parse::&lt;<span class="macro">Token!</span>[,]&gt;()<span class="question-mark">?</span>;
@@ -39,7 +39,7 @@
 <a href=#39 id=39 data-nosnippet>39</a>            input.parse::&lt;<span class="macro">Token!</span>[=]&gt;()<span class="question-mark">?</span>;
 <a href=#40 id=40 data-nosnippet>40</a>            <span class="kw">let </span>head = input.parse::&lt;LitStr&gt;()<span class="question-mark">?</span>.value();
 <a href=#41 id=41 data-nosnippet>41</a>
-<a href=#42 id=42 data-nosnippet>42</a>            <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="self">Self</span>::Instruction { head });
+<a href=#42 id=42 data-nosnippet>42</a>            <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="self">Self</span>::Instruction { head: <span class="prelude-val">Some</span>(head) });
 <a href=#43 id=43 data-nosnippet>43</a>        }
 <a href=#44 id=44 data-nosnippet>44</a>
 <a href=#45 id=45 data-nosnippet>45</a>        <span class="kw">if </span>input.peek(kw::metadata) {

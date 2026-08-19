@@ -150,10 +150,19 @@ or define a domain-specific enum or struct that also derives <code>Parse</code>.
 
 
 
-<table><thead><tr><th>Attribute</th><th>Role</th></tr></thead><tbody><tr><td><code>#[syntax_class(instruction, head = "dialect")]</code></td><td>A namespaced instruction such as <code>dialect::load</code></td></tr><tr><td><code>#[syntax_class(metadata, head = "device")]</code></td><td>A line-oriented metadata record such as <code>device module.setting ...</code></td></tr><tr><td><code>#[syntax_class(value)]</code></td><td>A value expression</td></tr><tr><td><code>#[syntax_class(type)]</code></td><td>A type expression with an explicit pattern</td></tr></tbody></table>
+
+
+
+
+<table><thead><tr><th>Attribute</th><th>Role</th></tr></thead><tbody><tr><td><code>#[syntax_class(instruction)]</code></td><td>An unnamespaced instruction such as <code>load</code>; this is the form generated for component-local syntax so a composite can add the device head.</td></tr><tr><td><code>#[syntax_class(instruction, head = "dialect")]</code></td><td>A namespaced instruction such as <code>dialect::load</code></td></tr><tr><td><code>#[syntax_class(metadata, head = "device")]</code></td><td>A line-oriented metadata record such as <code>device module.setting ...</code></td></tr><tr><td><code>#[syntax_class(value)]</code></td><td>A value expression</td></tr><tr><td><code>#[syntax_class(type)]</code></td><td>A type expression with an explicit pattern</td></tr></tbody></table>
 <p>Put the attribute on the enum or struct definition. Instruction heads omit the
 trailing <code>::</code>; the derive supplies it. Metadata heads omit their trailing
 space; the derive supplies that separator instead.</p>
+<p>The <code>head</code> argument is optional for instruction syntax. Without it, the parser
+consumes only the instruction pattern itself. This is useful for component
+instruction types: <code>component!</code> generates headless syntax, and <code>#[composite]</code>
+adds the device field name (or one of its aliases) as the head when it builds
+the composite parser.</p>
 <h2 id="patterns">Patterns</h2>
 <p>A pattern is a space-separated sequence of:</p>
 <ul>
@@ -380,7 +389,7 @@ newtype, another syntax enum or struct, <code>Vec&#x3C;T></code>, or a tuple.</p
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-08-18</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-08-19</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

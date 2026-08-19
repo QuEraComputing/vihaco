@@ -899,7 +899,7 @@
 <a href=#899 id=899 data-nosnippet>899</a>    };
 <a href=#900 id=900 data-nosnippet>900</a>
 <a href=#901 id=901 data-nosnippet>901</a>    <span class="kw">let </span>parser = <span class="kw">match </span><span class="kw-2">&amp;</span>enum_attrs.syntax_class {
-<a href=#902 id=902 data-nosnippet>902</a>        <span class="prelude-val">Some</span>(SyntaxClassAttr::Instruction { head }) =&gt; {
+<a href=#902 id=902 data-nosnippet>902</a>        <span class="prelude-val">Some</span>(SyntaxClassAttr::Instruction { head: <span class="prelude-val">Some</span>(head) }) =&gt; {
 <a href=#903 id=903 data-nosnippet>903</a>            <span class="kw">let </span>head = <span class="macro">format!</span>(<span class="string">"{head}::"</span>);
 <a href=#904 id=904 data-nosnippet>904</a>            <span class="macro">quote!</span> {
 <a href=#905 id=905 data-nosnippet>905</a>                ::chumsky::primitive::just(#head)
@@ -997,7 +997,7 @@
 <a href=#997 id=997 data-nosnippet>997</a>    <span class="kw">let </span>(<span class="kw">_</span>, ty_generics, <span class="kw">_</span>) = input.generics.split_for_impl();
 <a href=#998 id=998 data-nosnippet>998</a>
 <a href=#999 id=999 data-nosnippet>999</a>    <span class="kw">let </span>parser = <span class="kw">match </span><span class="kw-2">&amp;</span>struct_attrs.syntax_class {
-<a href=#1000 id=1000 data-nosnippet>1000</a>        <span class="prelude-val">Some</span>(SyntaxClassAttr::Instruction { head }) =&gt; {
+<a href=#1000 id=1000 data-nosnippet>1000</a>        <span class="prelude-val">Some</span>(SyntaxClassAttr::Instruction { head: <span class="prelude-val">Some</span>(head) }) =&gt; {
 <a href=#1001 id=1001 data-nosnippet>1001</a>            <span class="kw">let </span>head = <span class="macro">format!</span>(<span class="string">"{head}::"</span>);
 <a href=#1002 id=1002 data-nosnippet>1002</a>            <span class="macro">quote!</span> {
 <a href=#1003 id=1003 data-nosnippet>1003</a>                ::chumsky::primitive::just(#head)
