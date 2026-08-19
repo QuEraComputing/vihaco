@@ -1,10 +1,9 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+use crate::RuntimeInstruction;
 use vihaco::program::Value;
 use vihaco_parser::BareToken;
-
-use crate::data::cpu::runtime::Instruction as RuntimeInstruction;
 
 #[derive(Debug, Clone, Copy, PartialEq, vihaco_parser_derive::Parse)]
 #[syntax_class(type)]
@@ -45,37 +44,6 @@ impl<T: Into<Value>> From<T> for RuntimeInstruction {
     }
 }
 
-impl vihaco::CanonicalInstructionSyntax for RuntimeInstruction {
-    fn variants() -> &'static [vihaco::CanonicalInstructionVariantSyntax] {
-        &[
-            vihaco::CanonicalInstructionVariantSyntax {
-                mnemonic: "cpu::const_i64",
-                operands: &[vihaco::OperandKind::I64],
-            },
-            vihaco::CanonicalInstructionVariantSyntax {
-                mnemonic: "cpu::const_f64",
-                operands: &[vihaco::OperandKind::F64],
-            },
-            vihaco::CanonicalInstructionVariantSyntax {
-                mnemonic: "cpu::const_bool",
-                operands: &[vihaco::OperandKind::Bool],
-            },
-            vihaco::CanonicalInstructionVariantSyntax {
-                mnemonic: "cpu::const_u64",
-                operands: &[vihaco::OperandKind::NonNegativeU64],
-            },
-            vihaco::CanonicalInstructionVariantSyntax {
-                mnemonic: "cpu::fn_ref",
-                operands: &[vihaco::OperandKind::Symbol],
-            },
-            vihaco::CanonicalInstructionVariantSyntax {
-                mnemonic: "cpu::call_direct",
-                operands: &[vihaco::OperandKind::Symbol],
-            },
-        ]
-    }
-}
-
 #[cfg(test)]
 #[allow(clippy::approx_constant)]
 mod parse_tests {
@@ -110,23 +78,23 @@ mod parse_tests {
 
     #[test]
     fn parses_unit_variants() {
-        assert_parses!("cpu::halt", SurfaceInstruction::Halt);
-        assert_parses!("cpu::print", SurfaceInstruction::Print);
-        assert_parses!("cpu::dup", SurfaceInstruction::Dup);
-        assert_parses!("cpu::breakpoint", SurfaceInstruction::Breakpoint);
+        assert_parses!("halt", SurfaceInstruction::Halt);
+        assert_parses!("print", SurfaceInstruction::Print);
+        assert_parses!("dup", SurfaceInstruction::Dup);
+        assert_parses!("breakpoint", SurfaceInstruction::Breakpoint);
         assert_parses!(
-            "cpu::label @loop",
+            "label @loop",
             SurfaceInstruction::Label(name) if name.as_str() == "loop"
         );
-        assert_parses!("cpu::func_start", SurfaceInstruction::FunctionStart);
-        assert_parses!("cpu::func_end", SurfaceInstruction::FunctionEnd);
-        assert_parses!("cpu::get_item", SurfaceInstruction::GetItem);
-        assert_parses!("cpu::not", SurfaceInstruction::Not);
-        assert_parses!("cpu::and", SurfaceInstruction::And);
-        assert_parses!("cpu::or", SurfaceInstruction::Or);
-        assert_parses!("cpu::xor", SurfaceInstruction::Xor);
-        assert_parses!("cpu::call_indirect", SurfaceInstruction::IndirectCall);
-        assert_parses!("cpu::ret 0", SurfaceInstruction::Return(0));
+        assert_parses!("func_start", SurfaceInstruction::FunctionStart);
+        assert_parses!("func_end", SurfaceInstruction::FunctionEnd);
+        assert_parses!("get_item", SurfaceInstruction::GetItem);
+        assert_parses!("not", SurfaceInstruction::Not);
+        assert_parses!("and", SurfaceInstruction::And);
+        assert_parses!("or", SurfaceInstruction::Or);
+        assert_parses!("xor", SurfaceInstruction::Xor);
+        assert_parses!("call_indirect", SurfaceInstruction::IndirectCall);
+        assert_parses!("ret 0", SurfaceInstruction::Return(0));
     }
 
     #[test]
@@ -148,82 +116,70 @@ mod parse_tests {
 
     #[test]
     fn parses_typed_operations() {
-        assert_parses!("cpu::add i64", SurfaceInstruction::Add(SurfaceType::I64));
-        assert_parses!("cpu::sub f64", SurfaceInstruction::Sub(SurfaceType::F64));
-        assert_parses!("cpu::mul u32", SurfaceInstruction::Mul(SurfaceType::U32));
-        assert_parses!("cpu::div u64", SurfaceInstruction::Div(SurfaceType::U64));
-        assert_parses!("cpu::rem i64", SurfaceInstruction::Rem(SurfaceType::I64));
-        assert_parses!("cpu::neg f64", SurfaceInstruction::Neg(SurfaceType::F64));
-        assert_parses!("cpu::lt i64", SurfaceInstruction::Lt(SurfaceType::I64));
-        assert_parses!("cpu::eq i64", SurfaceInstruction::Eq(SurfaceType::I64));
-        assert_parses!("cpu::ne u64", SurfaceInstruction::Ne(SurfaceType::U64));
-        assert_parses!("cpu::gt u32", SurfaceInstruction::Gt(SurfaceType::U32));
-        assert_parses!("cpu::le f64", SurfaceInstruction::Le(SurfaceType::F64));
-        assert_parses!("cpu::ge f64", SurfaceInstruction::Ge(SurfaceType::F64));
-        assert_parses!(
-            "cpu::bitand i64",
-            SurfaceInstruction::BitAnd(SurfaceType::I64)
-        );
-        assert_parses!(
-            "cpu::bitor u64",
-            SurfaceInstruction::BitOr(SurfaceType::U64)
-        );
-        assert_parses!(
-            "cpu::bitxor u32",
-            SurfaceInstruction::BitXor(SurfaceType::U32)
-        );
-        assert_parses!("cpu::shl u64", SurfaceInstruction::Shl(SurfaceType::U64));
-        assert_parses!("cpu::shr i64", SurfaceInstruction::Shr(SurfaceType::I64));
-        assert_parses!("cpu::rol u32", SurfaceInstruction::Rol(SurfaceType::U32));
-        assert_parses!("cpu::ror u64", SurfaceInstruction::Ror(SurfaceType::U64));
+        assert_parses!("add i64", SurfaceInstruction::Add(SurfaceType::I64));
+        assert_parses!("sub f64", SurfaceInstruction::Sub(SurfaceType::F64));
+        assert_parses!("mul u32", SurfaceInstruction::Mul(SurfaceType::U32));
+        assert_parses!("div u64", SurfaceInstruction::Div(SurfaceType::U64));
+        assert_parses!("rem i64", SurfaceInstruction::Rem(SurfaceType::I64));
+        assert_parses!("neg f64", SurfaceInstruction::Neg(SurfaceType::F64));
+        assert_parses!("lt i64", SurfaceInstruction::Lt(SurfaceType::I64));
+        assert_parses!("eq i64", SurfaceInstruction::Eq(SurfaceType::I64));
+        assert_parses!("ne u64", SurfaceInstruction::Ne(SurfaceType::U64));
+        assert_parses!("gt u32", SurfaceInstruction::Gt(SurfaceType::U32));
+        assert_parses!("le f64", SurfaceInstruction::Le(SurfaceType::F64));
+        assert_parses!("ge f64", SurfaceInstruction::Ge(SurfaceType::F64));
+        assert_parses!("bitand i64", SurfaceInstruction::BitAnd(SurfaceType::I64));
+        assert_parses!("bitor u64", SurfaceInstruction::BitOr(SurfaceType::U64));
+        assert_parses!("bitxor u32", SurfaceInstruction::BitXor(SurfaceType::U32));
+        assert_parses!("shl u64", SurfaceInstruction::Shl(SurfaceType::U64));
+        assert_parses!("shr i64", SurfaceInstruction::Shr(SurfaceType::I64));
+        assert_parses!("rol u32", SurfaceInstruction::Rol(SurfaceType::U32));
+        assert_parses!("ror u64", SurfaceInstruction::Ror(SurfaceType::U64));
     }
 
     #[test]
     fn parses_load_store() {
+        assert_parses!("load i64, 7", SurfaceInstruction::Load(SurfaceType::I64, 7));
         assert_parses!(
-            "cpu::load i64, 7",
-            SurfaceInstruction::Load(SurfaceType::I64, 7)
-        );
-        assert_parses!(
-            "cpu::store f64, 42",
+            "store f64, 42",
             SurfaceInstruction::Store(SurfaceType::F64, 42)
         );
     }
 
     #[test]
     fn parses_heap_alloc() {
-        assert_parses!("cpu::heap_alloc 5", SurfaceInstruction::HeapAlloc(5));
+        assert_parses!("heap_alloc 5", SurfaceInstruction::HeapAlloc(5));
     }
 
     #[test]
     fn parses_span() {
-        assert_parses!("cpu::span 0 1 2", SurfaceInstruction::Span(0, 1, 2));
+        assert_parses!("span 0 1 2", SurfaceInstruction::Span(0, 1, 2));
     }
 
     #[test]
     fn parses_const_numeric_flavors() {
         assert_parses!(
-            "cpu::const i64, 42",
+            "const i64, 42",
             SurfaceInstruction::Const(SurfaceType::I64, value)
                 if value == SurfaceValue::Bare(BareToken("42".to_owned()))
         );
         assert_parses!(
-            "cpu::const u64, 7",
+            "const u64, 7",
             SurfaceInstruction::Const(SurfaceType::U64, value)
                 if value == SurfaceValue::Bare(BareToken("7".to_owned()))
         );
         assert_parses!(
-            "cpu::const u32, 3",
+            "const u32, 3",
             SurfaceInstruction::Const(SurfaceType::U32, value)
                 if value == SurfaceValue::Bare(BareToken("3".to_owned()))
         );
         assert_parses!(
-            "cpu::const f64, 3.14",
+            "const f64, 3.14",
             SurfaceInstruction::Const(SurfaceType::F64, value)
                 if value == SurfaceValue::Bare(BareToken("3.14".to_owned()))
         );
         assert_parses!(
-            "cpu::const bool, true",
+            "const bool, true",
             SurfaceInstruction::Const(SurfaceType::Bool, value)
                 if value == SurfaceValue::Bare(BareToken("true".to_owned()))
         );
@@ -232,7 +188,7 @@ mod parse_tests {
     #[test]
     fn parses_const_quoted_string() {
         assert_parses!(
-            "cpu::const str, \"hello world\"",
+            "const str, \"hello world\"",
             SurfaceInstruction::Const(SurfaceType::String, SurfaceValue::Quoted(value))
                 if value.as_str() == "hello world"
         );
@@ -241,16 +197,16 @@ mod parse_tests {
     #[test]
     fn parses_symbolic_control_flow() {
         assert_parses!(
-            "cpu::br @body",
+            "br @body",
             SurfaceInstruction::Branch(target) if target.as_str() == "body"
         );
         assert_parses!(
-            "cpu::cond_br @then, @else",
+            "cond_br @then, @else",
             SurfaceInstruction::ConditionalBranch(then_target, else_target)
                 if then_target.as_str() == "then" && else_target.as_str() == "else"
         );
         assert_parses!(
-            "cpu::call 2, main",
+            "call 2, main",
             SurfaceInstruction::Call(2, target) if target.as_str() == "main"
         );
     }
@@ -259,18 +215,8 @@ mod parse_tests {
     fn rejects_malformed_quoted_value_instead_of_treating_it_as_bare() {
         assert!(
             SurfaceInstruction::parser()
-                .parse("cpu::const str, \"unterminated")
+                .parse("const str, \"unterminated")
                 .has_errors()
         );
-    }
-
-    #[test]
-    fn rejects_legacy_runtime_instruction_syntax() {
-        assert!(
-            SurfaceInstruction::parser()
-                .parse("const.i64 42")
-                .has_errors()
-        );
-        assert!(SurfaceInstruction::parser().parse("br @body").has_errors());
     }
 }

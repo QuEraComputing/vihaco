@@ -218,6 +218,19 @@ fn instruction_heads_select_the_dialect() {
 }
 
 #[derive(Parse, Debug, PartialEq)]
+#[syntax_class(instruction)]
+enum BareDialect {
+    #[pattern = "'set $0"]
+    Set(i64),
+}
+
+#[test]
+fn instruction_heads_are_optional() {
+    assert_eq!(parse("set 3"), Ok(BareDialect::Set(3)));
+    assert!(parse::<BareDialect>("bare::set 3").is_err());
+}
+
+#[derive(Parse, Debug, PartialEq)]
 #[syntax_class(metadata, head = "device")]
 enum DeviceHeader {
     #[pattern = "module.setting $0 `,` $1"]

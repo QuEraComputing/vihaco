@@ -178,6 +178,11 @@ For example, a component named `Counter` exposes
 is used by execution and bytecode-facing composition; the second implements
 `Parse` and `SurfaceInstruction` for source text.
 
+The generated component syntax is headless: its parser accepts instruction
+mnemonics such as `add` directly. When the component is placed in a
+`#[composite]`, the composite adds the device field name (or a configured
+alias) as the instruction head, producing source such as `counter::add`.
+
 The attribute form, `#[dispatch(...)]`, is intentionally separate. It wires
 an execution implementation onto the component's generated runtime instruction
 type; `component!` supplies the `Component` implementation.

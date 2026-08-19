@@ -298,12 +298,11 @@ pub fn expand(input: TokenStream) -> TokenStream {
         let runtime_generics = retain_generics(&generics, all_runtime_types);
         let (sig, _, sw) = syntax_generics.split_for_impl();
         let (rig, _, rw) = runtime_generics.split_for_impl();
-        let head = module_name.to_string();
         quote! {
             #visibility mod syntax {
                 use super::*;
                 #[derive(Clone, Debug, PartialEq, ::vihaco::Parse)]
-                #[syntax_class(instruction, head = #head)]
+                #[syntax_class(instruction)]
                 #visibility enum Instruction #sig #sw {
                     #( #syntax_variants, )*
                 }
