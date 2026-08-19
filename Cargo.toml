@@ -17,7 +17,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.3.1"
+version = "0.4.0"
 license = "MIT"
 repository = "https://github.com/QuEraComputing/vihaco"
 authors = [
@@ -27,18 +27,18 @@ authors = [
 ]
 
 [workspace.dependencies]
-vihaco            = { version = "0.3.1", path = "crates/vihaco" }
-vihaco-abi        = { version = "0.3.1", path = "crates/vihaco-abi" }
-vihaco-abi-derive = { version = "0.3.1", path = "crates/vihaco-abi-derive" }
-vihaco-bytecode   = { version = "0.3.1", path = "crates/vihaco-bytecode" }
-vihaco-cpu        = { version = "0.3.1", path = "crates/vihaco-cpu" }
-vihaco-module     = { version = "0.3.1", path = "crates/vihaco-module" }
-vihaco-parser     = { version = "0.3.1", path = "crates/vihaco-parser" }
-vihaco-parser-derive = { version = "0.3.1", path = "crates/vihaco-parser-derive" }
-vihaco-runtime    = { version = "0.3.1", path = "crates/vihaco-runtime" }
-vihaco-runtime-derive = { version = "0.3.1", path = "crates/vihaco-runtime-derive" }
-vihaco-stdlib     = { version = "0.3.1", path = "crates/vihaco-stdlib" }
-vihaco-syntax     = { version = "0.3.1", path = "crates/vihaco-syntax" }
+vihaco            = { version = "0.4.0", path = "crates/vihaco" }
+vihaco-abi        = { version = "0.4.0", path = "crates/vihaco-abi" }
+vihaco-abi-derive = { version = "0.4.0", path = "crates/vihaco-abi-derive" }
+vihaco-bytecode   = { version = "0.4.0", path = "crates/vihaco-bytecode" }
+vihaco-cpu        = { version = "0.4.0", path = "crates/vihaco-cpu" }
+vihaco-module     = { version = "0.4.0", path = "crates/vihaco-module" }
+vihaco-parser     = { version = "0.4.0", path = "crates/vihaco-parser" }
+vihaco-parser-derive = { version = "0.4.0", path = "crates/vihaco-parser-derive" }
+vihaco-runtime    = { version = "0.4.0", path = "crates/vihaco-runtime" }
+vihaco-runtime-derive = { version = "0.4.0", path = "crates/vihaco-runtime-derive" }
+vihaco-stdlib     = { version = "0.4.0", path = "crates/vihaco-stdlib" }
+vihaco-syntax     = { version = "0.4.0", path = "crates/vihaco-syntax" }
 
 # Shared third-party dependencies pinned once (see design/crate-split.md §8.1).
 byteorder = "1.5.0"

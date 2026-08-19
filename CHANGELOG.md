@@ -18,6 +18,12 @@ below the `## [Unreleased]` heading, so do not remove or reword that line.
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/QuEraComputing/vihaco/compare/v0.3.1...v0.4.0) - 2026-08-19
+
+### Other
+
+- Allow nested composites with `#[composite]` macro ([#78](https://github.com/QuEraComputing/vihaco/pull/78))
+
 ## [0.3.1](https://github.com/QuEraComputing/vihaco/compare/v0.3.0...v0.3.1) - 2026-08-19
 
 ### Other
