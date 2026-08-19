@@ -95,7 +95,7 @@ fn generates_distinct_syntax_and_runtime_enums() {
     assert_eq!(format!("{component:?}"), "Demo { state: 0 }");
 
     let syntax = demo::syntax::Instruction::parser()
-        .parse("branch @target")
+        .parse("demo.branch @target")
         .into_result()
         .unwrap();
     assert_eq!(
@@ -116,7 +116,7 @@ fn composite_generates_component_instruction_modules() {
     require_runtime::<demo_composite::runtime::Instruction>();
 
     let parsed = demo_composite::syntax::Instruction::parser()
-        .parse("raw::halt")
+        .parse("raw::simple.halt")
         .into_result()
         .unwrap();
     assert_eq!(
@@ -125,7 +125,7 @@ fn composite_generates_component_instruction_modules() {
     );
 
     let aliased = demo_composite::syntax::Instruction::parser()
-        .parse("alias::halt")
+        .parse("alias::simple.halt")
         .into_result()
         .unwrap();
     assert_eq!(
@@ -138,7 +138,7 @@ fn composite_generates_component_instruction_modules() {
 fn infers_patterns_for_unit_and_payload_variants() {
     assert_eq!(
         demo::syntax::Instruction::parser()
-            .parse("halt")
+            .parse("demo.halt")
             .into_result(),
         Ok(demo::syntax::Instruction::Halt)
     );

@@ -16,7 +16,7 @@ fn main() {
     // The syntax class supplies the `counter::` namespace. Patterns bind
     // source operands directly to Rust fields.
     let inst = CounterInst::parser()
-        .parse("counter::add 5")
+        .parse("counter.add 5")
         .into_result()
         .unwrap();
     assert_eq!(inst, CounterInst::Add(5));

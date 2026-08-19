@@ -100,7 +100,7 @@ mod tests {
 
     #[test]
     fn parses_function_with_canonical_body() {
-        let src = "fn @main() {\n  stub::halt\n  stub::print\n  stub::halt\n}";
+        let src = "fn @main() {\n  stub.halt\n  stub.print\n  stub.halt\n}";
         let f = ParsedFunction::<StubInst, StubType>::parser()
             .parse(src)
             .into_result()
@@ -123,7 +123,7 @@ mod tests {
 
     #[test]
     fn parses_consumer_provided_return_type() {
-        let src = "fn @main() -> unit { stub::halt }";
+        let src = "fn @main() -> unit { stub.halt }";
         let f = ParsedFunction::<StubInst, StubType>::parser()
             .parse(src)
             .into_result()
@@ -150,7 +150,7 @@ mod tests {
         let src = "\
 fn @main() {
     // this is ignored
-    stub::halt
+    stub.halt
 }
 ";
         let f = ParsedFunction::<StubInst, StubType>::parser()
@@ -168,7 +168,7 @@ fn @main() {
             Dump(u32),
         }
 
-        let src = "fn @main() { stub::dump foo }";
+        let src = "fn @main() { stub.dump foo }";
         assert!(
             ParsedFunction::<OnlyOne, StubType>::parser()
                 .parse(src)

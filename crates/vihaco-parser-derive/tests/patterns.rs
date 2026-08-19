@@ -49,27 +49,27 @@ enum PermutedTuple {
 #[test]
 fn tuple_bindings_are_assigned_by_index_not_capture_order() {
     assert_eq!(
-        parse("test::p012 7 true word"),
+        parse("test.p012 7 true word"),
         Ok(PermutedTuple::P012(7, true, ident("word")))
     );
     assert_eq!(
-        parse("test::p021 7 word true"),
+        parse("test.p021 7 word true"),
         Ok(PermutedTuple::P021(7, true, ident("word")))
     );
     assert_eq!(
-        parse("test::p102 true 7 word"),
+        parse("test.p102 true 7 word"),
         Ok(PermutedTuple::P102(7, true, ident("word")))
     );
     assert_eq!(
-        parse("test::p120 true word 7"),
+        parse("test.p120 true word 7"),
         Ok(PermutedTuple::P120(7, true, ident("word")))
     );
     assert_eq!(
-        parse("test::p201 word 7 true"),
+        parse("test.p201 word 7 true"),
         Ok(PermutedTuple::P201(7, true, ident("word")))
     );
     assert_eq!(
-        parse("test::p210 word true 7"),
+        parse("test.p210 word true 7"),
         Ok(PermutedTuple::P210(7, true, ident("word")))
     );
 }
@@ -106,55 +106,52 @@ enum Punctuation {
 
 #[test]
 fn comma_suppresses_only_leading_whitespace() {
+    assert_eq!(parse("test.comma 1, true"), Ok(Punctuation::Comma(1, true)));
     assert_eq!(
-        parse("test::comma 1, true"),
-        Ok(Punctuation::Comma(1, true))
-    );
-    assert_eq!(
-        parse("test::comma   1,    false"),
+        parse("test.comma   1,    false"),
         Ok(Punctuation::Comma(1, false))
     );
 
-    assert!(parse::<Punctuation>("test::comma 1 , true").is_err());
-    assert!(parse::<Punctuation>("test::comma 1,true").is_err());
+    assert!(parse::<Punctuation>("test.comma 1 , true").is_err());
+    assert!(parse::<Punctuation>("test.comma 1,true").is_err());
 }
 
 #[test]
 fn at_suppresses_only_trailing_whitespace() {
     assert_eq!(
-        parse("test::at 1 @target"),
+        parse("test.at 1 @target"),
         Ok(Punctuation::At(1, ident("target")))
     );
     assert_eq!(
-        parse("test::at 1    @target"),
+        parse("test.at 1    @target"),
         Ok(Punctuation::At(1, ident("target")))
     );
 
-    assert!(parse::<Punctuation>("test::at 1@target").is_err());
-    assert!(parse::<Punctuation>("test::at 1 @ target").is_err());
+    assert!(parse::<Punctuation>("test.at 1@target").is_err());
+    assert!(parse::<Punctuation>("test.at 1 @ target").is_err());
 }
 
 #[test]
 fn ordinary_atoms_require_ascii_spaces_and_exact_literals() {
     assert_eq!(
-        parse("test::wrapped before 9 after"),
+        parse("test.wrapped before 9 after"),
         Ok(Punctuation::Wrapped(9))
     );
     assert_eq!(
-        parse("test::wrapped   before    9  after"),
+        parse("test.wrapped   before    9  after"),
         Ok(Punctuation::Wrapped(9))
     );
 
     for invalid in [
-        "test::wrapped before9 after",
-        "test::wrapped before 9after",
-        "test::wrapped\tbefore 9 after",
-        "test::wrapped before\n9 after",
-        "test::wrapped wrong 9 after",
-        "test::wrapped before 9 wrong",
-        "prefix test::wrapped before 9 after",
-        "test::wrapped before 9 after suffix",
-        "test::wrapped before nope after",
+        "test.wrapped before9 after",
+        "test.wrapped before 9after",
+        "test.wrapped\tbefore 9 after",
+        "test.wrapped before\n9 after",
+        "test.wrapped wrong 9 after",
+        "test.wrapped before 9 wrong",
+        "prefix test.wrapped before 9 after",
+        "test.wrapped before 9 after suffix",
+        "test.wrapped before nope after",
     ] {
         assert!(
             parse::<Punctuation>(invalid).is_err(),
@@ -181,14 +178,14 @@ enum ExplicitInstruction {
 
 #[test]
 fn generated_instruction_patterns_match_equivalent_explicit_patterns() {
-    assert_eq!(parse("test::halt"), Ok(GeneratedInstruction::Halt));
-    assert_eq!(parse("test::halt"), Ok(ExplicitInstruction::Halt));
+    assert_eq!(parse("test.halt"), Ok(GeneratedInstruction::Halt));
+    assert_eq!(parse("test.halt"), Ok(ExplicitInstruction::Halt));
     assert_eq!(
-        parse("test::move 12, true"),
+        parse("test.move 12, true"),
         Ok(GeneratedInstruction::Move(12, true))
     );
     assert_eq!(
-        parse("test::move 12, true"),
+        parse("test.move 12, true"),
         Ok(ExplicitInstruction::Move(12, true))
     );
 }
@@ -209,11 +206,11 @@ enum DigitalDialect {
 
 #[test]
 fn instruction_heads_select_the_dialect() {
-    assert_eq!(parse("analog::set 3"), Ok(AnalogDialect::Set(3)));
-    assert_eq!(parse("digital::set 5"), Ok(DigitalDialect::Set(5)));
+    assert_eq!(parse("analog.set 3"), Ok(AnalogDialect::Set(3)));
+    assert_eq!(parse("digital.set 5"), Ok(DigitalDialect::Set(5)));
 
-    assert!(parse::<AnalogDialect>("digital::set 3").is_err());
-    assert!(parse::<DigitalDialect>("analog::set 5").is_err());
+    assert!(parse::<AnalogDialect>("digital.set 3").is_err());
+    assert!(parse::<DigitalDialect>("analog.set 5").is_err());
     assert!(parse::<AnalogDialect>("set 3").is_err());
 }
 
@@ -227,7 +224,7 @@ enum BareDialect {
 #[test]
 fn instruction_heads_are_optional() {
     assert_eq!(parse("set 3"), Ok(BareDialect::Set(3)));
-    assert!(parse::<BareDialect>("bare::set 3").is_err());
+    assert!(parse::<BareDialect>("bare.set 3").is_err());
 }
 
 #[derive(Parse, Debug, PartialEq)]
@@ -252,7 +249,7 @@ fn metadata_heads_use_spaces_and_bare_dotted_patterns() {
     );
     assert_eq!(parse("device generic"), Ok(DeviceHeader::Generic));
 
-    assert!(parse::<DeviceHeader>("device::module.setting 3, 4").is_err());
+    assert!(parse::<DeviceHeader>("device.module.setting 3, 4").is_err());
 }
 
 #[derive(Parse, Debug, PartialEq)]
@@ -338,7 +335,7 @@ fn instruction_list<'src>() -> impl Parser<
 
 #[test]
 fn parses_a_newline_separated_instruction_source() {
-    let source = "test::load 4\ntest::store destination, 8\ntest::jump 2 @loop\ntest::halt\n";
+    let source = "test.load 4\ntest.store destination, 8\ntest.jump 2 @loop\ntest.halt\n";
 
     assert_eq!(
         instruction_list().parse(source).into_result(),
@@ -353,7 +350,7 @@ fn parses_a_newline_separated_instruction_source() {
 
 #[test]
 fn instruction_list_rejects_a_bad_instruction_without_losing_neighbors() {
-    let source = "test::load 4\ntest::store destination 8\ntest::halt";
+    let source = "test.load 4\ntest.store destination 8\ntest.halt";
     assert!(instruction_list().parse(source).has_errors());
 }
 
@@ -400,7 +397,7 @@ fn generics_and_generated_lifetime_name_collisions_compile_and_parse() {
     );
     assert_eq!(parse("37"), Ok(Generic(37_i64)));
     assert_eq!(
-        parse("generic::value 41"),
+        parse("generic.value 41"),
         Ok(GenericInstruction::Value(41_i64))
     );
     require_surface_instruction::<GenericInstruction<i64>>();
@@ -533,11 +530,11 @@ define_instruction_enum!(FiftyThreeVariants {
 
 #[test]
 fn enum_choice_boundaries_compile_and_select_the_right_variant() {
-    assert_eq!(parse("test::v0"), Ok(OneVariant::V0));
-    assert_eq!(parse("test::v1"), Ok(TwoVariants::V1));
-    assert_eq!(parse("test::v25"), Ok(TwentySixVariants::V25));
-    assert_eq!(parse("test::v26"), Ok(TwentySevenVariants::V26));
-    assert_eq!(parse("test::v52"), Ok(FiftyThreeVariants::V52));
+    assert_eq!(parse("test.v0"), Ok(OneVariant::V0));
+    assert_eq!(parse("test.v1"), Ok(TwoVariants::V1));
+    assert_eq!(parse("test.v25"), Ok(TwentySixVariants::V25));
+    assert_eq!(parse("test.v26"), Ok(TwentySevenVariants::V26));
+    assert_eq!(parse("test.v52"), Ok(FiftyThreeVariants::V52));
 }
 
 #[derive(Parse, Debug, PartialEq)]
@@ -548,9 +545,6 @@ enum AcronymInstruction {
 
 #[test]
 fn generated_names_are_lowercase() {
-    assert_eq!(
-        parse("test::httpserver"),
-        Ok(AcronymInstruction::HttpServer)
-    );
-    assert!(parse::<AcronymInstruction>("test::HttpServer").is_err());
+    assert_eq!(parse("test.httpserver"), Ok(AcronymInstruction::HttpServer));
+    assert!(parse::<AcronymInstruction>("test.HttpServer").is_err());
 }

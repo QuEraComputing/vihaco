@@ -245,6 +245,7 @@ pub fn expand(input: TokenStream) -> TokenStream {
         instructions,
     } = declaration;
     let module_name = format_ident!("{}", name.to_string().to_case(Case::Snake));
+    let syntax_head = module_name.to_string();
     let visibility = public_visibility(visibility);
     let state = parent_fields(state);
     let (impl_generics, _, where_clause) = generics.split_for_impl();
@@ -302,7 +303,7 @@ pub fn expand(input: TokenStream) -> TokenStream {
             #visibility mod syntax {
                 use super::*;
                 #[derive(Clone, Debug, PartialEq, ::vihaco::Parse)]
-                #[syntax_class(instruction)]
+                #[syntax_class(instruction, head = #syntax_head)]
                 #visibility enum Instruction #sig #sw {
                     #( #syntax_variants, )*
                 }

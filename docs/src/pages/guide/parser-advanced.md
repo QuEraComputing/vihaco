@@ -99,8 +99,8 @@ The source for that type uses fully qualified instructions:
 
 ```text
 fn @main() {
-    device::wait 10
-    device::halt
+    device.wait 10
+    device.halt
 }
 ```
 
