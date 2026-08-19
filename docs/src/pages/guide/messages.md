@@ -141,7 +141,7 @@ That is the mental model to keep throughout the rest of this guide.
 
 ```rust ignore
 use eyre::Result;
-use vihaco::{dispatch, Component, Effects, GeneratedComponent, Instruction, Message, Parse, composite};
+use vihaco::{dispatch, Component, Effects, GeneratedComponent, HasInstructionSet, Instruction, Message, Parse, composite};
 
 #[derive(Debug, Clone, Instruction)]
 enum DeviceInst {
@@ -172,10 +172,12 @@ impl Device {
     }
 }
 
-impl Component for Device {
+impl HasInstructionSet for Device {
     type Runtime = DeviceInst;
     type Syntax = DeviceSyntax;
 }
+
+impl Component for Device {}
 
 #[composite]
 #[derive(Default)]
