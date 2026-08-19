@@ -18,6 +18,13 @@ below the `## [Unreleased]` heading, so do not remove or reword that line.
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/QuEraComputing/vihaco/compare/v0.3.0...v0.3.1) - 2026-08-19
+
+### Other
+
+- *(release)* one `v0.x.y` tag and GitHub Release per release ([#71](https://github.com/QuEraComputing/vihaco/pull/71))
+- Make `#[syntax_class(..)]` `head` argument optional ([#66](https://github.com/QuEraComputing/vihaco/pull/66))
+
 ## [0.3.0](https://github.com/QuEraComputing/vihaco/compare/vihaco-v0.2.0...vihaco-v0.3.0) - 2026-08-18
 
 ### Other
