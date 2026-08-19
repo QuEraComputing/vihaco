@@ -54,10 +54,12 @@ enum RawRuntimeInstruction {
 
 struct Raw;
 
-impl vihaco::Component for Raw {
+impl vihaco::HasInstructionSet for Raw {
     type Runtime = RawRuntimeInstruction;
     type Syntax = simple::syntax::Instruction;
 }
+
+impl vihaco::Component for Raw {}
 
 impl vihaco::GeneratedComponent for Raw {
     type Instruction = RawRuntimeInstruction;
@@ -80,6 +82,11 @@ fn require_surface_instruction<T: SurfaceInstruction>() {}
 struct DemoComposite {
     #[device(0x01, alias = "alias")]
     raw: Raw,
+}
+
+impl vihaco::HasInstructionSet for DemoComposite {
+    type Runtime = demo_composite::runtime::Instruction;
+    type Syntax = demo_composite::syntax::Instruction;
 }
 
 #[test]

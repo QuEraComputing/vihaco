@@ -17,14 +17,18 @@ pub trait GeneratedComponent {
     ) -> Result<Effects<Self::Effect>>;
 }
 
-/// The instruction types exposed by a component to its two execution layers.
-pub trait Component {
-    /// The instruction consumed by the runtime component.
+/// The instruction types exposed by a device to its two execution layers.
+pub trait HasInstructionSet {
+    /// The instruction consumed by the runtime device.
     type Runtime;
 
     /// The instruction parsed from source syntax.
     type Syntax;
 }
+
+pub trait Component: HasInstructionSet {}
+
+pub trait Composite: HasInstructionSet {}
 
 pub fn expect_exactly_one_effect<E>(effects: Effects<E>) -> Result<E> {
     let mut iter = effects.into_iter();

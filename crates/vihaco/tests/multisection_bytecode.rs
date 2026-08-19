@@ -205,10 +205,12 @@ impl GeneratedComponent for LoadedDevice {
     }
 }
 
-impl vihaco::Component for LoadedDevice {
+impl vihaco::HasInstructionSet for LoadedDevice {
     type Runtime = TestInst;
     type Syntax = LegacySyntax;
 }
+
+impl vihaco::Component for LoadedDevice {}
 
 impl GeneratedComponent for TextLoadedDevice {
     type Instruction = TextInst;
@@ -224,10 +226,12 @@ impl GeneratedComponent for TextLoadedDevice {
     }
 }
 
-impl vihaco::Component for TextLoadedDevice {
+impl vihaco::HasInstructionSet for TextLoadedDevice {
     type Runtime = TextInst;
     type Syntax = LegacySyntax;
 }
+
+impl vihaco::Component for TextLoadedDevice {}
 
 impl LoadBytecodeSection<TextContext> for LoadedDevice {
     fn load_bytecode_section<'bc>(
@@ -264,6 +268,11 @@ struct Machine {
     default_child: LoadedDevice,
 }
 
+impl vihaco::HasInstructionSet for Machine {
+    type Runtime = machine::runtime::Instruction;
+    type Syntax = machine::syntax::Instruction;
+}
+
 #[vihaco::composite]
 #[derive(Debug, Default)]
 #[allow(dead_code)]
@@ -273,6 +282,11 @@ struct NestedMachine {
     #[device(0x01)]
     #[loadable("leaf")]
     leaf: LoadedDevice,
+}
+
+impl vihaco::HasInstructionSet for NestedMachine {
+    type Runtime = nested_machine::runtime::Instruction;
+    type Syntax = nested_machine::syntax::Instruction;
 }
 
 impl GeneratedComponent for NestedMachine {
@@ -289,10 +303,7 @@ impl GeneratedComponent for NestedMachine {
     }
 }
 
-impl vihaco::Component for NestedMachine {
-    type Runtime = nested_machine::runtime::Instruction;
-    type Syntax = LegacySyntax;
-}
+impl vihaco::Component for NestedMachine {}
 
 #[vihaco::composite]
 #[derive(Debug, Default)]
@@ -305,6 +316,11 @@ struct HostMachine {
     middle: NestedMachine,
 }
 
+impl vihaco::HasInstructionSet for HostMachine {
+    type Runtime = host_machine::runtime::Instruction;
+    type Syntax = host_machine::syntax::Instruction;
+}
+
 #[vihaco::composite]
 #[derive(Debug, Default)]
 #[allow(dead_code)]
@@ -315,6 +331,11 @@ struct HeaderMachine {
 
     #[device(0x01)]
     device: LoadedDevice,
+}
+
+impl vihaco::HasInstructionSet for HeaderMachine {
+    type Runtime = header_machine::runtime::Instruction;
+    type Syntax = header_machine::syntax::Instruction;
 }
 
 #[vihaco::composite]
@@ -332,6 +353,11 @@ struct TextMachine {
     default_child: TextLoadedDevice,
 }
 
+impl vihaco::HasInstructionSet for TextMachine {
+    type Runtime = text_machine::runtime::Instruction;
+    type Syntax = text_machine::syntax::Instruction;
+}
+
 #[vihaco::composite]
 #[derive(Debug, Default)]
 #[allow(dead_code)]
@@ -341,6 +367,11 @@ struct TextNestedMachine {
     #[device(0x01)]
     #[loadable("leaf")]
     leaf: TextLoadedDevice,
+}
+
+impl vihaco::HasInstructionSet for TextNestedMachine {
+    type Runtime = text_nested_machine::runtime::Instruction;
+    type Syntax = text_nested_machine::syntax::Instruction;
 }
 
 impl GeneratedComponent for TextNestedMachine {
@@ -357,10 +388,7 @@ impl GeneratedComponent for TextNestedMachine {
     }
 }
 
-impl vihaco::Component for TextNestedMachine {
-    type Runtime = text_nested_machine::runtime::Instruction;
-    type Syntax = LegacySyntax;
-}
+impl vihaco::Component for TextNestedMachine {}
 
 #[vihaco::composite]
 #[derive(Debug, Default)]
@@ -373,6 +401,11 @@ struct TextHostMachine {
     middle: TextNestedMachine,
 }
 
+impl vihaco::HasInstructionSet for TextHostMachine {
+    type Runtime = text_host_machine::runtime::Instruction;
+    type Syntax = text_host_machine::syntax::Instruction;
+}
+
 #[vihaco::composite]
 #[derive(Debug, Default)]
 #[allow(dead_code)]
@@ -383,6 +416,11 @@ struct TextHeaderMachine {
 
     #[device(0x01)]
     device: TextLoadedDevice,
+}
+
+impl vihaco::HasInstructionSet for TextHeaderMachine {
+    type Runtime = text_header_machine::runtime::Instruction;
+    type Syntax = text_header_machine::syntax::Instruction;
 }
 
 impl LoadOwnBytecodeSection<TextContext> for Machine {
