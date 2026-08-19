@@ -40,8 +40,8 @@ pub use loader::{
 pub use macros::{Instruction, Message, component, composite, dispatch, observe};
 pub use program::{Type, Value};
 pub use runtime::{
-    Component, CompositeMetadata, EffectSink, GeneratedComponent, Message as MessageMarker,
-    Observe, expect_exactly_one_effect,
+    Component, Composite, CompositeMetadata, EffectSink, GeneratedComponent, HasInstructionSet,
+    Message as MessageMarker, Observe, expect_exactly_one_effect,
 };
 pub use traits::{FromBytes, FromText, GetProgramInfo, Reset};
 pub use vihaco_parser::Parse;

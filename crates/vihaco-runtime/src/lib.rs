@@ -17,8 +17,10 @@ pub use vihaco_bytecode::{BytecodeSectionView, SstSectionView};
 pub use vihaco_module::loader;
 pub use vihaco_parser::{Parse, SurfaceInstruction};
 
-pub use generated::Component;
-pub use generated::{CompositeMetadata, GeneratedComponent, expect_exactly_one_effect};
+pub use generated::{
+    Component, Composite, CompositeMetadata, GeneratedComponent, HasInstructionSet,
+    expect_exactly_one_effect,
+};
 pub use marker::Message;
 pub use observe::Observe;
 
