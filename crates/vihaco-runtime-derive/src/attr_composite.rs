@@ -637,6 +637,12 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
 
         impl #impl_generics #root::Composite for #ident #ty_generics #where_clause {}
 
+
+        impl #impl_generics #root::HasInstructionSet for #ident #where_clause {
+            type Runtime = #module_ident::runtime::Instruction;
+            type Syntax = #module_ident::syntax::Instruction;
+        }
+
         #loadable_impl
         #text_loadable_impl
     })
