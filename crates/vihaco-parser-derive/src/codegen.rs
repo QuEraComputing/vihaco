@@ -19,7 +19,7 @@ use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{format_ident, quote};
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap, HashSet},
     fmt::{self, Display},
     vec,
 };
@@ -773,11 +773,13 @@ fn generate_pattern<'src>(
     })
 }
 
+type InstructionWithSpan = (String, Span);
+
 fn compile_pattern_parser(
     info: PatternCompilationInfo,
     decl_span: Span,
     variant_span: Span,
-) -> Result<(Ident, TokenStream2, Option<String>)> {
+) -> Result<(Ident, TokenStream2, Option<InstructionWithSpan>)> {
     let Some(ref class) = info.class else {
         return Err(Error::new(
             decl_span,
@@ -796,7 +798,10 @@ fn compile_pattern_parser(
         let validated = info
             .parse()
             .map_err(|err| Error::new(span, err.to_string()))?;
-        let instruction_token = validated.pattern.contains_token().map(str::to_owned);
+        let instruction_token = validated
+            .pattern
+            .contains_token()
+            .map(|token| (token.to_owned(), span));
         let (ident, parser) = validated
             .emit()
             .map_err(|err| Error::new(span, err.to_string()))?;
@@ -840,7 +845,8 @@ fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
     }
 
     // Parse all variant attrs + compute tokens
-    let mut variant_data: Vec<(Ident, TokenStream2, Option<String>)> = vec![];
+    let mut variant_data: Vec<(Ident, TokenStream2, Option<InstructionWithSpan>)> = vec![];
+    let mut instruction_names = HashSet::new();
     for variant in &data.variants {
         let vattrs = VariantAttrs::from_variant(variant)?;
 
@@ -856,14 +862,24 @@ fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
         let ident_and_parser =
             compile_pattern_parser(pattern_compilation_info, enum_ident.span(), variant.span())?;
 
+        if let Some((token, span)) = &ident_and_parser.2 {
+            if !instruction_names.insert(token.clone()) {
+                return Err(Error::new(
+                    *span,
+                    format!("duplicate instruction name `{token}`"),
+                ));
+            }
+        }
+
         variant_data.push(ident_and_parser);
     }
 
     // A parser such as `just("v2")` succeeds on the prefix of `v25`. Since
     // end-of-input (or a list separator) lives outside the instruction parser,
     // shorter alternatives must not shadow longer instruction tokens.
-    variant_data
-        .sort_by_key(|(_, _, token)| std::cmp::Reverse(token.as_ref().map_or(0, String::len)));
+    variant_data.sort_by_key(|(_, _, token)| {
+        std::cmp::Reverse(token.as_ref().map_or(0, |(token, _)| token.len()))
+    });
 
     let parser_generics = generics_with_lifetime(input.generics, &src_lifetime);
     let (impl_generics, _, where_clause) = parser_generics.split_for_impl();

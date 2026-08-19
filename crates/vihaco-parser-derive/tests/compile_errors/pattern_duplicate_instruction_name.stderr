@@ -1,0 +1,5 @@
+error: duplicate instruction name `load`
+  --> tests/compile_errors/pattern_duplicate_instruction_name.rs:11:17
+   |
+11 |     #[pattern = "'load $0"]
+   |                 ^^^^^^^^^^
