@@ -72,7 +72,7 @@ tags and twelve GitHub Releases for one workspace version. Because GitHub's
 | Key | Where | Why |
 |---|---|---|
 | `git_tag_name = "v{{ version }}"` | `[workspace]` | Default is `{{ package }}-v{{ version }}`. |
-| `git_release_name = "v{{ version }}"` | `[workspace]` | A **separate** key — it does *not* inherit from `git_tag_name`. Left at its default, the tag would read `v0.4.0` but the Release title would still read `vihaco-v0.4.0`. |
+| `git_release_name = "v{{ version }}"` | `[workspace]` | A **separate** key — it does *not* inherit from `git_tag_name`. Left at its default, the tag would read `v0.3.1` but the Release title would still read `vihaco-v0.3.1`. |
 | `git_tag_enable = false`, `git_release_enable = false` | `[workspace]` | With the name templated above, twelve packages would each try to create the identical tag and collide. Creation is re-enabled on `vihaco` only. |
 | `changelog_update = false` | `[workspace]` | Re-enabled on `vihaco` only, so exactly one changelog is written. |
 | `changelog_path = "CHANGELOG.md"` | `[[package]] vihaco` | One changelog at the repo root. Relative to the root `Cargo.toml`, and **cannot** be set in `[workspace]` — it is a package-only field. |
@@ -175,14 +175,17 @@ The run is green and the release simply has no tag.
 published crate releases together, so `vihaco` is always in the released set.
 Removing `version_group` from the crates re-opens this hole.
 
-### Tags before v0.4.0 look different
+### Tags up to and including 0.3.0 look different
 
-Releases up to and including 0.3.0 used per-crate tags (`vihaco-v0.3.0`,
-`vihaco-parser-v0.3.0`, …); those 22 tags and their GitHub Releases are left in
-place as history. An annotated `v0.3.0` tag was added at the same commit the
-0.3.0 tags point to (`2d60335`), so release-plz can resolve the previous version
-under the new pattern and start the v0.4.0 changelog from the right place. It has
-no GitHub Release attached.
+0.3.0 and earlier used per-crate tags (`vihaco-v0.3.0`, `vihaco-parser-v0.3.0`,
+…); those 22 tags and their GitHub Releases are left in place as history. The
+single-tag scheme applies to the **first release cut after this change landed**,
+whatever version that turns out to be.
+
+To bridge the two schemes, an annotated `v0.3.0` tag was added at the same commit
+the 0.3.0 tags point to (`2d60335`), so release-plz can resolve the previous
+version under the new pattern and start the next changelog from the right place.
+It has no GitHub Release attached.
 
 Note that `git_only` is left at its default `false`, so release-plz determines
 the previous version from **crates.io**, not from tags. The tags only bound the
