@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/QuEraComputing/vihaco/compare/vihaco-cpu-v0.3.0...vihaco-cpu-v0.3.1) - 2026-08-19
+
+### Other
+
+- Make `#[syntax_class(..)]` `head` argument optional ([#66](https://github.com/QuEraComputing/vihaco/pull/66))
+
 ## [0.3.0](https://github.com/QuEraComputing/vihaco/compare/vihaco-cpu-v0.2.0...vihaco-cpu-v0.3.0) - 2026-08-14
 
 ### Other
