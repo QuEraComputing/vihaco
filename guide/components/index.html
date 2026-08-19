@@ -140,7 +140,7 @@ impl lamp::Lamp {
 </ul>
 <h2 id="component-instruction-types">Component Instruction Types</h2>
 <p><code>component!</code> defines the component and records the two instruction types that make up a component’s
-public instruction surface. It implements <code>vihaco::Component</code> with:</p>
+public instruction surface. It implements <code>vihaco::HasInstructionSet</code> with:</p>
 <ul>
 <li><code>Runtime = component_module::runtime::Instruction</code></li>
 <li><code>Syntax = component_module::syntax::Instruction</code></li>
@@ -153,9 +153,10 @@ is used by execution and bytecode-facing composition; the second implements
 mnemonics such as <code>add</code> directly. When the component is placed in a
 <code>#[composite]</code>, the composite adds the device field name (or a configured
 alias) as the instruction head, producing source such as <code>counter::add</code>.</p>
-<p>The attribute form, <code>#[dispatch(...)]</code>, is intentionally separate. It wires
+<p>The <code>component!</code> macro also marks the generated type as a <code>Component</code>, which
+identifies an executable device. The attribute form, <code>#[dispatch(...)]</code>, is intentionally separate. It wires
 an execution implementation onto the component’s generated runtime instruction
-type; <code>component!</code> supplies the <code>Component</code> implementation.</p>
+type; <code>component!</code> supplies the <code>HasInstructionSet</code> and <code>Component</code> implementations.</p>
 <h2 id="design-guidance">Design Guidance</h2>
 <ul>
 <li>Put bytecode-visible execution variants in the instruction enum.</li>

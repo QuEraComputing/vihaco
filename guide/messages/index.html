@@ -125,7 +125,7 @@ It just consumes the already-resolved <code>PlayMsg</code>.</p>
 <h2 id="a-small-composite-author-example">A Small Composite-Author Example</h2>
 <p><code>#[composite]</code> generates component instruction types, but message resolution is plain Rust that you write next to the composite: build the message from runtime context, then hand <code>(instruction, message)</code> to the component via the generated <code>execute_generated</code> method.</p>
 <pre><code class="language-rust">use eyre::Result;
-use vihaco::{dispatch, Component, Effects, GeneratedComponent, Instruction, Message, Parse, composite};
+use vihaco::{dispatch, Component, Effects, GeneratedComponent, HasInstructionSet, Instruction, Message, Parse, composite};
 
 #[derive(Debug, Clone, Instruction)]
 enum DeviceInst {
@@ -156,10 +156,12 @@ impl Device {
     }
 }
 
-impl Component for Device {
+impl HasInstructionSet for Device {
     type Runtime = DeviceInst;
     type Syntax = DeviceSyntax;
 }
+
+impl Component for Device {}
 
 #[composite]
 #[derive(Default)]
