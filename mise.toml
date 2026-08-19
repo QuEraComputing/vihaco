@@ -10,6 +10,7 @@ rust = "stable"             # edition 2024 needs >= 1.85
 node = "lts"                # docs/ is an Astro site (needs Node >= 20)
 prek = "latest"             # aqua:j178/prek — fast pre-commit runner
 "cargo:hawkeye" = "latest"  # SPDX license-header tool (reads licenserc.toml)
+release-plz = "latest"      # dry-run the release locally (see `mise run release-preview`)
 
 [tasks.setup]
 description = "Install the git pre-commit hooks (prek)"
@@ -30,6 +31,13 @@ run = "cargo fmt --all"
 [tasks.lint]
 description = "Clippy with warnings denied"
 run = "cargo clippy --workspace --all-targets -- -D warnings"
+
+[tasks.release-preview]
+description = "Preview the next release: version bump + CHANGELOG.md, written in place"
+# `update` is the local half of `release-pr`: it computes the next version and
+# rewrites Cargo.toml/CHANGELOG.md on disk, but talks to no git remote, opens no
+# PR and publishes nothing. Inspect with `git diff`, then `git checkout .`.
+run = "release-plz update"
 
 [tasks.license]
 description = "Check SPDX license headers"

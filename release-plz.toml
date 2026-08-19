@@ -4,13 +4,146 @@
 # whole workspace is released in lockstep under one version number, bumped from
 # the conventional-commit history. `vihaco-doctests` is `publish = false`, so
 # release-plz skips it automatically.
+#
+# ONE VERSION, ONE TAG, ONE CHANGELOG, ONE GITHUB RELEASE. release-plz's default
+# is per-package (`vihaco-parser-v0.3.0`, `vihaco-abi-v0.3.0`, ...), which for
+# 0.3.0 produced twelve tags and twelve GitHub Releases for one release — and
+# since GitHub's "Latest" badge is per-repository, it landed arbitrarily on
+# `vihaco-abi-derive-v0.3.0`. Everything below exists to collapse that into a
+# single `v0.x.y`.
 
 [workspace]
 # Catch accidental breaking changes before they ship (runs cargo-semver-checks).
 semver_check = true
-# Tag + create a GitHub Release for each published version.
-git_release_enable = true
-# Maintain a per-crate CHANGELOG.md generated from conventional commits.
-changelog_update = true
 # This is a 0.x project: a breaking change bumps the minor (0.1 -> 0.2), a
 # feature/fix bumps the patch — the standard Cargo semver semantics.
+
+# The repo-wide tag and release NAMES. Two separate keys: `git_release_name` does
+# NOT inherit from `git_tag_name`, and left at its default the GitHub Release
+# would still be titled `vihaco-v0.3.1` even with a correct `v0.3.1` tag.
+#
+# Templated here at workspace level rather than on the owning package below, so
+# that re-enabling a tag on some other package can never resurrect the
+# `<crate>-v<version>` form by accident.
+git_tag_name     = "v{{ version }}"
+git_release_name = "v{{ version }}"
+
+# Tag, release and changelog CREATION are suppressed for every package here and
+# re-enabled on exactly ONE package (`vihaco`) below.
+#
+# This is what makes a single tag possible at all: with the names templated
+# above, twelve packages would each try to create the identical `v0.3.1` tag and
+# collide.
+git_tag_enable     = false
+git_release_enable = false
+changelog_update   = false
+
+# --- The tag owner ------------------------------------------------------------
+#
+# The tag owner MUST be a package release-plz actually processes, or NO TAG IS
+# EVER CREATED and nothing fails to tell you so. `version_group` below is what
+# guarantees it: every published crate releases together, so `vihaco` is always
+# in the released set.
+#
+# `vihaco` is also 11th of 12 in publish order, so the tag lands after nearly
+# every crates.io publish has already succeeded.
+[[package]]
+name = "vihaco"
+git_tag_enable     = true
+git_release_enable = true
+
+# One changelog for the whole workspace, at the repository root.
+#
+# `changelog_path` is relative to the root Cargo.toml and CANNOT be set in the
+# [workspace] section — it is a package-only field, so it lives here on the one
+# package whose changelog is still updated.
+changelog_update = true
+changelog_path   = "CHANGELOG.md"
+
+# This is what makes the single release body COMPLETE, and it is not optional.
+# release-plz attributes a commit to a package by which package directory the
+# changed files live in, so without this list a `fix(parser):` touching only
+# crates/vihaco-parser/ would be missing from the v0.x.y release notes
+# entirely.
+#
+# A NEW PUBLISHED CRATE MUST BE ADDED HERE, or its commits silently vanish from
+# every future release note. (It must also be added to the version_group list.)
+#
+# `vihaco-doctests` is absent deliberately: it is `publish = false`, never
+# processed, and is test scaffolding rather than shipped behaviour.
+changelog_include = [
+    "vihaco-abi",
+    "vihaco-abi-derive",
+    "vihaco-bytecode",
+    "vihaco-cpu",
+    "vihaco-module",
+    "vihaco-parser",
+    "vihaco-parser-derive",
+    "vihaco-runtime",
+    "vihaco-runtime-derive",
+    "vihaco-stdlib",
+    "vihaco-syntax",
+]
+
+version_group = "workspace"
+
+# --- Everything else: versioned and published, but never tagged ---------------
+#
+# `version_group` is what holds the shared version together, and it is
+# load-bearing rather than a restatement of `version.workspace = true`.
+# Manifest inheritance alone does not constrain release-plz: it infers a bump
+# per package and would rewrite the ONE shared field on behalf of whichever
+# package happened to change. The group makes it deliberate — every member gets
+# the highest bump any member warrants, and they all release together.
+#
+# "All release together" is also precisely the property the single tag depends
+# on. Without it, a change confined to vihaco-parser would release that crate
+# alone, `vihaco` would not be processed, and no tag would be created.
+#
+# There is no [workspace]-level form of this key, so every member is listed
+# explicitly. A NEW PUBLISHED CRATE MUST BE ADDED HERE, or it silently versions
+# on its own.
+
+[[package]]
+name = "vihaco-abi"
+version_group = "workspace"
+
+[[package]]
+name = "vihaco-abi-derive"
+version_group = "workspace"
+
+[[package]]
+name = "vihaco-bytecode"
+version_group = "workspace"
+
+[[package]]
+name = "vihaco-cpu"
+version_group = "workspace"
+
+[[package]]
+name = "vihaco-module"
+version_group = "workspace"
+
+[[package]]
+name = "vihaco-parser"
+version_group = "workspace"
+
+[[package]]
+name = "vihaco-parser-derive"
+version_group = "workspace"
+
+[[package]]
+name = "vihaco-runtime"
+version_group = "workspace"
+
+[[package]]
+name = "vihaco-runtime-derive"
+version_group = "workspace"
+
+[[package]]
+name = "vihaco-stdlib"
+version_group = "workspace"
+
+[[package]]
+name = "vihaco-syntax"
+version_group = "workspace"

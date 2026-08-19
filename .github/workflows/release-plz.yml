@@ -3,10 +3,13 @@ name: Release-plz
 # Automated releases driven by conventional commits.
 #
 #   - release-plz-pr:      opens/updates a "release PR" that bumps the workspace
-#                          version and regenerates the changelogs.
-#   - release-plz-release: on push to main (i.e. when that PR is merged), tags
-#                          the release, creates the GitHub Release(s), and
-#                          publishes the changed crates to crates.io.
+#                          version and regenerates the root CHANGELOG.md.
+#   - release-plz-release: on push to main (i.e. when that PR is merged),
+#                          publishes the crates to crates.io, then creates the
+#                          single `v0.x.y` tag and GitHub Release.
+#
+# Nothing here keys off the tag name -- the single-tag setup lives entirely in
+# release-plz.toml. See RELEASING.md.
 #
 # Auth:
 #   - GitHub:   the default GITHUB_TOKEN (no PAT/App, so no org-admin setup).
