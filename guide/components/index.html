@@ -149,10 +149,10 @@ public instruction surface. It implements <code>vihaco::HasInstructionSet</code>
 <code>counter::runtime::Instruction</code> and <code>counter::syntax::Instruction</code>. The first
 is used by execution and bytecode-facing composition; the second implements
 <code>Parse</code> and <code>SurfaceInstruction</code> for source text.</p>
-<p>The generated component syntax is headless: its parser accepts instruction
-mnemonics such as <code>add</code> directly. When the component is placed in a
+<p>The generated component syntax uses the component’s snake_case name as its dialect head; its parser accepts instruction
+mnemonics such as <code>counter.add</code>. When the component is placed in a
 <code>#[composite]</code>, the composite adds the device field name (or a configured
-alias) as the instruction head, producing source such as <code>counter::add</code>.</p>
+alias) as an outer instruction head, producing source such as <code>counter_a::counter.add</code>.</p>
 <p>The <code>component!</code> macro also marks the generated type as a <code>Component</code>, which
 identifies an executable device. The attribute form, <code>#[dispatch(...)]</code>, is intentionally separate. It wires
 an execution implementation onto the component’s generated runtime instruction
@@ -355,7 +355,7 @@ impl cpu_core::CpuCore {
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-08-19</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-08-20</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

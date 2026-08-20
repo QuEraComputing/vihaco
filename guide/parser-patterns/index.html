@@ -38,26 +38,26 @@ enum MemoryInstruction {
 }
 
 let halt = MemoryInstruction::parser()
-    .parse("memory::halt")
+    .parse("memory.halt")
     .into_result();
 assert_eq!(halt, Ok(MemoryInstruction::Halt));
 
 let load = MemoryInstruction::parser()
-    .parse("memory::load 4")
+    .parse("memory.load 4")
     .into_result();
 assert_eq!(load, Ok(MemoryInstruction::Load(4)));
 
 let store = MemoryInstruction::parser()
-    .parse("memory::store 7, -2")
+    .parse("memory.store 7, -2")
     .into_result();
 assert_eq!(
     store,
     Ok(MemoryInstruction::Store(7, -2)),
 );
 </code></pre>
-<p>The <code>head</code> is a dialect namespace. The derive appends <code>::</code>, so
+<p>The <code>head</code> is a dialect namespace. The derive appends <code>.</code>, so
 <code>head = "memory"</code> combines with the pattern token <code>'load</code> to accept
-<code>memory::load</code>.</p>
+<code>memory.load</code>.</p>
 <p>Every bound field is parsed with that field type’s
 <code>vihaco_parser::Parse::parser()</code>. Give domain-specific field syntax its
 own local enum or struct with <code>#[derive(Parse)]</code>.</p>
@@ -96,7 +96,7 @@ own local enum or struct with <code>#[derive(Parse)]</code>.</p>
 <table><thead><tr><th>Attribute</th><th>Meaning</th><th>Additional rules</th></tr></thead><tbody><tr><td><code>#[syntax_class(instruction, head = "dialect")]</code></td><td>An instruction in the <code>dialect::</code> namespace.</td><td>Every pattern starts with an instruction token such as <code>'load</code>.</td></tr><tr><td><code>#[syntax_class(metadata, head = "device")]</code></td><td>Metadata lines in the <code>device </code> namespace.</td><td>Patterns use bare names such as <code>module.setting</code>; instruction tokens are not required.</td></tr><tr><td><code>#[syntax_class(value)]</code></td><td>A value expression.</td><td>Instruction tokens are forbidden. Simple defaults are available.</td></tr><tr><td><code>#[syntax_class(type)]</code></td><td>A type expression.</td><td>Instruction tokens are forbidden and every variant or struct needs an explicit pattern.</td></tr></tbody></table>
 <p>Put <code>#[syntax_class]</code> on the enum or struct definition, never on a variant or
 field. An instruction or metadata head is required and is written without its
-separator. Instruction heads use <code>::</code>; metadata heads use one ASCII space.</p>
+separator. Instruction heads use <code>.</code>; metadata heads use one ASCII space.</p>
 <p>Metadata patterns are useful for line-oriented headers:</p>
 <pre><code class="language-rust">use chumsky::Parser as _;
 use vihaco_parser::Parse as ParseTrait;
@@ -158,7 +158,7 @@ split (<code>HttpServer</code> becomes <code>httpserver</code>).</p>
 
 
 
-<table><thead><tr><th>Rust shape</th><th>Generated pattern</th><th>Accepted source</th></tr></thead><tbody><tr><td>instruction <code>Halt</code></td><td><code>'halt</code></td><td><code>dialect::halt</code></td></tr><tr><td>instruction <code>Move(i64, bool)</code></td><td><code>‘move $0 <code>,</code> $1</code></td><td><code>dialect::move 3, true</code></td></tr><tr><td>instruction struct <code>Set { x: i64, enabled: bool }</code></td><td><code>‘set $x <code>,</code> $enabled</code></td><td><code>dialect::set 3, true</code></td></tr><tr><td>value <code>Nothing</code></td><td><code>`nothing`</code></td><td><code>nothing</code></td></tr><tr><td>value <code>Number(i64)</code></td><td><code>$0</code></td><td><code>3</code></td></tr><tr><td>value <code>Wrapper { value: i64 }</code></td><td><code>$value</code></td><td><code>3</code></td></tr></tbody></table>
+<table><thead><tr><th>Rust shape</th><th>Generated pattern</th><th>Accepted source</th></tr></thead><tbody><tr><td>instruction <code>Halt</code></td><td><code>'halt</code></td><td><code>dialect.halt</code></td></tr><tr><td>instruction <code>Move(i64, bool)</code></td><td><code>‘move $0 <code>,</code> $1</code></td><td><code>dialect.move 3, true</code></td></tr><tr><td>instruction struct <code>Set { x: i64, enabled: bool }</code></td><td><code>‘set $x <code>,</code> $enabled</code></td><td><code>dialect.set 3, true</code></td></tr><tr><td>value <code>Nothing</code></td><td><code>`nothing`</code></td><td><code>nothing</code></td></tr><tr><td>value <code>Number(i64)</code></td><td><code>$0</code></td><td><code>3</code></td></tr><tr><td>value <code>Wrapper { value: i64 }</code></td><td><code>$value</code></td><td><code>3</code></td></tr></tbody></table>
 <p>Defaults intentionally stop there:</p>
 <ul>
 <li>A value with more than one field must spell out how those fields are
@@ -489,7 +489,7 @@ sugar, continue to
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-08-19</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-08-20</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {
