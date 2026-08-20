@@ -473,7 +473,7 @@ fn parses_surface_instruction_without_runtime_bytecode_traits() {
         ".section(root):\n\
 \t.text(root):\n\
 \t\tfn @main() {\n\
-\t\t\tsurface::nop\n\
+\t\t\tsurface.nop\n\
 \t\t}\n\
 \t.text(root).\n\
 .section(root).\n",
@@ -540,20 +540,20 @@ fn text_generated_loadable_routes_program_and_child_sections() {
         ".section(root):\n\
 \t.text(root):\n\
 \t\tfn @main() {\n\
-\t\t\ttest::nop\n\
+\t\t\ttest.nop\n\
 \t\t}\n\
 \t.text(root).\n\
 \t.section(child):\n\
 \t\t.text(child):\n\
 \t\t\tfn @main() {\n\
-\t\t\t\ttest::alt\n\
+\t\t\t\ttest.alt\n\
 \t\t\t}\n\
 \t\t.text(child).\n\
 \t.section(child).\n\
 \t.section(default_child):\n\
 \t\t.text(default_child):\n\
 \t\t\tfn @main() {\n\
-\t\t\t\ttest::nop\n\
+\t\t\t\ttest.nop\n\
 \t\t\t}\n\
 \t\t.text(default_child).\n\
 \t.section(default_child).\n\
@@ -613,7 +613,7 @@ fn text_generated_loadable_parses_marked_header() {
 \t.header(root).\n\
 \t.text(root):\n\
 \t\tfn @main() {\n\
-\t\t\ttest::nop\n\
+\t\t\ttest.nop\n\
 \t\t}\n\
 \t.text(root).\n\
 .section(root).\n",
@@ -686,20 +686,20 @@ fn text_generated_loadable_routes_three_level_section_tree() {
         ".section(root):\n\
 \t.text(root):\n\
 \t\tfn @main() {\n\
-\t\t\ttest::nop\n\
+\t\t\ttest.nop\n\
 \t\t}\n\
 \t.text(root).\n\
 \t.section(middle):\n\
 \t\t.text(middle):\n\
 \t\t\tfn @main() {\n\
-\t\t\t\ttest::alt\n\
+\t\t\t\ttest.alt\n\
 \t\t\t}\n\
 \t\t.text(middle).\n\
 \t\t.section(leaf):\n\
 \t\t\t.text(leaf):\n\
 \t\t\t\tfn @main() {\n\
-\t\t\t\t\ttest::nop\n\
-\t\t\t\t\ttest::alt\n\
+\t\t\t\t\ttest.nop\n\
+\t\t\t\t\ttest.alt\n\
 \t\t\t\t}\n\
 \t\t\t.text(leaf).\n\
 \t\t.section(leaf).\n\
@@ -768,7 +768,7 @@ fn text_generated_loadable_allows_missing_marked_children() {
         ".section(root):\n\
 \t.text(root):\n\
 \t\tfn @main() {\n\
-\t\t\ttest::nop\n\
+\t\t\ttest.nop\n\
 \t\t}\n\
 \t.text(root).\n\
 .section(root).\n",
@@ -804,7 +804,7 @@ fn text_generated_loadable_rejects_unexpected_direct_children() {
         ".section(root):\n\
 \t.text(root):\n\
 \t\tfn @main() {\n\
-\t\t\ttest::nop\n\
+\t\t\ttest.nop\n\
 \t\t}\n\
 \t.text(root).\n\
 \t.section(child):\n\

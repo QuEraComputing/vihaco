@@ -916,7 +916,7 @@ fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
 
     let parser = match &enum_attrs.syntax_class {
         Some(SyntaxClassAttr::Instruction { head: Some(head) }) => {
-            let head = format!("{head}::");
+            let head = format!("{head}.");
             quote! {
                 ::chumsky::primitive::just(#head)
                 .ignore_then(#or_chain)
@@ -1014,7 +1014,7 @@ fn expand_struct(input: StructInfo) -> Result<TokenStream> {
 
     let parser = match &struct_attrs.syntax_class {
         Some(SyntaxClassAttr::Instruction { head: Some(head) }) => {
-            let head = format!("{head}::");
+            let head = format!("{head}.");
             quote! {
                 ::chumsky::primitive::just(#head)
                 .ignore_then(#ident)

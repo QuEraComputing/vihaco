@@ -38,7 +38,7 @@ fn named_struct() {
 fn tuple_struct() {
     assert_eq!(
         Tuple::parser()
-            .parse("test::pair 42 false")
+            .parse("test.pair 42 false")
             .into_result()
             .unwrap(),
         Tuple(42, false)

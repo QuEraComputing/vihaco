@@ -42,13 +42,13 @@ enum CounterInstruction {
 
 assert_eq!(
     CounterInstruction::parser()
-        .parse("counter::add -5")
+        .parse("counter.add -5")
         .into_result(),
     Ok(CounterInstruction::Add(-5)),
 );
 assert_eq!(
     CounterInstruction::parser()
-        .parse("counter::print")
+        .parse("counter.print")
         .into_result(),
     Ok(CounterInstruction::Print),
 );
@@ -102,21 +102,21 @@ Every derived parser declares exactly one syntax class:
 
 | Attribute | Role |
 |---|---|
-| `#[syntax_class(instruction)]` | An unnamespaced instruction such as `load`; this is the form generated for component-local syntax so a composite can add the device head. |
-| `#[syntax_class(instruction, head = "dialect")]` | A namespaced instruction such as `dialect::load` |
+| `#[syntax_class(instruction)]` | An unnamespaced instruction such as `load`. |
+| `#[syntax_class(instruction, head = "dialect")]` | A namespaced instruction such as `dialect.load` |
 | `#[syntax_class(metadata, head = "device")]` | A line-oriented metadata record such as `device module.setting ...` |
 | `#[syntax_class(value)]` | A value expression |
 | `#[syntax_class(type)]` | A type expression with an explicit pattern |
 
 Put the attribute on the enum or struct definition. Instruction heads omit the
-trailing `::`; the derive supplies it. Metadata heads omit their trailing
+trailing separator; the derive supplies `.`. Metadata heads omit their trailing
 space; the derive supplies that separator instead.
 
 The `head` argument is optional for instruction syntax. Without it, the parser
-consumes only the instruction pattern itself. This is useful for component
-instruction types: `component!` generates headless syntax, and `#[composite]`
-adds the device field name (or one of its aliases) as the head when it builds
-the composite parser.
+consumes only the instruction pattern itself. `component!` supplies the
+component's snake_case name as the dialect head; `#[composite]` adds the device
+field name (or one of its aliases) as an outer head when it builds the
+composite parser.
 
 ## Patterns
 
@@ -145,13 +145,13 @@ enum ControlInstruction {
 
 assert_eq!(
     ControlInstruction::parser()
-        .parse("control::branch @done")
+        .parse("control.branch @done")
         .into_result(),
     Ok(ControlInstruction::Branch(Ident("done".to_owned()))),
 );
 assert_eq!(
     ControlInstruction::parser()
-        .parse("control::select true, 3")
+        .parse("control.select true, 3")
         .into_result(),
     Ok(ControlInstruction::Select(true, 3)),
 );
@@ -185,7 +185,7 @@ enum ControlInstruction {
 
 assert_eq!(
     ControlInstruction::parser()
-        .parse("control::branch @done")
+        .parse("control.branch @done")
         .into_result(),
     Ok(ControlInstruction::Branch(Address(Ident(
         "done".to_owned()

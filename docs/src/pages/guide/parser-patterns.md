@@ -37,17 +37,17 @@ enum MemoryInstruction {
 }
 
 let halt = MemoryInstruction::parser()
-    .parse("memory::halt")
+    .parse("memory.halt")
     .into_result();
 assert_eq!(halt, Ok(MemoryInstruction::Halt));
 
 let load = MemoryInstruction::parser()
-    .parse("memory::load 4")
+    .parse("memory.load 4")
     .into_result();
 assert_eq!(load, Ok(MemoryInstruction::Load(4)));
 
 let store = MemoryInstruction::parser()
-    .parse("memory::store 7, -2")
+    .parse("memory.store 7, -2")
     .into_result();
 assert_eq!(
     store,
@@ -55,9 +55,9 @@ assert_eq!(
 );
 ```
 
-The `head` is a dialect namespace. The derive appends `::`, so
+The `head` is a dialect namespace. The derive appends `.`, so
 `head = "memory"` combines with the pattern token `'load` to accept
-`memory::load`.
+`memory.load`.
 
 Every bound field is parsed with that field type's
 `vihaco_parser::Parse::parser()`. Give domain-specific field syntax its
@@ -76,7 +76,7 @@ Every type using pattern generation must declare a syntax class.
 
 Put `#[syntax_class]` on the enum or struct definition, never on a variant or
 field. An instruction or metadata head is required and is written without its
-separator. Instruction heads use `::`; metadata heads use one ASCII space.
+separator. Instruction heads use `.`; metadata heads use one ASCII space.
 
 Metadata patterns are useful for line-oriented headers:
 
@@ -106,9 +106,9 @@ split (`HttpServer` becomes `httpserver`).
 
 | Rust shape | Generated pattern | Accepted source |
 |---|---|---|
-| instruction `Halt` | `'halt` | `dialect::halt` |
-| instruction `Move(i64, bool)` | <code>'move $0 `,` $1</code> | `dialect::move 3, true` |
-| instruction struct `Set { x: i64, enabled: bool }` | <code>'set $x `,` $enabled</code> | `dialect::set 3, true` |
+| instruction `Halt` | `'halt` | `dialect.halt` |
+| instruction `Move(i64, bool)` | <code>'move $0 `,` $1</code> | `dialect.move 3, true` |
+| instruction struct `Set { x: i64, enabled: bool }` | <code>'set $x `,` $enabled</code> | `dialect.set 3, true` |
 | value `Nothing` | `` `nothing` `` | `nothing` |
 | value `Number(i64)` | `$0` | `3` |
 | value `Wrapper { value: i64 }` | `$value` | `3` |
