@@ -205,10 +205,12 @@ impl GeneratedComponent for LoadedDevice {
     }
 }
 
-impl vihaco::Component for LoadedDevice {
+impl vihaco::HasInstructionSet for LoadedDevice {
     type Runtime = TestInst;
     type Syntax = LegacySyntax;
 }
+
+impl vihaco::Component for LoadedDevice {}
 
 impl GeneratedComponent for TextLoadedDevice {
     type Instruction = TextInst;
@@ -224,10 +226,12 @@ impl GeneratedComponent for TextLoadedDevice {
     }
 }
 
-impl vihaco::Component for TextLoadedDevice {
+impl vihaco::HasInstructionSet for TextLoadedDevice {
     type Runtime = TextInst;
     type Syntax = LegacySyntax;
 }
+
+impl vihaco::Component for TextLoadedDevice {}
 
 impl LoadBytecodeSection<TextContext> for LoadedDevice {
     fn load_bytecode_section<'bc>(
@@ -289,10 +293,7 @@ impl GeneratedComponent for NestedMachine {
     }
 }
 
-impl vihaco::Component for NestedMachine {
-    type Runtime = nested_machine::runtime::Instruction;
-    type Syntax = LegacySyntax;
-}
+impl vihaco::Component for NestedMachine {}
 
 #[vihaco::composite]
 #[derive(Debug, Default)]
@@ -357,10 +358,7 @@ impl GeneratedComponent for TextNestedMachine {
     }
 }
 
-impl vihaco::Component for TextNestedMachine {
-    type Runtime = text_nested_machine::runtime::Instruction;
-    type Syntax = LegacySyntax;
-}
+impl vihaco::Component for TextNestedMachine {}
 
 #[vihaco::composite]
 #[derive(Debug, Default)]

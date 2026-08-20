@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: MIT
 
 use chumsky::Parser as _;
-use vihaco::{Component, Parse, SurfaceInstruction, component, composite};
+use vihaco::{
+    Component, Composite, HasInstructionSet, Parse, SurfaceInstruction, component, composite,
+};
 use vihaco_parser::Ident;
 
 #[derive(Clone, Debug, PartialEq, vihaco_parser_derive::Parse)]
@@ -54,10 +56,12 @@ enum RawRuntimeInstruction {
 
 struct Raw;
 
-impl vihaco::Component for Raw {
+impl vihaco::HasInstructionSet for Raw {
     type Runtime = RawRuntimeInstruction;
     type Syntax = simple::syntax::Instruction;
 }
+
+impl vihaco::Component for Raw {}
 
 impl vihaco::GeneratedComponent for Raw {
     type Instruction = RawRuntimeInstruction;
@@ -114,6 +118,17 @@ fn composite_generates_component_instruction_modules() {
     let _composite = DemoComposite { raw: Raw };
     fn require_runtime<T>() {}
     require_runtime::<demo_composite::runtime::Instruction>();
+
+    fn require_composite<T>()
+    where
+        T: Composite
+            + HasInstructionSet<
+                Runtime = demo_composite::runtime::Instruction,
+                Syntax = demo_composite::syntax::Instruction,
+            >,
+    {
+    }
+    require_composite::<DemoComposite>();
 
     let parsed = demo_composite::syntax::Instruction::parser()
         .parse("raw::simple.halt")

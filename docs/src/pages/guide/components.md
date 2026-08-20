@@ -168,7 +168,7 @@ Component execution depends only on explicit inputs and returned effects.
 ## Component Instruction Types
 
 `component!` defines the component and records the two instruction types that make up a component's
-public instruction surface. It implements `vihaco::Component` with:
+public instruction surface. It implements `vihaco::HasInstructionSet` with:
 
 - `Runtime = component_module::runtime::Instruction`
 - `Syntax = component_module::syntax::Instruction`
@@ -183,9 +183,10 @@ mnemonics such as `counter.add`. When the component is placed in a
 `#[composite]`, the composite adds the device field name (or a configured
 alias) as an outer instruction head, producing source such as `counter_a::counter.add`.
 
-The attribute form, `#[dispatch(...)]`, is intentionally separate. It wires
+The `component!` macro also marks the generated type as a `Component`, which
+identifies an executable device. The attribute form, `#[dispatch(...)]`, is intentionally separate. It wires
 an execution implementation onto the component's generated runtime instruction
-type; `component!` supplies the `Component` implementation.
+type; `component!` supplies the `HasInstructionSet` and `Component` implementations.
 
 ## Design Guidance
 

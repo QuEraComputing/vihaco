@@ -339,10 +339,12 @@ pub fn expand(input: TokenStream) -> TokenStream {
             #aliases_only
         }
 
-        impl #impl_generics #root::Component for #module_name::#name #where_clause {
+        impl #impl_generics #root::HasInstructionSet for #module_name::#name #where_clause {
             type Runtime = #module_name::runtime::Instruction;
             type Syntax = #module_name::syntax::Instruction;
         }
+
+        impl #impl_generics #root::Component for #module_name::#name #where_clause {}
     }
     .into()
 }

@@ -26,10 +26,12 @@ enum LegacySyntax {
 
 struct TestComponent;
 
-impl Component for TestComponent {
+impl vihaco::HasInstructionSet for TestComponent {
     type Runtime = TestInstruction;
     type Syntax = LegacySyntax;
 }
+
+impl Component for TestComponent {}
 
 #[dispatch(instruction = TestInstruction, message = TestMessage, effect = TestEffect)]
 #[vihaco(crate = crate::test_root)]

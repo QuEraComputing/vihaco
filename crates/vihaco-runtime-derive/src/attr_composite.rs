@@ -346,7 +346,7 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
         .map(|(field, field_ty, _)| {
             let variant_ident = pascal_case(field);
             quote! {
-                #variant_ident(<#field_ty as #root::Component>::Runtime)
+                #variant_ident(<#field_ty as #root::HasInstructionSet>::Runtime)
             }
         })
         .collect();
@@ -356,7 +356,7 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
         .map(|(field, field_ty, _)| {
             let variant_ident = pascal_case(field);
             quote! {
-                #variant_ident(<#field_ty as #root::Component>::Syntax)
+                #variant_ident(<#field_ty as #root::HasInstructionSet>::Syntax)
             }
         })
         .collect();
@@ -372,7 +372,7 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
                 quote! {
                     #root::chumsky::primitive::just(concat!(#prefix, "::"))
                         .ignore_then(
-                            <#field_ty as #root::Component>::Syntax::parser()
+                            <#field_ty as #root::HasInstructionSet>::Syntax::parser()
                         )
                         .map(Self::#variant_ident)
                         .boxed()
@@ -633,6 +633,14 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
                     #( #runtime_instruction_variants ),*
                 }
             }
+        }
+
+        impl #impl_generics #root::Composite for #ident #ty_generics #where_clause {}
+
+
+        impl #impl_generics #root::HasInstructionSet for #ident #where_clause {
+            type Runtime = #module_ident::runtime::Instruction;
+            type Syntax = #module_ident::syntax::Instruction;
         }
 
         #loadable_impl
