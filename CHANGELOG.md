@@ -18,6 +18,14 @@ below the `## [Unreleased]` heading, so do not remove or reword that line.
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/QuEraComputing/vihaco/compare/v0.3.1...v0.4.0) - 2026-08-20
+
+### Other
+
+- Add dialect name to instruction parser ([#75](https://github.com/QuEraComputing/vihaco/pull/75))
+- Allow nested composites with `#[composite]` macro ([#78](https://github.com/QuEraComputing/vihaco/pull/78))
+- Added validation for unique instruction names in pattern parser; added tests ([#74](https://github.com/QuEraComputing/vihaco/pull/74))
+
 ## [0.3.1](https://github.com/QuEraComputing/vihaco/compare/v0.3.0...v0.3.1) - 2026-08-19
 
 ### Other
