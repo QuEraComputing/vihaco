@@ -17,7 +17,9 @@ jobs:
       - uses: actions/checkout@v7
       # hawkeye reads licenserc.toml at the repo root. Run `mise run license-fix`
       # (or `hawkeye format`) locally to add headers to new files.
-      - name: Check license headers
-        uses: korandoru/hawkeye@v6.5.1
+      - name: Install HawkEye
+        uses: taiki-e/install-action@v2
         with:
-          mode: check
+          tool: hawkeye
+      - name: Check license headers
+        run: hawkeye check
