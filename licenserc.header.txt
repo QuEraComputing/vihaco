@@ -1,2 +1,2 @@
-SPDX-FileCopyrightText: {{props["inceptionYear"]}} {{props["copyrightOwner"]}}
-SPDX-License-Identifier: {{props["licenseId"]}}
+SPDX-FileCopyrightText: {{ props.inception_year }} {{ props.copyright_owner }}
+SPDX-License-Identifier: {{ props.license_id }}

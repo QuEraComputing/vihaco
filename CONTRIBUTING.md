@@ -28,7 +28,7 @@ If you do not agree to those terms, please do not open a pull request.
 - **Set up the toolchain.** The repo uses [mise](https://mise.jdx.dev) to pin
   the Rust toolchain, Node (for the docs site),
   [prek](https://github.com/j178/prek) (pre-commit), and
-  [hawkeye](https://github.com/korandoru/hawkeye) (license headers):
+  [hawkeye](https://github.com/fast/hawkeye) (license headers):
 
   ```bash
   mise install      # install the pinned tools
