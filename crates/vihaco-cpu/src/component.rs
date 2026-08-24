@@ -133,7 +133,10 @@ impl CPU {
         true_target: u32,
         false_target: u32,
     ) -> eyre::Result<StepOutcome> {
-        let cond = self.stack.pop().ok_or(eyre::eyre!("stack underflow"))?;
+        let cond = self
+            .stack
+            .pop()
+            .ok_or_else(|| eyre::eyre!("stack underflow"))?;
         match cond {
             Value::Bool(true) => {
                 self.set_pending_pc(true_target);
