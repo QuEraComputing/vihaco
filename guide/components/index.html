@@ -64,7 +64,7 @@ use counter::Counter;
 <p>Component execution lives on an impl block annotated with <code>#[dispatch(...)]</code>.</p>
 <pre><code class="language-rust">#[dispatch(instruction = counter::runtime::Instruction, message = PrintPrefix, effect = StdoutEffect)]
 impl counter::Counter {
-    fn execute(&#x26;mut self, inst: CounterInst, msg: PrintPrefix) -> Result&#x3C;Effects&#x3C;StdoutEffect>> {
+    fn execute(&#x26;mut self, inst: &#x26;CounterInst, msg: PrintPrefix) -> Result&#x3C;Effects&#x3C;StdoutEffect>> {
         match inst {
             CounterInst::Add(v) => {
                 self.value += v;
@@ -79,7 +79,7 @@ impl counter::Counter {
 }
 </code></pre>
 <p>The execution method shape is:</p>
-<pre><code class="language-rust">fn execute(&#x26;mut self, inst: Inst, msg: Msg) -> eyre::Result&#x3C;Effects&#x3C;Effect>>
+<pre><code class="language-rust">fn execute(&#x26;mut self, inst: &#x26;Inst, msg: Msg) -> eyre::Result&#x3C;Effects&#x3C;Effect>>
 </code></pre>
 <p>Important points:</p>
 <ul>
@@ -119,7 +119,7 @@ pub struct LampChanged(pub bool);
 
 #[dispatch(instruction = lamp::runtime::Instruction, message = (), effect = LampChanged)]
 impl lamp::Lamp {
-    fn execute(&#x26;mut self, inst: LampInst, _msg: ()) -> Result&#x3C;Effects&#x3C;LampChanged>> {
+    fn execute(&#x26;mut self, inst: &#x26;LampInst, _msg: ()) -> Result&#x3C;Effects&#x3C;LampChanged>> {
         self.on = matches!(inst, LampInst::On);
         Ok(Effects::one(LampChanged(self.on)))
     }
@@ -185,7 +185,7 @@ pub struct CpuMsg;
 
 #[dispatch(instruction = cpu_core::runtime::Instruction, message = CpuMsg, effect = StepOutcome)]
 impl cpu_core::CpuCore {
-    fn execute(&#x26;mut self, inst: CpuInst, _msg: CpuMsg) -> eyre::Result&#x3C;Effects&#x3C;StepOutcome>> {
+    fn execute(&#x26;mut self, inst: &#x26;CpuInst, _msg: CpuMsg) -> eyre::Result&#x3C;Effects&#x3C;StepOutcome>> {
         match inst {
             CpuInst::Nop => Ok(Effects::one(StepOutcome::Continue)),
             CpuInst::Halt => Ok(Effects::one(StepOutcome::Halt)),
@@ -355,7 +355,7 @@ impl cpu_core::CpuCore {
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-08-24</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-08-25</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

@@ -48,7 +48,7 @@ pub struct Line(pub String);
 // One `execute` per component: (instruction, message) in, effects out.
 #[dispatch(instruction = counter::runtime::Instruction, message = Prefix, effect = Line)]
 impl counter::Counter {
-    fn execute(&amp;mut self, inst: CounterInst, msg: Prefix) -&gt; Result&lt;Effects&lt;Line&gt;&gt; {
+    fn execute(&amp;mut self, inst: &amp;CounterInst, msg: Prefix) -&gt; Result&lt;Effects&lt;Line&gt;&gt; {
         match inst {
             CounterInst::Add(v) =&gt; {
                 self.value += v;
@@ -273,7 +273,7 @@ Continue to the
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-08-24</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-08-25</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

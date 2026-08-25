@@ -200,7 +200,7 @@ pub enum DisplayOutcome {
 impl Display {
     fn execute(
         &#x26;mut self,
-        inst: DisplayInst,
+        inst: &#x26;DisplayInst,
         msg: DisplayMsg,
     ) -> Result&#x3C;Effects&#x3C;DisplayOutcome>> {
         let _ = (inst, msg);
@@ -276,10 +276,10 @@ pub struct WaveGenerator {
 
 #[dispatch(instruction = WaveInst, message = PlayMsg, effect = ChannelSample)]
 impl WaveGenerator {
-    fn execute(&#x26;mut self, inst: WaveInst, msg: PlayMsg) -> Result&#x3C;Effects&#x3C;ChannelSample>> {
+    fn execute(&#x26;mut self, inst: &#x26;WaveInst, msg: PlayMsg) -> Result&#x3C;Effects&#x3C;ChannelSample>> {
         match inst {
             WaveInst::SetAmplitude(v) => {
-                self.amplitude = v;
+                self.amplitude = *v;
                 Ok(Effects::none())
             }
             WaveInst::Play => Ok(Effects::one(ChannelSample {
@@ -319,7 +319,7 @@ pub enum RecorderInst {
 
 #[dispatch(instruction = RecorderInst, message = (), effect = StdoutEffect)]
 impl Recorder {
-    fn execute(&#x26;mut self, inst: RecorderInst, _msg: ()) -> Result&#x3C;Effects&#x3C;StdoutEffect>> {
+    fn execute(&#x26;mut self, inst: &#x26;RecorderInst, _msg: ()) -> Result&#x3C;Effects&#x3C;StdoutEffect>> {
         match inst {
             RecorderInst::GetCount => Ok(Effects::one(StdoutEffect(format!(
                 "recorded {} samples",
@@ -547,7 +547,7 @@ impl WaveComposite {
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-08-24</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-08-25</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

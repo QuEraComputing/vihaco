@@ -59,7 +59,7 @@ pub struct Lamp {
 
 #[dispatch(instruction = LampInst, message = ())]
 impl Lamp {
-    fn execute(&#x26;mut self, inst: LampInst, _msg: ()) -> Result&#x3C;vihaco::Effects&#x3C;()>> {
+    fn execute(&#x26;mut self, inst: &#x26;LampInst, _msg: ()) -> Result&#x3C;vihaco::Effects&#x3C;()>> {
         self.on = matches!(inst, LampInst::On);
         Ok(vihaco::Effects::none())
     }
@@ -264,7 +264,7 @@ pub enum OuterInst {
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-08-24</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-08-25</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

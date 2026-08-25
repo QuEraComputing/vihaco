@@ -162,7 +162,7 @@
 <a href=#162 id=162 data-nosnippet>162</a>
 <a href=#163 id=163 data-nosnippet>163</a>        <span class="kw">fn </span>execute_generated(
 <a href=#164 id=164 data-nosnippet>164</a>            <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#165 id=165 data-nosnippet>165</a>            _inst: <span class="self">Self</span>::Instruction,
+<a href=#165 id=165 data-nosnippet>165</a>            _inst: <span class="kw-2">&amp;</span><span class="self">Self</span>::Instruction,
 <a href=#166 id=166 data-nosnippet>166</a>            _msg: <span class="self">Self</span>::Message,
 <a href=#167 id=167 data-nosnippet>167</a>        ) -&gt; eyre::Result&lt;Effects&lt;<span class="self">Self</span>::Effect&gt;&gt; {
 <a href=#168 id=168 data-nosnippet>168</a>            <span class="prelude-val">Ok</span>(Effects::one(<span class="number">7</span>))
@@ -172,7 +172,7 @@
 <a href=#172 id=172 data-nosnippet>172</a>    <span class="attr">#[test]
 <a href=#173 id=173 data-nosnippet>173</a>    </span><span class="kw">fn </span>generated_component_executes_without_exec_context() {
 <a href=#174 id=174 data-nosnippet>174</a>        <span class="kw">let </span><span class="kw-2">mut </span>component = DemoComponent;
-<a href=#175 id=175 data-nosnippet>175</a>        <span class="kw">let </span>effects = GeneratedComponent::execute_generated(<span class="kw-2">&amp;mut </span>component, (), ()).unwrap();
+<a href=#175 id=175 data-nosnippet>175</a>        <span class="kw">let </span>effects = GeneratedComponent::execute_generated(<span class="kw-2">&amp;mut </span>component, <span class="kw-2">&amp;</span>(), ()).unwrap();
 <a href=#176 id=176 data-nosnippet>176</a>
 <a href=#177 id=177 data-nosnippet>177</a>        <span class="macro">assert_eq!</span>(effects, Effects::one(<span class="number">7</span>));
 <a href=#178 id=178 data-nosnippet>178</a>        <span class="macro">assert_eq!</span>(<span class="kw">crate</span>::expect_exactly_one_effect(effects).unwrap(), <span class="number">7</span>);

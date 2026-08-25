@@ -80,6 +80,10 @@ pub enum MachineInst {
     Signal(SignalInst),
 }
 </code></pre>
+<p>The CPU instruction set uses explicit variants for each value family. For
+example, the CPU payload can be <code>cpu::RuntimeInstruction::AddI64</code> or
+<code>cpu::RuntimeInstruction::ConstF32(word)</code>, rather than a generic operation
+carrying a separate <code>Type</code> operand.</p>
 <p>Each outer variant identifies which nested instruction family is being used.
 The nested instruction then becomes the payload of that outer variant.</p>
 <p>Conceptually:</p>
@@ -104,15 +108,12 @@ The nested instruction then becomes the payload of that outer variant.</p>
 <li>the outer enum width is <code>1</code> opcode byte plus the largest nested payload used by any variant</li>
 <li>smaller nested payloads are padded inside the outer record</li>
 </ul>
-<p>For example, imagine:</p>
-<ul>
-<li><code>cpu::RuntimeInstruction</code> is <code>16</code> bytes wide</li>
-<li><code>SignalInst</code> is <code>8</code> bytes wide</li>
-</ul>
-<p>Then the outer machine instruction width becomes <code>17</code> bytes:</p>
+<p>For example, if the largest CPU runtime instruction payload is <code>W</code> bytes and
+<code>SignalInst</code> is <code>8</code> bytes wide, then the outer machine instruction width is
+<code>1 + max(W, 8)</code> bytes:</p>
 <ul>
 <li><code>1</code> byte for the outer machine opcode</li>
-<li><code>16</code> bytes for the largest nested payload</li>
+<li>the width of the largest nested payload</li>
 </ul>
 <p>So a smaller instruction such as <code>MachineInst::Signal(...)</code> still occupies the full outer width once encoded.</p>
 <p>Conceptually:</p>
@@ -287,7 +288,7 @@ The nested instruction then becomes the payload of that outer variant.</p>
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-08-24</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-08-25</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

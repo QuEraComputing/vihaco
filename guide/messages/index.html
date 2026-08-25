@@ -87,7 +87,7 @@ pub struct WaveGenerator {
 
 #[dispatch(instruction = WaveInst, message = PlayMsg, effect = ChannelSample)]
 impl WaveGenerator {
-    fn execute(&#x26;mut self, inst: WaveInst, msg: PlayMsg) -> Result&#x3C;Effects&#x3C;ChannelSample>> {
+    fn execute(&#x26;mut self, inst: &#x26;WaveInst, msg: PlayMsg) -> Result&#x3C;Effects&#x3C;ChannelSample>> {
         match inst {
             WaveInst::SetAmplitude(v) => {
                 self.amplitude = v;
@@ -146,7 +146,7 @@ struct Device {
 
 #[dispatch(instruction = DeviceInst, message = DeviceMsg)]
 impl Device {
-    fn execute(&#x26;mut self, inst: DeviceInst, msg: DeviceMsg) -> Result&#x3C;Effects&#x3C;()>> {
+    fn execute(&#x26;mut self, inst: &#x26;DeviceInst, msg: DeviceMsg) -> Result&#x3C;Effects&#x3C;()>> {
         match inst {
             DeviceInst::Pulse => {
                 self.seen.push(msg.0);
@@ -202,7 +202,7 @@ pub enum SignalMessage {
 
 #[dispatch(instruction = SignalInst, message = SignalMessage)]
 impl SignalGenerator {
-    fn execute(&#x26;mut self, inst: SignalInst, msg: SignalMessage) -> eyre::Result&#x3C;Effects&#x3C;()>> {
+    fn execute(&#x26;mut self, inst: &#x26;SignalInst, msg: SignalMessage) -> eyre::Result&#x3C;Effects&#x3C;()>> {
         // component consumes a resolved message here
         let _ = (inst, msg);
         Ok(Effects::none())
@@ -212,17 +212,19 @@ impl SignalGenerator {
 <p>But the component does not know how to create <code>Poly4([f64; 4])</code> or <code>Duration(u64)</code> on its own.
 That comes from composite-owned runtime state. The composite resolves the message first
 (the exact accessors — a stack, a clock — depend on your runtime; the shape is what matters):</p>
-<pre><code class="language-rust">fn resolve_signal(&#x26;mut self, inst: &#x26;SignalInst) -> eyre::Result&#x3C;SignalMessage> {
+<pre><code class="language-rust">use vihaco_cpu::{decode_f64, decode_u64};
+
+fn resolve_signal(&#x26;mut self, inst: &#x26;SignalInst) -> eyre::Result&#x3C;SignalMessage> {
     match inst {
         SignalInst::Poly(_addr) => {
-            let p3: f64 = self.cpu.stack_pop()?.try_into()?;
-            let p2: f64 = self.cpu.stack_pop()?.try_into()?;
-            let p1: f64 = self.cpu.stack_pop()?.try_into()?;
-            let p0: f64 = self.cpu.stack_pop()?.try_into()?;
+            let p3 = decode_f64(self.cpu.stack_pop()?);
+            let p2 = decode_f64(self.cpu.stack_pop()?);
+            let p1 = decode_f64(self.cpu.stack_pop()?);
+            let p0 = decode_f64(self.cpu.stack_pop()?);
             Ok(SignalMessage::Poly4([p0, p1, p2, p3]))
         }
         SignalInst::Play if self.signal.is_idle() => {
-            let cycles: u64 = self.cpu.stack_pop()?.try_into()?;
+            let cycles = decode_u64(self.cpu.stack_pop()?);
             let duration_ns = cycles
                 .checked_mul(self.clock.resolution_ns())
                 .ok_or_else(|| eyre::eyre!("play duration overflow"))?;
@@ -274,7 +276,7 @@ pub struct Lamp {
 
 #[dispatch(instruction = LampInst, message = ())]
 impl Lamp {
-    fn execute(&#x26;mut self, inst: LampInst, _msg: ()) -> Result&#x3C;Effects&#x3C;()>> {
+    fn execute(&#x26;mut self, inst: &#x26;LampInst, _msg: ()) -> Result&#x3C;Effects&#x3C;()>> {
         self.on = matches!(inst, LampInst::On);
         Ok(Effects::none())
     }
@@ -487,7 +489,7 @@ enum CompositeMsg {
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-08-24</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-08-25</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {
