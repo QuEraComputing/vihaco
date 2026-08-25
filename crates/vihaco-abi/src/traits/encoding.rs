@@ -61,7 +61,9 @@ macro_rules! impl_scalar_encoding_traits {
 impl_scalar_encoding_traits!(u32, read_u32, write_u32);
 impl_scalar_encoding_traits!(u64, read_u64, write_u64);
 impl_scalar_encoding_traits!(i64, read_i64, write_i64);
+impl_scalar_encoding_traits!(i32, read_i32, write_i32);
 impl_scalar_encoding_traits!(f64, read_f64, write_f64);
+impl_scalar_encoding_traits!(f32, read_f32, write_f32);
 
 impl FromBytes for bool {
     fn from_bytes<R: std::io::Read>(bytes: &mut R) -> eyre::Result<Self>

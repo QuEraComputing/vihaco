@@ -81,7 +81,7 @@ Component execution lives on an impl block annotated with `#[dispatch(...)]`.
 # pub struct StdoutEffect(pub String);
 #[dispatch(instruction = counter::runtime::Instruction, message = PrintPrefix, effect = StdoutEffect)]
 impl counter::Counter {
-    fn execute(&mut self, inst: CounterInst, msg: PrintPrefix) -> Result<Effects<StdoutEffect>> {
+    fn execute(&mut self, inst: &CounterInst, msg: PrintPrefix) -> Result<Effects<StdoutEffect>> {
         match inst {
             CounterInst::Add(v) => {
                 self.value += v;
@@ -99,7 +99,7 @@ impl counter::Counter {
 The execution method shape is:
 
 ```rust ignore
-fn execute(&mut self, inst: Inst, msg: Msg) -> eyre::Result<Effects<Effect>>
+fn execute(&mut self, inst: &Inst, msg: Msg) -> eyre::Result<Effects<Effect>>
 ```
 
 Important points:
@@ -143,7 +143,7 @@ pub struct LampChanged(pub bool);
 
 #[dispatch(instruction = lamp::runtime::Instruction, message = (), effect = LampChanged)]
 impl lamp::Lamp {
-    fn execute(&mut self, inst: LampInst, _msg: ()) -> Result<Effects<LampChanged>> {
+    fn execute(&mut self, inst: &LampInst, _msg: ()) -> Result<Effects<LampChanged>> {
         self.on = matches!(inst, LampInst::On);
         Ok(Effects::one(LampChanged(self.on)))
     }
@@ -219,7 +219,7 @@ pub struct CpuMsg;
 
 #[dispatch(instruction = cpu_core::runtime::Instruction, message = CpuMsg, effect = StepOutcome)]
 impl cpu_core::CpuCore {
-    fn execute(&mut self, inst: CpuInst, _msg: CpuMsg) -> eyre::Result<Effects<StepOutcome>> {
+    fn execute(&mut self, inst: &CpuInst, _msg: CpuMsg) -> eyre::Result<Effects<StepOutcome>> {
         match inst {
             CpuInst::Nop => Ok(Effects::one(StepOutcome::Continue)),
             CpuInst::Halt => Ok(Effects::one(StepOutcome::Halt)),

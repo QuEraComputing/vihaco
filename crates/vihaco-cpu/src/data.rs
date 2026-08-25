@@ -1,8 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-use crate::instruction::{SurfaceType, SurfaceValue};
-use vihaco::value::Value;
+use crate::{Word, instruction::SurfaceValue};
 use vihaco::{
     frame::Frame,
     traits::{FrameMemory, StackFrame, StackMemory},
@@ -14,15 +13,15 @@ vihaco::component! {
     pub component CPU {
         pub(crate) frames: Vec<Frame>,
         pub(crate) heap: Heap,
-        pub(crate) stack: Vec<Value>,
+        pub(crate) stack: Vec<Word>,
         pub(crate) span: (u32, u32, u32),
         pub(crate) pending_pc: Option<u32>,
         pub(crate) current_pc: u32,
-        pub(crate) return_values: Vec<Value>,
+        pub(crate) return_values: Vec<Word>,
     }
 
     type Type = vihaco::Type;
-    value Value = vihaco::Value;
+    value Word = crate::Word;
 
     instruction {
         #[pattern = "'span $0 $1 $2"]
@@ -57,9 +56,34 @@ vihaco::component! {
 
         Print,
 
-        Load(SurfaceType => Type, u32),
-
-        Store(SurfaceType => Type, u32),
+        #[pattern = "'load_i32 $0"]
+        LoadI32(u32),
+        #[pattern = "'load_i64 $0"]
+        LoadI64(u32),
+        #[pattern = "'load_u32 $0"]
+        LoadU32(u32),
+        #[pattern = "'load_u64 $0"]
+        LoadU64(u32),
+        #[pattern = "'load_f32 $0"]
+        LoadF32(u32),
+        #[pattern = "'load_f64 $0"]
+        LoadF64(u32),
+        #[pattern = "'load_bool $0"]
+        LoadBool(u32),
+        #[pattern = "'store_i32 $0"]
+        StoreI32(u32),
+        #[pattern = "'store_i64 $0"]
+        StoreI64(u32),
+        #[pattern = "'store_u32 $0"]
+        StoreU32(u32),
+        #[pattern = "'store_u64 $0"]
+        StoreU64(u32),
+        #[pattern = "'store_f32 $0"]
+        StoreF32(u32),
+        #[pattern = "'store_f64 $0"]
+        StoreF64(u32),
+        #[pattern = "'store_bool $0"]
+        StoreBool(u32),
 
         Dup,
 
@@ -72,36 +96,151 @@ vihaco::component! {
         #[pattern = "'heap_dealloc"]
         HeapDealloc,
 
-        Const(SurfaceType => Type, SurfaceValue => Value),
+        #[pattern = "'const_i32 $0"]
+        ConstI32(SurfaceValue => Word),
+        #[pattern = "'const_i64 $0"]
+        ConstI64(SurfaceValue => Word),
+        #[pattern = "'const_u32 $0"]
+        ConstU32(SurfaceValue => Word),
+        #[pattern = "'const_u64 $0"]
+        ConstU64(SurfaceValue => Word),
+        #[pattern = "'const_f32 $0"]
+        ConstF32(SurfaceValue => Word),
+        #[pattern = "'const_f64 $0"]
+        ConstF64(SurfaceValue => Word),
+        #[pattern = "'const_bool $0"]
+        ConstBool(SurfaceValue => Word),
+        #[pattern = "'const_string $0"]
+        ConstString(SurfaceValue => Word),
+        #[pattern = "'const_fn_ref $0"]
+        ConstFunctionRef(SurfaceValue => Word),
+        #[pattern = "'const_heap_ref $0"]
+        ConstHeapRef(SurfaceValue => Word),
 
-        Add(SurfaceType => Type),
-
-        Sub(SurfaceType => Type),
-
-        Mul(SurfaceType => Type),
-
-        Div(SurfaceType => Type),
-
-        Rem(SurfaceType => Type),
-
-        Neg(SurfaceType => Type),
-
-        Shl(SurfaceType => Type),
-
-        Shr(SurfaceType => Type),
-
-        Rol(SurfaceType => Type),
-
-        Ror(SurfaceType => Type),
-
-        #[pattern = "'bitand $0"]
-        BitAnd(SurfaceType => Type),
-
-        #[pattern = "'bitor $0"]
-        BitOr(SurfaceType => Type),
-
-        #[pattern = "'bitxor $0"]
-        BitXor(SurfaceType => Type),
+        #[pattern = "'add_i32"]
+        AddI32,
+        #[pattern = "'add_f32"]
+        AddF32,
+        #[pattern = "'add_i64"]
+        AddI64,
+        #[pattern = "'add_u32"]
+        AddU32,
+        #[pattern = "'add_u64"]
+        AddU64,
+        #[pattern = "'add_f64"]
+        AddF64,
+        #[pattern = "'sub_i32"]
+        SubI32,
+        #[pattern = "'sub_i64"]
+        SubI64,
+        #[pattern = "'sub_u32"]
+        SubU32,
+        #[pattern = "'sub_u64"]
+        SubU64,
+        #[pattern = "'sub_f32"]
+        SubF32,
+        #[pattern = "'sub_f64"]
+        SubF64,
+        #[pattern = "'mul_i32"]
+        MulI32,
+        #[pattern = "'mul_i64"]
+        MulI64,
+        #[pattern = "'mul_u32"]
+        MulU32,
+        #[pattern = "'mul_u64"]
+        MulU64,
+        #[pattern = "'mul_f32"]
+        MulF32,
+        #[pattern = "'mul_f64"]
+        MulF64,
+        #[pattern = "'div_i32"]
+        DivI32,
+        #[pattern = "'div_i64"]
+        DivI64,
+        #[pattern = "'div_u32"]
+        DivU32,
+        #[pattern = "'div_u64"]
+        DivU64,
+        #[pattern = "'div_f32"]
+        DivF32,
+        #[pattern = "'div_f64"]
+        DivF64,
+        #[pattern = "'rem_i32"]
+        RemI32,
+        #[pattern = "'rem_i64"]
+        RemI64,
+        #[pattern = "'rem_u32"]
+        RemU32,
+        #[pattern = "'rem_u64"]
+        RemU64,
+        #[pattern = "'rem_f32"]
+        RemF32,
+        #[pattern = "'rem_f64"]
+        RemF64,
+        #[pattern = "'neg_i32"]
+        NegI32,
+        #[pattern = "'neg_i64"]
+        NegI64,
+        #[pattern = "'neg_f32"]
+        NegF32,
+        #[pattern = "'neg_f64"]
+        NegF64,
+        #[pattern = "'shl_i32"]
+        ShlI32,
+        #[pattern = "'shl_i64"]
+        ShlI64,
+        #[pattern = "'shl_u32"]
+        ShlU32,
+        #[pattern = "'shl_u64"]
+        ShlU64,
+        #[pattern = "'shr_i32"]
+        ShrI32,
+        #[pattern = "'shr_i64"]
+        ShrI64,
+        #[pattern = "'shr_u32"]
+        ShrU32,
+        #[pattern = "'shr_u64"]
+        ShrU64,
+        #[pattern = "'rol_i32"]
+        RolI32,
+        #[pattern = "'rol_i64"]
+        RolI64,
+        #[pattern = "'rol_u32"]
+        RolU32,
+        #[pattern = "'rol_u64"]
+        RolU64,
+        #[pattern = "'ror_i32"]
+        RorI32,
+        #[pattern = "'ror_i64"]
+        RorI64,
+        #[pattern = "'ror_u32"]
+        RorU32,
+        #[pattern = "'ror_u64"]
+        RorU64,
+        #[pattern = "'bitand_i32"]
+        BitAndI32,
+        #[pattern = "'bitand_i64"]
+        BitAndI64,
+        #[pattern = "'bitand_u32"]
+        BitAndU32,
+        #[pattern = "'bitand_u64"]
+        BitAndU64,
+        #[pattern = "'bitor_i32"]
+        BitOrI32,
+        #[pattern = "'bitor_i64"]
+        BitOrI64,
+        #[pattern = "'bitor_u32"]
+        BitOrU32,
+        #[pattern = "'bitor_u64"]
+        BitOrU64,
+        #[pattern = "'bitxor_i32"]
+        BitXorI32,
+        #[pattern = "'bitxor_i64"]
+        BitXorI64,
+        #[pattern = "'bitxor_u32"]
+        BitXorU32,
+        #[pattern = "'bitxor_u64"]
+        BitXorU64,
 
         Not,
 
@@ -111,12 +250,78 @@ vihaco::component! {
 
         Xor,
 
-        Eq(SurfaceType => Type),
-        Ne(SurfaceType => Type),
-        Lt(SurfaceType => Type),
-        Gt(SurfaceType => Type),
-        Le(SurfaceType => Type),
-        Ge(SurfaceType => Type),
+        #[pattern = "'eq_i32"]
+        EqI32,
+        #[pattern = "'eq_i64"]
+        EqI64,
+        #[pattern = "'eq_u32"]
+        EqU32,
+        #[pattern = "'eq_u64"]
+        EqU64,
+        #[pattern = "'eq_f32"]
+        EqF32,
+        #[pattern = "'eq_f64"]
+        EqF64,
+        #[pattern = "'ne_i32"]
+        NeI32,
+        #[pattern = "'ne_i64"]
+        NeI64,
+        #[pattern = "'ne_u32"]
+        NeU32,
+        #[pattern = "'ne_u64"]
+        NeU64,
+        #[pattern = "'ne_f32"]
+        NeF32,
+        #[pattern = "'ne_f64"]
+        NeF64,
+        #[pattern = "'lt_i32"]
+        LtI32,
+        #[pattern = "'lt_i64"]
+        LtI64,
+        #[pattern = "'lt_u32"]
+        LtU32,
+        #[pattern = "'lt_u64"]
+        LtU64,
+        #[pattern = "'lt_f32"]
+        LtF32,
+        #[pattern = "'lt_f64"]
+        LtF64,
+        #[pattern = "'gt_i32"]
+        GtI32,
+        #[pattern = "'gt_i64"]
+        GtI64,
+        #[pattern = "'gt_u32"]
+        GtU32,
+        #[pattern = "'gt_u64"]
+        GtU64,
+        #[pattern = "'gt_f32"]
+        GtF32,
+        #[pattern = "'gt_f64"]
+        GtF64,
+        #[pattern = "'le_i32"]
+        LeI32,
+        #[pattern = "'le_i64"]
+        LeI64,
+        #[pattern = "'le_u32"]
+        LeU32,
+        #[pattern = "'le_u64"]
+        LeU64,
+        #[pattern = "'le_f32"]
+        LeF32,
+        #[pattern = "'le_f64"]
+        LeF64,
+        #[pattern = "'ge_i32"]
+        GeI32,
+        #[pattern = "'ge_i64"]
+        GeI64,
+        #[pattern = "'ge_u32"]
+        GeU32,
+        #[pattern = "'ge_u64"]
+        GeU64,
+        #[pattern = "'ge_f32"]
+        GeF32,
+        #[pattern = "'ge_f64"]
+        GeF64,
     }
 }
 
@@ -124,7 +329,7 @@ pub use cpu::CPU;
 pub use cpu::runtime::Instruction as RuntimeInstruction;
 pub use cpu::syntax::Instruction as SurfaceInstruction;
 
-type HeapSlot = Option<Box<[Value]>>;
+type HeapSlot = Option<Box<[Word]>>;
 
 #[derive(Debug, Clone, Default)]
 pub struct Heap {
@@ -133,7 +338,7 @@ pub struct Heap {
 }
 
 impl Heap {
-    pub fn alloc(&mut self, values: Box<[Value]>) -> u32 {
+    pub fn alloc(&mut self, values: Box<[Word]>) -> u32 {
         if let Some(id) = self.free_list.pop() {
             self.slots[id as usize] = Some(values);
             id
@@ -159,7 +364,7 @@ impl Heap {
         }
     }
 
-    pub fn get(&self, id: u32) -> eyre::Result<&[Value]> {
+    pub fn get(&self, id: u32) -> eyre::Result<&[Word]> {
         match self.slots.get(id as usize) {
             Some(Some(v)) => Ok(v),
             Some(None) => Err(eyre::eyre!("heap object {} has been deallocated", id)),
@@ -179,7 +384,7 @@ impl Heap {
 }
 
 impl StackMemory for CPU {
-    type Value = Value;
+    type Value = Word;
 
     fn stack(&self) -> &Vec<Self::Value> {
         &self.stack
@@ -263,7 +468,7 @@ impl FrameMemory for CPU {
         let len = self.stack.len();
 
         if len <= idx {
-            self.stack.resize(idx + 1, Value::Undefined);
+            self.stack.resize(idx + 1, 0);
         }
         self.stack
             .get_mut(idx)
@@ -272,11 +477,11 @@ impl FrameMemory for CPU {
 }
 
 impl CPU {
-    pub fn push_heap_object(&mut self, values: Box<[Value]>) -> u32 {
+    pub fn push_heap_object(&mut self, values: Box<[Word]>) -> u32 {
         self.heap.alloc(values)
     }
 
-    pub fn heap_object(&self, id: u32) -> eyre::Result<&[Value]> {
+    pub fn heap_object(&self, id: u32) -> eyre::Result<&[Word]> {
         self.heap.get(id)
     }
 
@@ -300,11 +505,11 @@ impl CPU {
         self.current_pc = pc;
     }
 
-    pub fn return_values(&self) -> &[Value] {
+    pub fn return_values(&self) -> &[Word] {
         &self.return_values
     }
 
-    pub fn set_return_values(&mut self, values: Vec<Value>) {
+    pub fn set_return_values(&mut self, values: Vec<Word>) {
         self.return_values = values;
     }
 }

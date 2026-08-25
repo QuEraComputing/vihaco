@@ -94,7 +94,7 @@ pub struct WaveGenerator {
 
 #[dispatch(instruction = WaveInst, message = PlayMsg, effect = ChannelSample)]
 impl WaveGenerator {
-    fn execute(&mut self, inst: WaveInst, msg: PlayMsg) -> Result<Effects<ChannelSample>> {
+    fn execute(&mut self, inst: &WaveInst, msg: PlayMsg) -> Result<Effects<ChannelSample>> {
         match inst {
             WaveInst::SetAmplitude(v) => {
                 self.amplitude = v;
@@ -162,7 +162,7 @@ struct Device {
 
 #[dispatch(instruction = DeviceInst, message = DeviceMsg)]
 impl Device {
-    fn execute(&mut self, inst: DeviceInst, msg: DeviceMsg) -> Result<Effects<()>> {
+    fn execute(&mut self, inst: &DeviceInst, msg: DeviceMsg) -> Result<Effects<()>> {
         match inst {
             DeviceInst::Pulse => {
                 self.seen.push(msg.0);
@@ -223,7 +223,7 @@ pub enum SignalMessage {
 
 #[dispatch(instruction = SignalInst, message = SignalMessage)]
 impl SignalGenerator {
-    fn execute(&mut self, inst: SignalInst, msg: SignalMessage) -> eyre::Result<Effects<()>> {
+    fn execute(&mut self, inst: &SignalInst, msg: SignalMessage) -> eyre::Result<Effects<()>> {
         // component consumes a resolved message here
         let _ = (inst, msg);
         Ok(Effects::none())
@@ -236,17 +236,19 @@ That comes from composite-owned runtime state. The composite resolves the messag
 (the exact accessors — a stack, a clock — depend on your runtime; the shape is what matters):
 
 ```rust ignore
+use vihaco_cpu::{decode_f64, decode_u64};
+
 fn resolve_signal(&mut self, inst: &SignalInst) -> eyre::Result<SignalMessage> {
     match inst {
         SignalInst::Poly(_addr) => {
-            let p3: f64 = self.cpu.stack_pop()?.try_into()?;
-            let p2: f64 = self.cpu.stack_pop()?.try_into()?;
-            let p1: f64 = self.cpu.stack_pop()?.try_into()?;
-            let p0: f64 = self.cpu.stack_pop()?.try_into()?;
+            let p3 = decode_f64(self.cpu.stack_pop()?);
+            let p2 = decode_f64(self.cpu.stack_pop()?);
+            let p1 = decode_f64(self.cpu.stack_pop()?);
+            let p0 = decode_f64(self.cpu.stack_pop()?);
             Ok(SignalMessage::Poly4([p0, p1, p2, p3]))
         }
         SignalInst::Play if self.signal.is_idle() => {
-            let cycles: u64 = self.cpu.stack_pop()?.try_into()?;
+            let cycles = decode_u64(self.cpu.stack_pop()?);
             let duration_ns = cycles
                 .checked_mul(self.clock.resolution_ns())
                 .ok_or_else(|| eyre::eyre!("play duration overflow"))?;
@@ -305,7 +307,7 @@ pub struct Lamp {
 
 #[dispatch(instruction = LampInst, message = ())]
 impl Lamp {
-    fn execute(&mut self, inst: LampInst, _msg: ()) -> Result<Effects<()>> {
+    fn execute(&mut self, inst: &LampInst, _msg: ()) -> Result<Effects<()>> {
         self.on = matches!(inst, LampInst::On);
         Ok(Effects::none())
     }

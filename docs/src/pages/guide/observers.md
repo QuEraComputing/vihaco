@@ -251,7 +251,7 @@ pub enum DisplayOutcome {
 impl Display {
     fn execute(
         &mut self,
-        inst: DisplayInst,
+        inst: &DisplayInst,
         msg: DisplayMsg,
     ) -> Result<Effects<DisplayOutcome>> {
         let _ = (inst, msg);
@@ -345,10 +345,10 @@ pub struct WaveGenerator {
 
 #[dispatch(instruction = WaveInst, message = PlayMsg, effect = ChannelSample)]
 impl WaveGenerator {
-    fn execute(&mut self, inst: WaveInst, msg: PlayMsg) -> Result<Effects<ChannelSample>> {
+    fn execute(&mut self, inst: &WaveInst, msg: PlayMsg) -> Result<Effects<ChannelSample>> {
         match inst {
             WaveInst::SetAmplitude(v) => {
-                self.amplitude = v;
+                self.amplitude = *v;
                 Ok(Effects::none())
             }
             WaveInst::Play => Ok(Effects::one(ChannelSample {
@@ -404,7 +404,7 @@ pub enum RecorderInst {
 
 #[dispatch(instruction = RecorderInst, message = (), effect = StdoutEffect)]
 impl Recorder {
-    fn execute(&mut self, inst: RecorderInst, _msg: ()) -> Result<Effects<StdoutEffect>> {
+    fn execute(&mut self, inst: &RecorderInst, _msg: ()) -> Result<Effects<StdoutEffect>> {
         match inst {
             RecorderInst::GetCount => Ok(Effects::one(StdoutEffect(format!(
                 "recorded {} samples",

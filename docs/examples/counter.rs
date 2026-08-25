@@ -29,7 +29,7 @@ pub struct Line(pub String);
 // One `execute` per component: (instruction, message) in, effects out.
 #[dispatch(instruction = counter::runtime::Instruction, message = Prefix, effect = Line)]
 impl counter::Counter {
-    fn execute(&mut self, inst: CounterInst, msg: Prefix) -> Result<Effects<Line>> {
+    fn execute(&mut self, inst: &CounterInst, msg: Prefix) -> Result<Effects<Line>> {
         match inst {
             CounterInst::Add(v) => {
                 self.value += v;

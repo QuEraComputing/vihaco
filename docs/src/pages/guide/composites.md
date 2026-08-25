@@ -59,7 +59,7 @@ enum CounterSyntax { #[pattern = "'print"] Print }
 # pub struct Counter;
 # #[dispatch(instruction = CounterInst, message = ())]
 # impl Counter {
-#     fn execute(&mut self, _inst: CounterInst, _msg: ()) -> Result<Effects<()>> { Ok(Effects::none()) }
+#     fn execute(&mut self, _inst: &CounterInst, _msg: ()) -> Result<Effects<()>> { Ok(Effects::none()) }
 # }
 impl HasInstructionSet for Counter {
     type Runtime = CounterInst;

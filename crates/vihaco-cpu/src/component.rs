@@ -1,14 +1,13 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-use eyre::Result;
-use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Rem, Shl, Shr, Sub};
-
 use crate::RuntimeInstruction;
 use crate::StepOutcome;
+use crate::Word;
 use crate::data::CPU;
+use crate::word::*;
+use eyre::Result;
 use vihaco::Effects;
-use vihaco::program::{Type, Value};
 use vihaco::{dispatch, frame::Frame, traits::*};
 
 impl Reset for CPU {
@@ -24,55 +23,181 @@ impl Reset for CPU {
 }
 
 impl CPU {
-    pub fn execute_instruction(&mut self, inst: RuntimeInstruction) -> eyre::Result<StepOutcome> {
-        self.clear_pending_pc();
+    #[inline(always)]
+    fn execute_generated(
+        &mut self,
+        inst: &RuntimeInstruction,
+        msg: CPUMessage,
+    ) -> eyre::Result<Effects<StepOutcome>> {
         use RuntimeInstruction::*;
-        match inst {
-            Span(file, start, end) => self.op_span(file, start, end),
+
+        self.clear_pending_pc();
+        match (inst, msg) {
+            (Print, CPUMessage::Print(text)) => {
+                self.stack_pop()?;
+                drop(text);
+                return Ok(Effects::one(StepOutcome::Continue));
+            }
+            (Print, _) => return Err(eyre::eyre!("Print requires CPUMessage::Print")),
+            (_, CPUMessage::Print(_)) => {
+                return Err(eyre::eyre!(
+                    "CPUMessage::Print is only valid for Print instruction"
+                ));
+            }
+            (
+                _,
+                CPUMessage::FunctionInfo {
+                    arity,
+                    start_address,
+                },
+            ) => {
+                self.stack_push(arity);
+                self.stack_push(start_address);
+            }
+            (_, CPUMessage::None) => {}
+        }
+
+        let outcome = match inst {
+            Span(file, start, end) => self.op_span(*file, *start, *end),
             Label(_) | FunctionStart | FunctionEnd => Ok(StepOutcome::Continue),
             Breakpoint => Ok(StepOutcome::Breakpoint),
-            Branch(target) => self.op_branch(target),
+            Branch(target) => self.op_branch(*target),
             ConditionalBranch(true_target, false_target) => {
-                self.op_conditional_branch(true_target, false_target)
+                self.op_conditional_branch(*true_target, *false_target)
             }
-            Return(keep) => self.op_return(keep),
-            Call(arity, target) => self.op_call(arity, target),
+            Return(keep) => self.op_return(*keep),
+            Call(arity, target) => self.op_call(*arity, *target),
             IndirectCall => self.op_indirect_call(),
             Halt => Ok(StepOutcome::Halt),
             Print => Err(eyre::eyre!(
                 "Print must be handled via execute with CPUMessage::Print"
             )),
-            Load(ty, addr) => self.op_load(ty, addr),
-            Store(ty, addr) => self.op_store(ty, addr),
+            LoadI32(addr) => self.op_load(*addr),
+            LoadI64(addr) => self.op_load(*addr),
+            LoadU32(addr) => self.op_load(*addr),
+            LoadU64(addr) => self.op_load(*addr),
+            LoadF32(addr) => self.op_load(*addr),
+            LoadF64(addr) => self.op_load(*addr),
+            LoadBool(addr) => self.op_load(*addr),
+            StoreI32(addr) => self.op_store(*addr),
+            StoreI64(addr) => self.op_store(*addr),
+            StoreU32(addr) => self.op_store(*addr),
+            StoreU64(addr) => self.op_store(*addr),
+            StoreF32(addr) => self.op_store(*addr),
+            StoreF64(addr) => self.op_store(*addr),
+            StoreBool(addr) => self.op_store(*addr),
             Dup => self.op_dup(),
-            HeapAlloc(n_elements) => self.op_heap_alloc(n_elements),
+            HeapAlloc(n_elements) => self.op_heap_alloc(*n_elements),
             GetItem => self.op_get_item(),
             HeapDealloc => self.op_heap_dealloc(),
-            Const(_, v) => self.op_const(v),
-            Add(ty) => self.op_add(ty),
-            Sub(ty) => self.op_sub(ty),
-            Mul(ty) => self.op_mul(ty),
-            Div(ty) => self.op_div(ty),
-            Rem(ty) => self.op_rem(ty),
-            Neg(ty) => self.op_neg(ty),
-            Shl(ty) => self.op_shl(ty),
-            Shr(ty) => self.op_shr(ty),
-            Rol(ty) => self.op_rol(ty),
-            Ror(ty) => self.op_ror(ty),
-            BitAnd(ty) => self.op_bitand(ty),
-            BitOr(ty) => self.op_bitor(ty),
-            BitXor(ty) => self.op_bitxor(ty),
+            ConstI32(v) | ConstI64(v) | ConstU32(v) | ConstU64(v) | ConstF32(v) | ConstF64(v)
+            | ConstBool(v) | ConstString(v) | ConstFunctionRef(v) | ConstHeapRef(v) => {
+                self.op_const(*v)
+            }
+            AddI32 => self.add_i32(),
+            AddI64 => self.add_i64(),
+            AddU32 => self.add_u32(),
+            AddU64 => self.add_u64(),
+            AddF32 => self.add_f32(),
+            AddF64 => self.add_f64(),
+            SubI32 => self.sub_i32(),
+            SubI64 => self.sub_i64(),
+            SubU32 => self.sub_u32(),
+            SubU64 => self.sub_u64(),
+            SubF32 => self.sub_f32(),
+            SubF64 => self.sub_f64(),
+            MulI32 => self.mul_i32(),
+            MulI64 => self.mul_i64(),
+            MulU32 => self.mul_u32(),
+            MulU64 => self.mul_u64(),
+            MulF32 => self.mul_f32(),
+            MulF64 => self.mul_f64(),
+            DivI32 => self.div_i32(),
+            DivI64 => self.div_i64(),
+            DivU32 => self.div_u32(),
+            DivU64 => self.div_u64(),
+            DivF32 => self.div_f32(),
+            DivF64 => self.div_f64(),
+            RemI32 => self.rem_i32(),
+            RemI64 => self.rem_i64(),
+            RemU32 => self.rem_u32(),
+            RemU64 => self.rem_u64(),
+            RemF32 => self.rem_f32(),
+            RemF64 => self.rem_f64(),
+            NegI32 => self.neg_i32(),
+            NegI64 => self.neg_i64(),
+            NegF32 => self.neg_f32(),
+            NegF64 => self.neg_f64(),
+            ShlI32 => self.shl_i32(),
+            ShlI64 => self.shl_i64(),
+            ShlU32 => self.shl_u32(),
+            ShlU64 => self.shl_u64(),
+            ShrI32 => self.shr_i32(),
+            ShrI64 => self.shr_i64(),
+            ShrU32 => self.shr_u32(),
+            ShrU64 => self.shr_u64(),
+            RolI32 => self.rol_i32(),
+            RolI64 => self.rol_i64(),
+            RolU32 => self.rol_u32(),
+            RolU64 => self.rol_u64(),
+            RorI32 => self.ror_i32(),
+            RorI64 => self.ror_i64(),
+            RorU32 => self.ror_u32(),
+            RorU64 => self.ror_u64(),
+            BitAndI32 => self.bitand_i32(),
+            BitAndI64 => self.bitand_i64(),
+            BitAndU32 => self.bitand_u32(),
+            BitAndU64 => self.bitand_u64(),
+            BitOrI32 => self.bitor_i32(),
+            BitOrI64 => self.bitor_i64(),
+            BitOrU32 => self.bitor_u32(),
+            BitOrU64 => self.bitor_u64(),
+            BitXorI32 => self.bitxor_i32(),
+            BitXorI64 => self.bitxor_i64(),
+            BitXorU32 => self.bitxor_u32(),
+            BitXorU64 => self.bitxor_u64(),
             Not => self.op_not(),
             And => self.op_and(),
             Or => self.op_or(),
             Xor => self.op_xor(),
-            Eq(ty) => self.op_eq(ty),
-            Ne(ty) => self.op_ne(ty),
-            Lt(ty) => self.op_lt(ty),
-            Gt(ty) => self.op_gt(ty),
-            Le(ty) => self.op_le(ty),
-            Ge(ty) => self.op_ge(ty),
-        }
+            EqI32 => self.eq_i32(),
+            EqI64 => self.eq_i64(),
+            EqU32 => self.eq_u32(),
+            EqU64 => self.eq_u64(),
+            EqF32 => self.eq_f32(),
+            EqF64 => self.eq_f64(),
+            NeI32 => self.ne_i32(),
+            NeI64 => self.ne_i64(),
+            NeU32 => self.ne_u32(),
+            NeU64 => self.ne_u64(),
+            NeF32 => self.ne_f32(),
+            NeF64 => self.ne_f64(),
+            LtI32 => self.lt_i32(),
+            LtI64 => self.lt_i64(),
+            LtU32 => self.lt_u32(),
+            LtU64 => self.lt_u64(),
+            LtF32 => self.lt_f32(),
+            LtF64 => self.lt_f64(),
+            GtI32 => self.gt_i32(),
+            GtI64 => self.gt_i64(),
+            GtU32 => self.gt_u32(),
+            GtU64 => self.gt_u64(),
+            GtF32 => self.gt_f32(),
+            GtF64 => self.gt_f64(),
+            LeI32 => self.le_i32(),
+            LeI64 => self.le_i64(),
+            LeU32 => self.le_u32(),
+            LeU64 => self.le_u64(),
+            LeF32 => self.le_f32(),
+            LeF64 => self.le_f64(),
+            GeI32 => self.ge_i32(),
+            GeI64 => self.ge_i64(),
+            GeU32 => self.ge_u32(),
+            GeU64 => self.ge_u64(),
+            GeF32 => self.ge_f32(),
+            GeF64 => self.ge_f64(),
+        }?;
+        Ok(Effects::one(outcome))
     }
 }
 
@@ -87,33 +212,10 @@ pub enum CPUMessage {
 impl CPU {
     fn execute(
         &mut self,
-        inst: RuntimeInstruction,
+        inst: &RuntimeInstruction,
         msg: CPUMessage,
     ) -> eyre::Result<Effects<StepOutcome>> {
-        use RuntimeInstruction::*;
-        match (inst, msg) {
-            (Print, CPUMessage::Print(text)) => {
-                self.stack_pop()?;
-                drop(text);
-                Ok(Effects::one(StepOutcome::Continue))
-            }
-            (Print, _) => Err(eyre::eyre!("Print requires CPUMessage::Print")),
-            (_, CPUMessage::Print(_)) => Err(eyre::eyre!(
-                "CPUMessage::Print is only valid for Print instruction"
-            )),
-            (
-                inst,
-                CPUMessage::FunctionInfo {
-                    arity,
-                    start_address,
-                },
-            ) => {
-                self.stack_push(arity);
-                self.stack_push(start_address);
-                self.execute_instruction(inst).map(Effects::one)
-            }
-            (inst, CPUMessage::None) => self.execute_instruction(inst).map(Effects::one),
-        }
+        self.execute_generated(inst, msg)
     }
 }
 
@@ -137,28 +239,32 @@ impl CPU {
             .stack
             .pop()
             .ok_or_else(|| eyre::eyre!("stack underflow"))?;
-        match cond {
-            Value::Bool(true) => {
+        match canonical_bool(cond)? {
+            true => {
                 self.set_pending_pc(true_target);
                 Ok(StepOutcome::Continue)
             }
-            Value::Bool(false) => {
+            false => {
                 self.set_pending_pc(false_target);
                 Ok(StepOutcome::Continue)
             }
-            _ => Err(eyre::eyre!("type error: expected bool on stack")),
         }
     }
 
     pub fn op_return(&mut self, keep: u32) -> eyre::Result<StepOutcome> {
         let frame = self.pop_frame()?;
-        if self.stack.len() - frame.base < (keep as usize) {
+        let frame_len = self
+            .stack
+            .len()
+            .checked_sub(frame.base)
+            .ok_or_else(|| eyre::eyre!("frame base out of bounds"))?;
+        if frame_len < keep as usize {
             return Err(eyre::eyre!("not enough values to return"));
         }
 
         // Collect return values before truncating
         let top = self.stack.len() - keep as usize;
-        let return_values: Vec<Value> = self.stack[top..].to_vec();
+        let return_values: Vec<Word> = self.stack[top..].to_vec();
         self.stack.drain(frame.base..top);
 
         if self.get_frame().is_err() {
@@ -194,7 +300,7 @@ impl CPU {
         // simliar order to op_call but from the stack
         let target: u32 = self.stack_pop()?.try_into()?;
         let arity: u32 = self.stack_pop()?.try_into()?;
-        let f = self.stack_pop()?.get_function_ref()?;
+        let f = decode_function_ref(self.stack_pop()?);
 
         if self.stack.len() < (arity as usize) {
             return Err(eyre::eyre!(
@@ -214,27 +320,16 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    fn op_load(&mut self, ty: Type, addr: u32) -> eyre::Result<StepOutcome> {
+    fn op_load(&mut self, addr: u32) -> eyre::Result<StepOutcome> {
         // addr should be local to frame.
         let value = self.get_local(addr as usize)?;
-        if value.type_of() != ty {
-            return Err(eyre::eyre!(format!(
-                "type error: expected {:?} at address {}, got {:?}",
-                ty,
-                addr,
-                value.type_of()
-            )));
-        }
         self.stack_push(*value);
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_store(&mut self, ty: Type, addr: u32) -> Result<StepOutcome> {
-        let v: Value = self.stack_pop()?;
+    pub fn op_store(&mut self, addr: u32) -> Result<StepOutcome> {
+        let v: Word = self.stack_pop()?;
         log::debug!("store value {:?} at addr {}", v, addr);
-        if !v.is_undefined() && v.type_of() != ty {
-            return Err(eyre::eyre!("Type mismatch"));
-        }
         *self.get_local_mut(addr as usize)? = v;
         Ok(StepOutcome::Continue)
     }
@@ -251,15 +346,15 @@ impl CPU {
             return Err(eyre::eyre!("stack underflow"));
         }
         let start = self.stack.len() - n;
-        let values: Box<[Value]> = self.stack.drain(start..).collect();
+        let values: Box<[Word]> = self.stack.drain(start..).collect();
         let heap_id = self.push_heap_object(values);
-        self.stack_push(Value::HeapRef(heap_id));
+        self.stack_push(encode_heap_ref(heap_id));
         Ok(StepOutcome::Continue)
     }
 
     pub fn op_get_item(&mut self) -> Result<StepOutcome> {
         let index = Self::heap_index(self.stack_pop()?)?;
-        let heap_id = self.stack_pop()?.get_heap_ref()?;
+        let heap_id = decode_heap_ref(self.stack_pop()?);
         let value = *self
             .heap_object(heap_id)?
             .get(index)
@@ -269,30 +364,23 @@ impl CPU {
     }
 
     pub fn op_heap_dealloc(&mut self) -> Result<StepOutcome> {
-        let id = self.stack_pop()?.get_heap_ref()?;
+        let id = decode_heap_ref(self.stack_pop()?);
         self.dealloc_heap_object(id)?;
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_const(&mut self, v: Value) -> Result<StepOutcome> {
+    pub fn op_const(&mut self, v: Word) -> Result<StepOutcome> {
         self.stack.push(v);
         Ok(StepOutcome::Continue)
     }
 
-    fn heap_index(value: Value) -> Result<usize> {
-        match value {
-            Value::U32(index) => Ok(index as usize),
-            Value::U64(index) => usize::try_from(index)
+    fn heap_index(value: Word) -> Result<usize> {
+        match decode_i64(value) {
+            index if index >= 0 => usize::try_from(index)
                 .map_err(|_| eyre::eyre!("heap index {} does not fit in usize", index)),
-            Value::I64(index) if index >= 0 => usize::try_from(index)
-                .map_err(|_| eyre::eyre!("heap index {} does not fit in usize", index)),
-            Value::I64(index) => Err(eyre::eyre!(
+            index => Err(eyre::eyre!(
                 "heap index must be non-negative, got {}",
                 index
-            )),
-            _ => Err(eyre::eyre!(
-                "type error: expected integer heap index, got {:?}",
-                value.type_of()
             )),
         }
     }
@@ -305,18 +393,32 @@ mod tests {
     use vihaco::{Effects, GeneratedComponent, frame::Frame, traits::StackMemory};
     use vihaco_parser::Ident;
 
+    trait ExecuteInstruction {
+        fn execute_instruction(&mut self, instruction: RuntimeInstruction) -> Result<StepOutcome>;
+    }
+
+    impl ExecuteInstruction for CPU {
+        fn execute_instruction(&mut self, instruction: RuntimeInstruction) -> Result<StepOutcome> {
+            vihaco::expect_exactly_one_effect(GeneratedComponent::execute_generated(
+                self,
+                &instruction,
+                CPUMessage::None,
+            )?)
+        }
+    }
+
     #[test]
     fn cpu_generated_component_executes_instruction_without_message() {
         let mut cpu = CPU::default();
 
         GeneratedComponent::execute_generated(
             &mut cpu,
-            RuntimeInstruction::Const(Type::I64, Value::I64(7)),
+            &RuntimeInstruction::ConstI64(encode_i64(7)),
             CPUMessage::None,
         )
         .unwrap();
 
-        assert_eq!(cpu.stack(), &vec![Value::I64(7)]);
+        assert_eq!(cpu.stack(), &vec![encode_i64(7)]);
     }
 
     #[test]
@@ -343,14 +445,14 @@ mod tests {
             function: None,
             ret_pc: 0,
         });
-        cpu.stack_push(Value::I64(7));
+        cpu.stack_push(encode_i64(7));
 
         let outcome = cpu
             .execute_instruction(RuntimeInstruction::Return(1))
             .unwrap();
 
         assert_eq!(outcome, StepOutcome::Return);
-        assert_eq!(cpu.return_values(), &[Value::I64(7)]);
+        assert_eq!(cpu.return_values(), &[encode_i64(7)]);
     }
 
     #[test]
@@ -397,9 +499,9 @@ mod tests {
         });
 
         // IndirectCall pops (top → bottom): target, arity, FunctionRef.
-        cpu.stack_push(Value::FunctionRef(7));
-        cpu.stack_push(Value::U32(0));
-        cpu.stack_push(Value::U32(100));
+        cpu.stack_push(encode_function_ref(7));
+        cpu.stack_push(encode_u32(0));
+        cpu.stack_push(encode_u32(100));
 
         cpu.execute_instruction(RuntimeInstruction::IndirectCall)
             .unwrap();
@@ -432,34 +534,34 @@ mod tests {
             function: None,
             ret_pc: 0,
         });
-        cpu.stack_push(Value::I64(111)); // scratch — bottom of callee frame
-        cpu.stack_push(Value::I64(222)); // scratch — middle
-        cpu.stack_push(Value::I64(999)); // intended return value — top
+        cpu.stack_push(encode_i64(111)); // scratch — bottom of callee frame
+        cpu.stack_push(encode_i64(222)); // scratch — middle
+        cpu.stack_push(encode_i64(999)); // intended return value — top
 
         let outcome = cpu
             .execute_instruction(RuntimeInstruction::Return(1))
             .unwrap();
         assert_eq!(outcome, StepOutcome::Continue);
 
-        assert_eq!(cpu.stack(), &vec![Value::I64(999)],);
+        assert_eq!(cpu.stack(), &vec![encode_i64(999)],);
     }
 
     #[test]
     fn op_heap_alloc_preserves_natural_push_order_and_returns_heap_ref() {
         let mut cpu = CPU::default();
-        cpu.stack_push(Value::I64(10));
-        cpu.stack_push(Value::I64(20));
-        cpu.stack_push(Value::I64(30));
+        cpu.stack_push(encode_i64(10));
+        cpu.stack_push(encode_i64(20));
+        cpu.stack_push(encode_i64(30));
 
         let outcome = cpu
             .execute_instruction(RuntimeInstruction::HeapAlloc(3))
             .unwrap();
 
         assert_eq!(outcome, StepOutcome::Continue);
-        assert_eq!(cpu.stack(), &vec![Value::HeapRef(0)]);
+        assert_eq!(cpu.stack(), &vec![encode_heap_ref(0)]);
         assert_eq!(
             cpu.heap.get(0).unwrap(),
-            &[Value::I64(10), Value::I64(20), Value::I64(30)]
+            &[encode_i64(10), encode_i64(20), encode_i64(30)]
         );
     }
 
@@ -472,46 +574,46 @@ mod tests {
             .unwrap();
 
         assert_eq!(outcome, StepOutcome::Continue);
-        assert_eq!(cpu.stack(), &vec![Value::HeapRef(0)]);
-        assert_eq!(cpu.heap.get(0).unwrap(), &[] as &[Value]);
+        assert_eq!(cpu.stack(), &vec![encode_heap_ref(0)]);
+        assert_eq!(cpu.heap.get(0).unwrap(), &[] as &[Word]);
     }
 
     #[test]
     fn op_get_item_reads_heap_value() {
         let mut cpu = CPU::default();
-        cpu.stack_push(Value::I64(10));
-        cpu.stack_push(Value::I64(20));
-        cpu.stack_push(Value::I64(30));
+        cpu.stack_push(encode_i64(10));
+        cpu.stack_push(encode_i64(20));
+        cpu.stack_push(encode_i64(30));
         cpu.execute_instruction(RuntimeInstruction::HeapAlloc(3))
             .unwrap();
-        cpu.stack_push(Value::U32(1));
+        cpu.stack_push(encode_u32(1));
 
         let outcome = cpu
             .execute_instruction(RuntimeInstruction::GetItem)
             .unwrap();
 
         assert_eq!(outcome, StepOutcome::Continue);
-        assert_eq!(cpu.stack(), &vec![Value::I64(20)]);
+        assert_eq!(cpu.stack(), &vec![encode_i64(20)]);
     }
 
     #[test]
     fn op_get_item_rejects_non_heap_refs() {
         let mut cpu = CPU::default();
-        cpu.stack_push(Value::I64(7));
-        cpu.stack_push(Value::U32(0));
+        cpu.stack_push(encode_i64(7));
+        cpu.stack_push(encode_u32(0));
 
         let err = cpu
             .execute_instruction(RuntimeInstruction::GetItem)
             .unwrap_err();
 
-        assert!(err.to_string().contains("HeapRef"));
+        assert!(err.to_string().contains("heap"));
     }
 
     #[test]
     fn op_get_item_rejects_invalid_heap_ids() {
         let mut cpu = CPU::default();
-        cpu.stack_push(Value::HeapRef(99));
-        cpu.stack_push(Value::U32(0));
+        cpu.stack_push(encode_heap_ref(99));
+        cpu.stack_push(encode_u32(0));
 
         let err = cpu
             .execute_instruction(RuntimeInstruction::GetItem)
@@ -523,10 +625,10 @@ mod tests {
     #[test]
     fn op_get_item_rejects_out_of_bounds_indices() {
         let mut cpu = CPU::default();
-        cpu.stack_push(Value::I64(10));
+        cpu.stack_push(encode_i64(10));
         cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
             .unwrap();
-        cpu.stack_push(Value::U32(3));
+        cpu.stack_push(encode_u32(3));
 
         let err = cpu
             .execute_instruction(RuntimeInstruction::GetItem)
@@ -538,7 +640,7 @@ mod tests {
     #[test]
     fn reset_clears_heap_allocations() {
         let mut cpu = CPU::default();
-        cpu.stack_push(Value::I64(10));
+        cpu.stack_push(encode_i64(10));
         cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
             .unwrap();
 
@@ -560,13 +662,13 @@ mod tests {
 
         let outcome = GeneratedComponent::execute_generated(
             &mut cpu,
-            RuntimeInstruction::Const(Type::I64, Value::I64(99)),
+            &RuntimeInstruction::ConstI64(encode_i64(99)),
             CPUMessage::None,
         )
         .unwrap();
 
         assert_eq!(outcome, Effects::one(StepOutcome::Continue));
-        assert_eq!(cpu.stack(), &vec![Value::I64(99)]);
+        assert_eq!(cpu.stack(), &vec![encode_i64(99)]);
     }
 
     #[test]
@@ -581,7 +683,7 @@ mod tests {
 
         let outcome = GeneratedComponent::execute_generated(
             &mut cpu,
-            RuntimeInstruction::Label(Ident("label".to_owned())),
+            &RuntimeInstruction::Label(Ident("label".to_owned())),
             CPUMessage::FunctionInfo {
                 arity: 2,
                 start_address: 42,
@@ -591,7 +693,7 @@ mod tests {
 
         assert_eq!(outcome, Effects::one(StepOutcome::Continue));
         // arity pushed first, then start_address
-        assert_eq!(cpu.stack(), &vec![Value::U32(2), Value::U32(42)]);
+        assert_eq!(cpu.stack(), &vec![encode_u32(2), encode_u32(42)]);
     }
 
     #[test]
@@ -603,11 +705,11 @@ mod tests {
             function: None,
             ret_pc: 0,
         });
-        cpu.stack_push(Value::I64(42));
+        cpu.stack_push(encode_i64(42));
 
         let outcome = GeneratedComponent::execute_generated(
             &mut cpu,
-            RuntimeInstruction::Print,
+            &RuntimeInstruction::Print,
             CPUMessage::Print("hello".into()),
         )
         .unwrap();
@@ -625,11 +727,11 @@ mod tests {
             function: None,
             ret_pc: 0,
         });
-        cpu.stack_push(Value::I64(42));
+        cpu.stack_push(encode_i64(42));
 
         let err = GeneratedComponent::execute_generated(
             &mut cpu,
-            RuntimeInstruction::Print,
+            &RuntimeInstruction::Print,
             CPUMessage::None,
         )
         .unwrap_err();
@@ -640,10 +742,10 @@ mod tests {
     #[test]
     fn op_heap_dealloc_marks_slot_dead() {
         let mut cpu = CPU::default();
-        cpu.stack_push(Value::I64(42));
+        cpu.stack_push(encode_i64(42));
         cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
             .unwrap();
-        cpu.stack_push(Value::HeapRef(0));
+        cpu.stack_push(encode_heap_ref(0));
 
         cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
             .unwrap();
@@ -660,31 +762,31 @@ mod tests {
     #[test]
     fn op_heap_dealloc_slot_is_reused_on_next_alloc() {
         let mut cpu = CPU::default();
-        cpu.stack_push(Value::I64(1));
+        cpu.stack_push(encode_i64(1));
         cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
             .unwrap();
         cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
             .unwrap();
 
-        cpu.stack_push(Value::I64(2));
+        cpu.stack_push(encode_i64(2));
         cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
             .unwrap();
 
-        assert_eq!(cpu.stack(), &vec![Value::HeapRef(0)]);
-        assert_eq!(cpu.heap.get(0).unwrap(), &[Value::I64(2)]);
+        assert_eq!(cpu.stack(), &vec![encode_heap_ref(0)]);
+        assert_eq!(cpu.heap.get(0).unwrap(), &[encode_i64(2)]);
     }
 
     #[test]
     fn op_heap_dealloc_rejects_double_free() {
         let mut cpu = CPU::default();
-        cpu.stack_push(Value::I64(1));
+        cpu.stack_push(encode_i64(1));
         cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
             .unwrap();
-        cpu.stack_push(Value::HeapRef(0));
+        cpu.stack_push(encode_heap_ref(0));
         cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
             .unwrap();
 
-        cpu.stack_push(Value::HeapRef(0));
+        cpu.stack_push(encode_heap_ref(0));
         let err = cpu
             .execute_instruction(RuntimeInstruction::HeapDealloc)
             .unwrap_err();
@@ -695,7 +797,7 @@ mod tests {
     #[test]
     fn op_heap_dealloc_rejects_invalid_id() {
         let mut cpu = CPU::default();
-        cpu.stack_push(Value::HeapRef(99));
+        cpu.stack_push(encode_heap_ref(99));
 
         let err = cpu
             .execute_instruction(RuntimeInstruction::HeapDealloc)
@@ -707,10 +809,10 @@ mod tests {
     #[test]
     fn reset_clears_free_list() {
         let mut cpu = CPU::default();
-        cpu.stack_push(Value::I64(1));
+        cpu.stack_push(encode_i64(1));
         cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
             .unwrap();
-        cpu.stack_push(Value::HeapRef(0));
+        cpu.stack_push(encode_heap_ref(0));
         cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
             .unwrap();
 
@@ -718,309 +820,331 @@ mod tests {
 
         assert!(cpu.heap.is_empty());
     }
-}
 
-macro_rules! impl_op_num_binary {
-    ($name:ident, $op:ident) => {
-        pub fn $name(&mut self, ty: Type) -> Result<StepOutcome> {
-            let lhs: Value = self.stack_pop()?;
-            let rhs: Value = self.stack_pop()?;
-            if lhs.type_of() != ty {
-                return Err(eyre::eyre!(
-                    "Type mismatch, expected {} got {} for lhs",
-                    ty,
-                    lhs.type_of()
-                ));
-            }
+    #[test]
+    fn typed_word_arithmetic_canonicalizes_narrow_results() {
+        let mut cpu = CPU::default();
+        cpu.stack_push(encode_i32(i32::MAX));
+        cpu.stack_push(encode_i32(1));
+        cpu.execute_instruction(RuntimeInstruction::AddI32).unwrap();
+        assert_eq!(cpu.stack_pop().unwrap(), encode_i32(i32::MIN));
 
-            if rhs.type_of() != ty {
-                return Err(eyre::eyre!(
-                    "Type mismatch, expected {} got {} for rhs",
-                    ty,
-                    rhs.type_of()
-                ));
-            }
+        cpu.stack_push(encode_u32(u32::MAX));
+        cpu.stack_push(encode_u32(1));
+        cpu.execute_instruction(RuntimeInstruction::AddU32).unwrap();
+        assert_eq!(cpu.stack_pop().unwrap(), 0);
 
-            let output = match (lhs, rhs) {
-                (Value::I64(l), Value::I64(r)) => Value::I64(l.$op(r)),
-                (Value::U32(l), Value::U32(r)) => Value::U32(l.$op(r)),
-                (Value::U64(l), Value::U64(r)) => Value::U64(l.$op(r)),
-                (Value::F64(l), Value::F64(r)) => Value::F64(l.$op(r)),
-                _ => {
-                    return Err(eyre::eyre!(
-                        "cannot {} {} and {}",
-                        stringify!($op),
-                        lhs.type_of(),
-                        rhs.type_of()
-                    ))
-                }
-            };
-            self.stack.push(output);
-            Ok(StepOutcome::Continue)
-        }
-    };
-}
+        cpu.stack_push(encode_f32(1.5));
+        cpu.stack_push(encode_f32(2.0));
+        cpu.execute_instruction(RuntimeInstruction::MulF32).unwrap();
+        assert_eq!(decode_f32(cpu.stack_pop().unwrap()), 3.0);
+    }
 
-impl CPU {
-    impl_op_num_binary!(op_add, add);
-    impl_op_num_binary!(op_sub, sub);
-    impl_op_num_binary!(op_mul, mul);
-    impl_op_num_binary!(op_div, div);
-    impl_op_num_binary!(op_rem, rem);
+    #[test]
+    fn integer_division_and_remainder_report_errors() {
+        let mut cpu = CPU::default();
+        cpu.stack_push(encode_i64(7));
+        cpu.stack_push(encode_i64(0));
+        assert!(cpu.execute_instruction(RuntimeInstruction::DivI64).is_err());
 
-    pub fn op_neg(&mut self, ty: Type) -> Result<StepOutcome> {
-        let v: Value = self.stack_pop()?;
-        if v.type_of() != ty {
-            return Err(eyre::eyre!(format!(
-                "Type mismatch, expected {:?} got {:?}",
-                ty,
-                v.type_of()
-            )));
-        }
+        cpu.stack_push(encode_u32(7));
+        cpu.stack_push(encode_u32(0));
+        assert!(cpu.execute_instruction(RuntimeInstruction::RemU32).is_err());
+    }
 
-        let output = match v {
-            Value::I64(i) => Value::I64(-i),
-            Value::F64(f) => Value::F64(-f),
-            _ => return Err(eyre::eyre!(format!("cannot negate {}", v.type_of()))),
-        };
-        self.stack.push(output);
-        Ok(StepOutcome::Continue)
+    #[test]
+    fn boolean_words_must_be_canonical() {
+        let mut cpu = CPU::default();
+        cpu.stack_push(2u64);
+        assert!(cpu.execute_instruction(RuntimeInstruction::Not).is_err());
+
+        cpu.stack_push(2u64);
+        assert!(
+            cpu.execute_instruction(RuntimeInstruction::ConditionalBranch(1, 2))
+                .is_err()
+        );
     }
 }
 
-macro_rules! impl_op_shift {
-    ($name:ident, $op:ident) => {
-        pub fn $name(&mut self, ty: Type) -> Result<StepOutcome> {
-            let rhs: Value = self.stack_pop()?;
-            let lhs: Value = self.stack_pop()?;
-            if lhs.type_of() != ty {
-                return Err(eyre::eyre!(
-                    "Type mismatch, expected {} got {} for lhs",
-                    ty,
-                    lhs.type_of()
-                ));
-            }
+fn canonical_bool(value: Word) -> Result<bool> {
+    match value {
+        0 => Ok(false),
+        1 => Ok(true),
+        other => Err(eyre::eyre!("invalid boolean word {}", other)),
+    }
+}
 
-            if rhs.type_of() != ty {
-                return Err(eyre::eyre!(
-                    "Type mismatch, expected {} got {} for rhs",
-                    ty,
-                    rhs.type_of()
-                ));
-            }
-            let output = match (lhs, rhs) {
-                (Value::I64(l), Value::I64(r)) => Value::I64(l.$op(r)),
-                (Value::U32(l), Value::U32(r)) => Value::U32(l.$op(r)),
-                (Value::U64(l), Value::U64(r)) => Value::U64(l.$op(r)),
-                _ => {
-                    return Err(eyre::eyre!(format!(
-                        "cannot {} {} and {}",
-                        stringify!($op),
-                        lhs.type_of(),
-                        rhs.type_of()
-                    )))
-                }
-            };
-            self.stack.push(output);
+macro_rules! int_wrapping {
+    ($($name:ident {
+        decode: $decode:ident,
+        encode: $encode:ident,
+        operation: $op:ident
+    });+ $(;)?) => {$ (
+        #[inline(always)]
+        fn $name(&mut self) -> Result<StepOutcome> {
+            let rhs = $decode(self.stack_pop()?);
+            let lhs = $decode(self.stack_pop()?);
+            self.stack_push($encode(lhs.$op(rhs)));
             Ok(StepOutcome::Continue)
         }
-    };
+    )+ };
+}
+
+macro_rules! int_checked {
+    ($($name:ident {
+        decode: $decode:ident,
+        encode: $encode:ident,
+        operation: $op:ident,
+        error: $message:literal
+    });+ $(;)?) => {$ (
+        #[inline(always)]
+        fn $name(&mut self) -> Result<StepOutcome> {
+            let rhs = $decode(self.stack_pop()?);
+            let lhs = $decode(self.stack_pop()?);
+            let value = lhs.$op(rhs).ok_or_else(|| eyre::eyre!($message))?;
+            self.stack_push($encode(value));
+            Ok(StepOutcome::Continue)
+        }
+    )+ };
+}
+
+macro_rules! float_binary {
+    ($($name:ident {
+        decode: $decode:ident,
+        encode: $encode:ident,
+        operator: $op:tt
+    });+ $(;)?) => {$ (
+        #[inline(always)]
+        fn $name(&mut self) -> Result<StepOutcome> {
+            let rhs = $decode(self.stack_pop()?);
+            let lhs = $decode(self.stack_pop()?);
+            self.stack_push($encode(lhs $op rhs));
+            Ok(StepOutcome::Continue)
+        }
+    )+ };
+}
+
+macro_rules! shift {
+    ($($name:ident {
+        decode: $decode:ident,
+        encode: $encode:ident,
+        operation: $op:ident,
+        count_mask: $mask:expr
+    });+ $(;)?) => {$ (
+        #[inline(always)]
+        fn $name(&mut self) -> Result<StepOutcome> {
+            let rhs = decode_u32(self.stack_pop()?);
+            let lhs = $decode(self.stack_pop()?);
+            self.stack_push($encode(lhs.$op(rhs & $mask)));
+            Ok(StepOutcome::Continue)
+        }
+    )+ };
+}
+
+macro_rules! rotate {
+    ($($name:ident {
+        decode: $decode:ident,
+        encode: $encode:ident,
+        operation: $op:ident
+    });+ $(;)?) => {$ (
+        #[inline(always)]
+        fn $name(&mut self) -> Result<StepOutcome> {
+            let rhs = decode_u32(self.stack_pop()?);
+            let lhs = $decode(self.stack_pop()?);
+            self.stack_push($encode(lhs.$op(rhs)));
+            Ok(StepOutcome::Continue)
+        }
+    )+ };
+}
+
+macro_rules! bitwise {
+    ($($name:ident {
+        decode: $decode:ident,
+        encode: $encode:ident,
+        operator: $op:tt
+    });+ $(;)?) => {$ (
+        #[inline(always)]
+        fn $name(&mut self) -> Result<StepOutcome> {
+            let rhs = $decode(self.stack_pop()?);
+            let lhs = $decode(self.stack_pop()?);
+            self.stack_push($encode(lhs $op rhs));
+            Ok(StepOutcome::Continue)
+        }
+    )+ };
+}
+
+macro_rules! compare {
+    ($($name:ident {
+        decode: $decode:ident,
+        operator: $op:tt
+    });+ $(;)?) => {$ (
+        #[inline(always)]
+        fn $name(&mut self) -> Result<StepOutcome> {
+            let rhs = $decode(self.stack_pop()?);
+            let lhs = $decode(self.stack_pop()?);
+            self.stack_push(encode_bool(lhs $op rhs));
+            Ok(StepOutcome::Continue)
+        }
+    )+ };
 }
 
 impl CPU {
-    impl_op_shift!(op_shl, shl);
-    impl_op_shift!(op_shr, shr);
-}
+    int_wrapping! {
+        add_i32 { decode: decode_i32, encode: encode_i32, operation: wrapping_add };
+        add_i64 { decode: decode_i64, encode: encode_i64, operation: wrapping_add };
+        add_u32 { decode: decode_u32, encode: encode_u32, operation: wrapping_add };
+        add_u64 { decode: decode_u64, encode: encode_u64, operation: wrapping_add };
+        sub_i32 { decode: decode_i32, encode: encode_i32, operation: wrapping_sub };
+        sub_i64 { decode: decode_i64, encode: encode_i64, operation: wrapping_sub };
+        sub_u32 { decode: decode_u32, encode: encode_u32, operation: wrapping_sub };
+        sub_u64 { decode: decode_u64, encode: encode_u64, operation: wrapping_sub };
+        mul_i32 { decode: decode_i32, encode: encode_i32, operation: wrapping_mul };
+        mul_i64 { decode: decode_i64, encode: encode_i64, operation: wrapping_mul };
+        mul_u32 { decode: decode_u32, encode: encode_u32, operation: wrapping_mul };
+        mul_u64 { decode: decode_u64, encode: encode_u64, operation: wrapping_mul };
+    }
+    int_checked! {
+        div_i32 { decode: decode_i32, encode: encode_i32, operation: checked_div, error: "integer division error" };
+        div_i64 { decode: decode_i64, encode: encode_i64, operation: checked_div, error: "integer division error" };
+        div_u32 { decode: decode_u32, encode: encode_u32, operation: checked_div, error: "integer division error" };
+        div_u64 { decode: decode_u64, encode: encode_u64, operation: checked_div, error: "integer division error" };
+        rem_i32 { decode: decode_i32, encode: encode_i32, operation: checked_rem, error: "integer remainder error" };
+        rem_i64 { decode: decode_i64, encode: encode_i64, operation: checked_rem, error: "integer remainder error" };
+        rem_u32 { decode: decode_u32, encode: encode_u32, operation: checked_rem, error: "integer remainder error" };
+        rem_u64 { decode: decode_u64, encode: encode_u64, operation: checked_rem, error: "integer remainder error" };
+    }
+    float_binary! {
+        add_f32 { decode: decode_f32, encode: encode_f32, operator: + };
+        add_f64 { decode: decode_f64, encode: encode_f64, operator: + };
+        sub_f32 { decode: decode_f32, encode: encode_f32, operator: - };
+        sub_f64 { decode: decode_f64, encode: encode_f64, operator: - };
+        mul_f32 { decode: decode_f32, encode: encode_f32, operator: * };
+        mul_f64 { decode: decode_f64, encode: encode_f64, operator: * };
+        div_f32 { decode: decode_f32, encode: encode_f32, operator: / };
+        div_f64 { decode: decode_f64, encode: encode_f64, operator: / };
+        rem_f32 { decode: decode_f32, encode: encode_f32, operator: % };
+        rem_f64 { decode: decode_f64, encode: encode_f64, operator: % };
+    }
 
-macro_rules! impl_op_rotate {
-    ($name:ident, $op:ident) => {
-        pub fn $name(&mut self, ty: Type) -> Result<StepOutcome> {
-            let rhs: Value = self.stack_pop()?;
-            let lhs: Value = self.stack_pop()?;
-            if lhs.type_of() != ty {
-                return Err(eyre::eyre!(
-                    "Type mismatch, expected {} got {} for lhs",
-                    ty,
-                    lhs.type_of()
-                ));
-            }
-
-            if rhs.type_of() != Type::U32 {
-                return Err(eyre::eyre!(
-                    "Type mismatch, expected {} got {} for rhs",
-                    Type::U32,
-                    rhs.type_of()
-                ));
-            }
-            let output = match (lhs, rhs) {
-                (Value::I64(l), Value::U32(r)) => Value::I64(l.$op(r)),
-                (Value::U32(l), Value::U32(r)) => Value::U32(l.$op(r)),
-                (Value::U64(l), Value::U32(r)) => Value::U64(l.$op(r)),
-                _ => {
-                    return Err(eyre::eyre!(format!(
-                        "cannot {} {} and {}",
-                        stringify!($op),
-                        lhs.type_of(),
-                        rhs.type_of()
-                    )));
-                }
-            };
-            self.stack.push(output);
-            Ok(StepOutcome::Continue)
-        }
-    };
-}
-
-impl CPU {
-    impl_op_rotate!(op_rol, rotate_left);
-    impl_op_rotate!(op_ror, rotate_right);
-}
-
-macro_rules! impl_op_bitwise {
-    ($name:ident, $op:ident) => {
-        pub fn $name(&mut self, ty: Type) -> Result<StepOutcome> {
-            let rhs: Value = self.stack_pop()?;
-            let lhs: Value = self.stack_pop()?;
-            if lhs.type_of() != ty {
-                return Err(eyre::eyre!(
-                    "Type mismatch, expected {} got {} for lhs",
-                    ty,
-                    lhs.type_of()
-                ));
-            }
-
-            if rhs.type_of() != ty {
-                return Err(eyre::eyre!(
-                    "Type mismatch, expected {} got {} for rhs",
-                    ty,
-                    rhs.type_of()
-                ));
-            }
-            let output = match (lhs, rhs) {
-                (Value::I64(l), Value::I64(r)) => Value::I64(l.$op(r)),
-                (Value::U32(l), Value::U32(r)) => Value::U32(l.$op(r)),
-                (Value::U64(l), Value::U64(r)) => Value::U64(l.$op(r)),
-                _ => {
-                    return Err(eyre::eyre!(format!(
-                        "cannot {} {} and {}",
-                        stringify!($op),
-                        lhs.type_of(),
-                        rhs.type_of()
-                    )))
-                }
-            };
-            self.stack.push(output);
-            Ok(StepOutcome::Continue)
-        }
-    };
-}
-
-impl CPU {
-    impl_op_bitwise!(op_bitand, bitand);
-    impl_op_bitwise!(op_bitor, bitor);
-    impl_op_bitwise!(op_bitxor, bitxor);
-}
-
-macro_rules! impl_boolean_binary {
-    ($name:ident, $op:ident) => {
-        pub fn $name(&mut self) -> Result<StepOutcome> {
-            let rhs: bool = self.stack_pop()?.try_into()?;
-            let lhs: bool = self.stack_pop()?.try_into()?;
-            let output = lhs.$op(rhs);
-            self.stack_push(output);
-            Ok(StepOutcome::Continue)
-        }
-    };
-}
-
-impl CPU {
-    pub fn op_not(&mut self) -> Result<StepOutcome> {
-        let v: bool = self.stack_pop()?.try_into()?;
-        self.stack_push(!v);
+    #[inline(always)]
+    fn neg_i32(&mut self) -> Result<StepOutcome> {
+        let value = decode_i32(self.stack_pop()?).wrapping_neg();
+        self.stack_push(encode_i32(value));
+        Ok(StepOutcome::Continue)
+    }
+    #[inline(always)]
+    fn neg_i64(&mut self) -> Result<StepOutcome> {
+        let value = decode_i64(self.stack_pop()?).wrapping_neg();
+        self.stack_push(encode_i64(value));
+        Ok(StepOutcome::Continue)
+    }
+    #[inline(always)]
+    fn neg_f32(&mut self) -> Result<StepOutcome> {
+        let value = -decode_f32(self.stack_pop()?);
+        self.stack_push(encode_f32(value));
+        Ok(StepOutcome::Continue)
+    }
+    #[inline(always)]
+    fn neg_f64(&mut self) -> Result<StepOutcome> {
+        let value = -decode_f64(self.stack_pop()?);
+        self.stack_push(encode_f64(value));
         Ok(StepOutcome::Continue)
     }
 
-    impl_boolean_binary!(op_and, bitand);
-    impl_boolean_binary!(op_or, bitor);
-    impl_boolean_binary!(op_xor, bitxor);
-}
+    shift! {
+        shl_i32 { decode: decode_i32, encode: encode_i32, operation: wrapping_shl, count_mask: 31 };
+        shl_i64 { decode: decode_i64, encode: encode_i64, operation: wrapping_shl, count_mask: 63 };
+        shl_u32 { decode: decode_u32, encode: encode_u32, operation: wrapping_shl, count_mask: 31 };
+        shl_u64 { decode: decode_u64, encode: encode_u64, operation: wrapping_shl, count_mask: 63 };
+        shr_i32 { decode: decode_i32, encode: encode_i32, operation: wrapping_shr, count_mask: 31 };
+        shr_i64 { decode: decode_i64, encode: encode_i64, operation: wrapping_shr, count_mask: 63 };
+        shr_u32 { decode: decode_u32, encode: encode_u32, operation: wrapping_shr, count_mask: 31 };
+        shr_u64 { decode: decode_u64, encode: encode_u64, operation: wrapping_shr, count_mask: 63 };
+    }
+    rotate! {
+        rol_i32 { decode: decode_i32, encode: encode_i32, operation: rotate_left };
+        rol_i64 { decode: decode_i64, encode: encode_i64, operation: rotate_left };
+        rol_u32 { decode: decode_u32, encode: encode_u32, operation: rotate_left };
+        rol_u64 { decode: decode_u64, encode: encode_u64, operation: rotate_left };
+        ror_i32 { decode: decode_i32, encode: encode_i32, operation: rotate_right };
+        ror_i64 { decode: decode_i64, encode: encode_i64, operation: rotate_right };
+        ror_u32 { decode: decode_u32, encode: encode_u32, operation: rotate_right };
+        ror_u64 { decode: decode_u64, encode: encode_u64, operation: rotate_right };
+    }
+    bitwise! {
+        bitand_i32 { decode: decode_i32, encode: encode_i32, operator: & };
+        bitand_i64 { decode: decode_i64, encode: encode_i64, operator: & };
+        bitand_u32 { decode: decode_u32, encode: encode_u32, operator: & };
+        bitand_u64 { decode: decode_u64, encode: encode_u64, operator: & };
+        bitor_i32 { decode: decode_i32, encode: encode_i32, operator: | };
+        bitor_i64 { decode: decode_i64, encode: encode_i64, operator: | };
+        bitor_u32 { decode: decode_u32, encode: encode_u32, operator: | };
+        bitor_u64 { decode: decode_u64, encode: encode_u64, operator: | };
+        bitxor_i32 { decode: decode_i32, encode: encode_i32, operator: ^ };
+        bitxor_i64 { decode: decode_i64, encode: encode_i64, operator: ^ };
+        bitxor_u32 { decode: decode_u32, encode: encode_u32, operator: ^ };
+        bitxor_u64 { decode: decode_u64, encode: encode_u64, operator: ^ };
+    }
+    compare! {
+        eq_i32 { decode: decode_i32, operator: == };
+        eq_i64 { decode: decode_i64, operator: == };
+        eq_u32 { decode: decode_u32, operator: == };
+        eq_u64 { decode: decode_u64, operator: == };
+        eq_f32 { decode: decode_f32, operator: == };
+        eq_f64 { decode: decode_f64, operator: == };
+        ne_i32 { decode: decode_i32, operator: != };
+        ne_i64 { decode: decode_i64, operator: != };
+        ne_u32 { decode: decode_u32, operator: != };
+        ne_u64 { decode: decode_u64, operator: != };
+        ne_f32 { decode: decode_f32, operator: != };
+        ne_f64 { decode: decode_f64, operator: != };
+        lt_i32 { decode: decode_i32, operator: < };
+        lt_i64 { decode: decode_i64, operator: < };
+        lt_u32 { decode: decode_u32, operator: < };
+        lt_u64 { decode: decode_u64, operator: < };
+        lt_f32 { decode: decode_f32, operator: < };
+        lt_f64 { decode: decode_f64, operator: < };
+        gt_i32 { decode: decode_i32, operator: > };
+        gt_i64 { decode: decode_i64, operator: > };
+        gt_u32 { decode: decode_u32, operator: > };
+        gt_u64 { decode: decode_u64, operator: > };
+        gt_f32 { decode: decode_f32, operator: > };
+        gt_f64 { decode: decode_f64, operator: > };
+        le_i32 { decode: decode_i32, operator: <= };
+        le_i64 { decode: decode_i64, operator: <= };
+        le_u32 { decode: decode_u32, operator: <= };
+        le_u64 { decode: decode_u64, operator: <= };
+        le_f32 { decode: decode_f32, operator: <= };
+        le_f64 { decode: decode_f64, operator: <= };
+        ge_i32 { decode: decode_i32, operator: >= };
+        ge_i64 { decode: decode_i64, operator: >= };
+        ge_u32 { decode: decode_u32, operator: >= };
+        ge_u64 { decode: decode_u64, operator: >= };
+        ge_f32 { decode: decode_f32, operator: >= };
+        ge_f64 { decode: decode_f64, operator: >= };
+    }
 
-macro_rules! impl_eq {
-    ($name:ident, $op:ident) => {
-        pub fn $name(&mut self, ty: Type) -> Result<StepOutcome> {
-            let rhs: Value = self.stack_pop()?;
-            let lhs: Value = self.stack_pop()?;
-            if lhs.type_of() != ty {
-                return Err(eyre::eyre!(
-                    "Type mismatch, expected {} got {} for lhs",
-                    ty,
-                    lhs.type_of()
-                ));
-            }
-
-            if rhs.type_of() != ty {
-                return Err(eyre::eyre!(
-                    "Type mismatch, expected {} got {} for rhs",
-                    ty,
-                    rhs.type_of()
-                ));
-            }
-            let output = lhs.$op(&rhs);
-            self.stack_push(output);
-            Ok(StepOutcome::Continue)
-        }
-    };
-}
-
-impl CPU {
-    impl_eq!(op_eq, eq);
-    impl_eq!(op_ne, ne);
-}
-
-macro_rules! impl_ordering {
-    ($name:ident, $op:ident) => {
-        pub fn $name(&mut self, ty: Type) -> Result<StepOutcome> {
-            let rhs: Value = self.stack_pop()?;
-            let lhs: Value = self.stack_pop()?;
-            if lhs.type_of() != ty {
-                return Err(eyre::eyre!(
-                    "Type mismatch, expected {} got {} for lhs",
-                    ty,
-                    lhs.type_of()
-                ));
-            }
-
-            if rhs.type_of() != ty {
-                return Err(eyre::eyre!(
-                    "Type mismatch, expected {} got {} for rhs",
-                    ty,
-                    rhs.type_of()
-                ));
-            }
-
-            let output = match (lhs, rhs) {
-                (Value::Bool(l), Value::Bool(r)) => l.$op(&r),
-                (Value::I64(l), Value::I64(r)) => l.$op(&r),
-                (Value::U32(l), Value::U32(r)) => l.$op(&r),
-                (Value::U64(l), Value::U64(r)) => l.$op(&r),
-                (Value::F64(l), Value::F64(r)) => l.$op(&r),
-                _ => {
-                    return Err(eyre::eyre!(format!(
-                        "cannot compare {} and {}",
-                        lhs.type_of(),
-                        rhs.type_of()
-                    )))
-                }
-            };
-            self.stack_push(output);
-            Ok(StepOutcome::Continue)
-        }
-    };
-}
-
-impl CPU {
-    impl_ordering!(op_lt, lt);
-    impl_ordering!(op_le, le);
-    impl_ordering!(op_gt, gt);
-    impl_ordering!(op_ge, ge);
+    fn op_not(&mut self) -> Result<StepOutcome> {
+        let value = !canonical_bool(self.stack_pop()?)?;
+        self.stack_push(encode_bool(value));
+        Ok(StepOutcome::Continue)
+    }
+    fn op_and(&mut self) -> Result<StepOutcome> {
+        let rhs = canonical_bool(self.stack_pop()?)?;
+        let lhs = canonical_bool(self.stack_pop()?)?;
+        self.stack_push(encode_bool(lhs && rhs));
+        Ok(StepOutcome::Continue)
+    }
+    fn op_or(&mut self) -> Result<StepOutcome> {
+        let rhs = canonical_bool(self.stack_pop()?)?;
+        let lhs = canonical_bool(self.stack_pop()?)?;
+        self.stack_push(encode_bool(lhs || rhs));
+        Ok(StepOutcome::Continue)
+    }
+    fn op_xor(&mut self) -> Result<StepOutcome> {
+        let rhs = canonical_bool(self.stack_pop()?)?;
+        let lhs = canonical_bool(self.stack_pop()?)?;
+        self.stack_push(encode_bool(lhs ^ rhs));
+        Ok(StepOutcome::Continue)
+    }
 }

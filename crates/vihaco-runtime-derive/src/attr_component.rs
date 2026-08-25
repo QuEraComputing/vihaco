@@ -223,7 +223,7 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
 
             fn execute_generated(
                 &mut self,
-                inst: Self::Instruction,
+                inst: &Self::Instruction,
                 msg: Self::Message,
             ) -> ::eyre::Result<#root::Effects<Self::Effect>> {
                 self.execute(inst, msg)

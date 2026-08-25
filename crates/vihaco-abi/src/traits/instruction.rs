@@ -29,7 +29,9 @@ macro_rules! impl_scalar_opcode {
 impl_scalar_opcode!(u32, 4);
 impl_scalar_opcode!(u64, 8);
 impl_scalar_opcode!(i64, 8);
+impl_scalar_opcode!(i32, 4);
 impl_scalar_opcode!(f64, 8);
+impl_scalar_opcode!(f32, 4);
 
 impl OpCode for bool {
     fn width() -> u32 {

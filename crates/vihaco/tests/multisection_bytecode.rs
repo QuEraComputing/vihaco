@@ -198,7 +198,7 @@ impl GeneratedComponent for LoadedDevice {
 
     fn execute_generated(
         &mut self,
-        _inst: Self::Instruction,
+        _inst: &Self::Instruction,
         _msg: Self::Message,
     ) -> eyre::Result<Effects<Self::Effect>> {
         Ok(Effects::none())
@@ -219,7 +219,7 @@ impl GeneratedComponent for TextLoadedDevice {
 
     fn execute_generated(
         &mut self,
-        _inst: Self::Instruction,
+        _inst: &Self::Instruction,
         _msg: Self::Message,
     ) -> eyre::Result<Effects<Self::Effect>> {
         Ok(Effects::none())
@@ -286,7 +286,7 @@ impl GeneratedComponent for NestedMachine {
 
     fn execute_generated(
         &mut self,
-        _inst: Self::Instruction,
+        _inst: &Self::Instruction,
         _msg: Self::Message,
     ) -> eyre::Result<Effects<Self::Effect>> {
         Ok(Effects::none())
@@ -351,7 +351,7 @@ impl GeneratedComponent for TextNestedMachine {
 
     fn execute_generated(
         &mut self,
-        _inst: Self::Instruction,
+        _inst: &Self::Instruction,
         _msg: Self::Message,
     ) -> eyre::Result<Effects<Self::Effect>> {
         Ok(Effects::none())
