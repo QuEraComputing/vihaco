@@ -25,7 +25,7 @@ pub struct Line(pub String);
 
 #[dispatch(instruction = counter::runtime::Instruction, message = Prefix, effect = Line)]
 impl counter::Counter {
-    fn execute(&mut self, inst: CounterInst, msg: Prefix) -> Result<Effects<Line>> {
+    fn execute(&mut self, inst: &CounterInst, msg: Prefix) -> Result<Effects<Line>> {
         match inst {
             CounterInst::Add(v) => {
                 self.value += v;
@@ -40,11 +40,11 @@ fn main() -> Result<()> {
     let mut counter = counter::Counter::default();
 
     // `Add` ignores its message and returns no effects.
-    counter.execute_generated(CounterInst::Add(2), Prefix(String::new()))?;
-    counter.execute_generated(CounterInst::Add(3), Prefix(String::new()))?;
+    counter.execute_generated(&CounterInst::Add(2), Prefix(String::new()))?;
+    counter.execute_generated(&CounterInst::Add(3), Prefix(String::new()))?;
 
     // `Print` returns exactly one `Line` effect.
-    let effects = counter.execute_generated(CounterInst::Print, Prefix("total = ".into()))?;
+    let effects = counter.execute_generated(&CounterInst::Print, Prefix("total = ".into()))?;
     let line = expect_exactly_one_effect(effects)?;
     assert_eq!(line, Line("total = 5".into()));
     Ok(())

@@ -12,7 +12,7 @@ pub trait GeneratedComponent {
 
     fn execute_generated(
         &mut self,
-        inst: Self::Instruction,
+        inst: &Self::Instruction,
         msg: Self::Message,
     ) -> Result<Effects<Self::Effect>>;
 }

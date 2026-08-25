@@ -13,7 +13,7 @@ struct DemoDevice;
 
 #[dispatch(instruction = DemoInst, message = DemoMsg)]
 impl DemoDevice {
-    fn execute(&mut self, _inst: DemoInst, _msg: DemoMsg) -> Result<Effects<()>> {
+    fn execute(&mut self, _inst: &DemoInst, _msg: DemoMsg) -> Result<Effects<()>> {
         Ok(Effects::none())
     }
 }

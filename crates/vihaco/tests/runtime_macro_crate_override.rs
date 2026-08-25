@@ -38,7 +38,7 @@ impl Component for TestComponent {}
 impl TestComponent {
     fn execute(
         &mut self,
-        _instruction: TestInstruction,
+        _instruction: &TestInstruction,
         _message: TestMessage,
     ) -> Result<Effects<TestEffect>> {
         Ok(Effects::one(TestEffect))
@@ -63,7 +63,7 @@ impl TestObserver {
 fn runtime_macros_honor_explicit_crate_override() {
     let mut component = TestComponent;
     let effects = component
-        .execute_generated(TestInstruction::Run, TestMessage)
+        .execute_generated(&TestInstruction::Run, TestMessage)
         .unwrap();
     assert_eq!(effects.into_iter().count(), 1);
 

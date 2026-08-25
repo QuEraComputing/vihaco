@@ -107,6 +107,11 @@ pub enum MachineInst {
 }
 ```
 
+The CPU instruction set uses explicit variants for each value family. For
+example, the CPU payload can be `cpu::RuntimeInstruction::AddI64` or
+`cpu::RuntimeInstruction::ConstF32(word)`, rather than a generic operation
+carrying a separate `Type` operand.
+
 Each outer variant identifies which nested instruction family is being used.
 The nested instruction then becomes the payload of that outer variant.
 
@@ -136,15 +141,12 @@ That means:
 - the outer enum width is `1` opcode byte plus the largest nested payload used by any variant
 - smaller nested payloads are padded inside the outer record
 
-For example, imagine:
-
-- `cpu::RuntimeInstruction` is `16` bytes wide
-- `SignalInst` is `8` bytes wide
-
-Then the outer machine instruction width becomes `17` bytes:
+For example, if the largest CPU runtime instruction payload is `W` bytes and
+`SignalInst` is `8` bytes wide, then the outer machine instruction width is
+`1 + max(W, 8)` bytes:
 
 - `1` byte for the outer machine opcode
-- `16` bytes for the largest nested payload
+- the width of the largest nested payload
 
 So a smaller instruction such as `MachineInst::Signal(...)` still occupies the full outer width once encoded.
 

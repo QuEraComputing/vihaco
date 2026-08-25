@@ -18,12 +18,16 @@ pub enum Value {
     Bool(bool),
     /// a signed 64-bit integer
     I64(i64),
+    /// a signed 32-bit integer
+    I32(i32),
     /// an unsigned 32-bit integer
     U32(u32),
     /// an unsigned 64-bit integer
     U64(u64),
     /// a 64-bit floating point number
     F64(f64),
+    /// a 32-bit floating point number
+    F32(f32),
     /// a reference to a function by its index in the function table
     FunctionRef(u32),
     /// a reference to an immutable heap object by its index in the heap table
@@ -54,9 +58,11 @@ pub enum Type {
     String,
     Bool,
     I64,
+    I32,
     U32,
     U64,
     F64,
+    F32,
     FunctionRef,
     HeapRef,
 }
@@ -78,9 +84,11 @@ impl Value {
             Value::String(_) => Type::String,
             Value::Bool(_) => Type::Bool,
             Value::I64(_) => Type::I64,
+            Value::I32(_) => Type::I32,
             Value::U32(_) => Type::U32,
             Value::U64(_) => Type::U64,
             Value::F64(_) => Type::F64,
+            Value::F32(_) => Type::F32,
             Value::FunctionRef(_) => Type::FunctionRef,
             Value::HeapRef(_) => Type::HeapRef,
         }
@@ -90,11 +98,16 @@ impl Value {
         match (self, to.as_ref()) {
             (Value::I64(v), Type::U64) => Ok(Value::U64(*v as u64)),
             (Value::I64(v), Type::F64) => Ok(Value::F64(*v as f64)),
+            (Value::I32(v), Type::I64) => Ok(Value::I64(*v as i64)),
+            (Value::I32(v), Type::U64) => Ok(Value::U64(*v as u64)),
+            (Value::I32(v), Type::F32) => Ok(Value::F32(*v as f32)),
+            (Value::I32(v), Type::F64) => Ok(Value::F64(*v as f64)),
             (Value::U32(v), Type::I64) => Ok(Value::I64(*v as i64)),
             (Value::U32(v), Type::U64) => Ok(Value::U64(*v as u64)),
             (Value::U32(v), Type::F64) => Ok(Value::F64(*v as f64)),
             (Value::U64(v), Type::I64) => Ok(Value::I64(*v as i64)),
             (Value::U64(v), Type::F64) => Ok(Value::F64(*v as f64)),
+            (Value::F32(v), Type::F64) => Ok(Value::F64(*v as f64)),
             (Value::F64(v), Type::I64) => Ok(Value::I64(*v as i64)),
             (Value::F64(v), Type::U64) => Ok(Value::U64(*v as u64)),
             _ if self.type_of() == *to.as_ref() => Ok(*self),
@@ -114,9 +127,11 @@ impl std::fmt::Display for Value {
             Value::String(s) => write!(f, "0x{:X}", s),
             Value::Bool(b) => b.fmt(f),
             Value::I64(i) => i.fmt(f),
+            Value::I32(i) => i.fmt(f),
             Value::U32(u) => u.fmt(f),
             Value::U64(u) => u.fmt(f),
             Value::F64(fl) => fl.fmt(f),
+            Value::F32(fl) => fl.fmt(f),
             Value::FunctionRef(id) => write!(f, "<fn {}>", id),
             Value::HeapRef(id) => write!(f, "<heap {}>", id),
         }
@@ -130,9 +145,11 @@ impl std::fmt::Display for Type {
             Type::String => write!(f, "str"),
             Type::Bool => write!(f, "bool"),
             Type::I64 => write!(f, "i64"),
+            Type::I32 => write!(f, "i32"),
             Type::U32 => write!(f, "u32"),
             Type::U64 => write!(f, "u64"),
             Type::F64 => write!(f, "f64"),
+            Type::F32 => write!(f, "f32"),
             Type::FunctionRef => write!(f, "fn"),
             Type::HeapRef => write!(f, "heap"),
         }
@@ -151,9 +168,11 @@ macro_rules! impl_from_for_value {
 
 impl_from_for_value!(bool => Bool);
 impl_from_for_value!(i64 => I64);
+impl_from_for_value!(i32 => I32);
 impl_from_for_value!(u32 => U32);
 impl_from_for_value!(u64 => U64);
 impl_from_for_value!(f64 => F64);
+impl_from_for_value!(f32 => F32);
 
 macro_rules! impl_try_from_for_rust {
     ($variant:ident => $t:ty) => {
@@ -172,9 +191,11 @@ macro_rules! impl_try_from_for_rust {
 
 impl_try_from_for_rust!(Bool => bool);
 impl_try_from_for_rust!(I64 => i64);
+impl_try_from_for_rust!(I32 => i32);
 impl_try_from_for_rust!(U32 => u32);
 impl_try_from_for_rust!(U64 => u64);
 impl_try_from_for_rust!(F64 => f64);
+impl_try_from_for_rust!(F32 => f32);
 
 impl crate::traits::FromBytes for Type {
     fn from_bytes<R: std::io::Read>(bytes: &mut R) -> eyre::Result<Self>
@@ -192,6 +213,8 @@ impl crate::traits::FromBytes for Type {
             0x06 => Ok(Type::F64),
             0x07 => Ok(Type::FunctionRef),
             0x08 => Ok(Type::HeapRef),
+            0x09 => Ok(Type::I32),
+            0x0A => Ok(Type::F32),
             _ => Err(eyre::eyre!("Unknown type byte: {}", type_byte)),
         }
     }
@@ -222,6 +245,8 @@ impl crate::traits::WriteBytes for Type {
             Type::F64 => 0x06,
             Type::FunctionRef => 0x07,
             Type::HeapRef => 0x08,
+            Type::I32 => 0x09,
+            Type::F32 => 0x0A,
         };
         io.write_u8(type_byte)?;
         Ok(())
@@ -267,6 +292,14 @@ impl crate::traits::FromBytes for Value {
             0x08 => {
                 let addr = bytes.read_u32::<LittleEndian>()?;
                 Ok(Value::HeapRef(addr))
+            }
+            0x09 => {
+                let i = bytes.read_i32::<LittleEndian>()?;
+                Ok(Value::I32(i))
+            }
+            0x0A => {
+                let f = bytes.read_f32::<LittleEndian>()?;
+                Ok(Value::F32(f))
             }
             _ => Err(eyre::eyre!("Unknown value type byte: {}", type_byte)),
         }
@@ -324,6 +357,14 @@ impl crate::traits::WriteBytes for Value {
                 io.write_u8(0x08)?;
                 io.write_all(&addr.to_le_bytes())?;
             }
+            Value::I32(i) => {
+                io.write_u8(0x09)?;
+                io.write_all(&i.to_le_bytes())?;
+            }
+            Value::F32(f) => {
+                io.write_u8(0x0A)?;
+                io.write_all(&f.to_le_bytes())?;
+            }
         }
         Ok(())
     }
@@ -336,9 +377,11 @@ fn type_text_parser<'src>() -> impl Parser<'src, &'src str, Type, ValueParseExtr
         just("str").to(Type::String),
         just("bool").to(Type::Bool),
         just("i64").to(Type::I64),
+        just("i32").to(Type::I32),
         just("u32").to(Type::U32),
         just("u64").to(Type::U64),
         just("f64").to(Type::F64),
+        just("f32").to(Type::F32),
         just("fn").to(Type::FunctionRef),
         just("heap").to(Type::HeapRef),
     ))
@@ -361,6 +404,10 @@ fn value_text_parser<'src>() -> impl Parser<'src, &'src str, Value, ValueParseEx
             .ignore_then(ws)
             .ignore_then(scalar_text::<i64>())
             .map(Value::I64),
+        just("i32")
+            .ignore_then(ws)
+            .ignore_then(scalar_text::<i32>())
+            .map(Value::I32),
         just("u32")
             .ignore_then(ws)
             .ignore_then(scalar_text::<u32>())
@@ -373,6 +420,10 @@ fn value_text_parser<'src>() -> impl Parser<'src, &'src str, Value, ValueParseEx
             .ignore_then(ws)
             .ignore_then(scalar_text::<f64>())
             .map(Value::F64),
+        just("f32")
+            .ignore_then(ws)
+            .ignore_then(scalar_text::<f32>())
+            .map(Value::F32),
         just("fn")
             .ignore_then(ws)
             .ignore_then(scalar_text::<u32>())

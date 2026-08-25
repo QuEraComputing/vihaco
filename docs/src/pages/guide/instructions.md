@@ -69,7 +69,7 @@ pub struct Lamp {
 
 #[dispatch(instruction = LampInst, message = ())]
 impl Lamp {
-    fn execute(&mut self, inst: LampInst, _msg: ()) -> Result<vihaco::Effects<()>> {
+    fn execute(&mut self, inst: &LampInst, _msg: ()) -> Result<vihaco::Effects<()>> {
         self.on = matches!(inst, LampInst::On);
         Ok(vihaco::Effects::none())
     }

@@ -70,7 +70,7 @@ impl vihaco::GeneratedComponent for Raw {
 
     fn execute_generated(
         &mut self,
-        _inst: Self::Instruction,
+        _inst: &Self::Instruction,
         _msg: Self::Message,
     ) -> eyre::Result<vihaco::Effects<Self::Effect>> {
         Ok(vihaco::Effects::none())

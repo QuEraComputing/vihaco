@@ -162,7 +162,7 @@ mod public_api_tests {
 
         fn execute_generated(
             &mut self,
-            _inst: Self::Instruction,
+            _inst: &Self::Instruction,
             _msg: Self::Message,
         ) -> eyre::Result<Effects<Self::Effect>> {
             Ok(Effects::one(7))
@@ -172,7 +172,7 @@ mod public_api_tests {
     #[test]
     fn generated_component_executes_without_exec_context() {
         let mut component = DemoComponent;
-        let effects = GeneratedComponent::execute_generated(&mut component, (), ()).unwrap();
+        let effects = GeneratedComponent::execute_generated(&mut component, &(), ()).unwrap();
 
         assert_eq!(effects, Effects::one(7));
         assert_eq!(crate::expect_exactly_one_effect(effects).unwrap(), 7);

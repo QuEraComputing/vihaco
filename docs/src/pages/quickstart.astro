@@ -50,11 +50,14 @@ const toc = [
       <dt><code>vihaco-cpu</code> <span class="crate-tag">component</span></dt>
       <dd>
         A ready-made CPU/host component — a small stack machine with
-        <code>cpu::RuntimeInstruction</code> (constants, arithmetic, branches,
-        <code>halt</code>, …), a pattern-derived
+        explicit <code>cpu::RuntimeInstruction</code> variants such as
+        <code>ConstI64</code>, <code>AddF64</code>, <code>LoadI32</code>, and
+        <code>Branch</code>, plus a pattern-derived
         <code>cpu::SurfaceInstruction</code>, and the
-        <code>StepOutcome</code> control-flow effect. Use it directly, or as a
-        reference for writing your own components.
+        <code>StepOutcome</code> control-flow effect. Its stack stores raw
+        <code>cpu::Word</code> values; use helpers such as
+        <code>decode_i64</code> and <code>decode_f64</code> to interpret bits.
+        Use it directly, or as a reference for writing your own components.
       </dd>
       <dt><code>vihaco-parser-derive</code> <span class="crate-tag">parser</span></dt>
       <dd>
