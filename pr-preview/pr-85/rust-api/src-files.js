@@ -1,2 +1,0 @@
-createSrcSidebar('[["vihaco",["",[["macros",[],["mod.rs"]],["traits",[],["mod.rs"]]],["instruction.rs","lib.rs","machine.rs"]]],["vihaco_cpu",["",[],["component.rs","data.rs","display.rs","instruction.rs","lib.rs","outcome.rs","word.rs"]]],["vihaco_parser",["",[],["impls.rs","lib.rs"]]],["vihaco_parser_derive",["",[],["attr.rs","codegen.rs","lib.rs"]]]]');
-//{"start":19,"fragment_lengths":[108,112,48,67]}
