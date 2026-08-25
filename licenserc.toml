@@ -1,7 +1,9 @@
-headerPath = "licenserc.header.txt"
+[header]
+path = "licenserc.header.txt"
 
 # Source globs that get the SPDX header. vihaco is a pure-Rust workspace, so
 # this is the crate sources; docs and examples are covered by `excludes`.
+[files]
 includes = [
   "crates/**/*.rs",
 ]
@@ -24,9 +26,7 @@ excludes = [
   "**/tests/compile_errors/**",
 ]
 
-useDefaultMapping = true
-
-[properties]
-inceptionYear = 2026
-copyrightOwner = "The vihaco Authors"
-licenseId = "MIT"
+[props]
+inception_year = 2026
+copyright_owner = "The vihaco Authors"
+license_id = "MIT"
