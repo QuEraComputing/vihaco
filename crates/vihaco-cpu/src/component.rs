@@ -875,7 +875,11 @@ fn canonical_bool(value: Word) -> Result<bool> {
 }
 
 macro_rules! int_wrapping {
-    ($($name:ident: $decode:ident -> $encode:ident .$op:ident);+ $(;)?) => {$ (
+    ($($name:ident {
+        decode: $decode:ident,
+        encode: $encode:ident,
+        operation: $op:ident
+    });+ $(;)?) => {$ (
         #[inline(always)]
         fn $name(&mut self) -> Result<StepOutcome> {
             let rhs = $decode(self.stack_pop()?);
@@ -887,7 +891,12 @@ macro_rules! int_wrapping {
 }
 
 macro_rules! int_checked {
-    ($($name:ident: $decode:ident -> $encode:ident .$op:ident, $message:literal);+ $(;)?) => {$ (
+    ($($name:ident {
+        decode: $decode:ident,
+        encode: $encode:ident,
+        operation: $op:ident,
+        error: $message:literal
+    });+ $(;)?) => {$ (
         #[inline(always)]
         fn $name(&mut self) -> Result<StepOutcome> {
             let rhs = $decode(self.stack_pop()?);
@@ -900,7 +909,11 @@ macro_rules! int_checked {
 }
 
 macro_rules! float_binary {
-    ($($name:ident: $decode:ident -> $encode:ident $op:tt);+ $(;)?) => {$ (
+    ($($name:ident {
+        decode: $decode:ident,
+        encode: $encode:ident,
+        operator: $op:tt
+    });+ $(;)?) => {$ (
         #[inline(always)]
         fn $name(&mut self) -> Result<StepOutcome> {
             let rhs = $decode(self.stack_pop()?);
@@ -912,7 +925,12 @@ macro_rules! float_binary {
 }
 
 macro_rules! shift {
-    ($($name:ident: $decode:ident -> $encode:ident .$op:ident, $mask:expr);+ $(;)?) => {$ (
+    ($($name:ident {
+        decode: $decode:ident,
+        encode: $encode:ident,
+        operation: $op:ident,
+        count_mask: $mask:expr
+    });+ $(;)?) => {$ (
         #[inline(always)]
         fn $name(&mut self) -> Result<StepOutcome> {
             let rhs = decode_u32(self.stack_pop()?);
@@ -924,7 +942,11 @@ macro_rules! shift {
 }
 
 macro_rules! rotate {
-    ($($name:ident: $decode:ident -> $encode:ident .$op:ident);+ $(;)?) => {$ (
+    ($($name:ident {
+        decode: $decode:ident,
+        encode: $encode:ident,
+        operation: $op:ident
+    });+ $(;)?) => {$ (
         #[inline(always)]
         fn $name(&mut self) -> Result<StepOutcome> {
             let rhs = decode_u32(self.stack_pop()?);
@@ -936,7 +958,11 @@ macro_rules! rotate {
 }
 
 macro_rules! bitwise {
-    ($($name:ident: $decode:ident -> $encode:ident $op:tt);+ $(;)?) => {$ (
+    ($($name:ident {
+        decode: $decode:ident,
+        encode: $encode:ident,
+        operator: $op:tt
+    });+ $(;)?) => {$ (
         #[inline(always)]
         fn $name(&mut self) -> Result<StepOutcome> {
             let rhs = $decode(self.stack_pop()?);
@@ -948,7 +974,10 @@ macro_rules! bitwise {
 }
 
 macro_rules! compare {
-    ($($name:ident: $decode:ident, $op:tt);+ $(;)?) => {$ (
+    ($($name:ident {
+        decode: $decode:ident,
+        operator: $op:tt
+    });+ $(;)?) => {$ (
         #[inline(always)]
         fn $name(&mut self) -> Result<StepOutcome> {
             let rhs = $decode(self.stack_pop()?);
@@ -961,40 +990,40 @@ macro_rules! compare {
 
 impl CPU {
     int_wrapping! {
-        add_i32: decode_i32 -> encode_i32 .wrapping_add;
-        add_i64: decode_i64 -> encode_i64 .wrapping_add;
-        add_u32: decode_u32 -> encode_u32 .wrapping_add;
-        add_u64: decode_u64 -> encode_u64 .wrapping_add;
-        sub_i32: decode_i32 -> encode_i32 .wrapping_sub;
-        sub_i64: decode_i64 -> encode_i64 .wrapping_sub;
-        sub_u32: decode_u32 -> encode_u32 .wrapping_sub;
-        sub_u64: decode_u64 -> encode_u64 .wrapping_sub;
-        mul_i32: decode_i32 -> encode_i32 .wrapping_mul;
-        mul_i64: decode_i64 -> encode_i64 .wrapping_mul;
-        mul_u32: decode_u32 -> encode_u32 .wrapping_mul;
-        mul_u64: decode_u64 -> encode_u64 .wrapping_mul;
+        add_i32 { decode: decode_i32, encode: encode_i32, operation: wrapping_add };
+        add_i64 { decode: decode_i64, encode: encode_i64, operation: wrapping_add };
+        add_u32 { decode: decode_u32, encode: encode_u32, operation: wrapping_add };
+        add_u64 { decode: decode_u64, encode: encode_u64, operation: wrapping_add };
+        sub_i32 { decode: decode_i32, encode: encode_i32, operation: wrapping_sub };
+        sub_i64 { decode: decode_i64, encode: encode_i64, operation: wrapping_sub };
+        sub_u32 { decode: decode_u32, encode: encode_u32, operation: wrapping_sub };
+        sub_u64 { decode: decode_u64, encode: encode_u64, operation: wrapping_sub };
+        mul_i32 { decode: decode_i32, encode: encode_i32, operation: wrapping_mul };
+        mul_i64 { decode: decode_i64, encode: encode_i64, operation: wrapping_mul };
+        mul_u32 { decode: decode_u32, encode: encode_u32, operation: wrapping_mul };
+        mul_u64 { decode: decode_u64, encode: encode_u64, operation: wrapping_mul };
     }
     int_checked! {
-        div_i32: decode_i32 -> encode_i32 .checked_div, "integer division error";
-        div_i64: decode_i64 -> encode_i64 .checked_div, "integer division error";
-        div_u32: decode_u32 -> encode_u32 .checked_div, "integer division error";
-        div_u64: decode_u64 -> encode_u64 .checked_div, "integer division error";
-        rem_i32: decode_i32 -> encode_i32 .checked_rem, "integer remainder error";
-        rem_i64: decode_i64 -> encode_i64 .checked_rem, "integer remainder error";
-        rem_u32: decode_u32 -> encode_u32 .checked_rem, "integer remainder error";
-        rem_u64: decode_u64 -> encode_u64 .checked_rem, "integer remainder error";
+        div_i32 { decode: decode_i32, encode: encode_i32, operation: checked_div, error: "integer division error" };
+        div_i64 { decode: decode_i64, encode: encode_i64, operation: checked_div, error: "integer division error" };
+        div_u32 { decode: decode_u32, encode: encode_u32, operation: checked_div, error: "integer division error" };
+        div_u64 { decode: decode_u64, encode: encode_u64, operation: checked_div, error: "integer division error" };
+        rem_i32 { decode: decode_i32, encode: encode_i32, operation: checked_rem, error: "integer remainder error" };
+        rem_i64 { decode: decode_i64, encode: encode_i64, operation: checked_rem, error: "integer remainder error" };
+        rem_u32 { decode: decode_u32, encode: encode_u32, operation: checked_rem, error: "integer remainder error" };
+        rem_u64 { decode: decode_u64, encode: encode_u64, operation: checked_rem, error: "integer remainder error" };
     }
     float_binary! {
-        add_f32: decode_f32 -> encode_f32 +;
-        add_f64: decode_f64 -> encode_f64 +;
-        sub_f32: decode_f32 -> encode_f32 -;
-        sub_f64: decode_f64 -> encode_f64 -;
-        mul_f32: decode_f32 -> encode_f32 *;
-        mul_f64: decode_f64 -> encode_f64 *;
-        div_f32: decode_f32 -> encode_f32 /;
-        div_f64: decode_f64 -> encode_f64 /;
-        rem_f32: decode_f32 -> encode_f32 %;
-        rem_f64: decode_f64 -> encode_f64 %;
+        add_f32 { decode: decode_f32, encode: encode_f32, operator: + };
+        add_f64 { decode: decode_f64, encode: encode_f64, operator: + };
+        sub_f32 { decode: decode_f32, encode: encode_f32, operator: - };
+        sub_f64 { decode: decode_f64, encode: encode_f64, operator: - };
+        mul_f32 { decode: decode_f32, encode: encode_f32, operator: * };
+        mul_f64 { decode: decode_f64, encode: encode_f64, operator: * };
+        div_f32 { decode: decode_f32, encode: encode_f32, operator: / };
+        div_f64 { decode: decode_f64, encode: encode_f64, operator: / };
+        rem_f32 { decode: decode_f32, encode: encode_f32, operator: % };
+        rem_f64 { decode: decode_f64, encode: encode_f64, operator: % };
     }
 
     #[inline(always)]
@@ -1023,40 +1052,76 @@ impl CPU {
     }
 
     shift! {
-        shl_i32: decode_i32 -> encode_i32 .wrapping_shl, 31;
-        shl_i64: decode_i64 -> encode_i64 .wrapping_shl, 63;
-        shl_u32: decode_u32 -> encode_u32 .wrapping_shl, 31;
-        shl_u64: decode_u64 -> encode_u64 .wrapping_shl, 63;
-        shr_i32: decode_i32 -> encode_i32 .wrapping_shr, 31;
-        shr_i64: decode_i64 -> encode_i64 .wrapping_shr, 63;
-        shr_u32: decode_u32 -> encode_u32 .wrapping_shr, 31;
-        shr_u64: decode_u64 -> encode_u64 .wrapping_shr, 63;
+        shl_i32 { decode: decode_i32, encode: encode_i32, operation: wrapping_shl, count_mask: 31 };
+        shl_i64 { decode: decode_i64, encode: encode_i64, operation: wrapping_shl, count_mask: 63 };
+        shl_u32 { decode: decode_u32, encode: encode_u32, operation: wrapping_shl, count_mask: 31 };
+        shl_u64 { decode: decode_u64, encode: encode_u64, operation: wrapping_shl, count_mask: 63 };
+        shr_i32 { decode: decode_i32, encode: encode_i32, operation: wrapping_shr, count_mask: 31 };
+        shr_i64 { decode: decode_i64, encode: encode_i64, operation: wrapping_shr, count_mask: 63 };
+        shr_u32 { decode: decode_u32, encode: encode_u32, operation: wrapping_shr, count_mask: 31 };
+        shr_u64 { decode: decode_u64, encode: encode_u64, operation: wrapping_shr, count_mask: 63 };
     }
     rotate! {
-        rol_i32: decode_i32 -> encode_i32 .rotate_left;
-        rol_i64: decode_i64 -> encode_i64 .rotate_left;
-        rol_u32: decode_u32 -> encode_u32 .rotate_left;
-        rol_u64: decode_u64 -> encode_u64 .rotate_left;
-        ror_i32: decode_i32 -> encode_i32 .rotate_right;
-        ror_i64: decode_i64 -> encode_i64 .rotate_right;
-        ror_u32: decode_u32 -> encode_u32 .rotate_right;
-        ror_u64: decode_u64 -> encode_u64 .rotate_right;
+        rol_i32 { decode: decode_i32, encode: encode_i32, operation: rotate_left };
+        rol_i64 { decode: decode_i64, encode: encode_i64, operation: rotate_left };
+        rol_u32 { decode: decode_u32, encode: encode_u32, operation: rotate_left };
+        rol_u64 { decode: decode_u64, encode: encode_u64, operation: rotate_left };
+        ror_i32 { decode: decode_i32, encode: encode_i32, operation: rotate_right };
+        ror_i64 { decode: decode_i64, encode: encode_i64, operation: rotate_right };
+        ror_u32 { decode: decode_u32, encode: encode_u32, operation: rotate_right };
+        ror_u64 { decode: decode_u64, encode: encode_u64, operation: rotate_right };
     }
     bitwise! {
-        bitand_i32: decode_i32 -> encode_i32 &; bitand_i64: decode_i64 -> encode_i64 &;
-        bitand_u32: decode_u32 -> encode_u32 &; bitand_u64: decode_u64 -> encode_u64 &;
-        bitor_i32: decode_i32 -> encode_i32 |; bitor_i64: decode_i64 -> encode_i64 |;
-        bitor_u32: decode_u32 -> encode_u32 |; bitor_u64: decode_u64 -> encode_u64 |;
-        bitxor_i32: decode_i32 -> encode_i32 ^; bitxor_i64: decode_i64 -> encode_i64 ^;
-        bitxor_u32: decode_u32 -> encode_u32 ^; bitxor_u64: decode_u64 -> encode_u64 ^;
+        bitand_i32 { decode: decode_i32, encode: encode_i32, operator: & };
+        bitand_i64 { decode: decode_i64, encode: encode_i64, operator: & };
+        bitand_u32 { decode: decode_u32, encode: encode_u32, operator: & };
+        bitand_u64 { decode: decode_u64, encode: encode_u64, operator: & };
+        bitor_i32 { decode: decode_i32, encode: encode_i32, operator: | };
+        bitor_i64 { decode: decode_i64, encode: encode_i64, operator: | };
+        bitor_u32 { decode: decode_u32, encode: encode_u32, operator: | };
+        bitor_u64 { decode: decode_u64, encode: encode_u64, operator: | };
+        bitxor_i32 { decode: decode_i32, encode: encode_i32, operator: ^ };
+        bitxor_i64 { decode: decode_i64, encode: encode_i64, operator: ^ };
+        bitxor_u32 { decode: decode_u32, encode: encode_u32, operator: ^ };
+        bitxor_u64 { decode: decode_u64, encode: encode_u64, operator: ^ };
     }
     compare! {
-        eq_i32: decode_i32, ==; eq_i64: decode_i64, ==; eq_u32: decode_u32, ==; eq_u64: decode_u64, ==; eq_f32: decode_f32, ==; eq_f64: decode_f64, ==;
-        ne_i32: decode_i32, !=; ne_i64: decode_i64, !=; ne_u32: decode_u32, !=; ne_u64: decode_u64, !=; ne_f32: decode_f32, !=; ne_f64: decode_f64, !=;
-        lt_i32: decode_i32, <; lt_i64: decode_i64, <; lt_u32: decode_u32, <; lt_u64: decode_u64, <; lt_f32: decode_f32, <; lt_f64: decode_f64, <;
-        gt_i32: decode_i32, >; gt_i64: decode_i64, >; gt_u32: decode_u32, >; gt_u64: decode_u64, >; gt_f32: decode_f32, >; gt_f64: decode_f64, >;
-        le_i32: decode_i32, <=; le_i64: decode_i64, <=; le_u32: decode_u32, <=; le_u64: decode_u64, <=; le_f32: decode_f32, <=; le_f64: decode_f64, <=;
-        ge_i32: decode_i32, >=; ge_i64: decode_i64, >=; ge_u32: decode_u32, >=; ge_u64: decode_u64, >=; ge_f32: decode_f32, >=; ge_f64: decode_f64, >=;
+        eq_i32 { decode: decode_i32, operator: == };
+        eq_i64 { decode: decode_i64, operator: == };
+        eq_u32 { decode: decode_u32, operator: == };
+        eq_u64 { decode: decode_u64, operator: == };
+        eq_f32 { decode: decode_f32, operator: == };
+        eq_f64 { decode: decode_f64, operator: == };
+        ne_i32 { decode: decode_i32, operator: != };
+        ne_i64 { decode: decode_i64, operator: != };
+        ne_u32 { decode: decode_u32, operator: != };
+        ne_u64 { decode: decode_u64, operator: != };
+        ne_f32 { decode: decode_f32, operator: != };
+        ne_f64 { decode: decode_f64, operator: != };
+        lt_i32 { decode: decode_i32, operator: < };
+        lt_i64 { decode: decode_i64, operator: < };
+        lt_u32 { decode: decode_u32, operator: < };
+        lt_u64 { decode: decode_u64, operator: < };
+        lt_f32 { decode: decode_f32, operator: < };
+        lt_f64 { decode: decode_f64, operator: < };
+        gt_i32 { decode: decode_i32, operator: > };
+        gt_i64 { decode: decode_i64, operator: > };
+        gt_u32 { decode: decode_u32, operator: > };
+        gt_u64 { decode: decode_u64, operator: > };
+        gt_f32 { decode: decode_f32, operator: > };
+        gt_f64 { decode: decode_f64, operator: > };
+        le_i32 { decode: decode_i32, operator: <= };
+        le_i64 { decode: decode_i64, operator: <= };
+        le_u32 { decode: decode_u32, operator: <= };
+        le_u64 { decode: decode_u64, operator: <= };
+        le_f32 { decode: decode_f32, operator: <= };
+        le_f64 { decode: decode_f64, operator: <= };
+        ge_i32 { decode: decode_i32, operator: >= };
+        ge_i64 { decode: decode_i64, operator: >= };
+        ge_u32 { decode: decode_u32, operator: >= };
+        ge_u64 { decode: decode_u64, operator: >= };
+        ge_f32 { decode: decode_f32, operator: >= };
+        ge_f64 { decode: decode_f64, operator: >= };
     }
 
     fn op_not(&mut self) -> Result<StepOutcome> {
