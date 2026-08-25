@@ -18,6 +18,13 @@ below the `## [Unreleased]` heading, so do not remove or reword that line.
 
 ## [Unreleased]
 
+## [0.4.1](https://github.com/QuEraComputing/vihaco/compare/v0.4.0...v0.4.1) - 2026-08-25
+
+### Other
+
+- Changed CPU to use `u64` as its value ([#85](https://github.com/QuEraComputing/vihaco/pull/85))
+- Change `stack.pop()` error check in `op_conditional_branch` to be lazy ([#83](https://github.com/QuEraComputing/vihaco/pull/83))
+
 ## [0.4.0](https://github.com/QuEraComputing/vihaco/compare/v0.3.1...v0.4.0) - 2026-08-20
 
 ### Other
