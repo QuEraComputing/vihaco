@@ -18,6 +18,12 @@ below the `## [Unreleased]` heading, so do not remove or reword that line.
 
 ## [Unreleased]
 
+## [0.4.1](https://github.com/QuEraComputing/vihaco/compare/v0.4.0...v0.4.1) - 2026-08-27
+
+### Other
+
+- Fix numerical binary operand order (pop rhs first, then lhs)
+
 ## [0.4.0](https://github.com/QuEraComputing/vihaco/compare/v0.3.1...v0.4.0) - 2026-08-20
 
 ### Other

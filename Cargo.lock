@@ -615,7 +615,7 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "vihaco"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "byteorder",
  "chumsky",
@@ -638,7 +638,7 @@ dependencies = [
 
 [[package]]
 name = "vihaco-abi"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "byteorder",
  "chumsky",
@@ -649,7 +649,7 @@ dependencies = [
 
 [[package]]
 name = "vihaco-abi-derive"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -659,7 +659,7 @@ dependencies = [
 
 [[package]]
 name = "vihaco-bytecode"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "byteorder",
  "chumsky",
@@ -669,7 +669,7 @@ dependencies = [
 
 [[package]]
 name = "vihaco-cpu"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "chumsky",
  "codespan",
@@ -682,7 +682,7 @@ dependencies = [
 
 [[package]]
 name = "vihaco-doctests"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "chumsky",
  "eyre",
@@ -694,7 +694,7 @@ dependencies = [
 
 [[package]]
 name = "vihaco-module"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "colored",
  "eyre",
@@ -704,7 +704,7 @@ dependencies = [
 
 [[package]]
 name = "vihaco-parser"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "byteorder",
  "chumsky",
@@ -713,7 +713,7 @@ dependencies = [
 
 [[package]]
 name = "vihaco-parser-derive"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "chumsky",
  "eyre",
@@ -726,7 +726,7 @@ dependencies = [
 
 [[package]]
 name = "vihaco-runtime"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "chumsky",
  "eyre",
@@ -739,7 +739,7 @@ dependencies = [
 
 [[package]]
 name = "vihaco-runtime-derive"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "convert_case",
  "proc-macro-crate",
@@ -750,7 +750,7 @@ dependencies = [
 
 [[package]]
 name = "vihaco-stdlib"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "eyre",
  "vihaco-runtime",
@@ -758,7 +758,7 @@ dependencies = [
 
 [[package]]
 name = "vihaco-syntax"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "chumsky",
  "eyre",
