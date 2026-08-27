@@ -33,6 +33,7 @@ on:
   push:
     branches:
       - main
+      - 'release/**'
 
 # No ambient permissions; each job opts into exactly what it needs.
 permissions: {}
