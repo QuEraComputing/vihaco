@@ -442,6 +442,23 @@ mod tests {
     }
 
     #[test]
+    fn numeric_binary_operations_use_lhs_then_rhs_stack_order() {
+        for (instruction, expected) in [
+            (RuntimeInstruction::Sub(Type::I64), Value::I64(7)),
+            (RuntimeInstruction::Div(Type::I64), Value::I64(3)),
+            (RuntimeInstruction::Rem(Type::I64), Value::I64(1)),
+        ] {
+            let mut cpu = CPU::default();
+            cpu.stack_push(Value::I64(10));
+            cpu.stack_push(Value::I64(3));
+
+            cpu.execute_instruction(instruction).unwrap();
+
+            assert_eq!(cpu.stack(), &[expected]);
+        }
+    }
+
+    #[test]
     fn op_heap_alloc_preserves_natural_push_order_and_returns_heap_ref() {
         let mut cpu = CPU::default();
         cpu.stack_push(Value::I64(10));
@@ -720,8 +737,8 @@ mod tests {
 macro_rules! impl_op_num_binary {
     ($name:ident, $op:ident) => {
         pub fn $name(&mut self, ty: Type) -> Result<StepOutcome> {
-            let lhs: Value = self.stack_pop()?;
             let rhs: Value = self.stack_pop()?;
+            let lhs: Value = self.stack_pop()?;
             if lhs.type_of() != ty {
                 return Err(eyre::eyre!(
                     "Type mismatch, expected {} got {} for lhs",
