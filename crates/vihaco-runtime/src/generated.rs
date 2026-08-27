@@ -31,16 +31,17 @@ pub trait Component: HasInstructionSet {}
 pub trait Composite: HasInstructionSet {}
 
 pub fn expect_exactly_one_effect<E>(effects: Effects<E>) -> Result<E> {
-    let mut iter = effects.into_iter();
-    let first = iter.next();
-    let second = iter.next();
-    let effect_count = usize::from(first.is_some()) + usize::from(second.is_some()) + iter.count();
-    match (first, second) {
-        (Some(effect), None) => Ok(effect),
-        _ => Err(eyre::eyre!(
-            "expected exactly one effect, got {}",
-            effect_count
-        )),
+    match effects {
+        Effects::None => Err(eyre::eyre!("expected exactly one effect, got 0")),
+        Effects::One(effect) => Ok(effect),
+        Effects::Many(mut effects) => match effects.len() {
+            0 => Err(eyre::eyre!("expected exactly one effect, got 0")),
+            1 => Ok(effects.pop().expect("one effect is present")),
+            effect_count => Err(eyre::eyre!(
+                "expected exactly one effect, got {}",
+                effect_count
+            )),
+        },
     }
 }
 
@@ -125,5 +126,20 @@ mod tests {
         let err = expect_exactly_one_effect(Effects::from(vec![1, 2])).unwrap_err();
 
         assert_eq!(err.to_string(), "expected exactly one effect, got 2");
+    }
+
+    #[test]
+    fn expect_exactly_one_effect_accepts_one_item_in_many() {
+        let effects = Effects::Many([7].into_iter().collect());
+
+        assert_eq!(expect_exactly_one_effect(effects).unwrap(), 7);
+    }
+
+    #[test]
+    fn expect_exactly_one_effect_rejects_empty_many() {
+        let effects = Effects::Many([].into_iter().collect());
+        let err = expect_exactly_one_effect::<u8>(effects).unwrap_err();
+
+        assert_eq!(err.to_string(), "expected exactly one effect, got 0");
     }
 }
