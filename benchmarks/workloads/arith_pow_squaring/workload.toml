@@ -1,0 +1,37 @@
+id = "arith_pow_squaring"
+algorithm = "Compute seed^iterations modulo 65521 by exponentiation by squaring. Multiply the accumulator on odd exponents, square the base, and shift the exponent right each step."
+numeric_constraints = "Unsigned integers; iterations <= 1000000, seed < 65536. Reduce base and products modulo 65521 so multiplication fits u64. Define exponent zero, including 0^0, as 1."
+
+[limits]
+max_iterations = 1000000
+max_seed = 65535
+
+[[cases]]
+id = "zero"
+iterations = 0
+seed = 0
+expected = 1
+
+[[cases]]
+id = "zero_base"
+iterations = 16
+seed = 0
+expected = 0
+
+[[cases]]
+id = "short"
+iterations = 10
+seed = 3
+expected = 59049
+
+[[cases]]
+id = "long"
+iterations = 65535
+seed = 3
+expected = 65329
+
+[[cases]]
+id = "reduce_base"
+iterations = 17
+seed = 65535
+expected = 28617

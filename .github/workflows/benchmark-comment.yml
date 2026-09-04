@@ -1,0 +1,23 @@
+name: Benchmark report comment
+
+on:
+  workflow_run:
+    workflows: [Benchmark smoke, Benchmark command]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    steps:
+      # Trusted default-branch code only. Downloaded results are never executed.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: await require('./benchmarks/ci/index.cjs').comment({github, context, core});

@@ -1,0 +1,25 @@
+[workspace]
+
+[package]
+name = "vihaco-benchmark"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+[dependencies]
+vihaco = { path = "../crates/vihaco" }
+vihaco-cpu = { path = "../crates/vihaco-cpu" }
+eyre = "0.6.12"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "workloads"
+harness = false
+
+[build-dependencies]
+toml = "0.8"

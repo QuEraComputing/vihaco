@@ -1,0 +1,7 @@
+{
+  "include": ["benchmarks/runner", "benchmarks/tests/python"],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "standard",
+  "venvPath": "benchmarks",
+  "venv": ".venv"
+}

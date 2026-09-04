@@ -1,0 +1,31 @@
+id = "recursive_fibonacci"
+algorithm = "Compute F(iterations) using two recursive calls per non-base invocation, with F(0)=0 and F(1)=1; return F(iterations) + seed."
+numeric_constraints = "Unsigned integers; iterations <= 20, seed < 65536. All sums fit u64. The iterations input is the Fibonacci index, not a repetition count."
+
+[limits]
+max_iterations = 20
+max_seed = 65535
+
+[[cases]]
+id = "zero"
+iterations = 0
+seed = 7
+expected = 7
+
+[[cases]]
+id = "one"
+iterations = 1
+seed = 0
+expected = 1
+
+[[cases]]
+id = "short"
+iterations = 6
+seed = 7
+expected = 15
+
+[[cases]]
+id = "long"
+iterations = 20
+seed = 7
+expected = 6772

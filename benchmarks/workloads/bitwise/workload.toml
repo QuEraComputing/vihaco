@@ -1,0 +1,31 @@
+id = "bitwise"
+algorithm = "Start value=seed and other=305419896. Each iteration sets value=ROR64(value XOR other,13), then value=((value << 7) AND other) XOR seed, and other=ROL64(other,3). Return the low 16 bits of value."
+numeric_constraints = "Unsigned 64-bit bit operations; iterations <= 1000000, seed < 65536. Rotations wrap bits within 64 bits and left shifts discard bits above bit 63. Python explicitly masks to match Rust and SST."
+
+[limits]
+max_iterations = 1000000
+max_seed = 65535
+
+[[cases]]
+id = "empty"
+iterations = 0
+seed = 7
+expected = 7
+
+[[cases]]
+id = "one"
+iterations = 1
+seed = 65535
+expected = 44543
+
+[[cases]]
+id = "short"
+iterations = 16
+seed = 7
+expected = 7
+
+[[cases]]
+id = "long"
+iterations = 1024
+seed = 7
+expected = 2567

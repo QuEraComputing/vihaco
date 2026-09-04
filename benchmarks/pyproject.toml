@@ -1,0 +1,21 @@
+[project]
+name = "vihaco-benchmarks"
+version = "0.0.0"
+requires-python = ">=3.11"
+dependencies = ["pyperf==2.10.0"]
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.411",
+    "ruff>=0.16.6",
+]
+
+[tool.ruff]
+target-version = "py311"
+extend-exclude = ["workloads"]
+
+[tool.ruff.lint]
+extend-select = ["I", "UP"]

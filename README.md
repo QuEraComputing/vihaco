@@ -81,6 +81,10 @@ needs; there is no umbrella crate.
 | [`vihaco-parser`](crates/vihaco-parser) | The `Parse<'src>` and `SurfaceInstruction` traits plus lexical, primitive, and collection implementations shared by the parser derive. |
 | [`vihaco-parser-derive`](crates/vihaco-parser-derive) | `#[derive(Parse)]` — turns instruction, value, and type enums or structs into [chumsky](https://github.com/zesterer/chumsky) parsers via `#[syntax_class]` and `#[pattern]`. |
 
+Repository performance measurements live in [`benchmarks/`](benchmarks/README.md).
+The unpublished suite compares equivalent Rust, Python, and SST workloads, with
+automatic PR smoke runs and explicitly requested full comparisons.
+
 ## Quick start
 
 vihaco targets the **Rust 2024 edition** (rustc ≥ 1.85).

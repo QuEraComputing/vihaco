@@ -36,3 +36,5 @@ CLAUDE.md
 # docs
 node_modules
 .pnpm-store
+__pycache__/
+/benchmarks/.venv/
