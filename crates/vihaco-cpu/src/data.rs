@@ -415,6 +415,7 @@ impl StackMemory for CPU {
     }
 
     fn stack_pop(&mut self) -> eyre::Result<Self::Value> {
+        self.require_operands(1)?;
         self.stack
             .pop()
             .ok_or_else(|| eyre::eyre!("stack underflow"))
@@ -422,6 +423,16 @@ impl StackMemory for CPU {
 
     fn stack_push<T: Into<Self::Value>>(&mut self, v: T) {
         self.stack.push(v.into());
+    }
+
+    fn stack_top(&self) -> eyre::Result<&Self::Value> {
+        self.require_operands(1)?;
+        self.stack_get(self.stack.len() - 1)
+    }
+
+    fn stack_top_mut(&mut self) -> eyre::Result<&mut Self::Value> {
+        self.require_operands(1)?;
+        self.stack_get_mut(self.stack.len() - 1)
     }
 }
 
@@ -455,28 +466,43 @@ impl FrameMemory for CPU {
     }
 
     fn get_local(&self, index: usize) -> eyre::Result<&Self::Value> {
-        let base = self.frame_base()?;
+        let address = self.local_address(index)?;
         self.stack
-            .get(base + index)
+            .get(address)
             .ok_or_else(|| eyre::eyre!("local index out of bounds"))
     }
 
-    // TODO, this is wrong to extend the vector, because the stack is push from back, so it should be reversed
     fn get_local_mut(&mut self, index: usize) -> eyre::Result<&mut Self::Value> {
-        let base = self.frame_base()?;
-        let idx = base + index;
-        let len = self.stack.len();
-
-        if len <= idx {
-            self.stack.resize(idx + 1, 0);
-        }
+        let address = self.local_address(index)?;
         self.stack
-            .get_mut(idx)
-            .ok_or_else(|| eyre::eyre!("Invalid local address at {:?}, stack size: {:?}", idx, len))
+            .get_mut(address)
+            .ok_or_else(|| eyre::eyre!("local index out of bounds"))
     }
 }
 
 impl CPU {
+    /// Number of operands above the current frame's reserved locals.
+    /// Before entry, all stack values are available as operands/arguments.
+    pub fn operand_count(&self) -> usize {
+        let start = self.frames.last().map_or(0, Frame::operands_index);
+        self.stack.len().saturating_sub(start)
+    }
+
+    #[inline(always)]
+    pub(crate) fn require_operands(&self, count: usize) -> eyre::Result<()> {
+        eyre::ensure!(self.operand_count() >= count, "stack underflow");
+        Ok(())
+    }
+
+    fn local_address(&self, index: usize) -> eyre::Result<usize> {
+        let frame = self.get_frame()?;
+        eyre::ensure!(index < frame.local_count, "local index out of bounds");
+        frame
+            .base
+            .checked_add(index)
+            .ok_or_else(|| eyre::eyre!("local address overflow"))
+    }
+
     pub fn push_heap_object(&mut self, values: Box<[Word]>) -> u32 {
         self.heap.alloc(values)
     }

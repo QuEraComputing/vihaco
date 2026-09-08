@@ -44,15 +44,25 @@ impl CPU {
                     "CPUMessage::Print is only valid for Print instruction"
                 ));
             }
+            (Call(arity, target), CPUMessage::FunctionInfo { local_count, .. }) => {
+                return self.op_call(*arity, *target, local_count).map(Effects::one);
+            }
             (
-                _,
+                IndirectCall,
                 CPUMessage::FunctionInfo {
                     arity,
                     start_address,
+                    local_count,
                 },
             ) => {
-                self.stack_push(arity);
-                self.stack_push(start_address);
+                return self
+                    .op_indirect_call(arity, start_address, local_count)
+                    .map(Effects::one);
+            }
+            (_, CPUMessage::FunctionInfo { .. }) => {
+                return Err(eyre::eyre!(
+                    "CPUMessage::FunctionInfo is only valid for call instructions"
+                ));
             }
             (_, CPUMessage::None) => {}
         }
@@ -66,8 +76,7 @@ impl CPU {
                 self.op_conditional_branch(*true_target, *false_target)
             }
             Return(keep) => self.op_return(*keep),
-            Call(arity, target) => self.op_call(*arity, *target),
-            IndirectCall => self.op_indirect_call(),
+            Call(..) | IndirectCall => Err(eyre::eyre!("call requires CPUMessage::FunctionInfo")),
             Halt => Ok(StepOutcome::Halt),
             Print => Err(eyre::eyre!(
                 "Print must be handled via execute with CPUMessage::Print"
@@ -204,7 +213,12 @@ impl CPU {
 #[derive(Debug, Clone, PartialEq, vihaco::Message)]
 pub enum CPUMessage {
     None,
-    FunctionInfo { arity: u32, start_address: u32 },
+    /// Target metadata selected by the composite for the executing CPU device.
+    FunctionInfo {
+        arity: u32,
+        start_address: u32,
+        local_count: u32,
+    },
     Print(String),
 }
 
@@ -235,10 +249,7 @@ impl CPU {
         true_target: u32,
         false_target: u32,
     ) -> eyre::Result<StepOutcome> {
-        let cond = self
-            .stack
-            .pop()
-            .ok_or_else(|| eyre::eyre!("stack underflow"))?;
+        let cond = self.stack_pop()?;
         match canonical_bool(cond)? {
             true => {
                 self.set_pending_pc(true_target);
@@ -252,16 +263,17 @@ impl CPU {
     }
 
     pub fn op_return(&mut self, keep: u32) -> eyre::Result<StepOutcome> {
-        let frame = self.pop_frame()?;
-        let frame_len = self
+        let frame = *self.get_frame()?;
+        let available = self
             .stack
             .len()
-            .checked_sub(frame.base)
-            .ok_or_else(|| eyre::eyre!("frame base out of bounds"))?;
-        if frame_len < keep as usize {
+            .checked_sub(frame.operands_index())
+            .ok_or_else(|| eyre::eyre!("frame locals out of bounds"))?;
+        if available < keep as usize {
             return Err(eyre::eyre!("not enough values to return"));
         }
 
+        self.pop_frame()?;
         // Collect return values before truncating
         let top = self.stack.len() - keep as usize;
         let return_values: Vec<Word> = self.stack[top..].to_vec();
@@ -277,47 +289,70 @@ impl CPU {
         }
     }
 
-    pub fn op_call(&mut self, arity: u32, target: u32) -> eyre::Result<StepOutcome> {
-        if self.stack.len() < (arity as usize) {
-            return Err(eyre::eyre!(
-                "not enough arguments on stack to call function"
-            ));
-        }
-
-        let base = self.stack.len() - (arity as usize);
-        let frame = Frame {
-            base,
-            span: self.span,
-            function: None,
-            ret_pc: self.current_pc + 1,
+    /// Set up an invocation from arguments already on the operand stack.
+    ///
+    /// Also used for program entry: push the entry arguments before calling this
+    /// method, then begin execution at the returned pending PC. `local_count`
+    /// includes parameters and comes from the composite's function metadata.
+    ///
+    /// # Errors
+    /// Returns an error for insufficient operand arguments or an overflowing
+    /// frame size or return address. Arity consistency with the target signature
+    /// is not validated.
+    pub fn enter_function(
+        &mut self,
+        arity: u32,
+        target: u32,
+        local_count: u32,
+        function: Option<usize>,
+    ) -> eyre::Result<StepOutcome> {
+        self.require_operands(arity as usize)?;
+        let base = self.stack.len() - arity as usize;
+        let end = base
+            .checked_add(local_count as usize)
+            .ok_or_else(|| eyre::eyre!("frame size overflow"))?;
+        let ret_pc = if self.frames.is_empty() {
+            0
+        } else {
+            self.current_pc
+                .checked_add(1)
+                .ok_or_else(|| eyre::eyre!("return address overflow"))?
         };
-        self.push_frame(frame);
+        self.stack.resize(end, 0);
+        self.push_frame(Frame {
+            base,
+            local_count: local_count as usize,
+            span: self.span,
+            function,
+            ret_pc,
+        });
         self.set_pending_pc(target);
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_indirect_call(&mut self) -> eyre::Result<StepOutcome> {
-        // simliar order to op_call but from the stack
-        let target: u32 = self.stack_pop()?.try_into()?;
-        let arity: u32 = self.stack_pop()?.try_into()?;
-        let f = decode_function_ref(self.stack_pop()?);
+    pub fn op_call(
+        &mut self,
+        arity: u32,
+        target: u32,
+        local_count: u32,
+    ) -> eyre::Result<StepOutcome> {
+        self.enter_function(arity, target, local_count, None)
+    }
 
-        if self.stack.len() < (arity as usize) {
-            return Err(eyre::eyre!(
-                "not enough arguments on stack to call function"
-            ));
-        }
-
-        let base = self.stack.len() - (arity as usize);
-        let frame = Frame {
-            base,
-            span: self.span,
-            function: Some(f as usize),
-            ret_pc: self.current_pc + 1,
-        };
-        self.push_frame(frame);
-        self.set_pending_pc(target);
-        Ok(StepOutcome::Continue)
+    pub fn op_indirect_call(
+        &mut self,
+        arity: u32,
+        target: u32,
+        local_count: u32,
+    ) -> eyre::Result<StepOutcome> {
+        // Only the function reference is an operand; metadata comes from the message.
+        let required = (arity as usize)
+            .checked_add(1)
+            .ok_or_else(|| eyre::eyre!("argument count overflow"))?;
+        self.require_operands(required)?;
+        let function = decode_function_ref(*self.stack_top()?);
+        self.stack_pop()?;
+        self.enter_function(arity, target, local_count, Some(function as usize))
     }
 
     fn op_load(&mut self, addr: u32) -> eyre::Result<StepOutcome> {
@@ -328,6 +363,7 @@ impl CPU {
     }
 
     pub fn op_store(&mut self, addr: u32) -> Result<StepOutcome> {
+        self.get_local(addr as usize)?;
         let v: Word = self.stack_pop()?;
         log::debug!("store value {:?} at addr {}", v, addr);
         *self.get_local_mut(addr as usize)? = v;
@@ -342,9 +378,7 @@ impl CPU {
 
     pub fn op_heap_alloc(&mut self, n_elements: u32) -> Result<StepOutcome> {
         let n: usize = n_elements as usize;
-        if self.stack.len() < n {
-            return Err(eyre::eyre!("stack underflow"));
-        }
+        self.require_operands(n)?;
         let start = self.stack.len() - n;
         let values: Box<[Word]> = self.stack.drain(start..).collect();
         let heap_id = self.push_heap_object(values);
@@ -441,6 +475,7 @@ mod tests {
         let mut cpu = CPU::default();
         cpu.push_frame(Frame {
             base: 0,
+            local_count: 0,
             span: (0, 0, 0),
             function: None,
             ret_pc: 0,
@@ -464,6 +499,7 @@ mod tests {
         // Outer ("main") frame so the inner Return takes the Continue branch.
         cpu.push_frame(Frame {
             base: 0,
+            local_count: 0,
             span: (0, 0, 0),
             function: None,
             ret_pc: 0,
@@ -471,8 +507,16 @@ mod tests {
 
         // Caller would be executing `call 0, 100` at some PC; op_call sets
         // pending_pc to the callee target.
-        cpu.execute_instruction(RuntimeInstruction::Call(0, 100))
-            .unwrap();
+        GeneratedComponent::execute_generated(
+            &mut cpu,
+            &RuntimeInstruction::Call(0, 100),
+            CPUMessage::FunctionInfo {
+                arity: 0,
+                start_address: 100,
+                local_count: 0,
+            },
+        )
+        .unwrap();
         assert_eq!(cpu.take_pending_pc(), Some(100));
         assert_eq!(cpu.frames[1].ret_pc, 11);
 
@@ -493,18 +537,24 @@ mod tests {
         };
         cpu.push_frame(Frame {
             base: 0,
+            local_count: 0,
             span: (0, 0, 0),
             function: None,
             ret_pc: 0,
         });
 
-        // IndirectCall pops (top → bottom): target, arity, FunctionRef.
+        // The composite supplies arity/address/count; only FunctionRef is on the stack.
         cpu.stack_push(encode_function_ref(7));
-        cpu.stack_push(encode_u32(0));
-        cpu.stack_push(encode_u32(100));
-
-        cpu.execute_instruction(RuntimeInstruction::IndirectCall)
-            .unwrap();
+        GeneratedComponent::execute_generated(
+            &mut cpu,
+            &RuntimeInstruction::IndirectCall,
+            CPUMessage::FunctionInfo {
+                arity: 0,
+                start_address: 100,
+                local_count: 0,
+            },
+        )
+        .unwrap();
         assert_eq!(cpu.take_pending_pc(), Some(100));
         assert_eq!(cpu.frames[1].ret_pc, 11);
 
@@ -521,6 +571,7 @@ mod tests {
         // Outer frame so Return takes the Continue branch.
         cpu.push_frame(Frame {
             base: 0,
+            local_count: 0,
             span: (0, 0, 0),
             function: None,
             ret_pc: 0,
@@ -530,6 +581,7 @@ mod tests {
         // where only `return_val` (the top) should survive `ret 1`.
         cpu.push_frame(Frame {
             base: 0,
+            local_count: 0,
             span: (0, 0, 0),
             function: None,
             ret_pc: 0,
@@ -655,6 +707,7 @@ mod tests {
         let mut cpu = CPU::default();
         cpu.push_frame(Frame {
             base: 0,
+            local_count: 0,
             span: (0, 0, 0),
             function: None,
             ret_pc: 0,
@@ -672,10 +725,11 @@ mod tests {
     }
 
     #[test]
-    fn execute_generated_function_info_pushes_arity_and_start_address() {
+    fn execute_generated_function_info_is_only_accepted_for_calls() {
         let mut cpu = CPU::default();
         cpu.push_frame(Frame {
             base: 0,
+            local_count: 0,
             span: (0, 0, 0),
             function: None,
             ret_pc: 0,
@@ -687,13 +741,13 @@ mod tests {
             CPUMessage::FunctionInfo {
                 arity: 2,
                 start_address: 42,
+                local_count: 2,
             },
         )
-        .unwrap();
+        .unwrap_err();
 
-        assert_eq!(outcome, Effects::one(StepOutcome::Continue));
-        // arity pushed first, then start_address
-        assert_eq!(cpu.stack(), &vec![encode_u32(2), encode_u32(42)]);
+        assert!(outcome.to_string().contains("only valid for call"));
+        assert!(cpu.stack().is_empty());
     }
 
     #[test]
@@ -701,6 +755,7 @@ mod tests {
         let mut cpu = CPU::default();
         cpu.push_frame(Frame {
             base: 0,
+            local_count: 0,
             span: (0, 0, 0),
             function: None,
             ret_pc: 0,
@@ -723,6 +778,7 @@ mod tests {
         let mut cpu = CPU::default();
         cpu.push_frame(Frame {
             base: 0,
+            local_count: 0,
             span: (0, 0, 0),
             function: None,
             ret_pc: 0,

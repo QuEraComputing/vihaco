@@ -6,6 +6,9 @@ pub struct Frame {
     /// base pointer to the bottom of the frame in the stack
     pub base: usize,
 
+    /// Number of reserved local slots, including parameters.
+    pub local_count: usize,
+
     /// source information (file, start, end)
     pub span: (u32, u32, u32),
 
@@ -17,3 +20,16 @@ pub struct Frame {
     /// The PC to return to after this frame completes.
     pub ret_pc: u32,
 }
+
+impl Frame {
+    /// Absolute index of the first operand, immediately after the locals.
+    pub fn operands_index(&self) -> usize {
+        self.base + self.local_count
+    }
+}
+
+/// Local slot requirements by device code within a composite.
+///
+/// Counts include parameters. An absent entry means the function's arity is
+/// its exact local slot requirement for that device.
+pub type LocalCountsByDevice = std::collections::BTreeMap<u8, u32>;

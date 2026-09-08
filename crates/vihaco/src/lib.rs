@@ -44,6 +44,7 @@ pub use runtime::{
     Message as MessageMarker, Observe, expect_exactly_one_effect,
 };
 pub use traits::{FromBytes, FromText, GetProgramInfo, Reset};
+pub use vihaco_abi::{DeviceInstruction, LocalCountsByDevice};
 pub use vihaco_parser::Parse;
 pub use vihaco_parser::SurfaceInstruction;
 pub use vihaco_parser_derive::Parse;
