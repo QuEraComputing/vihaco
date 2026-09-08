@@ -1,12 +1,14 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+mod analysis;
 mod component;
 mod data;
 mod display;
 mod instruction;
 mod outcome;
 pub mod word;
+pub use analysis::{DeviceInstruction, LocalCountsByDevice, required_local_count};
 pub use component::CPUMessage;
 pub use data::CPU;
 pub use data::{RuntimeInstruction, SurfaceInstruction};

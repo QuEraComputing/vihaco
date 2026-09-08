@@ -12,7 +12,7 @@ mod observe;
 // (see design/crate-split.md §5.3).
 pub use chumsky;
 pub use vihaco_abi::traits::{EffectSink, Reset};
-pub use vihaco_abi::{Effects, metadata};
+pub use vihaco_abi::{DeviceInstruction, Effects, metadata};
 pub use vihaco_bytecode::{BytecodeSectionView, SstSectionView};
 pub use vihaco_module::loader;
 pub use vihaco_parser::{Parse, SurfaceInstruction};

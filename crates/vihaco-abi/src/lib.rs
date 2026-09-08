@@ -3,6 +3,7 @@
 
 extern crate self as vihaco_abi;
 
+mod device_instruction;
 pub mod effect;
 pub mod frame;
 pub mod instruction_syntax;
@@ -18,7 +19,9 @@ pub mod instruction {
     pub use crate::traits::{FromBytes, FromBytesWithOpcode, Instruction, OpCode, WriteBytes};
 }
 
+pub use device_instruction::DeviceInstruction;
 pub use effect::Effects;
+pub use frame::LocalCountsByDevice;
 pub use program::{Type, Value};
 
 #[cfg(feature = "derive")]

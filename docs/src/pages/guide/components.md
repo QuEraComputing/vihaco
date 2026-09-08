@@ -238,6 +238,89 @@ The `effect` parameter is optional. When omitted, the macro sets `type Effect = 
 
 As a rule: use plain effect types for observer-delivered outputs, and use runtime-local sum-effect enums when a hand-written runtime needs extra per-step interpretation.
 
+## CPU Function Frames
+
+The standard CPU reserves one indexed locals region for each invocation.
+Parameters occupy its first slots; additional locals follow and start at zero.
+Load/store address this region relative to `Frame.base`. Temporary operands begin
+at `Frame::operands_index()`, which is `base + local_count`. Store cannot enlarge
+the region, and operand operations cannot consume reserved locals.
+
+During resolution, `vihaco_cpu::required_local_count::<DEVICE_CODE>` scans a
+function's surface instructions for one device. Counts include parameters and
+every referenced load/store slot, including unreachable instructions. The
+composite author supplies a borrowed `From` conversion for each device; the
+device code is a const generic, so two CPUs with the same instruction type still
+have distinct conversion targets.
+
+The following example parses a function, records its requirements in
+`FunctionInfo`, and prepares its entry frame:
+
+```rust
+use chumsky::Parser as _;
+use vihaco::{Parse, module::{FunctionInfo, Parameter, Signature}, syntax::ParsedFunction};
+use vihaco::traits::{StackFrame, StackMemory};
+use vihaco_cpu::{CPU, SurfaceType, required_local_count};
+
+#[vihaco::composite]
+struct Machine {
+    #[device(1)]
+    cpu: CPU,
+}
+
+# fn main() -> eyre::Result<()> {
+let parsed = ParsedFunction::<machine::syntax::Instruction, SurfaceType>::parser()
+    .parse("fn @main(input: u64) -> u64 { cpu::cpu.load_u64 3 cpu::cpu.ret 1 }")
+    .into_result().unwrap();
+let arity = u32::try_from(parsed.params.len())?;
+let count = required_local_count::<1, _>(arity, parsed.body.iter())?;
+let function = FunctionInfo {
+    name: 0,
+    signature: Signature {
+        params: vec![Parameter { name: 1, ty: vihaco::Type::U64 }],
+        ret: vec![vihaco::Type::U64],
+    },
+    local_counts_by_device: [(1, count)].into(),
+    start_address: 0,
+    end_address: 2,
+    file: 0,
+};
+
+let mut machine = Machine { cpu: CPU::default() };
+machine.cpu.stack_push(42_u64);
+machine.cpu.enter_function(arity, function.start_address, function.local_count_for(1)?, Some(0))?;
+assert_eq!(machine.cpu.stack(), &[42, 0, 0, 0]);
+assert_eq!(machine.cpu.get_frame()?.operands_index(), 4);
+assert_eq!(machine.cpu.take_pending_pc(), Some(function.start_address));
+
+// For subsequent calls, the composite selects the target metadata and device.
+let message = vihaco_cpu::CPUMessage::FunctionInfo {
+    arity,
+    start_address: function.start_address,
+    local_count: function.local_count_for(1)?,
+};
+# let _ = message;
+# Ok::<(), eyre::Report>(())
+# }
+```
+
+Consumer resolvers retain responsibility for lowering the parsed body and
+assigning function addresses. Without a recorded requirement for a device,
+`local_count_for` returns the function's arity: its arguments are its only locals.
+
+Before a call, load locals or compute argument values onto the caller's operand
+stack. Direct `Call(arity, address)` requires a `CPUMessage::FunctionInfo` and uses
+its selected local count. Indirect calls receive arity, address, and local count
+through that message; only the function reference, above the arguments, is popped
+from the operand stack. Metadata is never pushed as operand words. Arity
+consistency validation is deferred.
+
+`enter_function` implements frame setup for entry and both call forms. It reuses
+the argument operand slots and appends zero-filled additional locals. `Return(n)`
+preserves the top `n` operands, removes the rest of the frame, and restores the
+caller. With no caller, results are available through `CPU::return_values()`.
+The composite continues to own program-counter routing and instruction execution.
+
 ## What Comes Next
 
 Once you have one or more components, the next step is to understand how observer types consume the returned effects.
