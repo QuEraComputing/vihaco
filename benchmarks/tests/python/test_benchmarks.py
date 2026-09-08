@@ -210,7 +210,11 @@ class MeasurementTest(unittest.TestCase):
             execute.side_effect = subprocess.CalledProcessError(1, ["cargo"])
             status, rows = runner.baseline(Path(temporary) / "compile", [])
             self.assertEqual((status, rows), ("unavailable", {}))
-            execute.side_effect = [None, subprocess.CalledProcessError(1, ["cargo"])]
+            execute.side_effect = [
+                None,
+                None,
+                subprocess.CalledProcessError(1, ["cargo"]),
+            ]
             with self.assertRaises(subprocess.CalledProcessError):
                 runner.baseline(Path(temporary) / "validation", [])
 

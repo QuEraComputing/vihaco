@@ -376,3 +376,23 @@ test('genuine older results remain publishable with a stale warning', async t =>
     assert.ok(comments[0].body.includes('older revision'));
   }
 });
+
+
+test('machine provenance accepts only bounded hashes and revisions', () => {
+  const { result } = selection();
+  Object.assign(result.manifest, {
+    schema_version: 4,
+    machine_sha256: 'b'.repeat(64),
+    base_machine_sha256: 'c'.repeat(64),
+    base_machine_sha: 'd'.repeat(40),
+    lock_sha256: 'e'.repeat(64),
+    base_lock_sha256: 'f'.repeat(64),
+  });
+  assert.doesNotThrow(() => publicResults(JSON.stringify(result)));
+  for (const field of ['machine_sha256', 'base_machine_sha256', 'base_machine_sha',
+    'lock_sha256', 'base_lock_sha256']) {
+    const changed = structuredClone(result);
+    changed.manifest[field] = '/private/machine/path';
+    assert.throws(() => publicResults(JSON.stringify(changed)));
+  }
+});

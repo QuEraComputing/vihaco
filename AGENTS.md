@@ -52,6 +52,21 @@ file's first two lines); `hawkeye format` adds it. Line-sensitive trybuild
 fixtures under `tests/ui/` and `tests/compile_errors/` are intentionally
 excluded from the header check.
 
+## Benchmarks
+
+Root workspace checks don't cover the separate Cargo workspace in `benchmarks/`.
+Run its Rust checks with `--manifest-path benchmarks/Cargo.toml --workspace`
+(use `--all` for formatting). `uv run --directory benchmarks python -m runner.checks`
+runs the CI support checks. The benchmark runner also checks workload results
+before measuring them.
+
+Each checkout has its own `benchmarks/machine`, including SST programs. Update
+that machine when changing the library API. The shared harness uses the stable
+traits in `benchmarks/api`; keep vihaco types out of both. The runner combines
+the candidate's harness with the merge base's machine. Replacing the baseline
+machine requires an explicit override. See [benchmarks/README.md](benchmarks/README.md)
+for comparison options and bot commands.
+
 ## Architecture
 
 ### Crate layout

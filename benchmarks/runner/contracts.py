@@ -16,7 +16,7 @@ from .validation import require_integer, require_list, require_table, require_te
 IDENTIFIER = re.compile(r"[a-z0-9_-]+")
 CONTRACT_FIELDS = {"id", "algorithm", "numeric_constraints", "limits", "cases"}
 CASE_FIELDS = {"id", "iterations", "seed", "expected"}
-IMPLEMENTATIONS = ("native.rs", "python.py", "program.sst")
+IMPLEMENTATIONS = ("native.rs", "python.py")
 
 
 def unique_id(value: str, seen: set[str], kind: str) -> str:

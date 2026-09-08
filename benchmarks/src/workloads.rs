@@ -7,7 +7,10 @@ use eyre::{Result, WrapErr, ensure, eyre};
 use serde::Deserialize;
 use std::{collections::BTreeSet, fs, path::Path};
 
-use crate::machine;
+use vihaco_benchmark_api::{
+    BenchmarkMachine, COMPOSITE, CPU_ENUM, CPU_OPERATION, ConstantBenchmark,
+};
+use vihaco_benchmark_machine::Machine;
 
 /// Native reference implementations share the same inputs and result type.
 pub type Native = fn(u64, u64) -> u64;
@@ -46,7 +49,7 @@ pub struct Contract {
 pub struct Workload {
     pub contract: Contract,
     pub native: Native,
-    pub program: machine::Program,
+    pub program: <Machine as BenchmarkMachine>::Program,
 }
 
 fn valid_id(id: &str) -> bool {
@@ -90,7 +93,7 @@ impl Workload {
     fn load(path: &Path) -> Result<Self> {
         let contract: Contract = toml::from_str(&fs::read_to_string(path.join("workload.toml"))?)?;
         contract.validate()?;
-        for file in ["native.rs", "python.py", "program.sst"] {
+        for file in ["native.rs", "python.py"] {
             ensure!(path.join(file).is_file(), "missing {file}");
         }
         let native = NATIVE
@@ -98,7 +101,7 @@ impl Workload {
             .find(|(id, _)| *id == contract.id)
             .ok_or_else(|| eyre!("native workload not compiled: {}", contract.id))?
             .1;
-        let program = machine::Program::parse(&fs::read_to_string(path.join("program.sst"))?)?;
+        let program = Machine::load(&contract.id)?;
         Ok(Self {
             contract,
             native,
@@ -131,6 +134,9 @@ pub fn discover(root: &Path) -> Result<Vec<Workload>> {
 
 /// Validate native and both VM routes against independent expected results.
 pub fn validate(workloads: &[Workload]) -> Result<()> {
+    validate_constant::<CPU_OPERATION>()?;
+    validate_constant::<CPU_ENUM>()?;
+    validate_constant::<COMPOSITE>()?;
     for workload in workloads {
         for case in &workload.contract.cases {
             ensure!(
@@ -140,12 +146,18 @@ pub fn validate(workloads: &[Workload]) -> Result<()> {
                 case.id
             );
             for composite in [false, true] {
-                let mut machine =
-                    machine::Fixture::for_program(&workload.program, case.iterations, case.seed);
+                let mut machine = <Machine as BenchmarkMachine>::prepare(
+                    &workload.program,
+                    case.iterations,
+                    case.seed,
+                )?;
                 let actual = if composite {
-                    machine.run::<true>(&workload.program)?
+                    <Machine as BenchmarkMachine>::execute::<true>(&mut machine, &workload.program)?
                 } else {
-                    machine.run::<false>(&workload.program)?
+                    <Machine as BenchmarkMachine>::execute::<false>(
+                        &mut machine,
+                        &workload.program,
+                    )?
                 };
                 ensure!(
                     actual == case.expected,
@@ -156,6 +168,21 @@ pub fn validate(workloads: &[Workload]) -> Result<()> {
                 );
             }
         }
+    }
+    Ok(())
+}
+
+fn validate_constant<const ROUTE: u8>() -> Result<()>
+where
+    Machine: ConstantBenchmark<ROUTE>,
+{
+    for value in [0, 42, 65535] {
+        let mut state = <Machine as ConstantBenchmark<ROUTE>>::prepare()?;
+        let instruction = <Machine as ConstantBenchmark<ROUTE>>::instruction(value);
+        ensure!(
+            <Machine as ConstantBenchmark<ROUTE>>::execute(&mut state, &instruction)? == value,
+            "constant instruction mismatch: route={ROUTE}, value={value}"
+        );
     }
     Ok(())
 }

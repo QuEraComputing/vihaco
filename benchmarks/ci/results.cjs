@@ -30,8 +30,16 @@ function environment(value) {
 
 function manifest(value) {
   fields(value, ['schema_version', 'run_id', 'reference_policy', 'run_attempt', 'profile',
-    'head_sha', 'base_sha', 'suite_sha256', 'workloads', 'created_at', 'environment', 'dirty']);
-  check(value.schema_version === 3 && typeof value.dirty === 'boolean');
+    'head_sha', 'base_sha', 'suite_sha256', 'workloads', 'created_at', 'environment', 'dirty',
+    ...(value.schema_version === 4 ? ['machine_sha256', 'base_machine_sha256',
+      'base_machine_sha', 'lock_sha256', 'base_lock_sha256'] : [])]);
+  check([3, 4].includes(value.schema_version) && typeof value.dirty === 'boolean');
+  if (value.schema_version === 4) {
+    for (const key of ['machine_sha256', 'base_machine_sha256', 'lock_sha256', 'base_lock_sha256']) {
+      if (value[key] !== null) text(value[key], /^[a-f0-9]{64}$/);
+    }
+    if (value.base_machine_sha !== null) text(value.base_machine_sha, /^[a-f0-9]{40}$/);
+  }
   check(['smoke', 'full'].includes(value.profile));
   text(value.run_id, /^[1-9][0-9]*$/);
   text(value.run_attempt, /^[1-9][0-9]*$/);

@@ -110,6 +110,11 @@ class Manifest:
     created_at: str
     environment: dict[str, str | int | None]
     dirty: bool
+    machine_sha256: str | None = None
+    base_machine_sha256: str | None = None
+    base_machine_sha: str | None = None
+    lock_sha256: str | None = None
+    base_lock_sha256: str | None = None
 
 
 @dataclass(frozen=True)

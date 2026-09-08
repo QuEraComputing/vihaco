@@ -15,7 +15,7 @@ from uuid import uuid4
 
 from .models import ComparisonResult, Manifest, Profile, WorkloadSpec
 from .processes import output
-from .suite import fingerprint
+from .suite import file_digest, fingerprint, harness_fingerprint
 
 
 def environment(repo: Path) -> dict[str, str | int | None]:
@@ -80,14 +80,16 @@ def capture(
     head = output(["git", "rev-parse", "HEAD"], repo)
     base = output(["git", "merge-base", "HEAD", target or "HEAD"], repo)
     return Manifest(
-        schema_version=3,
+        schema_version=4,
         run_id=run_id,
         reference_policy="once per comparison; native Rust uses the candidate suite build",
         run_attempt=run_attempt,
         profile=profile,
         head_sha=head,
         base_sha=base,
-        suite_sha256=fingerprint(suite),
+        suite_sha256=harness_fingerprint(suite),
+        machine_sha256=fingerprint(suite / "machine"),
+        lock_sha256=file_digest(suite / "Cargo.lock"),
         workloads={workload.id: workload.digest for workload in workloads},
         created_at=datetime.now(UTC).isoformat(),
         environment=environment(repo),

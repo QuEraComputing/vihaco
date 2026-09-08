@@ -1,14 +1,13 @@
 # How the benchmark suite works
 
 The benchmark suite compares vihaco execution performance across two library
-revisions. It runs the same programs against both revisions and measures
+revisions. It runs equivalent workload implementations against both revisions and measures
 equivalent native Rust and Python implementations for reference. The suite has
 its own unpublished Cargo workspace, a Python runner, and GitHub automation.
 The separate workspace keeps benchmark dependencies out of the library and
 allows the same suite to build against different vihaco revisions.
 
 See the [README](README.md) for installation and commands.
-The [design](../design/benchmarking.md) records the suite's scope and rationale.
 
 ## Workloads
 
@@ -18,12 +17,21 @@ Each directory in [workloads/](workloads/) contains:
   with independently specified expected results.
 - `native.rs`: `run(iterations: u64, seed: u64) -> u64`.
 - `python.py`: `run(iterations, seed)`.
-- `program.sst`: a complete `sst v1` container with a root section and text containing
-  `@main(iterations: u64, seed: u64) -> u64`.
+
+The checkout-owned `machine/programs/<id>.sst` files implement these contracts
+using that revision's syntax and ISA. They live with the machine adapter.
 
 The implementations follow the algorithm in the manifest and receive the same
 inputs for each case. When adding a workload, review the implementations for
 equivalent work as well as checking their results.
+
+Add each new workload to every machine you want to compare. If a machine compiles
+but can't load a workload, validation fails and stops the run. The runner only
+marks a baseline unavailable when its machine is missing or cannot build.
+
+The harness supplies `api/` to both checkouts, so its traits must remain
+compatible with older adapters. Handle library API changes in each machine's
+trait implementations.
 
 Each manifest defines its own cases, including iteration counts, seeds, and
 expected results. Cases can exercise boundary conditions, fixed invocation
@@ -44,7 +52,7 @@ results fail validation before timing.
 
 ## Comparing revisions
 
-From the repository root:
+From the candidate checkout's repository root:
 
 ```sh
 uv run --directory benchmarks python -m runner --profile smoke --base main --output ../target/benchmark-runs/example
@@ -58,13 +66,19 @@ from a dirty working tree include those changes, so the recorded SHA is
 insufficient to reproduce them. The bot only publishes results from clean
 working trees.
 
+The merge base selected by `--base main` may be older than the current `main`
+tip. The runner measures the checkout it lives in as the candidate. With
+`uv run --directory`, it resolves relative CLI paths from the selected benchmark
+directory. The [README](README.md#run-locally) has examples for worktrees and
+machine overrides.
+
 [run.py](runner/run.py) orchestrates this sequence:
 
 ```text
 Discover and validate Python workloads; capture provenance
   → Validate and build the candidate Rust suite
   → Archive the merge base into a temporary checkout
-  → Copy the current suite into that checkout; build and validate it
+  → Overlay the current harness, retaining the baseline machine; build and validate it
   → Measure base SST routes
   → Measure candidate SST routes
   → Measure shared native Rust references
@@ -72,16 +86,36 @@ Discover and validate Python workloads; capture provenance
   → Check suite identity and write results/report
 ```
 
-[suite.py](runner/suite.py) copies the current suite into the temporary
-checkout's `benchmarks/` directory. Its path dependencies then compile against
-the older vihaco crates. This keeps the benchmark code consistent across the
-comparison and leaves the user's checkout untouched.
+[suite.py](runner/suite.py) overlays the current harness, API traits, contracts,
+and native/Python references into the temporary checkout. It preserves
+`benchmarks/machine` from the baseline. That crate depends on its own checkout's
+vihaco crates and implements `BenchmarkMachine` and `ConstantBenchmark` from
+[api/](api/). Associated types keep vihaco types out of the harness; generic
+calls select routes statically. Machine preparation and destruction stay outside
+timing. Each adapter must perform equivalent work for the shared workload IDs.
 
-Suite and workload SHA-256 fingerprints include relative file names and their
-contents, excluding build output, environments, caches, and published results.
-The runner checks the copied suite against the recorded fingerprint and checks
-the original again after measurement. Editing the suite during a run causes
-that check to fail.
+For revisions predating this layout, supply `--base-machine <revision>` to take
+only `benchmarks/machine` from another commit, or `--base-machine-path <directory>`
+to supply a compatible machine crate. Neither changes the library revision being
+measured. Adapter paths must remain relative to `benchmarks/machine` in the
+disposable checkout. A missing machine is reported as unavailable; the runner
+never substitutes the candidate machine implicitly.
+
+When copying the shared harness into an experiment, keep the experiment's own
+machine. Check every trait method against its API, including the three isolated
+constant-instruction routes. A machine copied from another revision may still
+call APIs that the experiment has removed.
+
+The baseline retains its dependency lock, then Cargo reconciles it with the
+shared harness before building. Subsequent commands use `--locked`. The resolved
+baseline lock is saved in the local `base/Cargo.lock` artifact.
+
+The manifest fingerprints the shared harness (excluding `machine/` and
+`Cargo.lock`), each machine, each dependency lock, and shared workload bundles
+separately. Fingerprints include relative names and contents, excluding build
+output, environments, caches, and results. Source or lock changes during
+measurement abort the comparison. Machine overrides record their commit when
+applicable; local paths are not published.
 
 After both builds finish, the runner measures the base and candidate
 sequentially on the same machine. It then measures the native Rust and Python
@@ -94,15 +128,15 @@ Validation failures, timeouts, and measurement failures stop the run.
 
 ## Loading and executing SST
 
-[Program::parse](src/machine/program.rs) uses vihaco's normal loading pipeline:
+[Program::parse](machine/src/machine/program.rs) uses vihaco's normal loading pipeline:
 `SstFile` → `ParsedModule::parse_section` → `Resolve` → `ProgramImage`.
 
-The [resolver](src/resolve.rs) first assigns function indices and addresses,
+The [resolver](machine/src/resolve.rs) first assigns function indices and addresses,
 then resolves function-local labels, signatures, constants, and instructions.
 This allows forward calls and function references. The loader and resolver
 define the SST features supported by the fixture.
 
-[Fixture::for_program](src/machine.rs) prepares a fresh CPU frame at the resolved
+[Fixture::for_program](machine/src/machine.rs) prepares a fresh CPU frame at the resolved
 `@main` entry address, supplies the case inputs, and initializes scratch locals.
 Preparation reserves working stack storage outside timing.
 
@@ -275,8 +309,14 @@ Python by the shared native Rust mean for that case. The report does not
 calculate confidence intervals for these ratios. Their size depends on the
 algorithm, input size, and compiler optimization opportunities.
 
-The manifest records revisions, suite/workload fingerprints, toolchain and
-environment details, and dirty state. Local runs use an opaque identifier that
+A schema 4 manifest records the library revisions and fingerprints for the
+shared harness and workloads. It fingerprints each machine and Cargo lock
+separately because they can differ between checkouts. Those files are excluded
+from the suite fingerprint. The manifest also records the baseline machine's
+source revision when applicable, toolchain and environment details, and whether
+the working tree had uncommitted changes.
+
+Local runs use an opaque identifier that
 does not include the output directory's name. GitHub run IDs and attempts must
 be bounded positive decimal strings. Sampling intervals do not capture all
 hardware drift or shared-runner noise. Use full runs and repeated evidence
@@ -292,6 +332,15 @@ same-repository PR:
 ```text
 @github-actions run benchmark
 ```
+
+Both workflows use the PR head's harness and the merge base's machine. The bot
+commands don't accept `--base-machine` or `--base-machine-path`. If the merge
+base predates the machine crate, CI still measures the candidate and references
+but reports the baseline as unavailable. The commit command requires an
+available baseline, so it can't publish that run.
+
+To compare against an older revision, use a machine override in the local CLI.
+For CI, update the PR so its merge base includes a compatible machine.
 
 The [command workflow](../.github/workflows/benchmark-command.yml) records the
 authorized request and measured SHAs. Measurement jobs run PR code with
@@ -319,8 +368,14 @@ artifact retention settings determine how long CI keeps numeric samples.
 Before posting a comment or committing results, trusted code from the default
 branch checks the JSON against the allowed fields and values, then generates
 the Markdown report. It does not copy report text from the downloaded artifact.
-Results using the older metadata schema need a fresh run before publication.
-The same checks apply when the PR author requests the commit.
+The validator accepts schemas 3 and 4. Results in earlier schemas need a fresh
+run before publication. Schema 4's machine and lock fields accept validated
+hashes or null values; local paths aren't allowed.
+
+The default branch's `ci/results.cjs` must support schema 4 before the bot can
+read those artifacts. Updating the validator only in a PR won't change the
+trusted jobs that post comments and commit results. Both jobs use the same
+validation checks.
 
 Publication honors branch protection. Commits made with `GITHUB_TOKEN` do not
 trigger ordinary push CI, so required checks on the report commit may need a
@@ -409,16 +464,16 @@ unchanged.
 and Criterion driver:
 
 - `src/workloads.rs`: contracts, bundle discovery, and correctness validation.
-- `src/machine.rs`: frame preparation and the CPU/composite execution loop.
-- `src/machine/program.rs`: full SST loading and immutable program metadata.
-- `src/resolve.rs`: function indexing, local scope, signatures, and module assembly.
-- `src/resolve/instructions.rs` and `values.rs`: exhaustive ISA lowering and
+- `machine/src/machine.rs`: frame preparation and the CPU/composite execution loop.
+- `machine/src/machine/program.rs`: full SST loading and immutable program metadata.
+- `machine/src/resolve.rs`: function indexing, local scope, signatures, and module assembly.
+- `machine/src/resolve/instructions.rs` and `values.rs`: exhaustive ISA lowering and
   typed constant encoding/string interning.
 - `benches/workloads.rs`: native and SST program measurement registration.
 - `benches/support/mod.rs`: measurement selection, Criterion configuration,
   and isolated instruction measurements.
 
 `build.rs` generates the native registry in sorted bundle order. Fixture tests
-live alongside the machine in `src/machine/tests.rs`. Setup, parsing, and
+live alongside the machine in `machine/src/machine/tests.rs`. Setup, parsing, and
 validation remain outside timing; route selection is compile-time and the
 timed closures retain their black-box barriers and batched-reference setup.

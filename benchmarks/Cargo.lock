@@ -1059,7 +1059,24 @@ dependencies = [
  "eyre",
  "serde",
  "toml",
+ "vihaco-benchmark-api",
+ "vihaco-benchmark-machine",
+]
+
+[[package]]
+name = "vihaco-benchmark-api"
+version = "0.0.0"
+dependencies = [
+ "eyre",
+]
+
+[[package]]
+name = "vihaco-benchmark-machine"
+version = "0.0.0"
+dependencies = [
+ "eyre",
  "vihaco",
+ "vihaco-benchmark-api",
  "vihaco-cpu",
 ]
 

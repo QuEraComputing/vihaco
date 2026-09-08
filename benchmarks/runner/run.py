@@ -6,17 +6,17 @@
 import argparse
 import sys
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .contracts import discover_specs
 from .export import export_results
 from .measurement import SuiteRunner
 from .models import ComparisonResult, MeasurementIds, Profile
-from .processes import execute
+from .processes import execute, output
 from .provenance import capture, write_json
 from .report import render
-from .suite import base_checkout, fingerprint
+from .suite import base_checkout, file_digest, fingerprint, harness_fingerprint
 
 
 @dataclass(frozen=True)
@@ -24,6 +24,8 @@ class RunOptions:
     profile: Profile
     base: str | None
     output: Path
+    base_machine: str | None = None
+    base_machine_path: Path | None = None
 
 
 def parse_options() -> RunOptions:
@@ -35,8 +37,21 @@ def parse_options() -> RunOptions:
     parser.add_argument(
         "--output", type=Path, required=True, help="new output directory"
     )
+    overrides = parser.add_mutually_exclusive_group()
+    overrides.add_argument(
+        "--base-machine", help="revision supplying benchmarks/machine only"
+    )
+    overrides.add_argument(
+        "--base-machine-path", type=Path, help="compatible machine crate directory"
+    )
     args = parser.parse_args()
-    return RunOptions(args.profile, args.base, args.output.resolve())
+    return RunOptions(
+        args.profile,
+        args.base,
+        args.output.resolve(),
+        args.base_machine,
+        args.base_machine_path,
+    )
 
 
 def run_comparison(suite: Path, options: RunOptions) -> ComparisonResult:
@@ -63,10 +78,35 @@ def run_comparison(suite: Path, options: RunOptions) -> ComparisonResult:
     candidate.build(candidate_dir)
 
     print("Preparing merge-base checkout", flush=True)
-    with base_checkout(suite, manifest.base_sha, manifest.suite_sha256) as base_suite:
+    machine_sha = (
+        output(["git", "rev-parse", f"{options.base_machine}^{{commit}}"], suite.parent)
+        if options.base_machine
+        else None
+    )
+    with base_checkout(
+        suite, manifest.base_sha, machine_sha, options.base_machine_path
+    ) as base_suite:
         print("Building the same suite against the merge base", flush=True)
         baseline = SuiteRunner(base_suite, options.profile)
-        base_status, base_rows = baseline.baseline(destination / "base", ids.vihaco)
+        base_status = baseline.prepare_baseline(destination / "base")
+        manifest = replace(
+            manifest,
+            base_machine_sha=machine_sha
+            or (None if options.base_machine_path else manifest.base_sha),
+            base_machine_sha256=(
+                fingerprint(base_suite / "machine")
+                if (base_suite / "machine").is_dir()
+                else None
+            ),
+            base_lock_sha256=file_digest(base_suite / "Cargo.lock"),
+        )
+        write_json(destination / "manifest.json", manifest)
+        base_before = fingerprint(base_suite)
+        base_rows = (
+            baseline.measure(destination / "base", ids.vihaco, "vihaco")
+            if base_status == "available"
+            else {}
+        )
 
         # Timing phases remain sequential to avoid contention between revisions.
         print("Measuring candidate", flush=True)
@@ -76,9 +116,16 @@ def run_comparison(suite: Path, options: RunOptions) -> ComparisonResult:
         print("Measuring shared native Rust and Python references", flush=True)
         references = candidate.measure(reference_dir, ids.references, "references")
 
-    if fingerprint(suite) != manifest.suite_sha256:
+        if fingerprint(base_suite) != base_before:
+            raise ValueError("baseline changed during the comparison")
+
+    if (
+        harness_fingerprint(suite) != manifest.suite_sha256
+        or fingerprint(suite / "machine") != manifest.machine_sha256
+        or file_digest(suite / "Cargo.lock") != manifest.lock_sha256
+    ):
         raise ValueError(
-            "suite changed during measurement; rerun with unchanged sources"
+            "sources changed during the comparison; rerun with unchanged sources"
         )
     return ComparisonResult(
         manifest, base_status, base_rows, candidate_rows, references

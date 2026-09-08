@@ -33,7 +33,7 @@ fn workload_id(bundle: &Path) -> String {
         .parse()
         .expect("valid TOML");
     let id = manifest["id"].as_str().expect("workload id");
-    for file in ["native.rs", "python.py", "program.sst"] {
+    for file in ["native.rs", "python.py"] {
         assert!(bundle.join(file).is_file(), "missing {file} in {id}");
     }
     id.to_owned()
@@ -44,10 +44,19 @@ fn registry_source(bundles: &[PathBuf]) -> String {
     let mut entries = Vec::new();
     for (index, bundle) in bundles.iter().enumerate() {
         let id = workload_id(bundle);
-        let native = bundle.join("native.rs");
+        let native = format!(
+            "/workloads/{}/native.rs",
+            bundle
+                .file_name()
+                .expect("bundle name")
+                .to_str()
+                .expect("UTF-8 bundle name")
+        );
         // Numeric module names avoid interpreting manifest IDs as Rust syntax.
-        // Debug formatting quotes and escapes source paths and workload IDs.
-        generated.push_str(&format!("#[path = {native:?}] mod workload_{index};\n"));
+        // Resolve paths in the compiling checkout even when Cargo reuses build output.
+        generated.push_str(&format!(
+            "mod workload_{index} {{ include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), {native:?})); }}\n"
+        ));
         entries.push(format!(
             "({id:?}, workload_{index}::run as fn(u64, u64) -> u64)"
         ));

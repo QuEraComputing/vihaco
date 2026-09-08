@@ -4,6 +4,7 @@
 """Build and measure one suite revision, keeping tool invocations consistent."""
 
 import os
+import shutil
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -44,7 +45,7 @@ class SuiteRunner:
 
     def validate(self, directory: Path) -> None:
         execute(
-            self.cargo("test"),
+            self.cargo("test", "--workspace"),
             self.suite,
             directory / "validation.log",
             timeout=BUILD_TIMEOUT_SECONDS,
@@ -110,18 +111,44 @@ class SuiteRunner:
             self.python(directory, expected)
         return collect(directory, expected)
 
+    def prepare_baseline(self, directory: Path) -> BaseStatus:
+        directory.mkdir()
+        if not (self.suite / "machine/Cargo.toml").is_file():
+            (directory / "build.log").write_text(
+                "This revision has no benchmark machine. Supply --base-machine "
+                "or --base-machine-path with a compatible adapter.\n"
+            )
+            return "unavailable"
+        # Reconcile the historical dependency lock with the shared harness once;
+        # every subsequent build and measurement uses --locked.
+        try:
+            execute(
+                [
+                    "cargo",
+                    "check",
+                    "--manifest-path",
+                    str(self.suite / "Cargo.toml"),
+                    "--workspace",
+                    "--all-targets",
+                ],
+                self.suite,
+                directory / "resolve.log",
+                timeout=BUILD_TIMEOUT_SECONDS,
+            )
+            shutil.copy2(self.suite / "Cargo.lock", directory / "Cargo.lock")
+            self.build(directory)
+        except subprocess.CalledProcessError:
+            return "unavailable"
+        self.validate(directory)
+        return "available"
+
     def baseline(
         self,
         directory: Path,
         expected: Sequence[str],
     ) -> tuple[BaseStatus, Measurements]:
-        directory.mkdir()
-        # Only a compilation failure makes the base unavailable. Validation,
-        # timeout, and measurement failures must still fail the comparison.
-        try:
-            self.build(directory)
-        except subprocess.CalledProcessError:
-            return "unavailable", {}
-        self.validate(directory)
+        status = self.prepare_baseline(directory)
+        if status == "unavailable":
+            return status, {}
         print("Measuring base", flush=True)
-        return "available", self.measure(directory, expected, "vihaco")
+        return status, self.measure(directory, expected, "vihaco")

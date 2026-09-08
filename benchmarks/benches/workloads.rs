@@ -7,9 +7,11 @@ mod support;
 
 use criterion::{BatchSize, Criterion};
 use std::{hint::black_box, path::Path};
-use vihaco_benchmark::{Case, Workload, discover, machine::Fixture, validate};
+use vihaco_benchmark::{Case, Workload, discover, validate};
 
 use support::MeasurementGroup;
+use vihaco_benchmark_api::BenchmarkMachine;
+use vihaco_benchmark_machine::Machine;
 
 fn main() -> eyre::Result<()> {
     let workloads = discover(&Path::new(env!("CARGO_MANIFEST_DIR")).join("workloads"))?;
@@ -61,11 +63,13 @@ fn register_program<const COMPOSITE: bool>(
         // Preparation and destruction stay outside timing. The generic route
         // remains statically selected, and inputs/results retain black-box barriers.
         b.iter_batched_ref(
-            || Fixture::for_program(&workload.program, case.iterations, case.seed),
+            || {
+                Machine::prepare(&workload.program, case.iterations, case.seed)
+                    .expect("prepare program")
+            },
             |machine| {
                 black_box(
-                    machine
-                        .run::<COMPOSITE>(black_box(&workload.program))
+                    Machine::execute::<COMPOSITE>(machine, black_box(&workload.program))
                         .expect("execute program"),
                 )
             },
