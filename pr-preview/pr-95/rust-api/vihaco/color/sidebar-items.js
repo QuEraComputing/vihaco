@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"macro":[["show",1],["show_instruction",1]],"struct":["Decorated"],"trait":["Themed"]};
