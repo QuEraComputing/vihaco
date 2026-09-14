@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["OperandKind","SugarOperandKind"],"struct":["CanonicalInstructionVariantSyntax","InstructionSugarVariantSyntax"],"trait":["CanonicalInstructionSyntax","InstructionSugarSyntax"]};
