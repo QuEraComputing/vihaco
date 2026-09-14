@@ -1,0 +1,163 @@
+sst v1
+
+.section(root):
+.header(root):
+.header(root).
+.text(root):
+fn @main(iterations: u64, seed: u64) -> u64 {
+    // Locals: 0 = remaining iterations, 1 = seed, 2..11 = frame.
+    cpu::cpu.load_u64 1
+    cpu::cpu.const_u64 0
+    cpu::cpu.add_u64
+    cpu::cpu.store_u64 2
+    cpu::cpu.load_u64 1
+    cpu::cpu.const_u64 1
+    cpu::cpu.add_u64
+    cpu::cpu.store_u64 3
+    cpu::cpu.load_u64 1
+    cpu::cpu.const_u64 2
+    cpu::cpu.add_u64
+    cpu::cpu.store_u64 4
+    cpu::cpu.load_u64 1
+    cpu::cpu.const_u64 3
+    cpu::cpu.add_u64
+    cpu::cpu.store_u64 5
+    cpu::cpu.load_u64 1
+    cpu::cpu.const_u64 4
+    cpu::cpu.add_u64
+    cpu::cpu.store_u64 6
+    cpu::cpu.load_u64 1
+    cpu::cpu.const_u64 5
+    cpu::cpu.add_u64
+    cpu::cpu.store_u64 7
+    cpu::cpu.load_u64 1
+    cpu::cpu.const_u64 6
+    cpu::cpu.add_u64
+    cpu::cpu.store_u64 8
+    cpu::cpu.load_u64 1
+    cpu::cpu.const_u64 7
+    cpu::cpu.add_u64
+    cpu::cpu.store_u64 9
+    cpu::cpu.load_u64 1
+    cpu::cpu.const_u64 8
+    cpu::cpu.add_u64
+    cpu::cpu.store_u64 10
+    cpu::cpu.load_u64 1
+    cpu::cpu.const_u64 9
+    cpu::cpu.add_u64
+    cpu::cpu.store_u64 11
+    cpu::cpu.label @loop
+    cpu::cpu.load_u64 0
+    cpu::cpu.const_u64 0
+    cpu::cpu.eq_u64
+    cpu::cpu.cond_br @done, @body
+    cpu::cpu.label @body
+    cpu::cpu.load_u64 2
+    cpu::cpu.const_u64 17
+    cpu::cpu.mul_u64
+    cpu::cpu.load_u64 11
+    cpu::cpu.add_u64
+    cpu::cpu.const_u64 65521
+    cpu::cpu.rem_u64
+    cpu::cpu.store_u64 2
+    cpu::cpu.load_u64 3
+    cpu::cpu.const_u64 17
+    cpu::cpu.mul_u64
+    cpu::cpu.load_u64 2
+    cpu::cpu.add_u64
+    cpu::cpu.const_u64 65521
+    cpu::cpu.rem_u64
+    cpu::cpu.store_u64 3
+    cpu::cpu.load_u64 4
+    cpu::cpu.const_u64 17
+    cpu::cpu.mul_u64
+    cpu::cpu.load_u64 3
+    cpu::cpu.add_u64
+    cpu::cpu.const_u64 65521
+    cpu::cpu.rem_u64
+    cpu::cpu.store_u64 4
+    cpu::cpu.load_u64 5
+    cpu::cpu.const_u64 17
+    cpu::cpu.mul_u64
+    cpu::cpu.load_u64 4
+    cpu::cpu.add_u64
+    cpu::cpu.const_u64 65521
+    cpu::cpu.rem_u64
+    cpu::cpu.store_u64 5
+    cpu::cpu.load_u64 6
+    cpu::cpu.const_u64 17
+    cpu::cpu.mul_u64
+    cpu::cpu.load_u64 5
+    cpu::cpu.add_u64
+    cpu::cpu.const_u64 65521
+    cpu::cpu.rem_u64
+    cpu::cpu.store_u64 6
+    cpu::cpu.load_u64 7
+    cpu::cpu.const_u64 17
+    cpu::cpu.mul_u64
+    cpu::cpu.load_u64 6
+    cpu::cpu.add_u64
+    cpu::cpu.const_u64 65521
+    cpu::cpu.rem_u64
+    cpu::cpu.store_u64 7
+    cpu::cpu.load_u64 8
+    cpu::cpu.const_u64 17
+    cpu::cpu.mul_u64
+    cpu::cpu.load_u64 7
+    cpu::cpu.add_u64
+    cpu::cpu.const_u64 65521
+    cpu::cpu.rem_u64
+    cpu::cpu.store_u64 8
+    cpu::cpu.load_u64 9
+    cpu::cpu.const_u64 17
+    cpu::cpu.mul_u64
+    cpu::cpu.load_u64 8
+    cpu::cpu.add_u64
+    cpu::cpu.const_u64 65521
+    cpu::cpu.rem_u64
+    cpu::cpu.store_u64 9
+    cpu::cpu.load_u64 10
+    cpu::cpu.const_u64 17
+    cpu::cpu.mul_u64
+    cpu::cpu.load_u64 9
+    cpu::cpu.add_u64
+    cpu::cpu.const_u64 65521
+    cpu::cpu.rem_u64
+    cpu::cpu.store_u64 10
+    cpu::cpu.load_u64 11
+    cpu::cpu.const_u64 17
+    cpu::cpu.mul_u64
+    cpu::cpu.load_u64 10
+    cpu::cpu.add_u64
+    cpu::cpu.const_u64 65521
+    cpu::cpu.rem_u64
+    cpu::cpu.store_u64 11
+    cpu::cpu.load_u64 0
+    cpu::cpu.const_u64 1
+    cpu::cpu.sub_u64
+    cpu::cpu.store_u64 0
+    cpu::cpu.br @loop
+    cpu::cpu.label @done
+    cpu::cpu.load_u64 2
+    cpu::cpu.load_u64 3
+    cpu::cpu.add_u64
+    cpu::cpu.load_u64 4
+    cpu::cpu.add_u64
+    cpu::cpu.load_u64 5
+    cpu::cpu.add_u64
+    cpu::cpu.load_u64 6
+    cpu::cpu.add_u64
+    cpu::cpu.load_u64 7
+    cpu::cpu.add_u64
+    cpu::cpu.load_u64 8
+    cpu::cpu.add_u64
+    cpu::cpu.load_u64 9
+    cpu::cpu.add_u64
+    cpu::cpu.load_u64 10
+    cpu::cpu.add_u64
+    cpu::cpu.load_u64 11
+    cpu::cpu.add_u64
+    cpu::cpu.ret 1
+}
+.text(root).
+.section(root).

@@ -1,0 +1,25 @@
+id = "dispatch"
+algorithm = "For each index i, set x = ((x << 1) XOR (x >> 15) XOR i) AND 65535, starting with x=seed. Each iteration depends on the previous accumulator."
+numeric_constraints = "Unsigned integers; iterations <= 1000000, seed < 65536. Intermediate values fit u64. No wrapping or floating point."
+
+[limits]
+max_iterations = 1000000
+max_seed = 65535
+
+[[cases]]
+id = "empty"
+iterations = 0
+seed = 7
+expected = 7
+
+[[cases]]
+id = "short"
+iterations = 16
+seed = 7
+expected = 2288
+
+[[cases]]
+id = "long"
+iterations = 1024
+seed = 7
+expected = 7

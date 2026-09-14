@@ -1,0 +1,60 @@
+name: Benchmark smoke
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: benchmark-smoke-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: benchmarks
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          python-version: '3.12'
+      - run: uv sync --directory benchmarks --locked
+      - name: Quality checks
+        run: uv run --directory benchmarks python -m runner.checks
+      - name: Compare smoke measurements
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: uv run --directory benchmarks python -m runner --profile smoke --base "$BASE_SHA" --output ../target/benchmark-run
+      - name: Job summary
+        if: success()
+        run: cat target/benchmark-run/publish/report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: success()
+        with:
+          name: benchmark-results-${{ github.run_attempt }}
+          path: |
+            target/benchmark-run/publish/report.md
+            target/benchmark-run/publish/results.json
+          if-no-files-found: error
+      # Upload only the export allowlist, never tool output or local diagnostics.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: success()
+        with:
+          name: benchmark-samples-${{ github.run_attempt }}
+          path: |
+            target/benchmark-run/publish/manifest.json
+            target/benchmark-run/publish/samples.json
+          if-no-files-found: error
+          retention-days: 30

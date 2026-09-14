@@ -1,0 +1,38 @@
+sst v1
+
+.section(root):
+.header(root):
+.header(root).
+.text(root):
+fn @main(iterations: u64, seed: u64) -> u64 {
+    cpu::cpu.load_u64 0
+    cpu::cpu.call 1, fibonacci
+    cpu::cpu.load_u64 1
+    cpu::cpu.add_u64
+    cpu::cpu.ret 1
+}
+
+// Each call owns its argument in local 0. Keep the first recursive result
+// on the operand stack while evaluating the second call.
+fn @fibonacci(n: u64) -> u64 {
+    cpu::cpu.load_u64 0
+    cpu::cpu.const_u64 2
+    cpu::cpu.lt_u64
+    cpu::cpu.cond_br @base, @recurse
+    cpu::cpu.label @base
+    cpu::cpu.load_u64 0
+    cpu::cpu.ret 1
+    cpu::cpu.label @recurse
+    cpu::cpu.load_u64 0
+    cpu::cpu.const_u64 1
+    cpu::cpu.sub_u64
+    cpu::cpu.call 1, fibonacci
+    cpu::cpu.load_u64 0
+    cpu::cpu.const_u64 2
+    cpu::cpu.sub_u64
+    cpu::cpu.call 1, fibonacci
+    cpu::cpu.add_u64
+    cpu::cpu.ret 1
+}
+.text(root).
+.section(root).

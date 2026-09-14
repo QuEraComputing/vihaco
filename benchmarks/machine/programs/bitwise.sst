@@ -1,0 +1,48 @@
+sst v1
+
+.section(root):
+.header(root):
+.header(root).
+.text(root):
+fn @main(iterations: u64, seed: u64) -> u64 {
+    // Locals: 0 = remaining iterations, 1 = seed, 2 = value, 3 = other.
+    cpu::cpu.load_u64 1
+    cpu::cpu.store_u64 2
+    cpu::cpu.const_u64 305419896
+    cpu::cpu.store_u64 3
+    cpu::cpu.label @loop
+    cpu::cpu.load_u64 0
+    cpu::cpu.const_u64 0
+    cpu::cpu.eq_u64
+    cpu::cpu.cond_br @done, @body
+    cpu::cpu.label @body
+    cpu::cpu.load_u64 2
+    cpu::cpu.load_u64 3
+    cpu::cpu.bitxor_u64
+    cpu::cpu.const_u64 13
+    cpu::cpu.ror_u64
+    cpu::cpu.const_u64 7
+    cpu::cpu.shl_u64
+    cpu::cpu.load_u64 3
+    cpu::cpu.bitand_u64
+    cpu::cpu.load_u64 1
+    cpu::cpu.bitxor_u64
+    cpu::cpu.store_u64 2
+    cpu::cpu.load_u64 3
+    cpu::cpu.const_u64 3
+    cpu::cpu.rol_u64
+    cpu::cpu.store_u64 3
+    cpu::cpu.load_u64 0
+    cpu::cpu.const_u64 1
+    cpu::cpu.sub_u64
+    cpu::cpu.store_u64 0
+    cpu::cpu.br @loop
+    cpu::cpu.label @done
+    cpu::cpu.load_u64 2
+    cpu::cpu.const_u64 65535
+    cpu::cpu.bitand_u64
+    cpu::cpu.ret 1
+}
+
+.text(root).
+.section(root).

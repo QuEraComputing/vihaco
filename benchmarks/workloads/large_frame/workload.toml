@@ -1,0 +1,31 @@
+id = "large_frame"
+algorithm = "Initialize ten slots to seed + index. Each round updates slots in order: frame[j] = (17 * frame[j] + frame[(j+9) modulo 10]) modulo 65521, using the updated predecessor except for slot zero. Return the sum of all slots."
+numeric_constraints = "Unsigned integers; iterations <= 1000000, seed < 65536. Initial slots are at most 65544; updated slots are below 65521. Products and the final sum fit u64."
+
+[limits]
+max_iterations = 1000000
+max_seed = 65535
+
+[[cases]]
+id = "empty"
+iterations = 0
+seed = 7
+expected = 115
+
+[[cases]]
+id = "one"
+iterations = 1
+seed = 0
+expected = 2895
+
+[[cases]]
+id = "short"
+iterations = 16
+seed = 7
+expected = 264531
+
+[[cases]]
+id = "long"
+iterations = 1024
+seed = 7
+expected = 308898

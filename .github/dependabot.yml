@@ -6,6 +6,20 @@
 # bumps the tag and updates the workflow for us.
 version: 2
 updates:
+  - package-ecosystem: cargo
+    directory: /benchmarks
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+      include: scope
+  - package-ecosystem: uv
+    directory: /benchmarks
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+      include: scope
   - package-ecosystem: github-actions
     directory: /
     schedule:

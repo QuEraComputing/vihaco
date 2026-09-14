@@ -1,0 +1,98 @@
+name: Benchmark command
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  request:
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '@github-actions ')
+    runs-on: ubuntu-latest
+    outputs:
+      action: ${{ steps.request.outputs.action }}
+      head_sha: ${{ steps.request.outputs.head_sha }}
+      target_sha: ${{ steps.request.outputs.target_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        id: request
+        with:
+          script: await require('./benchmarks/ci/index.cjs').request({github, context, core});
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.request.outputs.action != ''
+        with:
+          name: benchmark-request-${{ github.run_attempt }}
+          path: benchmark-request.json
+          if-no-files-found: error
+          retention-days: 30
+
+  measure:
+    needs: request
+    if: needs.request.outputs.action == 'run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.request.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: benchmarks
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          python-version: '3.12'
+      - run: uv sync --directory benchmarks --locked
+      - name: Full comparison
+        env:
+          BASE_SHA: ${{ needs.request.outputs.target_sha }}
+        run: uv run --directory benchmarks python -m runner --profile full --base "$BASE_SHA" --output ../target/benchmark-run
+      - name: Job summary
+        if: success()
+        run: cat target/benchmark-run/publish/report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: success()
+        with:
+          name: benchmark-results-${{ github.run_attempt }}
+          path: |
+            target/benchmark-run/publish/report.md
+            target/benchmark-run/publish/results.json
+          if-no-files-found: error
+          retention-days: 30
+      # Upload only the export allowlist, never tool output or local diagnostics.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: success()
+        with:
+          name: benchmark-samples-${{ github.run_attempt }}
+          path: |
+            target/benchmark-run/publish/manifest.json
+            target/benchmark-run/publish/samples.json
+          if-no-files-found: error
+          retention-days: 30
+
+  commit:
+    needs: request
+    if: needs.request.outputs.action == 'commit'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+      pull-requests: read
+    steps:
+      # issue_comment checks out the default branch, never PR code.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: await require('./benchmarks/ci/index.cjs').commit({github, context, core});
