@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["bare_token","ident"],"struct":["BareToken","Ident","QuotedString"]};
