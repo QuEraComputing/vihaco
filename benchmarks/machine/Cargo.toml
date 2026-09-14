@@ -1,0 +1,12 @@
+[package]
+name = "vihaco-benchmark-machine"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+[dependencies]
+vihaco-benchmark-api = { path = "../api" }
+vihaco = { path = "../../crates/vihaco" }
+vihaco-cpu = { path = "../../crates/vihaco-cpu" }
+eyre = "0.6.12"

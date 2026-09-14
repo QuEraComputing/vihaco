@@ -6,6 +6,7 @@ path = "licenserc.header.txt"
 [files]
 includes = [
   "crates/**/*.rs",
+  "benchmarks/**/*.rs",
 ]
 
 excludes = [
