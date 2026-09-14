@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 The vihaco Authors
 # SPDX-License-Identifier: MIT
 
-"""Run an isolated, shared-suite comparison; never commit or push results."""
+"""Run an isolated, shared-suite comparison."""
 
 import argparse
 import sys

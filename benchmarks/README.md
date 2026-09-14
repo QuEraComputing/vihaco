@@ -68,6 +68,110 @@ output directory. If the baseline is unavailable, check `base/resolve.log` and
 `base/build.log` if they exist. After fixing the problem, rerun with a new output
 directory.
 
+## CLI reference
+
+Show the comparison command's options with:
+
+```sh
+uv run --directory benchmarks python -m runner --help
+```
+
+Run a comparison with either reduced smoke sampling or normal full sampling:
+
+```sh
+uv run --directory benchmarks python -m runner \
+  --profile smoke \
+  --base main \
+  --output ../target/benchmark-runs/example
+```
+
+The options are:
+
+| Option | Description |
+|---|---|
+| `--profile smoke\|full` | Reduced or normal timing samples. Defaults to `smoke`. |
+| `--base REVISION` | Compare against the merge base of `HEAD` and `REVISION`; without it, use committed `HEAD`. |
+| `--output DIRECTORY` | Required new directory for reports, measurements, logs, and exports. |
+| `--base-machine REVISION` | Take only `benchmarks/machine` from another revision for the baseline. |
+| `--base-machine-path DIRECTORY` | Use a compatible local baseline machine crate; mutually exclusive with `--base-machine`. |
+
+Choose the baseline options based on what you are comparing:
+
+| Situation | Options to use |
+|---|---|
+| Compare local changes with the committed `HEAD` | Omit `--base` and machine overrides. |
+| Compare local changes with a branch or revision | Add `--base REVISION`. The library baseline is its merge base with `HEAD`. |
+| The selected library baseline has a compatible machine adapter | Use `--base REVISION` only. |
+| The selected library baseline predates the machine adapter | Use `--base REVISION --base-machine MACHINE_REVISION`. The library still comes from the merge base; only `benchmarks/machine` comes from `MACHINE_REVISION`. |
+| The compatible machine exists only in a local checkout or edited directory | Use `--base REVISION --base-machine-path PATH`. |
+
+For example, compare against `main` while supplying the machine from the tip
+of `main`:
+
+```sh
+uv run --directory benchmarks python -m runner \
+  --profile smoke \
+  --base main \
+  --base-machine main \
+  --output ../target/benchmark-runs/comparison-smoke
+```
+
+Use only one of `--base-machine` and `--base-machine-path`. The supplied
+machine must compile against the library revision selected by `--base`; the
+runner does not automatically substitute the candidate machine when the
+baseline adapter is missing or incompatible.
+
+Successful runs place shareable files in `<output>/publish/`:
+`report.md`, `results.json`, `manifest.json`, and `samples.json`. Raw timing
+files and diagnostics remain outside that directory and may contain local paths
+or environment details.
+
+Audit a completed run's native scaling with:
+
+```sh
+uv run --directory benchmarks python -m runner.audit --help
+uv run --directory benchmarks python -m runner.audit \
+  ../target/benchmark-runs/example
+```
+
+To inspect native disassembly, pass the exact Criterion executable used for the
+run. Use `--objdump llvm-objdump` when GNU `objdump` is unavailable:
+
+```sh
+uv run --directory benchmarks python -m runner.audit \
+  ../target/benchmark-runs/example \
+  --binary path/to/measured/criterion-executable \
+  --objdump llvm-objdump
+```
+
+The audit verifies workload fingerprints, compares native `short` and `long`
+cases, and selects relevant workload functions and helpers from the executable.
+Its findings are advisory and require human review; it does not prove that an
+algorithm's intended work survived optimization.
+
+Run all local quality checks and the Rust/SST correctness validator with:
+
+```sh
+uv run --directory benchmarks python -m runner.checks
+cargo run --locked --manifest-path benchmarks/Cargo.toml
+```
+
+The quality-check command writes detailed logs under `target/benchmark-checks/`.
+The Rust command validates workload contracts, native references, both SST
+execution routes, and isolated constant-instruction routes without collecting
+timing samples.
+
+These module commands are internal worker entry points used by the comparison
+runner. They are useful for debugging but are not standalone comparison tools:
+
+```sh
+python -m runner.validate_python <workloads-directory>
+python -m runner.python_bench [pyperf-options]
+```
+
+Run them from `benchmarks/` (or use `uv run --directory benchmarks`); direct
+execution of the individual `.py` files is not supported.
+
 ## PR benchmarks
 
 PR updates trigger a smoke run. Correctness and pipeline failures fail the
