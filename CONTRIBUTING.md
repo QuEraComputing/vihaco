@@ -62,11 +62,15 @@ If you do not agree to those terms, please do not open a pull request.
    [Conventional Commits](https://www.conventionalcommits.org/)
    (e.g. `feat(runtime): add new gate`).
 3. Add or update tests for the behavior you changed.
-4. Run `mise run test` / `mise run lint` (or the `cargo` equivalents) and the
-   pre-commit hooks (`prek run --all-files`) locally.
-5. Open a pull request. CI runs the project's tests and the license-header
+4. If you change a vihaco API, update `benchmarks/machine` when needed. The
+   benchmark smoke check must still compile and validate the machine adapter
+   against the changed API.
+5. Run `mise run test` / `mise run lint` (or the `cargo` equivalents) and the
+   pre-commit hooks (`prek run --all-files`) locally. For benchmark changes,
+   also run the checks described in [benchmarks/README.md](benchmarks/README.md).
+6. Open a pull request. CI runs the project's tests and the license-header
    check.
-6. A maintainer will review. Be prepared to iterate.
+7. A maintainer will review. Be prepared to iterate.
 
 ## Releasing
 

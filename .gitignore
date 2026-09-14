@@ -38,3 +38,4 @@ node_modules
 .pnpm-store
 __pycache__/
 /benchmarks/.venv/
+.ruff_cache/
