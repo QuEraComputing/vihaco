@@ -1,0 +1,38 @@
+sst v1
+
+.section(root):
+.header(root):
+.header(root).
+.text(root):
+fn @main(iterations: u64, seed: u64) -> u64 {
+    // Frame locals: 0 = iterations, 1 = accumulator (seed), 2 = index, 3 = spare.
+    // Result: one word on the operand stack at halt.
+    cpu::cpu.label @loop
+    cpu::cpu.load_u64 2
+    cpu::cpu.load_u64 0
+    cpu::cpu.lt_u64
+    cpu::cpu.cond_br @body, @done
+    cpu::cpu.label @body
+    cpu::cpu.load_u64 1
+    cpu::cpu.const_u64 1
+    cpu::cpu.shl_u64
+    cpu::cpu.load_u64 1
+    cpu::cpu.const_u64 15
+    cpu::cpu.shr_u64
+    cpu::cpu.bitxor_u64
+    cpu::cpu.load_u64 2
+    cpu::cpu.bitxor_u64
+    cpu::cpu.const_u64 65535
+    cpu::cpu.bitand_u64
+    cpu::cpu.store_u64 1
+    cpu::cpu.load_u64 2
+    cpu::cpu.const_u64 1
+    cpu::cpu.add_u64
+    cpu::cpu.store_u64 2
+    cpu::cpu.br @loop
+    cpu::cpu.label @done
+    cpu::cpu.load_u64 1
+    cpu::cpu.halt
+}
+.text(root).
+.section(root).

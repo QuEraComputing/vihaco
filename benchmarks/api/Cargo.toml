@@ -1,0 +1,9 @@
+[package]
+name = "vihaco-benchmark-api"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+[dependencies]
+eyre = "0.6.12"
