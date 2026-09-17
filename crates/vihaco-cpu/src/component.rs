@@ -1,14 +1,55 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-use crate::RuntimeInstruction;
-use crate::StepOutcome;
-use crate::Word;
 use crate::data::CPU;
 use crate::word::*;
+use crate::StepOutcome;
+use crate::Word;
 use eyre::Result;
-use vihaco::Effects;
-use vihaco::{dispatch, frame::Frame, traits::*};
+use vihaco::{frame::Frame, traits::*};
+
+trait StackOps {
+    fn remove_range(&mut self, start: usize, end: usize) -> Vec<Word>;
+    unsafe fn replace_top_two_with<F>(&mut self, operation: F)
+    where
+        F: FnOnce(Word, Word) -> Word;
+    unsafe fn try_replace_top_two_with<F, E>(&mut self, operation: F) -> Result<(), E>
+    where
+        F: FnOnce(Word, Word) -> Result<Word, E>;
+}
+
+impl StackOps for Vec<Word> {
+    fn remove_range(&mut self, start: usize, end: usize) -> Vec<Word> {
+        self.drain(start..end).collect()
+    }
+
+    unsafe fn replace_top_two_with<F>(&mut self, operation: F)
+    where
+        F: FnOnce(Word, Word) -> Word,
+    {
+        let rhs = self
+            .pop()
+            .expect("verified bytecode guarantees two stack values");
+        let lhs = self
+            .pop()
+            .expect("verified bytecode guarantees two stack values");
+        self.push(operation(lhs, rhs));
+    }
+
+    unsafe fn try_replace_top_two_with<F, E>(&mut self, operation: F) -> Result<(), E>
+    where
+        F: FnOnce(Word, Word) -> Result<Word, E>,
+    {
+        let rhs = self
+            .pop()
+            .expect("verified bytecode guarantees two stack values");
+        let lhs = self
+            .pop()
+            .expect("verified bytecode guarantees two stack values");
+        self.push(operation(lhs, rhs)?);
+        Ok(())
+    }
+}
 
 impl Reset for CPU {
     fn reset(&mut self) {
@@ -16,259 +57,127 @@ impl Reset for CPU {
         self.heap.clear();
         self.stack.clear();
         self.span = (0, 0, 0);
-        self.pending_pc = None;
+        self.pending_pc = Option::None;
         self.current_pc = 0;
         self.return_values.clear();
     }
 }
 
-impl CPU {
-    #[inline(always)]
-    fn execute_generated(
-        &mut self,
-        inst: &RuntimeInstruction,
-        msg: CPUMessage,
-    ) -> eyre::Result<Effects<StepOutcome>> {
-        use RuntimeInstruction::*;
+use crate::data::cpu_dialect::*;
 
+impl vihaco::Execute<Span> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &Span) -> Self::Effect {
         self.clear_pending_pc();
-        match (inst, msg) {
-            (Print, CPUMessage::Print(text)) => {
-                self.stack_pop()?;
-                drop(text);
-                return Ok(Effects::one(StepOutcome::Continue));
-            }
-            (Print, _) => return Err(eyre::eyre!("Print requires CPUMessage::Print")),
-            (_, CPUMessage::Print(_)) => {
-                return Err(eyre::eyre!(
-                    "CPUMessage::Print is only valid for Print instruction"
-                ));
-            }
-            (
-                _,
-                CPUMessage::FunctionInfo {
-                    arity,
-                    start_address,
-                },
-            ) => {
-                self.stack_push(arity);
-                self.stack_push(start_address);
-            }
-            (_, CPUMessage::None) => {}
-        }
-
-        let outcome = match inst {
-            Span(file, start, end) => self.op_span(*file, *start, *end),
-            Label(_) | FunctionStart | FunctionEnd => Ok(StepOutcome::Continue),
-            Breakpoint => Ok(StepOutcome::Breakpoint),
-            Branch(target) => self.op_branch(*target),
-            ConditionalBranch(true_target, false_target) => {
-                self.op_conditional_branch(*true_target, *false_target)
-            }
-            Return(keep) => self.op_return(*keep),
-            Call(arity, target) => self.op_call(*arity, *target),
-            IndirectCall => self.op_indirect_call(),
-            Halt => Ok(StepOutcome::Halt),
-            Print => Err(eyre::eyre!(
-                "Print must be handled via execute with CPUMessage::Print"
-            )),
-            LoadI32(addr) => self.op_load(*addr),
-            LoadI64(addr) => self.op_load(*addr),
-            LoadU32(addr) => self.op_load(*addr),
-            LoadU64(addr) => self.op_load(*addr),
-            LoadF32(addr) => self.op_load(*addr),
-            LoadF64(addr) => self.op_load(*addr),
-            LoadBool(addr) => self.op_load(*addr),
-            StoreI32(addr) => self.op_store(*addr),
-            StoreI64(addr) => self.op_store(*addr),
-            StoreU32(addr) => self.op_store(*addr),
-            StoreU64(addr) => self.op_store(*addr),
-            StoreF32(addr) => self.op_store(*addr),
-            StoreF64(addr) => self.op_store(*addr),
-            StoreBool(addr) => self.op_store(*addr),
-            Dup => self.op_dup(),
-            HeapAlloc(n_elements) => self.op_heap_alloc(*n_elements),
-            GetItem => self.op_get_item(),
-            HeapDealloc => self.op_heap_dealloc(),
-            ConstI32(v) | ConstI64(v) | ConstU32(v) | ConstU64(v) | ConstF32(v) | ConstF64(v)
-            | ConstBool(v) | ConstString(v) | ConstFunctionRef(v) | ConstHeapRef(v) => {
-                self.op_const(*v)
-            }
-            AddI32 => self.add_i32(),
-            AddI64 => self.add_i64(),
-            AddU32 => self.add_u32(),
-            AddU64 => self.add_u64(),
-            AddF32 => self.add_f32(),
-            AddF64 => self.add_f64(),
-            SubI32 => self.sub_i32(),
-            SubI64 => self.sub_i64(),
-            SubU32 => self.sub_u32(),
-            SubU64 => self.sub_u64(),
-            SubF32 => self.sub_f32(),
-            SubF64 => self.sub_f64(),
-            MulI32 => self.mul_i32(),
-            MulI64 => self.mul_i64(),
-            MulU32 => self.mul_u32(),
-            MulU64 => self.mul_u64(),
-            MulF32 => self.mul_f32(),
-            MulF64 => self.mul_f64(),
-            DivI32 => self.div_i32(),
-            DivI64 => self.div_i64(),
-            DivU32 => self.div_u32(),
-            DivU64 => self.div_u64(),
-            DivF32 => self.div_f32(),
-            DivF64 => self.div_f64(),
-            RemI32 => self.rem_i32(),
-            RemI64 => self.rem_i64(),
-            RemU32 => self.rem_u32(),
-            RemU64 => self.rem_u64(),
-            RemF32 => self.rem_f32(),
-            RemF64 => self.rem_f64(),
-            NegI32 => self.neg_i32(),
-            NegI64 => self.neg_i64(),
-            NegF32 => self.neg_f32(),
-            NegF64 => self.neg_f64(),
-            ShlI32 => self.shl_i32(),
-            ShlI64 => self.shl_i64(),
-            ShlU32 => self.shl_u32(),
-            ShlU64 => self.shl_u64(),
-            ShrI32 => self.shr_i32(),
-            ShrI64 => self.shr_i64(),
-            ShrU32 => self.shr_u32(),
-            ShrU64 => self.shr_u64(),
-            RolI32 => self.rol_i32(),
-            RolI64 => self.rol_i64(),
-            RolU32 => self.rol_u32(),
-            RolU64 => self.rol_u64(),
-            RorI32 => self.ror_i32(),
-            RorI64 => self.ror_i64(),
-            RorU32 => self.ror_u32(),
-            RorU64 => self.ror_u64(),
-            BitAndI32 => self.bitand_i32(),
-            BitAndI64 => self.bitand_i64(),
-            BitAndU32 => self.bitand_u32(),
-            BitAndU64 => self.bitand_u64(),
-            BitOrI32 => self.bitor_i32(),
-            BitOrI64 => self.bitor_i64(),
-            BitOrU32 => self.bitor_u32(),
-            BitOrU64 => self.bitor_u64(),
-            BitXorI32 => self.bitxor_i32(),
-            BitXorI64 => self.bitxor_i64(),
-            BitXorU32 => self.bitxor_u32(),
-            BitXorU64 => self.bitxor_u64(),
-            Not => self.op_not(),
-            And => self.op_and(),
-            Or => self.op_or(),
-            Xor => self.op_xor(),
-            EqI32 => self.eq_i32(),
-            EqI64 => self.eq_i64(),
-            EqU32 => self.eq_u32(),
-            EqU64 => self.eq_u64(),
-            EqF32 => self.eq_f32(),
-            EqF64 => self.eq_f64(),
-            NeI32 => self.ne_i32(),
-            NeI64 => self.ne_i64(),
-            NeU32 => self.ne_u32(),
-            NeU64 => self.ne_u64(),
-            NeF32 => self.ne_f32(),
-            NeF64 => self.ne_f64(),
-            LtI32 => self.lt_i32(),
-            LtI64 => self.lt_i64(),
-            LtU32 => self.lt_u32(),
-            LtU64 => self.lt_u64(),
-            LtF32 => self.lt_f32(),
-            LtF64 => self.lt_f64(),
-            GtI32 => self.gt_i32(),
-            GtI64 => self.gt_i64(),
-            GtU32 => self.gt_u32(),
-            GtU64 => self.gt_u64(),
-            GtF32 => self.gt_f32(),
-            GtF64 => self.gt_f64(),
-            LeI32 => self.le_i32(),
-            LeI64 => self.le_i64(),
-            LeU32 => self.le_u32(),
-            LeU64 => self.le_u64(),
-            LeF32 => self.le_f32(),
-            LeF64 => self.le_f64(),
-            GeI32 => self.ge_i32(),
-            GeI64 => self.ge_i64(),
-            GeU32 => self.ge_u32(),
-            GeU64 => self.ge_u64(),
-            GeF32 => self.ge_f32(),
-            GeF64 => self.ge_f64(),
-        }?;
-        Ok(Effects::one(outcome))
+        self.span = (instruction.0, instruction.1, instruction.2);
+        Ok(StepOutcome::Continue)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, vihaco::Message)]
-pub enum CPUMessage {
-    None,
-    FunctionInfo { arity: u32, start_address: u32 },
-    Print(String),
+impl vihaco::Execute<Label> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &Label) -> Self::Effect {
+        self.clear_pending_pc();
+        Ok(StepOutcome::Continue)
+    }
 }
 
-#[dispatch(instruction = RuntimeInstruction, message = CPUMessage, effect = StepOutcome)]
-impl CPU {
+impl vihaco::Execute<FunctionStart> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &FunctionStart) -> Self::Effect {
+        self.clear_pending_pc();
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<FunctionEnd> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &FunctionEnd) -> Self::Effect {
+        self.clear_pending_pc();
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<Breakpoint> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &Breakpoint) -> Self::Effect {
+        self.clear_pending_pc();
+        Ok(StepOutcome::Breakpoint)
+    }
+}
+
+impl vihaco::Execute<Branch> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &Branch) -> Self::Effect {
+        self.clear_pending_pc();
+        self.set_pending_pc(instruction.0);
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<ConditionalBranch> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
     fn execute(
         &mut self,
-        inst: &RuntimeInstruction,
-        msg: CPUMessage,
-    ) -> eyre::Result<Effects<StepOutcome>> {
-        self.execute_generated(inst, msg)
-    }
-}
-
-impl CPU {
-    pub fn op_span(&mut self, file: u32, start: u32, end: u32) -> eyre::Result<StepOutcome> {
-        self.span = (file, start, end);
-        Ok(StepOutcome::Continue)
-    }
-
-    pub fn op_branch(&mut self, target: u32) -> eyre::Result<StepOutcome> {
-        self.set_pending_pc(target);
-        Ok(StepOutcome::Continue)
-    }
-
-    pub fn op_conditional_branch(
-        &mut self,
-        true_target: u32,
-        false_target: u32,
-    ) -> eyre::Result<StepOutcome> {
-        let cond = self
-            .stack
-            .pop()
-            .ok_or_else(|| eyre::eyre!("stack underflow"))?;
+        _message: Self::Message,
+        instruction: &ConditionalBranch,
+    ) -> Self::Effect {
+        self.clear_pending_pc();
+        let cond = self.stack_pop()?;
         match canonical_bool(cond)? {
             true => {
-                self.set_pending_pc(true_target);
+                self.set_pending_pc(instruction.0);
                 Ok(StepOutcome::Continue)
             }
             false => {
-                self.set_pending_pc(false_target);
+                self.set_pending_pc(instruction.1);
                 Ok(StepOutcome::Continue)
             }
         }
     }
+}
 
-    pub fn op_return(&mut self, keep: u32) -> eyre::Result<StepOutcome> {
+impl vihaco::Execute<Return> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &Return) -> Self::Effect {
+        self.clear_pending_pc();
         let frame = self.pop_frame()?;
         let frame_len = self
             .stack
             .len()
             .checked_sub(frame.base)
             .ok_or_else(|| eyre::eyre!("frame base out of bounds"))?;
-        if frame_len < keep as usize {
+        if frame_len < instruction.0 as usize {
             return Err(eyre::eyre!("not enough values to return"));
         }
-
-        // Collect return values before truncating
-        let top = self.stack.len() - keep as usize;
-        let return_values: Vec<Word> = self.stack[top..].to_vec();
-        self.stack.drain(frame.base..top);
-
+        let top = self.stack.len() - instruction.0 as usize;
+        let return_values = self.stack.as_slice()[top..].to_vec();
+        self.stack.remove_range(frame.base, top);
         if self.get_frame().is_err() {
-            // No more frames - program is returning
             self.set_return_values(return_values);
             Ok(StepOutcome::Return)
         } else {
@@ -276,84 +185,327 @@ impl CPU {
             Ok(StepOutcome::Continue)
         }
     }
+}
 
-    pub fn op_call(&mut self, arity: u32, target: u32) -> eyre::Result<StepOutcome> {
-        if self.stack.len() < (arity as usize) {
-            return Err(eyre::eyre!(
-                "not enough arguments on stack to call function"
-            ));
-        }
+impl vihaco::Execute<IndirectCall> for CPU {
+    type Message = FunctionInfo;
+    type Effect = Result<StepOutcome>;
 
-        let base = self.stack.len() - (arity as usize);
-        let frame = Frame {
-            base,
-            span: self.span,
-            function: None,
-            ret_pc: self.current_pc + 1,
-        };
-        self.push_frame(frame);
-        self.set_pending_pc(target);
-        Ok(StepOutcome::Continue)
-    }
-
-    pub fn op_indirect_call(&mut self) -> eyre::Result<StepOutcome> {
-        // simliar order to op_call but from the stack
+    #[inline(never)]
+    fn execute(&mut self, message: Self::Message, _instruction: &IndirectCall) -> Self::Effect {
+        self.clear_pending_pc();
+        self.stack_push(message.arity);
+        self.stack_push(message.start_address);
         let target: u32 = self.stack_pop()?.try_into()?;
         let arity: u32 = self.stack_pop()?.try_into()?;
         let f = decode_function_ref(self.stack_pop()?);
-
-        if self.stack.len() < (arity as usize) {
+        if self.stack.len() < arity as usize {
             return Err(eyre::eyre!(
                 "not enough arguments on stack to call function"
             ));
         }
-
-        let base = self.stack.len() - (arity as usize);
-        let frame = Frame {
+        let base = self.stack.len() - arity as usize;
+        self.push_frame(Frame {
             base,
             span: self.span,
             function: Some(f as usize),
             ret_pc: self.current_pc + 1,
-        };
-        self.push_frame(frame);
+        });
         self.set_pending_pc(target);
         Ok(StepOutcome::Continue)
     }
+}
 
-    fn op_load(&mut self, addr: u32) -> eyre::Result<StepOutcome> {
-        // addr should be local to frame.
-        let value = self.get_local(addr as usize)?;
+impl vihaco::Execute<Call> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &Call) -> Self::Effect {
+        self.clear_pending_pc();
+        if self.stack.len() < instruction.0 as usize {
+            return Err(eyre::eyre!(
+                "not enough arguments on stack to call function"
+            ));
+        }
+        let base = self.stack.len() - instruction.0 as usize;
+        self.push_frame(Frame {
+            base,
+            span: self.span,
+            function: Option::None,
+            ret_pc: self.current_pc + 1,
+        });
+        self.set_pending_pc(instruction.1);
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<Halt> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &Halt) -> Self::Effect {
+        self.clear_pending_pc();
+        Ok(StepOutcome::Halt)
+    }
+}
+
+impl vihaco::Execute<crate::data::cpu_dialect::Print> for CPU {
+    type Message = Print;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(
+        &mut self,
+        message: Self::Message,
+        _instruction: &crate::data::cpu_dialect::Print,
+    ) -> Self::Effect {
+        self.clear_pending_pc();
+        self.stack_pop()?;
+        drop(message.0);
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<LoadI32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &LoadI32) -> Self::Effect {
+        self.clear_pending_pc();
+        let value = self.get_local(instruction.0 as usize)?;
         self.stack_push(*value);
         Ok(StepOutcome::Continue)
     }
+}
 
-    pub fn op_store(&mut self, addr: u32) -> Result<StepOutcome> {
-        let v: Word = self.stack_pop()?;
-        log::debug!("store value {:?} at addr {}", v, addr);
-        *self.get_local_mut(addr as usize)? = v;
+impl vihaco::Execute<LoadI64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &LoadI64) -> Self::Effect {
+        self.clear_pending_pc();
+        let value = self.get_local(instruction.0 as usize)?;
+        self.stack_push(*value);
         Ok(StepOutcome::Continue)
     }
+}
 
-    pub fn op_dup(&mut self) -> Result<StepOutcome> {
+impl vihaco::Execute<LoadU32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &LoadU32) -> Self::Effect {
+        self.clear_pending_pc();
+        let value = self.get_local(instruction.0 as usize)?;
+        self.stack_push(*value);
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<LoadU64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &LoadU64) -> Self::Effect {
+        self.clear_pending_pc();
+        let value = self.get_local(instruction.0 as usize)?;
+        self.stack_push(*value);
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<LoadF32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &LoadF32) -> Self::Effect {
+        self.clear_pending_pc();
+        let value = self.get_local(instruction.0 as usize)?;
+        self.stack_push(*value);
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<LoadF64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &LoadF64) -> Self::Effect {
+        self.clear_pending_pc();
+        let value = self.get_local(instruction.0 as usize)?;
+        self.stack_push(*value);
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<LoadBool> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &LoadBool) -> Self::Effect {
+        self.clear_pending_pc();
+        let value = self.get_local(instruction.0 as usize)?;
+        self.stack_push(*value);
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<StoreI32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &StoreI32) -> Self::Effect {
+        self.clear_pending_pc();
+        let v: Word = self.stack_pop()?;
+        log::debug!("store value {:?} at addr {}", v, instruction.0);
+        *self.get_local_mut(instruction.0 as usize)? = v;
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<StoreI64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &StoreI64) -> Self::Effect {
+        self.clear_pending_pc();
+        let v: Word = self.stack_pop()?;
+        log::debug!("store value {:?} at addr {}", v, instruction.0);
+        *self.get_local_mut(instruction.0 as usize)? = v;
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<StoreU32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &StoreU32) -> Self::Effect {
+        self.clear_pending_pc();
+        let v: Word = self.stack_pop()?;
+        log::debug!("store value {:?} at addr {}", v, instruction.0);
+        *self.get_local_mut(instruction.0 as usize)? = v;
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<StoreU64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &StoreU64) -> Self::Effect {
+        self.clear_pending_pc();
+        let v: Word = self.stack_pop()?;
+        log::debug!("store value {:?} at addr {}", v, instruction.0);
+        *self.get_local_mut(instruction.0 as usize)? = v;
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<StoreF32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &StoreF32) -> Self::Effect {
+        self.clear_pending_pc();
+        let v: Word = self.stack_pop()?;
+        log::debug!("store value {:?} at addr {}", v, instruction.0);
+        *self.get_local_mut(instruction.0 as usize)? = v;
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<StoreF64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &StoreF64) -> Self::Effect {
+        self.clear_pending_pc();
+        let v: Word = self.stack_pop()?;
+        log::debug!("store value {:?} at addr {}", v, instruction.0);
+        *self.get_local_mut(instruction.0 as usize)? = v;
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<StoreBool> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &StoreBool) -> Self::Effect {
+        self.clear_pending_pc();
+        let v: Word = self.stack_pop()?;
+        log::debug!("store value {:?} at addr {}", v, instruction.0);
+        *self.get_local_mut(instruction.0 as usize)? = v;
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<Dup> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &Dup) -> Self::Effect {
+        self.clear_pending_pc();
         let v = *self.stack_top()?;
         self.stack.push(v);
         Ok(StepOutcome::Continue)
     }
+}
 
-    pub fn op_heap_alloc(&mut self, n_elements: u32) -> Result<StepOutcome> {
-        let n: usize = n_elements as usize;
+impl vihaco::Execute<HeapAlloc> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &HeapAlloc) -> Self::Effect {
+        self.clear_pending_pc();
+        let n = instruction.0 as usize;
         if self.stack.len() < n {
             return Err(eyre::eyre!("stack underflow"));
         }
         let start = self.stack.len() - n;
-        let values: Box<[Word]> = self.stack.drain(start..).collect();
+        let values: Box<[Word]> = self.stack.remove_range(start, self.stack.len()).into();
         let heap_id = self.push_heap_object(values);
         self.stack_push(encode_heap_ref(heap_id));
         Ok(StepOutcome::Continue)
     }
+}
 
-    pub fn op_get_item(&mut self) -> Result<StepOutcome> {
-        let index = Self::heap_index(self.stack_pop()?)?;
+impl vihaco::Execute<GetItem> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &GetItem) -> Self::Effect {
+        self.clear_pending_pc();
+        let index = match decode_i64(self.stack_pop()?) {
+            index if index >= 0 => usize::try_from(index)
+                .map_err(|_| eyre::eyre!("heap index {} does not fit in usize", index))?,
+            index => {
+                return Err(eyre::eyre!(
+                    "heap index must be non-negative, got {}",
+                    index
+                ));
+            }
+        };
         let heap_id = decode_heap_ref(self.stack_pop()?);
         let value = *self
             .heap_object(heap_id)?
@@ -362,131 +514,1772 @@ impl CPU {
         self.stack_push(value);
         Ok(StepOutcome::Continue)
     }
+}
 
-    pub fn op_heap_dealloc(&mut self) -> Result<StepOutcome> {
+impl vihaco::Execute<HeapDealloc> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &HeapDealloc) -> Self::Effect {
+        self.clear_pending_pc();
         let id = decode_heap_ref(self.stack_pop()?);
         self.dealloc_heap_object(id)?;
         Ok(StepOutcome::Continue)
     }
+}
 
-    pub fn op_const(&mut self, v: Word) -> Result<StepOutcome> {
-        self.stack.push(v);
+impl vihaco::Execute<ConstI32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &ConstI32) -> Self::Effect {
+        self.clear_pending_pc();
+        self.stack.push(instruction.0);
         Ok(StepOutcome::Continue)
-    }
-
-    fn heap_index(value: Word) -> Result<usize> {
-        match decode_i64(value) {
-            index if index >= 0 => usize::try_from(index)
-                .map_err(|_| eyre::eyre!("heap index {} does not fit in usize", index)),
-            index => Err(eyre::eyre!(
-                "heap index must be non-negative, got {}",
-                index
-            )),
-        }
     }
 }
 
+impl vihaco::Execute<ConstI64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &ConstI64) -> Self::Effect {
+        self.clear_pending_pc();
+        self.stack.push(instruction.0);
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<ConstU32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &ConstU32) -> Self::Effect {
+        self.clear_pending_pc();
+        self.stack.push(instruction.0);
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<ConstU64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &ConstU64) -> Self::Effect {
+        self.clear_pending_pc();
+        self.stack.push(instruction.0);
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<ConstF32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &ConstF32) -> Self::Effect {
+        self.clear_pending_pc();
+        self.stack.push(instruction.0);
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<ConstF64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &ConstF64) -> Self::Effect {
+        self.clear_pending_pc();
+        self.stack.push(instruction.0);
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<ConstBool> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &ConstBool) -> Self::Effect {
+        self.clear_pending_pc();
+        self.stack.push(instruction.0);
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<ConstString> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &ConstString) -> Self::Effect {
+        self.clear_pending_pc();
+        self.stack.push(instruction.0);
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<ConstFunctionRef> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &ConstFunctionRef) -> Self::Effect {
+        self.clear_pending_pc();
+        self.stack.push(instruction.0);
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<ConstHeapRef> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, instruction: &ConstHeapRef) -> Self::Effect {
+        self.clear_pending_pc();
+        self.stack.push(instruction.0);
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<AddI32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &AddI32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_i32(decode_i32(lhs).wrapping_add(decode_i32(rhs)))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<AddF32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &AddF32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_f32(decode_f32(lhs) + decode_f32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<AddI64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &AddI64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_i64(decode_i64(lhs).wrapping_add(decode_i64(rhs)))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<AddU32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &AddU32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_u32(decode_u32(lhs).wrapping_add(decode_u32(rhs)))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<AddU64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &AddU64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_u64(decode_u64(lhs).wrapping_add(decode_u64(rhs)))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<AddF64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &AddF64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_f64(decode_f64(lhs) + decode_f64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<SubI32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &SubI32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_i32(decode_i32(lhs).wrapping_sub(decode_i32(rhs)))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<SubI64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &SubI64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_i64(decode_i64(lhs).wrapping_sub(decode_i64(rhs)))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<SubU32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &SubU32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_u32(decode_u32(lhs).wrapping_sub(decode_u32(rhs)))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<SubU64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &SubU64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_u64(decode_u64(lhs).wrapping_sub(decode_u64(rhs)))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<SubF32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &SubF32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_f32(decode_f32(lhs) - decode_f32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<SubF64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &SubF64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_f64(decode_f64(lhs) - decode_f64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<MulI32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &MulI32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_i32(decode_i32(lhs).wrapping_mul(decode_i32(rhs)))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<MulI64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &MulI64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_i64(decode_i64(lhs).wrapping_mul(decode_i64(rhs)))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<MulU32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &MulU32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_u32(decode_u32(lhs).wrapping_mul(decode_u32(rhs)))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<MulU64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &MulU64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_u64(decode_u64(lhs).wrapping_mul(decode_u64(rhs)))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<MulF32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &MulF32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_f32(decode_f32(lhs) * decode_f32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<MulF64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &MulF64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_f64(decode_f64(lhs) * decode_f64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<DivI32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &DivI32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.try_replace_top_two_with(|lhs, rhs| {
+                decode_i32(lhs)
+                    .checked_div(decode_i32(rhs))
+                    .ok_or_else(|| eyre::eyre!("integer division error"))
+                    .map(encode_i32)
+            })?;
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<DivI64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &DivI64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.try_replace_top_two_with(|lhs, rhs| {
+                decode_i64(lhs)
+                    .checked_div(decode_i64(rhs))
+                    .ok_or_else(|| eyre::eyre!("integer division error"))
+                    .map(encode_i64)
+            })?;
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<DivU32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &DivU32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.try_replace_top_two_with(|lhs, rhs| {
+                decode_u32(lhs)
+                    .checked_div(decode_u32(rhs))
+                    .ok_or_else(|| eyre::eyre!("integer division error"))
+                    .map(encode_u32)
+            })?;
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<DivU64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &DivU64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.try_replace_top_two_with(|lhs, rhs| {
+                decode_u64(lhs)
+                    .checked_div(decode_u64(rhs))
+                    .ok_or_else(|| eyre::eyre!("integer division error"))
+                    .map(encode_u64)
+            })?;
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<DivF32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &DivF32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_f32(decode_f32(lhs) / decode_f32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<DivF64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &DivF64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_f64(decode_f64(lhs) / decode_f64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<RemI32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &RemI32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.try_replace_top_two_with(|lhs, rhs| {
+                decode_i32(lhs)
+                    .checked_rem(decode_i32(rhs))
+                    .ok_or_else(|| eyre::eyre!("integer remainder error"))
+                    .map(encode_i32)
+            })?;
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<RemI64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &RemI64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.try_replace_top_two_with(|lhs, rhs| {
+                decode_i64(lhs)
+                    .checked_rem(decode_i64(rhs))
+                    .ok_or_else(|| eyre::eyre!("integer remainder error"))
+                    .map(encode_i64)
+            })?;
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<RemU32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &RemU32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.try_replace_top_two_with(|lhs, rhs| {
+                decode_u32(lhs)
+                    .checked_rem(decode_u32(rhs))
+                    .ok_or_else(|| eyre::eyre!("integer remainder error"))
+                    .map(encode_u32)
+            })?;
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<RemU64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &RemU64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.try_replace_top_two_with(|lhs, rhs| {
+                decode_u64(lhs)
+                    .checked_rem(decode_u64(rhs))
+                    .ok_or_else(|| eyre::eyre!("integer remainder error"))
+                    .map(encode_u64)
+            })?;
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<RemF32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &RemF32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_f32(decode_f32(lhs) % decode_f32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<RemF64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &RemF64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_f64(decode_f64(lhs) % decode_f64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<NegI32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &NegI32) -> Self::Effect {
+        self.clear_pending_pc();
+        let value = decode_i32(self.stack_pop()?).wrapping_neg();
+        self.stack_push(encode_i32(value));
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<NegI64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &NegI64) -> Self::Effect {
+        self.clear_pending_pc();
+        let value = decode_i64(self.stack_pop()?).wrapping_neg();
+        self.stack_push(encode_i64(value));
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<NegF32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &NegF32) -> Self::Effect {
+        self.clear_pending_pc();
+        let value = -decode_f32(self.stack_pop()?);
+        self.stack_push(encode_f32(value));
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<NegF64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &NegF64) -> Self::Effect {
+        self.clear_pending_pc();
+        let value = -decode_f64(self.stack_pop()?);
+        self.stack_push(encode_f64(value));
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<ShlI32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &ShlI32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_i32(decode_i32(lhs).wrapping_shl(decode_u32(rhs) & 31))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<ShlI64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &ShlI64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_i64(decode_i64(lhs).wrapping_shl(decode_u32(rhs) & 63))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<ShlU32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &ShlU32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_u32(decode_u32(lhs).wrapping_shl(decode_u32(rhs) & 31))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<ShlU64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &ShlU64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_u64(decode_u64(lhs).wrapping_shl(decode_u32(rhs) & 63))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<ShrI32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &ShrI32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_i32(decode_i32(lhs).wrapping_shr(decode_u32(rhs) & 31))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<ShrI64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &ShrI64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_i64(decode_i64(lhs).wrapping_shr(decode_u32(rhs) & 63))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<ShrU32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &ShrU32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_u32(decode_u32(lhs).wrapping_shr(decode_u32(rhs) & 31))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<ShrU64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &ShrU64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_u64(decode_u64(lhs).wrapping_shr(decode_u32(rhs) & 63))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<RolI32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &RolI32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_i32(decode_i32(lhs).rotate_left(decode_u32(rhs)))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<RolI64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &RolI64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_i64(decode_i64(lhs).rotate_left(decode_u32(rhs)))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<RolU32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &RolU32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_u32(decode_u32(lhs).rotate_left(decode_u32(rhs)))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<RolU64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &RolU64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_u64(decode_u64(lhs).rotate_left(decode_u32(rhs)))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<RorI32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &RorI32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_i32(decode_i32(lhs).rotate_right(decode_u32(rhs)))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<RorI64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &RorI64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_i64(decode_i64(lhs).rotate_right(decode_u32(rhs)))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<RorU32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &RorU32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_u32(decode_u32(lhs).rotate_right(decode_u32(rhs)))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<RorU64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &RorU64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack.replace_top_two_with(|lhs, rhs| {
+                encode_u64(decode_u64(lhs).rotate_right(decode_u32(rhs)))
+            });
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<BitAndI32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &BitAndI32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_i32(decode_i32(lhs) & decode_i32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<BitAndI64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &BitAndI64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_i64(decode_i64(lhs) & decode_i64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<BitAndU32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &BitAndU32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_u32(decode_u32(lhs) & decode_u32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<BitAndU64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &BitAndU64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_u64(decode_u64(lhs) & decode_u64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<BitOrI32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &BitOrI32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_i32(decode_i32(lhs) | decode_i32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<BitOrI64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &BitOrI64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_i64(decode_i64(lhs) | decode_i64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<BitOrU32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &BitOrU32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_u32(decode_u32(lhs) | decode_u32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<BitOrU64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &BitOrU64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_u64(decode_u64(lhs) | decode_u64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<BitXorI32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &BitXorI32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_i32(decode_i32(lhs) ^ decode_i32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<BitXorI64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &BitXorI64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_i64(decode_i64(lhs) ^ decode_i64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<BitXorU32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &BitXorU32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_u32(decode_u32(lhs) ^ decode_u32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<BitXorU64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &BitXorU64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_u64(decode_u64(lhs) ^ decode_u64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<Not> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &Not) -> Self::Effect {
+        self.clear_pending_pc();
+        let value = !canonical_bool(self.stack_pop()?)?;
+        self.stack_push(encode_bool(value));
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<And> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &And) -> Self::Effect {
+        self.clear_pending_pc();
+        let rhs = canonical_bool(self.stack_pop()?)?;
+        let lhs = canonical_bool(self.stack_pop()?)?;
+        self.stack_push(encode_bool(lhs && rhs));
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<Or> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &Or) -> Self::Effect {
+        self.clear_pending_pc();
+        let rhs = canonical_bool(self.stack_pop()?)?;
+        let lhs = canonical_bool(self.stack_pop()?)?;
+        self.stack_push(encode_bool(lhs || rhs));
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<Xor> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &Xor) -> Self::Effect {
+        self.clear_pending_pc();
+        let rhs = canonical_bool(self.stack_pop()?)?;
+        let lhs = canonical_bool(self.stack_pop()?)?;
+        self.stack_push(encode_bool(lhs ^ rhs));
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<EqI32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &EqI32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_i32(lhs) == decode_i32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<EqI64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &EqI64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_i64(lhs) == decode_i64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<EqU32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &EqU32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_u32(lhs) == decode_u32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<EqU64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &EqU64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_u64(lhs) == decode_u64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<EqF32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &EqF32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_f32(lhs) == decode_f32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<EqF64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &EqF64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_f64(lhs) == decode_f64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<NeI32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &NeI32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_i32(lhs) != decode_i32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<NeI64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &NeI64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_i64(lhs) != decode_i64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<NeU32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &NeU32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_u32(lhs) != decode_u32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<NeU64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &NeU64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_u64(lhs) != decode_u64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<NeF32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &NeF32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_f32(lhs) != decode_f32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<NeF64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &NeF64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_f64(lhs) != decode_f64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<LtI32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &LtI32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_i32(lhs) < decode_i32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<LtI64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &LtI64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_i64(lhs) < decode_i64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<LtU32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &LtU32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_u32(lhs) < decode_u32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<LtU64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &LtU64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_u64(lhs) < decode_u64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<LtF32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &LtF32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_f32(lhs) < decode_f32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<LtF64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &LtF64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_f64(lhs) < decode_f64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<GtI32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &GtI32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_i32(lhs) > decode_i32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<GtI64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &GtI64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_i64(lhs) > decode_i64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<GtU32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &GtU32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_u32(lhs) > decode_u32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<GtU64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &GtU64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_u64(lhs) > decode_u64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<GtF32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &GtF32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_f32(lhs) > decode_f32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<GtF64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &GtF64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_f64(lhs) > decode_f64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<LeI32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &LeI32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_i32(lhs) <= decode_i32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<LeI64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &LeI64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_i64(lhs) <= decode_i64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<LeU32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &LeU32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_u32(lhs) <= decode_u32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<LeU64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &LeU64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_u64(lhs) <= decode_u64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<LeF32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &LeF32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_f32(lhs) <= decode_f32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<LeF64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &LeF64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_f64(lhs) <= decode_f64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<GeI32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &GeI32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_i32(lhs) >= decode_i32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<GeI64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &GeI64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_i64(lhs) >= decode_i64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<GeU32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &GeU32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_u32(lhs) >= decode_u32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<GeU64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &GeU64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_u64(lhs) >= decode_u64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<GeF32> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &GeF32) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_f32(lhs) >= decode_f32(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl vihaco::Execute<GeF64> for CPU {
+    type Message = None;
+    type Effect = Result<StepOutcome>;
+
+    #[inline(never)]
+    fn execute(&mut self, _message: Self::Message, _instruction: &GeF64) -> Self::Effect {
+        self.clear_pending_pc();
+        unsafe {
+            self.stack
+                .replace_top_two_with(|lhs, rhs| encode_bool(decode_f64(lhs) >= decode_f64(rhs)));
+        }
+        Ok(StepOutcome::Continue)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, vihaco::Message)]
+pub struct None;
+
+#[derive(Debug, Clone, PartialEq, vihaco::Message)]
+pub struct FunctionInfo {
+    pub arity: u32,
+    pub start_address: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, vihaco::Message)]
+pub struct Print(pub String);
+
 #[cfg(test)]
-#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
-    use vihaco::{Effects, GeneratedComponent, frame::Frame, traits::StackMemory};
-    use vihaco_parser::Ident;
-
-    trait ExecuteInstruction {
-        fn execute_instruction(&mut self, instruction: RuntimeInstruction) -> Result<StepOutcome>;
-    }
-
-    impl ExecuteInstruction for CPU {
-        fn execute_instruction(&mut self, instruction: RuntimeInstruction) -> Result<StepOutcome> {
-            vihaco::expect_exactly_one_effect(GeneratedComponent::execute_generated(
-                self,
-                &instruction,
-                CPUMessage::None,
-            )?)
-        }
-    }
+    use crate::data::cpu_dialect::{
+        AddI32, Branch, ConstI64, IndirectCall, Print as PrintInstruction, Return,
+    };
+    use vihaco::{frame::Frame, Execute};
 
     #[test]
-    fn cpu_generated_component_executes_instruction_without_message() {
+    fn execute_const_pushes_value() {
         let mut cpu = CPU::default();
-
-        GeneratedComponent::execute_generated(
-            &mut cpu,
-            &RuntimeInstruction::ConstI64(encode_i64(7)),
-            CPUMessage::None,
-        )
-        .unwrap();
-
+        let outcome = Execute::execute(&mut cpu, None, &ConstI64(encode_i64(7))).unwrap();
+        assert_eq!(outcome, StepOutcome::Continue);
         assert_eq!(cpu.stack(), &vec![encode_i64(7)]);
     }
 
     #[test]
-    fn execute_instruction_applies_control_flow_without_action() {
+    fn execute_branch_sets_pending_pc() {
         let mut cpu = CPU::default();
-
-        let branch = cpu
-            .execute_instruction(RuntimeInstruction::Branch(9))
-            .unwrap();
-        assert_eq!(branch, StepOutcome::Continue);
+        let outcome = Execute::execute(&mut cpu, None, &Branch(9)).unwrap();
+        assert_eq!(outcome, StepOutcome::Continue);
         assert_eq!(cpu.take_pending_pc(), Some(9));
-
-        let halt = cpu.execute_instruction(RuntimeInstruction::Halt).unwrap();
-        assert_eq!(halt, StepOutcome::Halt);
-        assert_eq!(cpu.take_pending_pc(), None);
     }
 
     #[test]
-    fn op_return_stores_terminal_values_in_runtime_state() {
+    fn execute_return_stores_terminal_values() {
         let mut cpu = CPU::default();
         cpu.push_frame(Frame {
             base: 0,
             span: (0, 0, 0),
-            function: None,
+            function: Option::None,
             ret_pc: 0,
         });
         cpu.stack_push(encode_i64(7));
 
-        let outcome = cpu
-            .execute_instruction(RuntimeInstruction::Return(1))
-            .unwrap();
-
+        let outcome = Execute::execute(&mut cpu, None, &Return(1)).unwrap();
         assert_eq!(outcome, StepOutcome::Return);
         assert_eq!(cpu.return_values(), &[encode_i64(7)]);
     }
 
     #[test]
-    fn op_return_restores_callers_pc() {
-        let mut cpu = CPU {
-            current_pc: 10,
-            ..Default::default()
-        };
-        // Outer ("main") frame so the inner Return takes the Continue branch.
-        cpu.push_frame(Frame {
-            base: 0,
-            span: (0, 0, 0),
-            function: None,
-            ret_pc: 0,
-        });
-
-        // Caller would be executing `call 0, 100` at some PC; op_call sets
-        // pending_pc to the callee target.
-        cpu.execute_instruction(RuntimeInstruction::Call(0, 100))
-            .unwrap();
-        assert_eq!(cpu.take_pending_pc(), Some(100));
-        assert_eq!(cpu.frames[1].ret_pc, 11);
-
-        // Callee returns immediately. pending_pc should be restored to the
-        // instruction after the call.
-        let outcome = cpu
-            .execute_instruction(RuntimeInstruction::Return(0))
-            .unwrap();
-        assert_eq!(outcome, StepOutcome::Continue);
-        assert_eq!(cpu.take_pending_pc(), Some(11),);
-    }
-
-    #[test]
-    fn op_indirect_call_records_return_pc_after_call_site() {
+    fn execute_indirect_call_consumes_function_info() {
         let mut cpu = CPU {
             current_pc: 10,
             ..Default::default()
@@ -494,375 +2287,45 @@ mod tests {
         cpu.push_frame(Frame {
             base: 0,
             span: (0, 0, 0),
-            function: None,
+            function: Option::None,
             ret_pc: 0,
         });
-
-        // IndirectCall pops (top → bottom): target, arity, FunctionRef.
         cpu.stack_push(encode_function_ref(7));
-        cpu.stack_push(encode_u32(0));
-        cpu.stack_push(encode_u32(100));
 
-        cpu.execute_instruction(RuntimeInstruction::IndirectCall)
-            .unwrap();
+        let outcome = Execute::execute(
+            &mut cpu,
+            FunctionInfo {
+                arity: 0,
+                start_address: 100,
+            },
+            &IndirectCall,
+        )
+        .unwrap();
+        assert_eq!(outcome, StepOutcome::Continue);
         assert_eq!(cpu.take_pending_pc(), Some(100));
         assert_eq!(cpu.frames[1].ret_pc, 11);
+    }
 
-        let outcome = cpu
-            .execute_instruction(RuntimeInstruction::Return(0))
-            .unwrap();
+    #[test]
+    fn execute_print_consumes_message_and_stack_value() {
+        let mut cpu = CPU::default();
+        cpu.stack_push(encode_i64(42));
+
+        let outcome =
+            Execute::execute(&mut cpu, super::Print("hello".into()), &PrintInstruction).unwrap();
         assert_eq!(outcome, StepOutcome::Continue);
-        assert_eq!(cpu.take_pending_pc(), Some(11));
-    }
-
-    #[test]
-    fn op_return_keeps_bottom_of_frame_when_callee_leaves_scratch() {
-        let mut cpu = CPU::default();
-        // Outer frame so Return takes the Continue branch.
-        cpu.push_frame(Frame {
-            base: 0,
-            span: (0, 0, 0),
-            function: None,
-            ret_pc: 0,
-        });
-
-        // Simulate a callee frame holding [scratch_a, scratch_b, return_val]
-        // where only `return_val` (the top) should survive `ret 1`.
-        cpu.push_frame(Frame {
-            base: 0,
-            span: (0, 0, 0),
-            function: None,
-            ret_pc: 0,
-        });
-        cpu.stack_push(encode_i64(111)); // scratch — bottom of callee frame
-        cpu.stack_push(encode_i64(222)); // scratch — middle
-        cpu.stack_push(encode_i64(999)); // intended return value — top
-
-        let outcome = cpu
-            .execute_instruction(RuntimeInstruction::Return(1))
-            .unwrap();
-        assert_eq!(outcome, StepOutcome::Continue);
-
-        assert_eq!(cpu.stack(), &vec![encode_i64(999)],);
-    }
-
-    #[test]
-    fn op_heap_alloc_preserves_natural_push_order_and_returns_heap_ref() {
-        let mut cpu = CPU::default();
-        cpu.stack_push(encode_i64(10));
-        cpu.stack_push(encode_i64(20));
-        cpu.stack_push(encode_i64(30));
-
-        let outcome = cpu
-            .execute_instruction(RuntimeInstruction::HeapAlloc(3))
-            .unwrap();
-
-        assert_eq!(outcome, StepOutcome::Continue);
-        assert_eq!(cpu.stack(), &vec![encode_heap_ref(0)]);
-        assert_eq!(
-            cpu.heap.get(0).unwrap(),
-            &[encode_i64(10), encode_i64(20), encode_i64(30)]
-        );
-    }
-
-    #[test]
-    fn op_heap_alloc_supports_empty_heap_objects() {
-        let mut cpu = CPU::default();
-
-        let outcome = cpu
-            .execute_instruction(RuntimeInstruction::HeapAlloc(0))
-            .unwrap();
-
-        assert_eq!(outcome, StepOutcome::Continue);
-        assert_eq!(cpu.stack(), &vec![encode_heap_ref(0)]);
-        assert_eq!(cpu.heap.get(0).unwrap(), &[] as &[Word]);
-    }
-
-    #[test]
-    fn op_get_item_reads_heap_value() {
-        let mut cpu = CPU::default();
-        cpu.stack_push(encode_i64(10));
-        cpu.stack_push(encode_i64(20));
-        cpu.stack_push(encode_i64(30));
-        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(3))
-            .unwrap();
-        cpu.stack_push(encode_u32(1));
-
-        let outcome = cpu
-            .execute_instruction(RuntimeInstruction::GetItem)
-            .unwrap();
-
-        assert_eq!(outcome, StepOutcome::Continue);
-        assert_eq!(cpu.stack(), &vec![encode_i64(20)]);
-    }
-
-    #[test]
-    fn op_get_item_rejects_non_heap_refs() {
-        let mut cpu = CPU::default();
-        cpu.stack_push(encode_i64(7));
-        cpu.stack_push(encode_u32(0));
-
-        let err = cpu
-            .execute_instruction(RuntimeInstruction::GetItem)
-            .unwrap_err();
-
-        assert!(err.to_string().contains("heap"));
-    }
-
-    #[test]
-    fn op_get_item_rejects_invalid_heap_ids() {
-        let mut cpu = CPU::default();
-        cpu.stack_push(encode_heap_ref(99));
-        cpu.stack_push(encode_u32(0));
-
-        let err = cpu
-            .execute_instruction(RuntimeInstruction::GetItem)
-            .unwrap_err();
-
-        assert!(err.to_string().contains("heap"));
-    }
-
-    #[test]
-    fn op_get_item_rejects_out_of_bounds_indices() {
-        let mut cpu = CPU::default();
-        cpu.stack_push(encode_i64(10));
-        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
-            .unwrap();
-        cpu.stack_push(encode_u32(3));
-
-        let err = cpu
-            .execute_instruction(RuntimeInstruction::GetItem)
-            .unwrap_err();
-
-        assert!(err.to_string().contains("index"));
-    }
-
-    #[test]
-    fn reset_clears_heap_allocations() {
-        let mut cpu = CPU::default();
-        cpu.stack_push(encode_i64(10));
-        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
-            .unwrap();
-
-        cpu.reset();
-
-        assert!(cpu.heap.is_empty());
         assert!(cpu.stack().is_empty());
     }
 
     #[test]
-    fn execute_generated_dispatches_instruction_without_message() {
-        let mut cpu = CPU::default();
-        cpu.push_frame(Frame {
-            base: 0,
-            span: (0, 0, 0),
-            function: None,
-            ret_pc: 0,
-        });
-
-        let outcome = GeneratedComponent::execute_generated(
-            &mut cpu,
-            &RuntimeInstruction::ConstI64(encode_i64(99)),
-            CPUMessage::None,
-        )
-        .unwrap();
-
-        assert_eq!(outcome, Effects::one(StepOutcome::Continue));
-        assert_eq!(cpu.stack(), &vec![encode_i64(99)]);
-    }
-
-    #[test]
-    fn execute_generated_function_info_pushes_arity_and_start_address() {
-        let mut cpu = CPU::default();
-        cpu.push_frame(Frame {
-            base: 0,
-            span: (0, 0, 0),
-            function: None,
-            ret_pc: 0,
-        });
-
-        let outcome = GeneratedComponent::execute_generated(
-            &mut cpu,
-            &RuntimeInstruction::Label(Ident("label".to_owned())),
-            CPUMessage::FunctionInfo {
-                arity: 2,
-                start_address: 42,
-            },
-        )
-        .unwrap();
-
-        assert_eq!(outcome, Effects::one(StepOutcome::Continue));
-        // arity pushed first, then start_address
-        assert_eq!(cpu.stack(), &vec![encode_u32(2), encode_u32(42)]);
-    }
-
-    #[test]
-    fn execute_generated_print_returns_control_effect_and_pops_stack() {
-        let mut cpu = CPU::default();
-        cpu.push_frame(Frame {
-            base: 0,
-            span: (0, 0, 0),
-            function: None,
-            ret_pc: 0,
-        });
-        cpu.stack_push(encode_i64(42));
-
-        let outcome = GeneratedComponent::execute_generated(
-            &mut cpu,
-            &RuntimeInstruction::Print,
-            CPUMessage::Print("hello".into()),
-        )
-        .unwrap();
-
-        assert_eq!(outcome, Effects::one(StepOutcome::Continue));
-        assert!(cpu.stack().is_empty());
-    }
-
-    #[test]
-    fn execute_generated_print_rejects_wrong_message() {
-        let mut cpu = CPU::default();
-        cpu.push_frame(Frame {
-            base: 0,
-            span: (0, 0, 0),
-            function: None,
-            ret_pc: 0,
-        });
-        cpu.stack_push(encode_i64(42));
-
-        let err = GeneratedComponent::execute_generated(
-            &mut cpu,
-            &RuntimeInstruction::Print,
-            CPUMessage::None,
-        )
-        .unwrap_err();
-
-        assert!(err.to_string().contains("Print requires"));
-    }
-
-    #[test]
-    fn op_heap_dealloc_marks_slot_dead() {
-        let mut cpu = CPU::default();
-        cpu.stack_push(encode_i64(42));
-        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
-            .unwrap();
-        cpu.stack_push(encode_heap_ref(0));
-
-        cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
-            .unwrap();
-
-        assert!(
-            cpu.heap
-                .get(0)
-                .unwrap_err()
-                .to_string()
-                .contains("deallocated")
-        );
-    }
-
-    #[test]
-    fn op_heap_dealloc_slot_is_reused_on_next_alloc() {
-        let mut cpu = CPU::default();
-        cpu.stack_push(encode_i64(1));
-        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
-            .unwrap();
-        cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
-            .unwrap();
-
-        cpu.stack_push(encode_i64(2));
-        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
-            .unwrap();
-
-        assert_eq!(cpu.stack(), &vec![encode_heap_ref(0)]);
-        assert_eq!(cpu.heap.get(0).unwrap(), &[encode_i64(2)]);
-    }
-
-    #[test]
-    fn op_heap_dealloc_rejects_double_free() {
-        let mut cpu = CPU::default();
-        cpu.stack_push(encode_i64(1));
-        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
-            .unwrap();
-        cpu.stack_push(encode_heap_ref(0));
-        cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
-            .unwrap();
-
-        cpu.stack_push(encode_heap_ref(0));
-        let err = cpu
-            .execute_instruction(RuntimeInstruction::HeapDealloc)
-            .unwrap_err();
-
-        assert!(err.to_string().contains("double-free"));
-    }
-
-    #[test]
-    fn op_heap_dealloc_rejects_invalid_id() {
-        let mut cpu = CPU::default();
-        cpu.stack_push(encode_heap_ref(99));
-
-        let err = cpu
-            .execute_instruction(RuntimeInstruction::HeapDealloc)
-            .unwrap_err();
-
-        assert!(err.to_string().contains("invalid heap object id"));
-    }
-
-    #[test]
-    fn reset_clears_free_list() {
-        let mut cpu = CPU::default();
-        cpu.stack_push(encode_i64(1));
-        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
-            .unwrap();
-        cpu.stack_push(encode_heap_ref(0));
-        cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
-            .unwrap();
-
-        cpu.reset();
-
-        assert!(cpu.heap.is_empty());
-    }
-
-    #[test]
-    fn typed_word_arithmetic_canonicalizes_narrow_results() {
+    fn execute_arithmetic_updates_stack() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_i32(i32::MAX));
         cpu.stack_push(encode_i32(1));
-        cpu.execute_instruction(RuntimeInstruction::AddI32).unwrap();
+
+        let outcome = Execute::execute(&mut cpu, None, &AddI32).unwrap();
+        assert_eq!(outcome, StepOutcome::Continue);
         assert_eq!(cpu.stack_pop().unwrap(), encode_i32(i32::MIN));
-
-        cpu.stack_push(encode_u32(u32::MAX));
-        cpu.stack_push(encode_u32(1));
-        cpu.execute_instruction(RuntimeInstruction::AddU32).unwrap();
-        assert_eq!(cpu.stack_pop().unwrap(), 0);
-
-        cpu.stack_push(encode_f32(1.5));
-        cpu.stack_push(encode_f32(2.0));
-        cpu.execute_instruction(RuntimeInstruction::MulF32).unwrap();
-        assert_eq!(decode_f32(cpu.stack_pop().unwrap()), 3.0);
-    }
-
-    #[test]
-    fn integer_division_and_remainder_report_errors() {
-        let mut cpu = CPU::default();
-        cpu.stack_push(encode_i64(7));
-        cpu.stack_push(encode_i64(0));
-        assert!(cpu.execute_instruction(RuntimeInstruction::DivI64).is_err());
-
-        cpu.stack_push(encode_u32(7));
-        cpu.stack_push(encode_u32(0));
-        assert!(cpu.execute_instruction(RuntimeInstruction::RemU32).is_err());
-    }
-
-    #[test]
-    fn boolean_words_must_be_canonical() {
-        let mut cpu = CPU::default();
-        cpu.stack_push(2u64);
-        assert!(cpu.execute_instruction(RuntimeInstruction::Not).is_err());
-
-        cpu.stack_push(2u64);
-        assert!(
-            cpu.execute_instruction(RuntimeInstruction::ConditionalBranch(1, 2))
-                .is_err()
-        );
     }
 }
 
@@ -871,280 +2334,5 @@ fn canonical_bool(value: Word) -> Result<bool> {
         0 => Ok(false),
         1 => Ok(true),
         other => Err(eyre::eyre!("invalid boolean word {}", other)),
-    }
-}
-
-macro_rules! int_wrapping {
-    ($($name:ident {
-        decode: $decode:ident,
-        encode: $encode:ident,
-        operation: $op:ident
-    });+ $(;)?) => {$ (
-        #[inline(always)]
-        fn $name(&mut self) -> Result<StepOutcome> {
-            let rhs = $decode(self.stack_pop()?);
-            let lhs = $decode(self.stack_pop()?);
-            self.stack_push($encode(lhs.$op(rhs)));
-            Ok(StepOutcome::Continue)
-        }
-    )+ };
-}
-
-macro_rules! int_checked {
-    ($($name:ident {
-        decode: $decode:ident,
-        encode: $encode:ident,
-        operation: $op:ident,
-        error: $message:literal
-    });+ $(;)?) => {$ (
-        #[inline(always)]
-        fn $name(&mut self) -> Result<StepOutcome> {
-            let rhs = $decode(self.stack_pop()?);
-            let lhs = $decode(self.stack_pop()?);
-            let value = lhs.$op(rhs).ok_or_else(|| eyre::eyre!($message))?;
-            self.stack_push($encode(value));
-            Ok(StepOutcome::Continue)
-        }
-    )+ };
-}
-
-macro_rules! float_binary {
-    ($($name:ident {
-        decode: $decode:ident,
-        encode: $encode:ident,
-        operator: $op:tt
-    });+ $(;)?) => {$ (
-        #[inline(always)]
-        fn $name(&mut self) -> Result<StepOutcome> {
-            let rhs = $decode(self.stack_pop()?);
-            let lhs = $decode(self.stack_pop()?);
-            self.stack_push($encode(lhs $op rhs));
-            Ok(StepOutcome::Continue)
-        }
-    )+ };
-}
-
-macro_rules! shift {
-    ($($name:ident {
-        decode: $decode:ident,
-        encode: $encode:ident,
-        operation: $op:ident,
-        count_mask: $mask:expr
-    });+ $(;)?) => {$ (
-        #[inline(always)]
-        fn $name(&mut self) -> Result<StepOutcome> {
-            let rhs = decode_u32(self.stack_pop()?);
-            let lhs = $decode(self.stack_pop()?);
-            self.stack_push($encode(lhs.$op(rhs & $mask)));
-            Ok(StepOutcome::Continue)
-        }
-    )+ };
-}
-
-macro_rules! rotate {
-    ($($name:ident {
-        decode: $decode:ident,
-        encode: $encode:ident,
-        operation: $op:ident
-    });+ $(;)?) => {$ (
-        #[inline(always)]
-        fn $name(&mut self) -> Result<StepOutcome> {
-            let rhs = decode_u32(self.stack_pop()?);
-            let lhs = $decode(self.stack_pop()?);
-            self.stack_push($encode(lhs.$op(rhs)));
-            Ok(StepOutcome::Continue)
-        }
-    )+ };
-}
-
-macro_rules! bitwise {
-    ($($name:ident {
-        decode: $decode:ident,
-        encode: $encode:ident,
-        operator: $op:tt
-    });+ $(;)?) => {$ (
-        #[inline(always)]
-        fn $name(&mut self) -> Result<StepOutcome> {
-            let rhs = $decode(self.stack_pop()?);
-            let lhs = $decode(self.stack_pop()?);
-            self.stack_push($encode(lhs $op rhs));
-            Ok(StepOutcome::Continue)
-        }
-    )+ };
-}
-
-macro_rules! compare {
-    ($($name:ident {
-        decode: $decode:ident,
-        operator: $op:tt
-    });+ $(;)?) => {$ (
-        #[inline(always)]
-        fn $name(&mut self) -> Result<StepOutcome> {
-            let rhs = $decode(self.stack_pop()?);
-            let lhs = $decode(self.stack_pop()?);
-            self.stack_push(encode_bool(lhs $op rhs));
-            Ok(StepOutcome::Continue)
-        }
-    )+ };
-}
-
-impl CPU {
-    int_wrapping! {
-        add_i32 { decode: decode_i32, encode: encode_i32, operation: wrapping_add };
-        add_i64 { decode: decode_i64, encode: encode_i64, operation: wrapping_add };
-        add_u32 { decode: decode_u32, encode: encode_u32, operation: wrapping_add };
-        add_u64 { decode: decode_u64, encode: encode_u64, operation: wrapping_add };
-        sub_i32 { decode: decode_i32, encode: encode_i32, operation: wrapping_sub };
-        sub_i64 { decode: decode_i64, encode: encode_i64, operation: wrapping_sub };
-        sub_u32 { decode: decode_u32, encode: encode_u32, operation: wrapping_sub };
-        sub_u64 { decode: decode_u64, encode: encode_u64, operation: wrapping_sub };
-        mul_i32 { decode: decode_i32, encode: encode_i32, operation: wrapping_mul };
-        mul_i64 { decode: decode_i64, encode: encode_i64, operation: wrapping_mul };
-        mul_u32 { decode: decode_u32, encode: encode_u32, operation: wrapping_mul };
-        mul_u64 { decode: decode_u64, encode: encode_u64, operation: wrapping_mul };
-    }
-    int_checked! {
-        div_i32 { decode: decode_i32, encode: encode_i32, operation: checked_div, error: "integer division error" };
-        div_i64 { decode: decode_i64, encode: encode_i64, operation: checked_div, error: "integer division error" };
-        div_u32 { decode: decode_u32, encode: encode_u32, operation: checked_div, error: "integer division error" };
-        div_u64 { decode: decode_u64, encode: encode_u64, operation: checked_div, error: "integer division error" };
-        rem_i32 { decode: decode_i32, encode: encode_i32, operation: checked_rem, error: "integer remainder error" };
-        rem_i64 { decode: decode_i64, encode: encode_i64, operation: checked_rem, error: "integer remainder error" };
-        rem_u32 { decode: decode_u32, encode: encode_u32, operation: checked_rem, error: "integer remainder error" };
-        rem_u64 { decode: decode_u64, encode: encode_u64, operation: checked_rem, error: "integer remainder error" };
-    }
-    float_binary! {
-        add_f32 { decode: decode_f32, encode: encode_f32, operator: + };
-        add_f64 { decode: decode_f64, encode: encode_f64, operator: + };
-        sub_f32 { decode: decode_f32, encode: encode_f32, operator: - };
-        sub_f64 { decode: decode_f64, encode: encode_f64, operator: - };
-        mul_f32 { decode: decode_f32, encode: encode_f32, operator: * };
-        mul_f64 { decode: decode_f64, encode: encode_f64, operator: * };
-        div_f32 { decode: decode_f32, encode: encode_f32, operator: / };
-        div_f64 { decode: decode_f64, encode: encode_f64, operator: / };
-        rem_f32 { decode: decode_f32, encode: encode_f32, operator: % };
-        rem_f64 { decode: decode_f64, encode: encode_f64, operator: % };
-    }
-
-    #[inline(always)]
-    fn neg_i32(&mut self) -> Result<StepOutcome> {
-        let value = decode_i32(self.stack_pop()?).wrapping_neg();
-        self.stack_push(encode_i32(value));
-        Ok(StepOutcome::Continue)
-    }
-    #[inline(always)]
-    fn neg_i64(&mut self) -> Result<StepOutcome> {
-        let value = decode_i64(self.stack_pop()?).wrapping_neg();
-        self.stack_push(encode_i64(value));
-        Ok(StepOutcome::Continue)
-    }
-    #[inline(always)]
-    fn neg_f32(&mut self) -> Result<StepOutcome> {
-        let value = -decode_f32(self.stack_pop()?);
-        self.stack_push(encode_f32(value));
-        Ok(StepOutcome::Continue)
-    }
-    #[inline(always)]
-    fn neg_f64(&mut self) -> Result<StepOutcome> {
-        let value = -decode_f64(self.stack_pop()?);
-        self.stack_push(encode_f64(value));
-        Ok(StepOutcome::Continue)
-    }
-
-    shift! {
-        shl_i32 { decode: decode_i32, encode: encode_i32, operation: wrapping_shl, count_mask: 31 };
-        shl_i64 { decode: decode_i64, encode: encode_i64, operation: wrapping_shl, count_mask: 63 };
-        shl_u32 { decode: decode_u32, encode: encode_u32, operation: wrapping_shl, count_mask: 31 };
-        shl_u64 { decode: decode_u64, encode: encode_u64, operation: wrapping_shl, count_mask: 63 };
-        shr_i32 { decode: decode_i32, encode: encode_i32, operation: wrapping_shr, count_mask: 31 };
-        shr_i64 { decode: decode_i64, encode: encode_i64, operation: wrapping_shr, count_mask: 63 };
-        shr_u32 { decode: decode_u32, encode: encode_u32, operation: wrapping_shr, count_mask: 31 };
-        shr_u64 { decode: decode_u64, encode: encode_u64, operation: wrapping_shr, count_mask: 63 };
-    }
-    rotate! {
-        rol_i32 { decode: decode_i32, encode: encode_i32, operation: rotate_left };
-        rol_i64 { decode: decode_i64, encode: encode_i64, operation: rotate_left };
-        rol_u32 { decode: decode_u32, encode: encode_u32, operation: rotate_left };
-        rol_u64 { decode: decode_u64, encode: encode_u64, operation: rotate_left };
-        ror_i32 { decode: decode_i32, encode: encode_i32, operation: rotate_right };
-        ror_i64 { decode: decode_i64, encode: encode_i64, operation: rotate_right };
-        ror_u32 { decode: decode_u32, encode: encode_u32, operation: rotate_right };
-        ror_u64 { decode: decode_u64, encode: encode_u64, operation: rotate_right };
-    }
-    bitwise! {
-        bitand_i32 { decode: decode_i32, encode: encode_i32, operator: & };
-        bitand_i64 { decode: decode_i64, encode: encode_i64, operator: & };
-        bitand_u32 { decode: decode_u32, encode: encode_u32, operator: & };
-        bitand_u64 { decode: decode_u64, encode: encode_u64, operator: & };
-        bitor_i32 { decode: decode_i32, encode: encode_i32, operator: | };
-        bitor_i64 { decode: decode_i64, encode: encode_i64, operator: | };
-        bitor_u32 { decode: decode_u32, encode: encode_u32, operator: | };
-        bitor_u64 { decode: decode_u64, encode: encode_u64, operator: | };
-        bitxor_i32 { decode: decode_i32, encode: encode_i32, operator: ^ };
-        bitxor_i64 { decode: decode_i64, encode: encode_i64, operator: ^ };
-        bitxor_u32 { decode: decode_u32, encode: encode_u32, operator: ^ };
-        bitxor_u64 { decode: decode_u64, encode: encode_u64, operator: ^ };
-    }
-    compare! {
-        eq_i32 { decode: decode_i32, operator: == };
-        eq_i64 { decode: decode_i64, operator: == };
-        eq_u32 { decode: decode_u32, operator: == };
-        eq_u64 { decode: decode_u64, operator: == };
-        eq_f32 { decode: decode_f32, operator: == };
-        eq_f64 { decode: decode_f64, operator: == };
-        ne_i32 { decode: decode_i32, operator: != };
-        ne_i64 { decode: decode_i64, operator: != };
-        ne_u32 { decode: decode_u32, operator: != };
-        ne_u64 { decode: decode_u64, operator: != };
-        ne_f32 { decode: decode_f32, operator: != };
-        ne_f64 { decode: decode_f64, operator: != };
-        lt_i32 { decode: decode_i32, operator: < };
-        lt_i64 { decode: decode_i64, operator: < };
-        lt_u32 { decode: decode_u32, operator: < };
-        lt_u64 { decode: decode_u64, operator: < };
-        lt_f32 { decode: decode_f32, operator: < };
-        lt_f64 { decode: decode_f64, operator: < };
-        gt_i32 { decode: decode_i32, operator: > };
-        gt_i64 { decode: decode_i64, operator: > };
-        gt_u32 { decode: decode_u32, operator: > };
-        gt_u64 { decode: decode_u64, operator: > };
-        gt_f32 { decode: decode_f32, operator: > };
-        gt_f64 { decode: decode_f64, operator: > };
-        le_i32 { decode: decode_i32, operator: <= };
-        le_i64 { decode: decode_i64, operator: <= };
-        le_u32 { decode: decode_u32, operator: <= };
-        le_u64 { decode: decode_u64, operator: <= };
-        le_f32 { decode: decode_f32, operator: <= };
-        le_f64 { decode: decode_f64, operator: <= };
-        ge_i32 { decode: decode_i32, operator: >= };
-        ge_i64 { decode: decode_i64, operator: >= };
-        ge_u32 { decode: decode_u32, operator: >= };
-        ge_u64 { decode: decode_u64, operator: >= };
-        ge_f32 { decode: decode_f32, operator: >= };
-        ge_f64 { decode: decode_f64, operator: >= };
-    }
-
-    fn op_not(&mut self) -> Result<StepOutcome> {
-        let value = !canonical_bool(self.stack_pop()?)?;
-        self.stack_push(encode_bool(value));
-        Ok(StepOutcome::Continue)
-    }
-    fn op_and(&mut self) -> Result<StepOutcome> {
-        let rhs = canonical_bool(self.stack_pop()?)?;
-        let lhs = canonical_bool(self.stack_pop()?)?;
-        self.stack_push(encode_bool(lhs && rhs));
-        Ok(StepOutcome::Continue)
-    }
-    fn op_or(&mut self) -> Result<StepOutcome> {
-        let rhs = canonical_bool(self.stack_pop()?)?;
-        let lhs = canonical_bool(self.stack_pop()?)?;
-        self.stack_push(encode_bool(lhs || rhs));
-        Ok(StepOutcome::Continue)
-    }
-    fn op_xor(&mut self) -> Result<StepOutcome> {
-        let rhs = canonical_bool(self.stack_pop()?)?;
-        let lhs = canonical_bool(self.stack_pop()?)?;
-        self.stack_push(encode_bool(lhs ^ rhs));
-        Ok(StepOutcome::Continue)
     }
 }

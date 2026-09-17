@@ -1,12 +1,301 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-use crate::{Word, instruction::SurfaceValue};
+use crate::{instruction::SurfaceValue, Word};
 use vihaco::{
     frame::Frame,
     traits::{FrameMemory, StackFrame, StackMemory},
 };
 use vihaco_parser::Ident;
+
+pub mod cpu_dialect {
+    use super::Word;
+
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct Span(pub u32, pub u32, pub u32);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct Label(pub u32);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct FunctionStart;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct FunctionEnd;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct Breakpoint;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct Branch(pub u32);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct ConditionalBranch(pub u32, pub u32);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct Return(pub u32);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct IndirectCall;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct Call(pub u32, pub u32);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct Halt;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct Print;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct LoadI32(pub u32);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct LoadI64(pub u32);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct LoadU32(pub u32);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct LoadU64(pub u32);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct LoadF32(pub u32);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct LoadF64(pub u32);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct LoadBool(pub u32);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct StoreI32(pub u32);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct StoreI64(pub u32);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct StoreU32(pub u32);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct StoreU64(pub u32);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct StoreF32(pub u32);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct StoreF64(pub u32);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct StoreBool(pub u32);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct Dup;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct HeapAlloc(pub u32);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct GetItem;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct HeapDealloc;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct ConstI32(pub Word);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct ConstI64(pub Word);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct ConstU32(pub Word);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct ConstU64(pub Word);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct ConstF32(pub Word);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct ConstF64(pub Word);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct ConstBool(pub Word);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct ConstString(pub Word);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct ConstFunctionRef(pub Word);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct ConstHeapRef(pub Word);
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct AddI32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct AddF32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct AddI64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct AddU32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct AddU64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct AddF64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct SubI32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct SubI64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct SubU32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct SubU64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct SubF32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct SubF64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct MulI32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct MulI64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct MulU32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct MulU64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct MulF32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct MulF64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct DivI32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct DivI64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct DivU32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct DivU64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct DivF32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct DivF64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct RemI32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct RemI64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct RemU32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct RemU64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct RemF32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct RemF64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct NegI32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct NegI64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct NegF32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct NegF64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct ShlI32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct ShlI64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct ShlU32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct ShlU64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct ShrI32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct ShrI64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct ShrU32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct ShrU64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct RolI32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct RolI64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct RolU32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct RolU64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct RorI32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct RorI64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct RorU32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct RorU64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct BitAndI32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct BitAndI64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct BitAndU32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct BitAndU64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct BitOrI32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct BitOrI64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct BitOrU32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct BitOrU64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct BitXorI32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct BitXorI64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct BitXorU32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct BitXorU64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct Not;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct And;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct Or;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct Xor;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct EqI32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct EqI64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct EqU32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct EqU64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct EqF32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct EqF64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct NeI32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct NeI64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct NeU32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct NeU64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct NeF32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct NeF64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct LtI32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct LtI64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct LtU32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct LtU64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct LtF32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct LtF64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct GtI32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct GtI64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct GtU32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct GtU64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct GtF32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct GtF64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct LeI32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct LeI64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct LeU32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct LeU64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct LeF32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct LeF64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct GeI32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct GeI64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct GeU32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct GeU64;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct GeF32;
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct GeF64;
+}
 
 vihaco::component! {
     #[derive(Default, Debug)]
@@ -325,9 +614,9 @@ vihaco::component! {
     }
 }
 
-pub use cpu::CPU;
 pub use cpu::runtime::Instruction as RuntimeInstruction;
 pub use cpu::syntax::Instruction as SurfaceInstruction;
+pub use cpu::CPU;
 
 type HeapSlot = Option<Box<[Word]>>;
 

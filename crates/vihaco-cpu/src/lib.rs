@@ -6,8 +6,11 @@ mod data;
 mod display;
 mod instruction;
 mod outcome;
+#[cfg(test)]
+mod test;
 pub mod word;
-pub use component::CPUMessage;
+pub use component::{FunctionInfo, None, Print};
+pub use data::cpu_dialect;
 pub use data::CPU;
 pub use data::{RuntimeInstruction, SurfaceInstruction};
 pub use instruction::{SurfaceType, SurfaceValue};
