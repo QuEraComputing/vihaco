@@ -27,9 +27,3 @@ impl Frame {
         self.base + self.local_count
     }
 }
-
-/// Local slot requirements by device code within a composite.
-///
-/// Counts include parameters. An absent entry means the function's arity is
-/// its exact local slot requirement for that device.
-pub type LocalCountsByDevice = std::collections::BTreeMap<u8, u32>;

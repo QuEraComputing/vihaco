@@ -363,9 +363,7 @@ impl CPU {
     }
 
     pub fn op_store(&mut self, addr: u32) -> Result<StepOutcome> {
-        self.get_local(addr as usize)?;
         let v: Word = self.stack_pop()?;
-        log::debug!("store value {:?} at addr {}", v, addr);
         *self.get_local_mut(addr as usize)? = v;
         Ok(StepOutcome::Continue)
     }

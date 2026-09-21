@@ -246,12 +246,11 @@ Load/store address this region relative to `Frame.base`. Temporary operands begi
 at `Frame::operands_index()`, which is `base + local_count`. Store cannot enlarge
 the region, and operand operations cannot consume reserved locals.
 
-During resolution, `vihaco_cpu::required_local_count::<DEVICE_CODE>` scans a
-function's surface instructions for one device. Counts include parameters and
+During resolution, the composite scans its own function's surface instructions
+and computes the local count required by its CPU. Counts include parameters and
 every referenced load/store slot, including unreachable instructions. The
-composite author supplies a borrowed `From` conversion for each device; the
-device code is a const generic, so two CPUs with the same instruction type still
-have distinct conversion targets.
+composite owns this logic because it knows how its generated instruction enum
+routes instructions to its devices.
 
 The following example parses a function, records its requirements in
 `FunctionInfo`, and prepares its entry frame:
@@ -260,7 +259,7 @@ The following example parses a function, records its requirements in
 use chumsky::Parser as _;
 use vihaco::{Parse, module::{FunctionInfo, Parameter, Signature}, syntax::ParsedFunction};
 use vihaco::traits::{StackFrame, StackMemory};
-use vihaco_cpu::{CPU, SurfaceType, required_local_count};
+use vihaco_cpu::{CPU, SurfaceType};
 
 #[vihaco::composite]
 struct Machine {
@@ -273,14 +272,15 @@ let parsed = ParsedFunction::<machine::syntax::Instruction, SurfaceType>::parser
     .parse("fn @main(input: u64) -> u64 { cpu::cpu.load_u64 3 cpu::cpu.ret 1 }")
     .into_result().unwrap();
 let arity = u32::try_from(parsed.params.len())?;
-let count = required_local_count::<1, _>(arity, parsed.body.iter())?;
+// The composite's resolver computes this from its own surface instruction enum.
+let count = arity.max(4);
 let function = FunctionInfo {
     name: 0,
     signature: Signature {
         params: vec![Parameter { name: 1, ty: vihaco::Type::U64 }],
         ret: vec![vihaco::Type::U64],
     },
-    local_counts_by_device: [(1, count)].into(),
+    local_count: count,
     start_address: 0,
     end_address: 2,
     file: 0,
@@ -288,7 +288,7 @@ let function = FunctionInfo {
 
 let mut machine = Machine { cpu: CPU::default() };
 machine.cpu.stack_push(42_u64);
-machine.cpu.enter_function(arity, function.start_address, function.local_count_for(1)?, Some(0))?;
+machine.cpu.enter_function(arity, function.start_address, function.local_count, Some(0))?;
 assert_eq!(machine.cpu.stack(), &[42, 0, 0, 0]);
 assert_eq!(machine.cpu.get_frame()?.operands_index(), 4);
 assert_eq!(machine.cpu.take_pending_pc(), Some(function.start_address));
@@ -297,7 +297,7 @@ assert_eq!(machine.cpu.take_pending_pc(), Some(function.start_address));
 let message = vihaco_cpu::CPUMessage::FunctionInfo {
     arity,
     start_address: function.start_address,
-    local_count: function.local_count_for(1)?,
+    local_count: function.local_count,
 };
 # let _ = message;
 # Ok::<(), eyre::Report>(())
@@ -306,7 +306,8 @@ let message = vihaco_cpu::CPUMessage::FunctionInfo {
 
 Consumer resolvers retain responsibility for lowering the parsed body and
 assigning function addresses. Without a recorded requirement for a device,
-`local_count_for` returns the function's arity: its arguments are its only locals.
+The composite supplies the resolved `local_count`; if no additional locals are
+needed, it is the function's arity.
 
 Before a call, load locals or compute argument values onto the caller's operand
 stack. Direct `Call(arity, address)` requires a `CPUMessage::FunctionInfo` and uses

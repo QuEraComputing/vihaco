@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 use crate::color::Themed;
-pub use vihaco_abi::LocalCountsByDevice;
 
 /// A module for a single section.
 #[derive(Debug, Clone, PartialEq)]
@@ -45,23 +44,11 @@ pub struct SourceSymbolInfo {
 pub struct FunctionInfo<Type> {
     pub name: u32, // index into the string interner
     pub signature: Signature<Type>,
-    /// Reserved local slots (including parameters) for each CPU device.
-    /// An absent device requires exactly the signature's parameter count.
-    pub local_counts_by_device: LocalCountsByDevice,
+    /// Reserved local slots, including parameters, for this function.
+    pub local_count: u32,
     pub start_address: u32, // corresponds to a label noop
     pub end_address: u32,   // corresponds to a label noop
     pub file: u32,
-}
-
-impl<Type> FunctionInfo<Type> {
-    /// Local slots for a device, including the function's parameters.
-    /// Without a recorded requirement, the parameters are the only locals.
-    pub fn local_count_for(&self, device_code: u8) -> eyre::Result<u32> {
-        match self.local_counts_by_device.get(&device_code) {
-            Some(&count) => Ok(count),
-            None => Ok(u32::try_from(self.signature.params.len())?),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
