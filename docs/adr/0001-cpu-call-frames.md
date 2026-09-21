@@ -17,7 +17,8 @@ CPU only owns frame mechanics.
                   ^ base                                    ^ operands_index()
 ```
 
-- The local count includes parameter slots. Load/store use `base + index`;
+- The local count includes all parameter slots and therefore is always at least
+  the function arity. Load/store use `base + index`;
   there is no separate `locals_index()`.
 - The caller explicitly loads or computes arguments onto its operand stack.
   Call reuses its top `arity` operands as the callee's parameter slots, placing
@@ -44,7 +45,9 @@ intentionally deferred.
 
 ## Scope and consequences
 
-Arity consistency validation is deferred, both during resolution and execution.
+The CPU validates that the supplied local count is at least the call arity;
+composites remain responsible for deriving the count from their resolved
+instruction bodies.
 Function ownership and cross-device frame-usage validation are also deferred.
 Calling on one CPU establishes a frame only on that CPU; recording requirements
 for another CPU does not create a frame there.

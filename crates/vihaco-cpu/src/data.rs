@@ -494,6 +494,18 @@ impl CPU {
         Ok(())
     }
 
+    pub(crate) fn ensure_local_count_is_at_least_arity(
+        &self,
+        arity: u32,
+        count: u32,
+    ) -> eyre::Result<()> {
+        eyre::ensure!(
+            count >= arity,
+            "local count includes arity, count must be at least arity"
+        );
+        Ok(())
+    }
+
     pub(crate) fn local_address(&self, index: usize) -> eyre::Result<usize> {
         let frame = self.get_frame()?;
         eyre::ensure!(index < frame.local_count, "local index out of bounds");

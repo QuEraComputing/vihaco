@@ -296,9 +296,8 @@ impl CPU {
     /// includes parameters and comes from the composite's function metadata.
     ///
     /// # Errors
-    /// Returns an error for insufficient operand arguments or an overflowing
-    /// frame size or return address. Arity consistency with the target signature
-    /// is not validated.
+    /// Returns an error for insufficient operand arguments, a local count
+    /// smaller than the arity, or an overflowing frame size or return address.
     pub fn enter_function(
         &mut self,
         arity: u32,
@@ -307,6 +306,7 @@ impl CPU {
         function: Option<usize>,
     ) -> eyre::Result<StepOutcome> {
         self.require_operands(arity as usize)?;
+        self.ensure_local_count_is_at_least_arity(arity, local_count)?;
         let base = self.stack.len() - arity as usize;
         let end = base
             .checked_add(local_count as usize)

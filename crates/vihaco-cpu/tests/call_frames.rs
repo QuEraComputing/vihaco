@@ -159,3 +159,14 @@ fn call_requires_metadata_and_does_not_validate_encoded_arity_against_message() 
     assert_eq!(cpu.stack(), &[42, 0]);
     assert_eq!(cpu.take_pending_pc(), Some(5));
 }
+
+#[test]
+fn entry_rejects_local_count_smaller_than_arity_without_mutating_state() {
+    let mut cpu = CPU::default();
+    cpu.stack_mut().extend([10_u64, 20_u64]);
+
+    assert!(cpu.enter_function(2, 42, 1, Some(0)).is_err());
+    assert_eq!(cpu.stack(), &[10, 20]);
+    assert!(cpu.get_frame().is_err());
+    assert_eq!(cpu.take_pending_pc(), None);
+}

@@ -253,7 +253,8 @@ composite owns this logic because it knows how its generated instruction enum
 routes instructions to its devices.
 
 The following example parses a function, records its requirements in
-`FunctionInfo`, and prepares its entry frame:
+`FunctionInfo`, and prepares its entry frame. The `local_count` includes all
+parameter slots, so it must be at least the function arity:
 
 ```rust
 use chumsky::Parser as _;
@@ -305,16 +306,16 @@ let message = vihaco_cpu::CPUMessage::FunctionInfo {
 ```
 
 Consumer resolvers retain responsibility for lowering the parsed body and
-assigning function addresses. Without a recorded requirement for a device,
-The composite supplies the resolved `local_count`; if no additional locals are
-needed, it is the function's arity.
+assigning function addresses. The composite supplies the resolved
+`local_count`; if no additional locals are needed, it is exactly the function's
+arity. The CPU rejects a call or entry frame whose local count is smaller than
+its arity.
 
 Before a call, load locals or compute argument values onto the caller's operand
 stack. Direct `Call(arity, address)` requires a `CPUMessage::FunctionInfo` and uses
 its selected local count. Indirect calls receive arity, address, and local count
 through that message; only the function reference, above the arguments, is popped
-from the operand stack. Metadata is never pushed as operand words. Arity
-consistency validation is deferred.
+from the operand stack. Metadata is never pushed as operand words.
 
 `enter_function` implements frame setup for entry and both call forms. It reuses
 the argument operand slots and appends zero-filled additional locals. `Return(n)`
