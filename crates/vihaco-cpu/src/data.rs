@@ -494,7 +494,7 @@ impl CPU {
         Ok(())
     }
 
-    fn local_address(&self, index: usize) -> eyre::Result<usize> {
+    pub(crate) fn local_address(&self, index: usize) -> eyre::Result<usize> {
         let frame = self.get_frame()?;
         eyre::ensure!(index < frame.local_count, "local index out of bounds");
         frame

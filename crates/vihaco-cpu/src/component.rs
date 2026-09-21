@@ -363,8 +363,12 @@ impl CPU {
     }
 
     pub fn op_store(&mut self, addr: u32) -> Result<StepOutcome> {
-        let v: Word = self.stack_pop()?;
-        *self.get_local_mut(addr as usize)? = v;
+        let address = self.local_address(addr as usize)?;
+        let value: Word = self.stack_pop()?;
+        *self
+            .stack
+            .get_mut(address)
+            .ok_or_else(|| eyre::eyre!("local index out of bounds"))? = value;
         Ok(StepOutcome::Continue)
     }
 

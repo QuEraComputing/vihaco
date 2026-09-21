@@ -124,6 +124,16 @@ fn load_store_cannot_address_operands_or_grow_locals() {
 }
 
 #[test]
+fn failed_store_does_not_consume_operand() {
+    let mut cpu = CPU::default();
+    cpu.enter_function(0, 0, 1, Some(0)).unwrap();
+    cpu.stack_push(99_u64);
+
+    assert!(execute(&mut cpu, I::StoreU64(1)).is_err());
+    assert_eq!(cpu.stack(), &[0, 99]);
+}
+
+#[test]
 fn subsequent_invocations_zero_reused_local_slots() {
     let mut cpu = CPU::default();
     cpu.enter_function(0, 0, 0, Some(0)).unwrap();
