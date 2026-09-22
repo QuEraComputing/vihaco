@@ -44,6 +44,7 @@ pub struct SourceSymbolInfo {
 pub struct FunctionInfo<Type> {
     pub name: u32, // index into the string interner
     pub signature: Signature<Type>,
+    /// Reserved local slots, including parameters, for this function.
     pub local_count: u32,
     pub start_address: u32, // corresponds to a label noop
     pub end_address: u32,   // corresponds to a label noop
