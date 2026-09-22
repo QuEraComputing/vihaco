@@ -1,0 +1,5 @@
+error: unsupported dialect instruction attribute; expected `#[pattern = ...]`
+ --> tests/compile_fail/dialect/unsupported-attribute.rs:8:9
+  |
+8 |         #[derive(Clone)]
+  |         ^^^^^^^^^^^^^^^^

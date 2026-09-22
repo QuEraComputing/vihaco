@@ -1,0 +1,5 @@
+error: named-field dialect instructions are not supported
+ --> tests/compile_fail/dialect/named-fields.rs:8:13
+  |
+8 |         Run { value: u32 },
+  |             ^

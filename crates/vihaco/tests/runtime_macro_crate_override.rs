@@ -1,12 +1,27 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+use chumsky::Parser as _;
 use eyre::Result;
-use vihaco::{Component, Effects, GeneratedComponent, Instruction, Observe, dispatch, observe};
+use vihaco::{
+    Component, Effects, GeneratedComponent, Instruction, Observe, Parse as _, dialect, dispatch,
+    observe,
+};
 
 mod test_root {
     pub use ::vihaco::*;
 }
+
+dialect! {
+    #[vihaco(crate = crate::test_root)]
+    overridden {
+        Run(u32 => u64),
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, crate::test_root::Parse)]
+#[syntax_class(instruction, head = "overridden")]
+pub struct Run(pub u32);
 
 #[derive(Debug, Clone, Instruction)]
 enum TestInstruction {
@@ -61,6 +76,13 @@ impl TestObserver {
 
 #[test]
 fn runtime_macros_honor_explicit_crate_override() {
+    let parsed = overridden::syntax::Run::parser()
+        .parse("overridden.run 5")
+        .into_result()
+        .unwrap();
+    assert_eq!(parsed, overridden::syntax::Run(5));
+    assert_eq!(overridden::Run(5_u64), overridden::Run(5));
+
     let mut component = TestComponent;
     let effects = component
         .execute_generated(&TestInstruction::Run, TestMessage)

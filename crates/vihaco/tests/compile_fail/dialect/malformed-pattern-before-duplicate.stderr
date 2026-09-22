@@ -1,0 +1,5 @@
+error: invalid pattern: found ' ' expected ''', '$', or '`'
+ --> tests/compile_fail/dialect/malformed-pattern-before-duplicate.rs:9:21
+  |
+9 |         #[pattern = "'run  $0"]
+  |                     ^^^^^^^^^^

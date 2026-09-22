@@ -36,7 +36,11 @@ pub use crate as runtime;
 // runtime root as well.
 #[cfg(feature = "derive")]
 pub use vihaco_abi::Instruction;
+#[cfg(feature = "derive")]
+pub use vihaco_parser_derive::Parse;
 
 // Re-export the runtime derives behind the `derive` feature (serde convention).
 #[cfg(feature = "derive")]
-pub use vihaco_runtime_derive::{Message, component_macro, composite, dispatch, machine, observe};
+pub use vihaco_runtime_derive::{
+    Message, component_macro, composite, dialect, dispatch, machine, observe,
+};

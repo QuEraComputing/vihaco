@@ -1,0 +1,5 @@
+error: unsupported dialect attribute; expected documentation or `#[vihaco(crate = ...)]`
+ --> tests/compile_fail/dialect/unsupported-dialect-attribute.rs:7:5
+  |
+7 |     #[allow(dead_code)]
+  |     ^^^^^^^^^^^^^^^^^^^

@@ -1,0 +1,5 @@
+error: unexpected tokens after dialect declaration
+ --> tests/compile_fail/dialect/trailing-tokens.rs:8:5
+  |
+8 |     trailing
+  |     ^^^^^^^^

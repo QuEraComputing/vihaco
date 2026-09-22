@@ -1,0 +1,5 @@
+error: duplicate instruction name `run`
+ --> tests/compile_fail/dialect/duplicate-mnemonic.rs:9:9
+  |
+9 |         #[pattern = "'run $0"]
+  |         ^^^^^^^^^^^^^^^^^^^^^^

@@ -1,0 +1,5 @@
+error: duplicate dialect instruction
+ --> tests/compile_fail/dialect/duplicate-instruction.rs:9:9
+  |
+9 |         Run,
+  |         ^^^

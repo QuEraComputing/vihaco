@@ -2,4 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 pub use vihaco_abi::Instruction;
-pub use vihaco_runtime::{Message, component_macro as component, composite, dispatch, observe};
+pub use vihaco_runtime::{
+    Message, component_macro as component, composite, dialect, dispatch, observe,
+};
