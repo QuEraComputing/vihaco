@@ -70,7 +70,7 @@ self-contained component you can use directly or copy as a starting point.
 | `vihaco-module` | Loadable `Module` model, `ProgramLoader`, host-VM traits (`ProgramCounter`, …), assembly-style `Display`. |
 | `vihaco-runtime` | Component/machine runtime: `GeneratedComponent`, `Effects` sinks, observation machinery, `CompositeMetadata`. Re-exports its derives via its `derive` feature. |
 | `vihaco-runtime-derive` | The proc macros behind `#[derive(Message/Machine)]` and `#[component]` / `#[composite]` / `#[observe]`. Consumed via `vihaco-runtime`. |
-| `vihaco-stdlib` | Standard-library components and observers, currently including `StdoutObserver`. |
+| `vihaco-stdlib` | Standard-library components and observers, including `StdoutObserver` with buffer capture (default), process stdout, and owned-file destinations. |
 | `vihaco-syntax` | Typed SST parsing and module construction (`Resolve`). |
 | `vihaco-parser` | The `Parse<'src>` and `SurfaceInstruction` traits plus lexical, primitive, and collection impls shared by the parser derive. |
 | `vihaco-parser-derive` | `#[derive(Parse)]` — turns instruction, value, and type enums or structs into [chumsky](https://github.com/zesterer/chumsky) parsers via `#[syntax_class]` and `#[pattern]` (see `attr.rs`/`codegen.rs`). |

@@ -10,3 +10,6 @@ authors.workspace = true
 [dependencies]
 eyre = { workspace = true }
 vihaco-runtime = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
