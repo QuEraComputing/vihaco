@@ -16,7 +16,8 @@ this instruction.</p>
 <p>The message should be created by the composite and passed into
 <a href="trait.Execute.html#tymethod.execute" title="method vihaco::Execute::execute"><code>Execute::execute</code></a>.</p>
 <h2 id="example"><a class="doc-anchor" href="#example">§</a>Example</h2>
-<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>vihaco_runtime::Execute;
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>vihaco_runtime::{Component, Execute};
+<span class="kw">use </span>std::convert::Infallible;
 
 <span class="comment">// ALU is a stateless component
 </span><span class="kw">struct </span>ALU;
