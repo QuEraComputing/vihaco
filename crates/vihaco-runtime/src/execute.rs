@@ -15,7 +15,8 @@ use crate::Component;
 /// # Example
 ///
 /// ```
-/// use vihaco_runtime::Execute;
+/// use vihaco_runtime::{Component, Execute};
+/// use std::convert::Infallible;
 ///
 /// // ALU is a stateless component
 /// struct ALU;
