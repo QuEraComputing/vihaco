@@ -415,102 +415,140 @@
 <a href=#415 id=415 data-nosnippet>415</a>    }
 <a href=#416 id=416 data-nosnippet>416</a>
 <a href=#417 id=417 data-nosnippet>417</a>    <span class="kw">fn </span>stack_pop(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; eyre::Result&lt;<span class="self">Self</span>::Value&gt; {
-<a href=#418 id=418 data-nosnippet>418</a>        <span class="self">self</span>.stack
-<a href=#419 id=419 data-nosnippet>419</a>            .pop()
-<a href=#420 id=420 data-nosnippet>420</a>            .ok_or_else(|| <span class="macro">eyre::eyre!</span>(<span class="string">"stack underflow"</span>))
-<a href=#421 id=421 data-nosnippet>421</a>    }
-<a href=#422 id=422 data-nosnippet>422</a>
-<a href=#423 id=423 data-nosnippet>423</a>    <span class="kw">fn </span>stack_push&lt;T: Into&lt;<span class="self">Self</span>::Value&gt;&gt;(<span class="kw-2">&amp;mut </span><span class="self">self</span>, v: T) {
-<a href=#424 id=424 data-nosnippet>424</a>        <span class="self">self</span>.stack.push(v.into());
-<a href=#425 id=425 data-nosnippet>425</a>    }
-<a href=#426 id=426 data-nosnippet>426</a>}
+<a href=#418 id=418 data-nosnippet>418</a>        <span class="self">self</span>.require_operands(<span class="number">1</span>)<span class="question-mark">?</span>;
+<a href=#419 id=419 data-nosnippet>419</a>        <span class="self">self</span>.stack
+<a href=#420 id=420 data-nosnippet>420</a>            .pop()
+<a href=#421 id=421 data-nosnippet>421</a>            .ok_or_else(|| <span class="macro">eyre::eyre!</span>(<span class="string">"stack underflow"</span>))
+<a href=#422 id=422 data-nosnippet>422</a>    }
+<a href=#423 id=423 data-nosnippet>423</a>
+<a href=#424 id=424 data-nosnippet>424</a>    <span class="kw">fn </span>stack_push&lt;T: Into&lt;<span class="self">Self</span>::Value&gt;&gt;(<span class="kw-2">&amp;mut </span><span class="self">self</span>, v: T) {
+<a href=#425 id=425 data-nosnippet>425</a>        <span class="self">self</span>.stack.push(v.into());
+<a href=#426 id=426 data-nosnippet>426</a>    }
 <a href=#427 id=427 data-nosnippet>427</a>
-<a href=#428 id=428 data-nosnippet>428</a><span class="kw">impl </span>StackFrame <span class="kw">for </span>CPU {
-<a href=#429 id=429 data-nosnippet>429</a>    <span class="kw">fn </span>get_frame(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; eyre::Result&lt;<span class="kw-2">&amp;</span>Frame&gt; {
-<a href=#430 id=430 data-nosnippet>430</a>        <span class="self">self</span>.frames
-<a href=#431 id=431 data-nosnippet>431</a>            .last()
-<a href=#432 id=432 data-nosnippet>432</a>            .ok_or_else(|| <span class="macro">eyre::eyre!</span>(<span class="string">"no current frame"</span>))
-<a href=#433 id=433 data-nosnippet>433</a>    }
-<a href=#434 id=434 data-nosnippet>434</a>
-<a href=#435 id=435 data-nosnippet>435</a>    <span class="kw">fn </span>get_frame_mut(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; eyre::Result&lt;<span class="kw-2">&amp;mut </span>Frame&gt; {
-<a href=#436 id=436 data-nosnippet>436</a>        <span class="self">self</span>.frames
-<a href=#437 id=437 data-nosnippet>437</a>            .last_mut()
-<a href=#438 id=438 data-nosnippet>438</a>            .ok_or_else(|| <span class="macro">eyre::eyre!</span>(<span class="string">"no current frame"</span>))
-<a href=#439 id=439 data-nosnippet>439</a>    }
-<a href=#440 id=440 data-nosnippet>440</a>
-<a href=#441 id=441 data-nosnippet>441</a>    <span class="kw">fn </span>push_frame(<span class="kw-2">&amp;mut </span><span class="self">self</span>, frame: Frame) {
-<a href=#442 id=442 data-nosnippet>442</a>        <span class="self">self</span>.frames.push(frame);
-<a href=#443 id=443 data-nosnippet>443</a>    }
-<a href=#444 id=444 data-nosnippet>444</a>
-<a href=#445 id=445 data-nosnippet>445</a>    <span class="kw">fn </span>pop_frame(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; eyre::Result&lt;Frame&gt; {
-<a href=#446 id=446 data-nosnippet>446</a>        <span class="self">self</span>.frames
-<a href=#447 id=447 data-nosnippet>447</a>            .pop()
-<a href=#448 id=448 data-nosnippet>448</a>            .ok_or_else(|| <span class="macro">eyre::eyre!</span>(<span class="string">"no frame to pop"</span>))
-<a href=#449 id=449 data-nosnippet>449</a>    }
-<a href=#450 id=450 data-nosnippet>450</a>}
+<a href=#428 id=428 data-nosnippet>428</a>    <span class="kw">fn </span>stack_top(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; eyre::Result&lt;<span class="kw-2">&amp;</span><span class="self">Self</span>::Value&gt; {
+<a href=#429 id=429 data-nosnippet>429</a>        <span class="self">self</span>.require_operands(<span class="number">1</span>)<span class="question-mark">?</span>;
+<a href=#430 id=430 data-nosnippet>430</a>        <span class="self">self</span>.stack_get(<span class="self">self</span>.stack.len() - <span class="number">1</span>)
+<a href=#431 id=431 data-nosnippet>431</a>    }
+<a href=#432 id=432 data-nosnippet>432</a>
+<a href=#433 id=433 data-nosnippet>433</a>    <span class="kw">fn </span>stack_top_mut(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; eyre::Result&lt;<span class="kw-2">&amp;mut </span><span class="self">Self</span>::Value&gt; {
+<a href=#434 id=434 data-nosnippet>434</a>        <span class="self">self</span>.require_operands(<span class="number">1</span>)<span class="question-mark">?</span>;
+<a href=#435 id=435 data-nosnippet>435</a>        <span class="self">self</span>.stack_get_mut(<span class="self">self</span>.stack.len() - <span class="number">1</span>)
+<a href=#436 id=436 data-nosnippet>436</a>    }
+<a href=#437 id=437 data-nosnippet>437</a>}
+<a href=#438 id=438 data-nosnippet>438</a>
+<a href=#439 id=439 data-nosnippet>439</a><span class="kw">impl </span>StackFrame <span class="kw">for </span>CPU {
+<a href=#440 id=440 data-nosnippet>440</a>    <span class="kw">fn </span>get_frame(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; eyre::Result&lt;<span class="kw-2">&amp;</span>Frame&gt; {
+<a href=#441 id=441 data-nosnippet>441</a>        <span class="self">self</span>.frames
+<a href=#442 id=442 data-nosnippet>442</a>            .last()
+<a href=#443 id=443 data-nosnippet>443</a>            .ok_or_else(|| <span class="macro">eyre::eyre!</span>(<span class="string">"no current frame"</span>))
+<a href=#444 id=444 data-nosnippet>444</a>    }
+<a href=#445 id=445 data-nosnippet>445</a>
+<a href=#446 id=446 data-nosnippet>446</a>    <span class="kw">fn </span>get_frame_mut(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; eyre::Result&lt;<span class="kw-2">&amp;mut </span>Frame&gt; {
+<a href=#447 id=447 data-nosnippet>447</a>        <span class="self">self</span>.frames
+<a href=#448 id=448 data-nosnippet>448</a>            .last_mut()
+<a href=#449 id=449 data-nosnippet>449</a>            .ok_or_else(|| <span class="macro">eyre::eyre!</span>(<span class="string">"no current frame"</span>))
+<a href=#450 id=450 data-nosnippet>450</a>    }
 <a href=#451 id=451 data-nosnippet>451</a>
-<a href=#452 id=452 data-nosnippet>452</a><span class="kw">impl </span>FrameMemory <span class="kw">for </span>CPU {
-<a href=#453 id=453 data-nosnippet>453</a>    <span class="kw">fn </span>frame_base(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; eyre::Result&lt;usize&gt; {
-<a href=#454 id=454 data-nosnippet>454</a>        <span class="self">self</span>.get_frame().map(|f| f.base)
-<a href=#455 id=455 data-nosnippet>455</a>    }
-<a href=#456 id=456 data-nosnippet>456</a>
-<a href=#457 id=457 data-nosnippet>457</a>    <span class="kw">fn </span>get_local(<span class="kw-2">&amp;</span><span class="self">self</span>, index: usize) -&gt; eyre::Result&lt;<span class="kw-2">&amp;</span><span class="self">Self</span>::Value&gt; {
-<a href=#458 id=458 data-nosnippet>458</a>        <span class="kw">let </span>base = <span class="self">self</span>.frame_base()<span class="question-mark">?</span>;
-<a href=#459 id=459 data-nosnippet>459</a>        <span class="self">self</span>.stack
-<a href=#460 id=460 data-nosnippet>460</a>            .get(base + index)
-<a href=#461 id=461 data-nosnippet>461</a>            .ok_or_else(|| <span class="macro">eyre::eyre!</span>(<span class="string">"local index out of bounds"</span>))
-<a href=#462 id=462 data-nosnippet>462</a>    }
-<a href=#463 id=463 data-nosnippet>463</a>
-<a href=#464 id=464 data-nosnippet>464</a>    <span class="comment">// TODO, this is wrong to extend the vector, because the stack is push from back, so it should be reversed
-<a href=#465 id=465 data-nosnippet>465</a>    </span><span class="kw">fn </span>get_local_mut(<span class="kw-2">&amp;mut </span><span class="self">self</span>, index: usize) -&gt; eyre::Result&lt;<span class="kw-2">&amp;mut </span><span class="self">Self</span>::Value&gt; {
-<a href=#466 id=466 data-nosnippet>466</a>        <span class="kw">let </span>base = <span class="self">self</span>.frame_base()<span class="question-mark">?</span>;
-<a href=#467 id=467 data-nosnippet>467</a>        <span class="kw">let </span>idx = base + index;
-<a href=#468 id=468 data-nosnippet>468</a>        <span class="kw">let </span>len = <span class="self">self</span>.stack.len();
-<a href=#469 id=469 data-nosnippet>469</a>
-<a href=#470 id=470 data-nosnippet>470</a>        <span class="kw">if </span>len &lt;= idx {
-<a href=#471 id=471 data-nosnippet>471</a>            <span class="self">self</span>.stack.resize(idx + <span class="number">1</span>, <span class="number">0</span>);
-<a href=#472 id=472 data-nosnippet>472</a>        }
-<a href=#473 id=473 data-nosnippet>473</a>        <span class="self">self</span>.stack
-<a href=#474 id=474 data-nosnippet>474</a>            .get_mut(idx)
-<a href=#475 id=475 data-nosnippet>475</a>            .ok_or_else(|| <span class="macro">eyre::eyre!</span>(<span class="string">"Invalid local address at {:?}, stack size: {:?}"</span>, idx, len))
-<a href=#476 id=476 data-nosnippet>476</a>    }
-<a href=#477 id=477 data-nosnippet>477</a>}
-<a href=#478 id=478 data-nosnippet>478</a>
-<a href=#479 id=479 data-nosnippet>479</a><span class="kw">impl </span>CPU {
-<a href=#480 id=480 data-nosnippet>480</a>    <span class="kw">pub fn </span>push_heap_object(<span class="kw-2">&amp;mut </span><span class="self">self</span>, values: Box&lt;[Word]&gt;) -&gt; u32 {
-<a href=#481 id=481 data-nosnippet>481</a>        <span class="self">self</span>.heap.alloc(values)
-<a href=#482 id=482 data-nosnippet>482</a>    }
-<a href=#483 id=483 data-nosnippet>483</a>
-<a href=#484 id=484 data-nosnippet>484</a>    <span class="kw">pub fn </span>heap_object(<span class="kw-2">&amp;</span><span class="self">self</span>, id: u32) -&gt; eyre::Result&lt;<span class="kw-2">&amp;</span>[Word]&gt; {
-<a href=#485 id=485 data-nosnippet>485</a>        <span class="self">self</span>.heap.get(id)
-<a href=#486 id=486 data-nosnippet>486</a>    }
-<a href=#487 id=487 data-nosnippet>487</a>
-<a href=#488 id=488 data-nosnippet>488</a>    <span class="kw">pub fn </span>dealloc_heap_object(<span class="kw-2">&amp;mut </span><span class="self">self</span>, id: u32) -&gt; eyre::Result&lt;()&gt; {
-<a href=#489 id=489 data-nosnippet>489</a>        <span class="self">self</span>.heap.dealloc(id)
-<a href=#490 id=490 data-nosnippet>490</a>    }
-<a href=#491 id=491 data-nosnippet>491</a>
-<a href=#492 id=492 data-nosnippet>492</a>    <span class="kw">pub fn </span>take_pending_pc(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;u32&gt; {
-<a href=#493 id=493 data-nosnippet>493</a>        <span class="self">self</span>.pending_pc.take()
-<a href=#494 id=494 data-nosnippet>494</a>    }
-<a href=#495 id=495 data-nosnippet>495</a>
-<a href=#496 id=496 data-nosnippet>496</a>    <span class="kw">pub fn </span>set_pending_pc(<span class="kw-2">&amp;mut </span><span class="self">self</span>, pc: u32) {
-<a href=#497 id=497 data-nosnippet>497</a>        <span class="self">self</span>.pending_pc = <span class="prelude-val">Some</span>(pc);
-<a href=#498 id=498 data-nosnippet>498</a>    }
-<a href=#499 id=499 data-nosnippet>499</a>
-<a href=#500 id=500 data-nosnippet>500</a>    <span class="kw">pub fn </span>clear_pending_pc(<span class="kw-2">&amp;mut </span><span class="self">self</span>) {
-<a href=#501 id=501 data-nosnippet>501</a>        <span class="self">self</span>.pending_pc = <span class="prelude-val">None</span>;
-<a href=#502 id=502 data-nosnippet>502</a>    }
-<a href=#503 id=503 data-nosnippet>503</a>
-<a href=#504 id=504 data-nosnippet>504</a>    <span class="kw">pub fn </span>set_current_pc(<span class="kw-2">&amp;mut </span><span class="self">self</span>, pc: u32) {
-<a href=#505 id=505 data-nosnippet>505</a>        <span class="self">self</span>.current_pc = pc;
-<a href=#506 id=506 data-nosnippet>506</a>    }
-<a href=#507 id=507 data-nosnippet>507</a>
-<a href=#508 id=508 data-nosnippet>508</a>    <span class="kw">pub fn </span>return_values(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;</span>[Word] {
-<a href=#509 id=509 data-nosnippet>509</a>        <span class="kw-2">&amp;</span><span class="self">self</span>.return_values
-<a href=#510 id=510 data-nosnippet>510</a>    }
-<a href=#511 id=511 data-nosnippet>511</a>
-<a href=#512 id=512 data-nosnippet>512</a>    <span class="kw">pub fn </span>set_return_values(<span class="kw-2">&amp;mut </span><span class="self">self</span>, values: Vec&lt;Word&gt;) {
-<a href=#513 id=513 data-nosnippet>513</a>        <span class="self">self</span>.return_values = values;
-<a href=#514 id=514 data-nosnippet>514</a>    }
-<a href=#515 id=515 data-nosnippet>515</a>}
+<a href=#452 id=452 data-nosnippet>452</a>    <span class="kw">fn </span>push_frame(<span class="kw-2">&amp;mut </span><span class="self">self</span>, frame: Frame) {
+<a href=#453 id=453 data-nosnippet>453</a>        <span class="self">self</span>.frames.push(frame);
+<a href=#454 id=454 data-nosnippet>454</a>    }
+<a href=#455 id=455 data-nosnippet>455</a>
+<a href=#456 id=456 data-nosnippet>456</a>    <span class="kw">fn </span>pop_frame(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; eyre::Result&lt;Frame&gt; {
+<a href=#457 id=457 data-nosnippet>457</a>        <span class="self">self</span>.frames
+<a href=#458 id=458 data-nosnippet>458</a>            .pop()
+<a href=#459 id=459 data-nosnippet>459</a>            .ok_or_else(|| <span class="macro">eyre::eyre!</span>(<span class="string">"no frame to pop"</span>))
+<a href=#460 id=460 data-nosnippet>460</a>    }
+<a href=#461 id=461 data-nosnippet>461</a>}
+<a href=#462 id=462 data-nosnippet>462</a>
+<a href=#463 id=463 data-nosnippet>463</a><span class="kw">impl </span>FrameMemory <span class="kw">for </span>CPU {
+<a href=#464 id=464 data-nosnippet>464</a>    <span class="kw">fn </span>frame_base(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; eyre::Result&lt;usize&gt; {
+<a href=#465 id=465 data-nosnippet>465</a>        <span class="self">self</span>.get_frame().map(|f| f.base)
+<a href=#466 id=466 data-nosnippet>466</a>    }
+<a href=#467 id=467 data-nosnippet>467</a>
+<a href=#468 id=468 data-nosnippet>468</a>    <span class="kw">fn </span>get_local(<span class="kw-2">&amp;</span><span class="self">self</span>, index: usize) -&gt; eyre::Result&lt;<span class="kw-2">&amp;</span><span class="self">Self</span>::Value&gt; {
+<a href=#469 id=469 data-nosnippet>469</a>        <span class="kw">let </span>address = <span class="self">self</span>.local_address(index)<span class="question-mark">?</span>;
+<a href=#470 id=470 data-nosnippet>470</a>        <span class="self">self</span>.stack
+<a href=#471 id=471 data-nosnippet>471</a>            .get(address)
+<a href=#472 id=472 data-nosnippet>472</a>            .ok_or_else(|| <span class="macro">eyre::eyre!</span>(<span class="string">"local index out of bounds"</span>))
+<a href=#473 id=473 data-nosnippet>473</a>    }
+<a href=#474 id=474 data-nosnippet>474</a>
+<a href=#475 id=475 data-nosnippet>475</a>    <span class="kw">fn </span>get_local_mut(<span class="kw-2">&amp;mut </span><span class="self">self</span>, index: usize) -&gt; eyre::Result&lt;<span class="kw-2">&amp;mut </span><span class="self">Self</span>::Value&gt; {
+<a href=#476 id=476 data-nosnippet>476</a>        <span class="kw">let </span>address = <span class="self">self</span>.local_address(index)<span class="question-mark">?</span>;
+<a href=#477 id=477 data-nosnippet>477</a>        <span class="self">self</span>.stack
+<a href=#478 id=478 data-nosnippet>478</a>            .get_mut(address)
+<a href=#479 id=479 data-nosnippet>479</a>            .ok_or_else(|| <span class="macro">eyre::eyre!</span>(<span class="string">"local index out of bounds"</span>))
+<a href=#480 id=480 data-nosnippet>480</a>    }
+<a href=#481 id=481 data-nosnippet>481</a>}
+<a href=#482 id=482 data-nosnippet>482</a>
+<a href=#483 id=483 data-nosnippet>483</a><span class="kw">impl </span>CPU {
+<a href=#484 id=484 data-nosnippet>484</a>    <span class="doccomment">/// Number of operands above the current frame's reserved locals.
+<a href=#485 id=485 data-nosnippet>485</a>    /// Before entry, all stack values are available as operands/arguments.
+<a href=#486 id=486 data-nosnippet>486</a>    </span><span class="kw">pub fn </span>operand_count(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; usize {
+<a href=#487 id=487 data-nosnippet>487</a>        <span class="kw">let </span>start = <span class="self">self</span>.frames.last().map_or(<span class="number">0</span>, Frame::operands_index);
+<a href=#488 id=488 data-nosnippet>488</a>        <span class="self">self</span>.stack.len().saturating_sub(start)
+<a href=#489 id=489 data-nosnippet>489</a>    }
+<a href=#490 id=490 data-nosnippet>490</a>
+<a href=#491 id=491 data-nosnippet>491</a>    <span class="attr">#[inline(always)]
+<a href=#492 id=492 data-nosnippet>492</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>require_operands(<span class="kw-2">&amp;</span><span class="self">self</span>, count: usize) -&gt; eyre::Result&lt;()&gt; {
+<a href=#493 id=493 data-nosnippet>493</a>        <span class="macro">eyre::ensure!</span>(<span class="self">self</span>.operand_count() &gt;= count, <span class="string">"stack underflow"</span>);
+<a href=#494 id=494 data-nosnippet>494</a>        <span class="prelude-val">Ok</span>(())
+<a href=#495 id=495 data-nosnippet>495</a>    }
+<a href=#496 id=496 data-nosnippet>496</a>
+<a href=#497 id=497 data-nosnippet>497</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>ensure_local_count_is_at_least_arity(
+<a href=#498 id=498 data-nosnippet>498</a>        <span class="kw-2">&amp;</span><span class="self">self</span>,
+<a href=#499 id=499 data-nosnippet>499</a>        arity: u32,
+<a href=#500 id=500 data-nosnippet>500</a>        count: u32,
+<a href=#501 id=501 data-nosnippet>501</a>    ) -&gt; eyre::Result&lt;()&gt; {
+<a href=#502 id=502 data-nosnippet>502</a>        <span class="macro">eyre::ensure!</span>(
+<a href=#503 id=503 data-nosnippet>503</a>            count &gt;= arity,
+<a href=#504 id=504 data-nosnippet>504</a>            <span class="string">"local count includes arity, count must be at least arity"
+<a href=#505 id=505 data-nosnippet>505</a>        </span>);
+<a href=#506 id=506 data-nosnippet>506</a>        <span class="prelude-val">Ok</span>(())
+<a href=#507 id=507 data-nosnippet>507</a>    }
+<a href=#508 id=508 data-nosnippet>508</a>
+<a href=#509 id=509 data-nosnippet>509</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>local_address(<span class="kw-2">&amp;</span><span class="self">self</span>, index: usize) -&gt; eyre::Result&lt;usize&gt; {
+<a href=#510 id=510 data-nosnippet>510</a>        <span class="kw">let </span>frame = <span class="self">self</span>.get_frame()<span class="question-mark">?</span>;
+<a href=#511 id=511 data-nosnippet>511</a>        <span class="macro">eyre::ensure!</span>(index &lt; frame.local_count, <span class="string">"local index out of bounds"</span>);
+<a href=#512 id=512 data-nosnippet>512</a>        frame
+<a href=#513 id=513 data-nosnippet>513</a>            .base
+<a href=#514 id=514 data-nosnippet>514</a>            .checked_add(index)
+<a href=#515 id=515 data-nosnippet>515</a>            .ok_or_else(|| <span class="macro">eyre::eyre!</span>(<span class="string">"local address overflow"</span>))
+<a href=#516 id=516 data-nosnippet>516</a>    }
+<a href=#517 id=517 data-nosnippet>517</a>
+<a href=#518 id=518 data-nosnippet>518</a>    <span class="kw">pub fn </span>push_heap_object(<span class="kw-2">&amp;mut </span><span class="self">self</span>, values: Box&lt;[Word]&gt;) -&gt; u32 {
+<a href=#519 id=519 data-nosnippet>519</a>        <span class="self">self</span>.heap.alloc(values)
+<a href=#520 id=520 data-nosnippet>520</a>    }
+<a href=#521 id=521 data-nosnippet>521</a>
+<a href=#522 id=522 data-nosnippet>522</a>    <span class="kw">pub fn </span>heap_object(<span class="kw-2">&amp;</span><span class="self">self</span>, id: u32) -&gt; eyre::Result&lt;<span class="kw-2">&amp;</span>[Word]&gt; {
+<a href=#523 id=523 data-nosnippet>523</a>        <span class="self">self</span>.heap.get(id)
+<a href=#524 id=524 data-nosnippet>524</a>    }
+<a href=#525 id=525 data-nosnippet>525</a>
+<a href=#526 id=526 data-nosnippet>526</a>    <span class="kw">pub fn </span>dealloc_heap_object(<span class="kw-2">&amp;mut </span><span class="self">self</span>, id: u32) -&gt; eyre::Result&lt;()&gt; {
+<a href=#527 id=527 data-nosnippet>527</a>        <span class="self">self</span>.heap.dealloc(id)
+<a href=#528 id=528 data-nosnippet>528</a>    }
+<a href=#529 id=529 data-nosnippet>529</a>
+<a href=#530 id=530 data-nosnippet>530</a>    <span class="kw">pub fn </span>take_pending_pc(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;u32&gt; {
+<a href=#531 id=531 data-nosnippet>531</a>        <span class="self">self</span>.pending_pc.take()
+<a href=#532 id=532 data-nosnippet>532</a>    }
+<a href=#533 id=533 data-nosnippet>533</a>
+<a href=#534 id=534 data-nosnippet>534</a>    <span class="kw">pub fn </span>set_pending_pc(<span class="kw-2">&amp;mut </span><span class="self">self</span>, pc: u32) {
+<a href=#535 id=535 data-nosnippet>535</a>        <span class="self">self</span>.pending_pc = <span class="prelude-val">Some</span>(pc);
+<a href=#536 id=536 data-nosnippet>536</a>    }
+<a href=#537 id=537 data-nosnippet>537</a>
+<a href=#538 id=538 data-nosnippet>538</a>    <span class="kw">pub fn </span>clear_pending_pc(<span class="kw-2">&amp;mut </span><span class="self">self</span>) {
+<a href=#539 id=539 data-nosnippet>539</a>        <span class="self">self</span>.pending_pc = <span class="prelude-val">None</span>;
+<a href=#540 id=540 data-nosnippet>540</a>    }
+<a href=#541 id=541 data-nosnippet>541</a>
+<a href=#542 id=542 data-nosnippet>542</a>    <span class="kw">pub fn </span>set_current_pc(<span class="kw-2">&amp;mut </span><span class="self">self</span>, pc: u32) {
+<a href=#543 id=543 data-nosnippet>543</a>        <span class="self">self</span>.current_pc = pc;
+<a href=#544 id=544 data-nosnippet>544</a>    }
+<a href=#545 id=545 data-nosnippet>545</a>
+<a href=#546 id=546 data-nosnippet>546</a>    <span class="kw">pub fn </span>return_values(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;</span>[Word] {
+<a href=#547 id=547 data-nosnippet>547</a>        <span class="kw-2">&amp;</span><span class="self">self</span>.return_values
+<a href=#548 id=548 data-nosnippet>548</a>    }
+<a href=#549 id=549 data-nosnippet>549</a>
+<a href=#550 id=550 data-nosnippet>550</a>    <span class="kw">pub fn </span>set_return_values(<span class="kw-2">&amp;mut </span><span class="self">self</span>, values: Vec&lt;Word&gt;) {
+<a href=#551 id=551 data-nosnippet>551</a>        <span class="self">self</span>.return_values = values;
+<a href=#552 id=552 data-nosnippet>552</a>    }
+<a href=#553 id=553 data-nosnippet>553</a>}
 </code></pre></div></section></main></body></html>
