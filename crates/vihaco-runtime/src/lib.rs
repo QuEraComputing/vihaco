@@ -3,6 +3,7 @@
 
 extern crate self as vihaco_runtime;
 
+mod execute;
 mod generated;
 mod marker;
 mod observe;
@@ -17,6 +18,7 @@ pub use vihaco_bytecode::{BytecodeSectionView, SstSectionView};
 pub use vihaco_module::loader;
 pub use vihaco_parser::{Parse, SurfaceInstruction};
 
+pub use execute::Execute;
 pub use generated::{
     Component, Composite, CompositeMetadata, GeneratedComponent, HasInstructionSet,
     expect_exactly_one_effect,
