@@ -1,0 +1,5 @@
+error: unsupported vihaco attribute; expected `crate = <path>`
+ --> tests/compile_fail/dialect/unsupported-vihaco-argument.rs:7:14
+  |
+7 |     #[vihaco(unknown = crate)]
+  |              ^^^^^^^

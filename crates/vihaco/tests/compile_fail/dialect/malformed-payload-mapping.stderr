@@ -1,0 +1,5 @@
+error: unexpected end of input, expected one of: `for`, parentheses, `fn`, `unsafe`, `extern`, identifier, `::`, `<`, `dyn`, square brackets, `*`, `&`, `!`, `impl`, `_`, lifetime
+ --> tests/compile_fail/dialect/malformed-payload-mapping.rs:8:19
+  |
+8 |         Run(u32 =>),
+  |                   ^

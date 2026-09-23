@@ -7,6 +7,7 @@ mod attr_observe;
 mod common;
 mod component;
 mod derive_message;
+mod dialect;
 
 use crate::common::strip_vihaco_attrs;
 use proc_macro::TokenStream;
@@ -55,6 +56,11 @@ pub fn dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn component_macro(input: TokenStream) -> TokenStream {
     component::expand(input)
+}
+
+#[proc_macro]
+pub fn dialect(input: TokenStream) -> TokenStream {
+    dialect::expand(input)
 }
 
 #[proc_macro_attribute]

@@ -1,0 +1,5 @@
+error: duplicate instruction name `execute`
+  --> tests/compile_fail/dialect/duplicate-explicit-mnemonic.rs:10:9
+   |
+10 |         #[pattern = "'execute $0"]
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^

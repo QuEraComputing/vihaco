@@ -1,0 +1,5 @@
+error: dialect instruction list must not be empty
+ --> tests/compile_fail/dialect/empty-dialect.rs:7:5
+  |
+7 |     empty {}
+  |     ^^^^^

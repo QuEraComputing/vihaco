@@ -1,0 +1,20 @@
+error: unknown instruction `Missing` in the selected dialect
+  --> tests/compile_fail/dialect/unknown-selected-instruction.rs:6:1
+   |
+ 6 | / dialect! {
+ 7 | |     arith {
+ 8 | |         Add,
+ 9 | |         Halt,
+10 | |     }
+11 | | }
+   | |_^
+...
+18 | / arith::__private::__vihaco_instructions! {
+19 | |     callback: collect,
+20 | |     dialect: { arith },
+21 | |     select: { Add, Missing },
+22 | |     context: {},
+23 | | }
+   | |_- in this macro invocation
+   |
+   = note: this error originates in the macro `arith::__private::__vihaco_instructions` (in Nightly builds, run with -Z macro-backtrace for more info)

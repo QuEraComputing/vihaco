@@ -37,7 +37,7 @@ pub use instruction_syntax::{
 pub use loader::{
     LoadBytecodeSection, LoadOwnBytecodeSection, LoadOwnSstSection, LoadSstSection, ProgramImage,
 };
-pub use macros::{Instruction, Message, component, composite, dispatch, observe};
+pub use macros::{Instruction, Message, component, composite, dialect, dispatch, observe};
 pub use program::{Type, Value};
 pub use runtime::{
     Component, Composite, CompositeMetadata, EffectSink, Execute, GeneratedComponent,
