@@ -16,4 +16,5 @@ fn dialect_macro_rejects_invalid_declarations() {
     t.compile_fail("tests/compile_fail/dialect/unsupported-attribute.rs");
     t.compile_fail("tests/compile_fail/dialect/unsupported-dialect-attribute.rs");
     t.compile_fail("tests/compile_fail/dialect/unsupported-vihaco-argument.rs");
+    t.compile_fail("tests/compile_fail/dialect/unknown-selected-instruction.rs");
 }

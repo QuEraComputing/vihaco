@@ -46,10 +46,54 @@ macro_rules! capture_instruction_descriptors {
     };
 }
 
-arith::__vihaco_instructions! {
+macro_rules! capture_selected_instructions {
+    (
+        dialect: { $($dialect:tt)+ },
+        context: { $metadata:ident, $check:ident },
+        instructions: {
+            $(
+                {
+                    ident: { $ident:ident },
+                    runtime: { $runtime:ty },
+                    syntax: { $syntax:ty },
+                    mnemonic: { $mnemonic:literal },
+                    ordinal: { $ordinal:expr },
+                },
+            )*
+        },
+    ) => {
+        const $metadata: &[(&str, &str, usize)] = &[
+            $((stringify!($ident), $mnemonic, $ordinal)),*
+        ];
+
+        fn $check() {
+            $(
+                let _: Option<$runtime> = None;
+                let _: Option<$syntax> = None;
+            )*
+        }
+    };
+}
+
+arith::__private::__vihaco_instructions! {
     callback: capture_instruction_descriptors,
     dialect: { arith },
+    select: { * },
     context: { arith::Add },
+}
+
+arith::__private::__vihaco_instructions! {
+    callback: capture_selected_instructions,
+    dialect: { arith },
+    select: { * },
+    context: { WILDCARD_METADATA, check_wildcard_types },
+}
+
+arith::__private::__vihaco_instructions! {
+    callback: capture_selected_instructions,
+    dialect: { arith },
+    select: { Halt, Add, Swap },
+    context: { EXPLICIT_METADATA, check_explicit_types },
 }
 
 pub mod payload_types {
@@ -102,10 +146,18 @@ macro_rules! capture_aliased_instruction_descriptor {
     };
 }
 
-control_alias::__vihaco_instructions! {
+control_alias::__private::__vihaco_instructions! {
     callback: capture_aliased_instruction_descriptor,
     dialect: { control_alias },
+    select: { Start },
     context: {},
+}
+
+crate::nested::control::__private::__vihaco_instructions! {
+    callback: capture_selected_instructions,
+    dialect: { crate::nested::control },
+    select: { Start },
+    context: { QUALIFIED_METADATA, check_qualified_types },
 }
 
 #[test]
@@ -135,8 +187,21 @@ fn exports_structured_instruction_descriptors_to_callbacks() {
 }
 
 #[test]
+fn selects_instructions_with_original_descriptors_and_requested_order() {
+    check_wildcard_types();
+    check_explicit_types();
+    assert_eq!(WILDCARD_METADATA, ARITH_INSTRUCTION_METADATA);
+    assert_eq!(
+        EXPLICIT_METADATA,
+        &[("Halt", "halt", 2), ("Add", "add", 0), ("Swap", "swap", 3)]
+    );
+}
+
+#[test]
 fn qualifies_instruction_enumerator_by_aliased_nested_dialect_module() {
     assert_aliased_instruction_descriptor_types();
+    check_qualified_types();
+    assert_eq!(QUALIFIED_METADATA, &[("Start", "start", 0)]);
 }
 
 #[test]
