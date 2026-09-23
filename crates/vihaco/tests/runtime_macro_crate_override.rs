@@ -19,10 +19,6 @@ dialect! {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, crate::test_root::Parse)]
-#[syntax_class(instruction, head = "overridden")]
-pub struct Run(pub u32);
-
 #[derive(Debug, Clone, Instruction)]
 enum TestInstruction {
     Run,

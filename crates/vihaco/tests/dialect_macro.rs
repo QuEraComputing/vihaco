@@ -16,6 +16,42 @@ dialect! {
     }
 }
 
+macro_rules! capture_instruction_descriptors {
+    (
+        dialect: { $($dialect:tt)+ },
+        context: { $component:ty },
+        instructions: {
+            $(
+                {
+                    ident: { $ident:ident },
+                    runtime: { $runtime:ty },
+                    syntax: { $syntax:ty },
+                    mnemonic: { $mnemonic:literal },
+                    ordinal: { $ordinal:expr },
+                },
+            )*
+        },
+    ) => {
+        const ARITH_INSTRUCTION_METADATA: &[(&str, &str, usize)] = &[
+            $((stringify!($ident), $mnemonic, $ordinal)),*
+        ];
+
+        fn assert_arith_instruction_descriptor_types() {
+            let _: Option<$component> = None;
+            $(
+                let _: Option<$runtime> = None;
+                let _: Option<$syntax> = None;
+            )*
+        }
+    };
+}
+
+arith::__vihaco_instructions! {
+    callback: capture_instruction_descriptors,
+    dialect: { arith },
+    context: { arith::Add },
+}
+
 pub mod payload_types {
     pub type RuntimeWord = i64;
     pub type SurfaceWord = u32;
@@ -31,6 +67,47 @@ dialect! {
     }
 }
 
+mod nested {
+    use vihaco::dialect;
+
+    dialect! {
+        control {
+            Start,
+        }
+    }
+}
+
+use nested::control as control_alias;
+
+macro_rules! capture_aliased_instruction_descriptor {
+    (
+        dialect: { $($dialect:tt)+ },
+        context: {},
+        instructions: {
+            {
+                ident: { Start },
+                runtime: { $runtime:ty },
+                syntax: { $syntax:ty },
+                mnemonic: { "start" },
+                ordinal: { $ordinal:expr },
+            },
+        },
+    ) => {
+        fn assert_aliased_instruction_descriptor_types() {
+            let _: Option<$runtime> = None;
+            let _: Option<$syntax> = None;
+            let _: Option<$($dialect)+::Start> = None;
+            let _: [(); 0] = [(); $ordinal];
+        }
+    };
+}
+
+control_alias::__vihaco_instructions! {
+    callback: capture_aliased_instruction_descriptor,
+    dialect: { control_alias },
+    context: {},
+}
+
 #[test]
 fn generates_canonical_instruction_structs_with_runtime_payloads() {
     let add = arith::Add(-4_i64, true);
@@ -41,6 +118,25 @@ fn generates_canonical_instruction_structs_with_runtime_payloads() {
 
     assert_eq!(arith::Halt, arith::Halt);
     assert_eq!(arith::Swap(1, 2), arith::Swap(1, 2));
+}
+
+#[test]
+fn exports_structured_instruction_descriptors_to_callbacks() {
+    assert_arith_instruction_descriptor_types();
+    assert_eq!(
+        ARITH_INSTRUCTION_METADATA,
+        &[
+            ("Add", "add", 0),
+            ("Return", "return", 1),
+            ("Halt", "halt", 2),
+            ("Swap", "swap", 3),
+        ]
+    );
+}
+
+#[test]
+fn qualifies_instruction_enumerator_by_aliased_nested_dialect_module() {
+    assert_aliased_instruction_descriptor_types();
 }
 
 #[test]
