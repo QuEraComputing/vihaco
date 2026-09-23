@@ -26,7 +26,19 @@ pub trait HasInstructionSet {
     type Syntax;
 }
 
+/// Marks a component. Enabling `component-attribute` removes the
+/// [`HasInstructionSet`] supertrait, so generic callers that need the generated
+/// instruction types must add an explicit `HasInstructionSet` bound. Cargo
+/// feature unification can enable this change through another dependency.
+#[cfg(not(feature = "component-attribute"))]
 pub trait Component: HasInstructionSet {}
+
+/// Marks a component without requiring a generated instruction set. With this
+/// feature enabled, `Component` no longer implies [`HasInstructionSet`]; add
+/// that bound explicitly where the generated types are needed. Cargo feature
+/// unification may enable this definition through another dependency.
+#[cfg(feature = "component-attribute")]
+pub trait Component {}
 
 pub trait Composite: HasInstructionSet {}
 

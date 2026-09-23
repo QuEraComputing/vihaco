@@ -1,0 +1,5 @@
+error: unexpected end of input, instruction group must not be empty
+ --> tests/compile_fail/component_attribute/empty-group.rs:7:26
+  |
+7 | #[instructions { arith::{} }]
+  |                          ^

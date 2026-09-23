@@ -1,0 +1,5 @@
+error: duplicate instruction selector
+ --> tests/compile_fail/component_attribute/repeated-name.rs:7:31
+  |
+7 | #[instructions { arith::{Add, Add} }]
+  |                               ^^^

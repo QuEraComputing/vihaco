@@ -44,3 +44,8 @@ pub use vihaco_parser_derive::Parse;
 pub use vihaco_runtime_derive::{
     Message, component_macro, composite, dialect, dispatch, machine, observe,
 };
+
+#[cfg(feature = "component-attribute")]
+pub mod attributes {
+    pub use vihaco_runtime_derive::component;
+}

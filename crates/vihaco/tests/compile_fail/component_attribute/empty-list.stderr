@@ -1,0 +1,7 @@
+error: instruction list must not be empty
+ --> tests/compile_fail/component_attribute/empty-list.rs:6:1
+  |
+6 | #[component]
+  | ^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `component` (in Nightly builds, run with -Z macro-backtrace for more info)

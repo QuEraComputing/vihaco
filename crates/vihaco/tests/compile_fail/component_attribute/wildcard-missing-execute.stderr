@@ -1,0 +1,22 @@
+error[E0277]: the trait bound `MissingNew: Execute<arith::New>` is not satisfied
+  --> tests/compile_fail/component_attribute/wildcard-missing-execute.rs:10:8
+   |
+ 8 | #[component]
+   | ------------ in this attribute macro expansion
+ 9 | #[instructions { arith::* }]
+10 | struct MissingNew;
+   |        ^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Execute<arith::New>` is not implemented for `MissingNew`
+      but trait `Execute<arith::Add>` is implemented for it
+  --> tests/compile_fail/component_attribute/wildcard-missing-execute.rs:12:1
+   |
+12 | impl Execute<arith::Add> for MissingNew {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for that trait implementation, expected `arith::Add`, found `arith::New`
+note: required by a bound in `require`
+  --> tests/compile_fail/component_attribute/wildcard-missing-execute.rs:8:1
+   |
+ 8 | #[component]
+   | ^^^^^^^^^^^^ required by this bound in `require`
+   = note: this error originates in the macro `__vihaco_component_coverage` which comes from the expansion of the attribute macro `component` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -20,3 +20,4 @@ vihaco-runtime-derive = { workspace = true, optional = true }
 [features]
 default = ["derive"]
 derive = ["dep:vihaco-parser-derive", "dep:vihaco-runtime-derive", "vihaco-abi/derive"]
+component-attribute = ["derive"]

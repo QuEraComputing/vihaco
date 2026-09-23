@@ -27,3 +27,6 @@ vihaco-stdlib = { workspace = true }
 
 [dev-dependencies]
 trybuild = "1.0"
+
+[features]
+component-attribute = ["vihaco-runtime/component-attribute"]

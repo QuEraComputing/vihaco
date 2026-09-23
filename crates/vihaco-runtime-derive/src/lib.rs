@@ -6,6 +6,7 @@ mod attr_composite;
 mod attr_observe;
 mod common;
 mod component;
+mod component_attribute;
 mod derive_message;
 mod dialect;
 
@@ -56,6 +57,11 @@ pub fn dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn component_macro(input: TokenStream) -> TokenStream {
     component::expand(input)
+}
+
+#[proc_macro_attribute]
+pub fn component(attr: TokenStream, item: TokenStream) -> TokenStream {
+    component_attribute::expand(attr, item)
 }
 
 #[proc_macro]

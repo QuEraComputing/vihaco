@@ -1,6 +1,10 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+// Transitional `component!` compatibility coverage. Remove the legacy and
+// coexistence cases in the PR that removes `component!`; keep tests for the new
+// `#[component]` attribute in its own test file.
+
 use chumsky::Parser as _;
 use vihaco::{
     Component, Composite, HasInstructionSet, Parse, SurfaceInstruction, component, composite,
@@ -88,9 +92,14 @@ struct DemoComposite {
 
 #[test]
 fn generates_distinct_syntax_and_runtime_enums() {
-    fn require_component<
-        T: Component<Runtime = demo::runtime::Instruction, Syntax = demo::syntax::Instruction>,
-    >() {
+    fn require_component<T>()
+    where
+        T: Component
+            + HasInstructionSet<
+                Runtime = demo::runtime::Instruction,
+                Syntax = demo::syntax::Instruction,
+            >,
+    {
     }
     require_component::<demo::Demo>();
     require_surface_instruction::<demo::syntax::Instruction>();
