@@ -23,6 +23,14 @@ target
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
+# IDE
+
+# for .vscode: vscode config files will be disabled by default, to enable specific files
+#   for reproducibility, whitelist specific files, for ex:
+#
+#   !.vscode/settings.json
+.vscode/*
+
 # Managed by ion
 .agents/skills/ion-cli
 .claude/skills/ion-cli
