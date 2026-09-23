@@ -1,0 +1,6 @@
+error: `component` requires a struct
+ --> tests/compile_fail/component_attribute/non-struct.rs:7:1
+  |
+7 | / #[instructions { arith::Add }]
+8 | | enum Device { Run }
+  | |___________________^

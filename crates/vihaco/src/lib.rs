@@ -48,6 +48,11 @@ pub use vihaco_parser::Parse;
 pub use vihaco_parser::SurfaceInstruction;
 pub use vihaco_parser_derive::Parse;
 
+#[cfg(feature = "component-attribute")]
+pub mod attributes {
+    pub use vihaco_runtime::attributes::component;
+}
+
 #[cfg(test)]
 mod public_api_tests {
     use crate::{

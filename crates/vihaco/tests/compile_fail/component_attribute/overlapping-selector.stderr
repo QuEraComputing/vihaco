@@ -1,0 +1,5 @@
+error: duplicate or overlapping instruction selector
+ --> tests/compile_fail/component_attribute/overlapping-selector.rs:9:28
+  |
+9 | #[instructions { arith::*, arith::Add }]
+  |                            ^^^^^

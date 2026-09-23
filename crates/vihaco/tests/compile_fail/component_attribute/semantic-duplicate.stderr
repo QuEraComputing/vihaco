@@ -1,0 +1,10 @@
+error[E0119]: conflicting implementations of trait `__VihacoSelected<arith::Add>` for type `Duplicate`
+ --> tests/compile_fail/component_attribute/semantic-duplicate.rs:9:1
+  |
+9 | #[component]
+  | ^^^^^^^^^^^^
+  | |
+  | first implementation here
+  | conflicting implementation for `Duplicate`
+  |
+  = note: this error originates in the macro `__vihaco_component_collect` which comes from the expansion of the attribute macro `component` (in Nightly builds, run with -Z macro-backtrace for more info)

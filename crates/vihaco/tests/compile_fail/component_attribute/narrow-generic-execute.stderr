@@ -1,0 +1,23 @@
+error[E0277]: the trait bound `T: Backend` is not satisfied
+  --> tests/compile_fail/component_attribute/narrow-generic-execute.rs:13:8
+   |
+13 | struct Generic<T>(T);
+   |        ^^^^^^^^^^ the trait `Backend` is not implemented for `T`
+   |
+note: required for `Generic<T>` to implement `Execute<arith::Add>`
+  --> tests/compile_fail/component_attribute/narrow-generic-execute.rs:15:18
+   |
+15 | impl<T: Backend> Execute<arith::Add> for Generic<T> {
+   |         -------  ^^^^^^^^^^^^^^^^^^^     ^^^^^^^^^^
+   |         |
+   |         unsatisfied trait bound introduced here
+note: required by a bound in `__vihaco_require_explicit`
+  --> tests/compile_fail/component_attribute/narrow-generic-execute.rs:11:1
+   |
+11 | #[component]
+   | ^^^^^^^^^^^^ required by this bound in `__vihaco_require_explicit`
+   = note: this error originates in the attribute macro `component` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider restricting type parameter `T` with trait `Backend`
+   |
+13 | struct Generic<T: Backend>(T);
+   |                 +++++++++

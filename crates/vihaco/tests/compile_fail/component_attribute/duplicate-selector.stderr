@@ -1,0 +1,5 @@
+error: duplicate instruction selector
+ --> tests/compile_fail/component_attribute/duplicate-selector.rs:9:38
+  |
+9 | #[instructions { arith::Add, arith::{Add} }]
+  |                                      ^^^

@@ -1,0 +1,16 @@
+error: unknown instruction `Missing` in the selected dialect
+ --> tests/compile_fail/component_attribute/unknown-instruction.rs:6:1
+  |
+6 | dialect! { arith { Add, } }
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+7 |
+8 | #[component]
+  | ------------ in this attribute macro expansion
+  |
+  = note: this error originates in the macro `arith::__private::__vihaco_instructions` which comes from the expansion of the attribute macro `component` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0425]: cannot find type `Missing` in module `arith`
+ --> tests/compile_fail/component_attribute/unknown-instruction.rs:9:25
+  |
+9 | #[instructions { arith::Missing }]
+  |                         ^^^^^^^ not found in `arith`
