@@ -16,6 +16,8 @@
 
 use crate::{Component, Execute, Parse};
 
+pub use vihaco_parser_derive::__dialect_parsers;
+
 pub use crate::capability::{InstructionCapability, capabilities};
 
 /// One actual runtime instruction and its paired source representation.

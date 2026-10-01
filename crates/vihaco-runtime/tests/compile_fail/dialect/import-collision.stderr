@@ -1,0 +1,5 @@
+error: generated surface name collides with an authored item
+ --> tests/compile_fail/dialect/import-collision.rs:4:78
+  |
+4 | mod invalid { use super::Operand as __HaltSurface; #[instruction] pub struct Halt; }
+  |                                                                              ^^^^

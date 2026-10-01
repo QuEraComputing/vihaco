@@ -1,0 +1,5 @@
+error: conditional instruction helpers are unsupported
+ --> tests/compile_fail/dialect/conditional-marker.rs:4:47
+  |
+4 | mod invalid { #[instruction] pub struct Halt; #[cfg_attr(all(), instruction)] pub struct Extra; }
+  |                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

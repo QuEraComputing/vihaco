@@ -1,0 +1,5 @@
+error: repeated #[pattern] attribute
+ --> tests/compile_fail/dialect/repeated-pattern.rs:4:48
+  |
+4 | mod invalid { #[instruction] #[pattern = "'a"] #[pattern = "'b"] pub struct Halt; }
+  |                                                ^^^^^^^^^^^^^^^^^

@@ -1,0 +1,5 @@
+error: raw instruction names are unsupported
+ --> tests/compile_fail/dialect/raw.rs:4:62
+  |
+4 | mod invalid { #[instruction] #[pattern = "'halt"] pub struct r#type; }
+  |                                                              ^^^^^^

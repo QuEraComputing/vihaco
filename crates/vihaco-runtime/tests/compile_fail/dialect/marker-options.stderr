@@ -1,0 +1,5 @@
+error: #[instruction] takes no arguments
+ --> tests/compile_fail/dialect/marker-options.rs:4:15
+  |
+4 | mod invalid { #[instruction(extra)] pub struct Halt; }
+  |               ^^^^^^^^^^^^^^^^^^^^^

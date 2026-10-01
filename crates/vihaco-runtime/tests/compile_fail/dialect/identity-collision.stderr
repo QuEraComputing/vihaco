@@ -1,0 +1,5 @@
+error: reserved dialect identity name `__VihacoDialect`
+ --> tests/compile_fail/dialect/identity-collision.rs:4:5
+  |
+4 | mod invalid { pub struct __VihacoDialect; #[instruction] pub struct Halt; }
+  |     ^^^^^^^

@@ -1,0 +1,5 @@
+error: generic instruction structs are unsupported
+ --> tests/compile_fail/dialect/generic.rs:4:45
+  |
+4 | mod invalid { #[instruction] pub struct Halt<T>(pub T); }
+  |                                             ^^^

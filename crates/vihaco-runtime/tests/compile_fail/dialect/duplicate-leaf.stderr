@@ -1,0 +1,5 @@
+error: duplicate instruction name
+ --> tests/compile_fail/dialect/duplicate-leaf.rs:4:73
+  |
+4 | mod invalid { #[instruction] pub struct Halt; #[instruction] pub struct Halt; }
+  |                                                                         ^^^^

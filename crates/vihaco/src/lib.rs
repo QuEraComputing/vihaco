@@ -54,6 +54,26 @@ pub use runtime::__private;
 #[cfg(feature = "typed-declarations")]
 pub use runtime::Execute;
 
+/// Declare runtime leaves and paired surface parsers with `typed-declarations`.
+/// See [`runtime::dialect`] for the `#[vihaco(crate = path)]` framework-root override.
+///
+/// ```
+/// # #[cfg(feature = "typed-declarations")]
+/// # {
+/// use vihaco::{dialect, Parse, chumsky::Parser};
+/// #[dialect]
+/// # #[vihaco(crate = ::vihaco)]
+/// pub mod arithmetic {
+///     #[instruction]
+///     pub struct Add(pub i64);
+/// }
+/// assert_eq!(arithmetic::syntax::Add::parser().parse("add 2")
+///     .into_result().unwrap().0, 2);
+/// # }
+/// ```
+#[cfg(feature = "typed-declarations")]
+pub use runtime::dialect;
+
 #[cfg(test)]
 mod public_api_tests {
     use crate::{

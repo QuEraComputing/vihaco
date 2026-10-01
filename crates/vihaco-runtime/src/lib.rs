@@ -8,6 +8,43 @@
 //! the Component/Composite markers from HasInstructionSet; Cargo unification
 //! selects that contract for the shared runtime package instance. Declaration
 //! macros are being added separately. Default execution remains unchanged.
+//!
+//! With `typed-declarations`, `#[dialect]` pairs public runtime structs with
+//! surface structs defined in the same module and reexported as `syntax::Name`.
+//! Both use the authored operand types;
+//! operands implement [`Parse`] through ordinary Rust. Only immediate marked
+//! unit/tuple structs belong to the dialect. Generated `syntax::Add` parses the
+//! local mnemonic; selection and target prefixes belong to instruction sets.
+//!
+//! ```
+//! # #[cfg(feature = "typed-declarations")]
+//! # {
+//! use vihaco_runtime::{dialect, Parse, chumsky::Parser};
+//!
+//! #[dialect]
+//! # #[vihaco(crate = ::vihaco_runtime)]
+//! pub mod arithmetic {
+//!     #[instruction]
+//!     pub struct Add(pub i64);
+//!
+//!     #[instruction]
+//!     #[pattern = "'stop"]
+//!     pub struct Halt;
+//! }
+//!
+//! let source = arithmetic::syntax::Add::parser().parse("add -3")
+//!     .into_result().unwrap();
+//! assert_eq!(source, arithmetic::syntax::Add(-3));
+//! let runtime = arithmetic::Add(source.0);
+//! assert_eq!(runtime.0, -3);
+//! # }
+//! ```
+//!
+//! The attribute consumes `instruction` and `pattern` helpers, preserves module
+//! and field visibility, and supplies Clone/Debug/PartialEq without duplicating
+//! those authored derives. Named fields, generic or raw leaf names, conditional
+//! membership, and generated-name collisions are rejected. Gate the entire
+//! module with `cfg`/`cfg_attr`. The generated `syntax` module is reserved.
 
 extern crate self as vihaco_runtime;
 
@@ -60,3 +97,38 @@ pub use vihaco_abi::Instruction;
 // Re-export the runtime derives behind the `derive` feature (serde convention).
 #[cfg(feature = "derive")]
 pub use vihaco_runtime_derive::{Message, component_macro, composite, dispatch, machine, observe};
+
+#[cfg(feature = "typed-declarations")]
+pub use vihaco_parser_derive::Parse;
+
+/// Declare runtime instructions and their paired `syntax` types.
+///
+/// Available with `typed-declarations`. The framework dependency is discovered
+/// automatically, including renamed dependencies. To use a module reexporting
+/// the framework API, apply `#[vihaco(crate = path)]` to the dialect module.
+/// The path is resolved in the annotated module's parent scope; `self`, `super`,
+/// `crate`, and absolute paths are supported. Operand types retain their
+/// authored scope.
+///
+/// ```
+/// use vihaco_runtime::dialect;
+///
+/// mod framework {
+///     pub use vihaco_runtime::*;
+/// }
+///
+/// #[dialect]
+/// #[vihaco(crate = crate::framework)]
+/// pub mod arithmetic {
+///     #[instruction]
+///     pub struct Add(pub i64);
+/// }
+///
+/// fn main() {
+///     use framework::{Parse, chumsky::Parser};
+///     assert_eq!(arithmetic::syntax::Add::parser().parse("add 2")
+///         .into_result().unwrap().0, 2);
+/// }
+/// ```
+#[cfg(feature = "typed-declarations")]
+pub use vihaco_runtime_derive::dialect;

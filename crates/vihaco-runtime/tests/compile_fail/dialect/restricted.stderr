@@ -1,0 +1,5 @@
+error: instruction structs require unrestricted pub visibility
+ --> tests/compile_fail/dialect/restricted.rs:4:48
+  |
+4 | mod invalid { #[instruction] pub(crate) struct Halt; }
+  |                                                ^^^^
