@@ -1,0 +1,8 @@
+[package]
+name = "dialect-facade"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+vm = { package = "vihaco", path = "../../../../../vihaco", features = ["typed-declarations"] }

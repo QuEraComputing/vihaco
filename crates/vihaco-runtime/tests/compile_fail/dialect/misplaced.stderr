@@ -1,0 +1,5 @@
+error: instruction helpers are only supported on immediate marked structs
+ --> tests/compile_fail/dialect/misplaced.rs:4:46
+  |
+4 | mod invalid { #[instruction] pub struct Halt(#[instruction] pub u32); }
+  |                                              ^^^^^^^^^^^^^^

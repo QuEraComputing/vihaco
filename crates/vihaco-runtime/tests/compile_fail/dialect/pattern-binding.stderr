@@ -1,0 +1,5 @@
+error: index 1 is out of bounds
+ --> tests/compile_fail/dialect/pattern-binding.rs:4:42
+  |
+4 | mod invalid { #[instruction] #[pattern = "'a $1"] pub struct A(pub u32); }
+  |                                          ^^^^^^^

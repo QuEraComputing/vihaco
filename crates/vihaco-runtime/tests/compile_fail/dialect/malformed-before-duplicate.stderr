@@ -1,0 +1,5 @@
+error: invalid pattern: found 'b' expected ''', '$', '`', or end of input
+ --> tests/compile_fail/dialect/malformed-before-duplicate.rs:4:42
+  |
+4 | mod invalid { #[instruction] #[pattern = "bad"] pub struct Bad; #[instruction] pub struct Halt; #[instruction] #[pattern = "'halt"] p...
+  |                                          ^^^^^

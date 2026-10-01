@@ -1,0 +1,5 @@
+error: conditional instruction membership is unsupported; gate the whole dialect
+ --> tests/compile_fail/dialect/conditional.rs:4:30
+  |
+4 | mod invalid { #[instruction] #[cfg(all())] pub struct Halt; }
+  |                              ^^^^^^^^^^^^^

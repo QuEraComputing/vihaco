@@ -1,0 +1,5 @@
+error: #[dialect] requires at least one #[instruction] struct
+ --> tests/compile_fail/dialect/empty.rs:4:5
+  |
+4 | mod empty { pub struct Helper; }
+  |     ^^^^^

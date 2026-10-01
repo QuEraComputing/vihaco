@@ -1,0 +1,5 @@
+error: invalid pattern: found 'b' expected ''', '$', '`', or end of input
+  --> tests/compile_fail/dialect/malformed-after-duplicate.rs:12:17
+   |
+12 |     #[pattern = "bad"]
+   |                 ^^^^^

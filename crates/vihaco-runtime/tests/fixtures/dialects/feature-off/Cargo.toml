@@ -1,0 +1,8 @@
+[package]
+name = "dialect-feature-off"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+rt = { package = "vihaco-runtime", path = "../../../..", default-features = false, features = ["derive"] }

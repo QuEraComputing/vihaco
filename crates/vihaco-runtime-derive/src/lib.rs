@@ -66,3 +66,22 @@ pub fn machine(_attr: TokenStream, item: TokenStream) -> TokenStream {
 pub fn observe(attr: TokenStream, item: TokenStream) -> TokenStream {
     attr_observe::expand(attr, item)
 }
+
+#[cfg(feature = "typed-declarations")]
+mod attr_dialect;
+
+/// Declare public runtime instructions and their paired surface parsers.
+///
+/// The framework root is discovered automatically from a dependency on `vihaco`
+/// or `vihaco-runtime`, including renamed dependencies. Apply
+/// `#[vihaco(crate = path)]` to the dialect module to select an explicit root.
+/// The path must name a module exposing the framework API and is resolved in
+/// the annotated module's parent scope. Relative `self` and `super` paths are
+/// supported. Operand types retain their authored scope.
+#[cfg(feature = "typed-declarations")]
+#[proc_macro_attribute]
+pub fn dialect(attr: TokenStream, item: TokenStream) -> TokenStream {
+    attr_dialect::expand(attr.into(), item.into())
+        .unwrap_or_else(|error| error.into_compile_error())
+        .into()
+}

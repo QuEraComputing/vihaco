@@ -735,6 +735,7 @@ dependencies = [
  "vihaco-bytecode",
  "vihaco-module",
  "vihaco-parser",
+ "vihaco-parser-derive",
  "vihaco-runtime-derive",
 ]
 

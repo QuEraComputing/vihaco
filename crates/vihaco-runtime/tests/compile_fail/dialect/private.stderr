@@ -1,0 +1,5 @@
+error: instruction structs require unrestricted pub visibility
+ --> tests/compile_fail/dialect/private.rs:4:37
+  |
+4 | mod invalid { #[instruction] struct Halt; }
+  |                                     ^^^^
