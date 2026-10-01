@@ -1,0 +1,10 @@
+error[E0119]: conflicting implementations of trait `vihaco_runtime::__private::Supports<Dialect>` for type `Cpu<'_>`
+ --> tests/compile_fail/declarations/duplicate-dialect-alias.rs:4:1
+  |
+4 | impl vihaco_runtime::__private::Supports<Dialect> for Cpu<'_> {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ conflicting implementation for `Cpu<'_>`
+  |
+ ::: tests/compile_fail/declarations/../../support/declarations.rs
+  |
+  | impl<const N: usize> Supports<RenamedDialect> for Cpu<'_, N> {}
+  | ------------------------------------------------------------ first implementation here

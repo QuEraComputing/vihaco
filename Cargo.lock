@@ -730,6 +730,7 @@ version = "0.5.0"
 dependencies = [
  "chumsky",
  "eyre",
+ "trybuild",
  "vihaco-abi",
  "vihaco-bytecode",
  "vihaco-module",

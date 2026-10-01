@@ -1,0 +1,5 @@
+error: invalid module path root
+ --> tests/compile_fail/runtime_root/contextual-root.rs:2:20
+  |
+2 | #[vihaco(crate = ::self::root)]
+  |                    ^^^^

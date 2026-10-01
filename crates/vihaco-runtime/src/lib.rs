@@ -1,11 +1,33 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+//! Component execution, composite metadata, and observation machinery.
+//!
+//! The nondefault `typed-declarations` feature enables experimental typed
+//! execution and capability contracts, including derive support. It decouples
+//! the Component/Composite markers from HasInstructionSet; Cargo unification
+//! selects that contract for the shared runtime package instance. Declaration
+//! macros are being added separately. Default execution remains unchanged.
+
 extern crate self as vihaco_runtime;
 
 mod generated;
 mod marker;
 mod observe;
+
+#[cfg(feature = "typed-declarations")]
+mod capability;
+#[cfg(feature = "typed-declarations")]
+mod execute;
+
+/// Generated declaration contracts. Manual implementations are unsupported.
+#[cfg(feature = "typed-declarations")]
+#[doc(hidden)]
+#[path = "declarations.rs"]
+pub mod __private;
+
+#[cfg(feature = "typed-declarations")]
+pub use execute::Execute;
 
 // Re-export the sub-paths the runtime derive (`vihaco-runtime-derive`) emits so
 // that `vihaco-runtime` is a valid derive root on its own, mirroring the facade

@@ -32,6 +32,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy --workspace --all-targets --features vihaco/typed-declarations -- -D warnings
 
   feature-checks:
     name: Feature checks (workspace)
@@ -53,6 +54,11 @@ jobs:
                 echo "Checking $package without default features"
                 cargo check -p "$package" --no-default-features
               done
+      - name: Check experimental runtime contracts independently
+        run: |
+          cargo check -p vihaco --no-default-features
+          cargo check -p vihaco-runtime --no-default-features --features typed-declarations
+          cargo check -p vihaco-runtime-derive --no-default-features --features typed-declarations
 
   test:
     name: Test (${{ matrix.os }})
@@ -69,6 +75,7 @@ jobs:
       # This also compiles the `docs/examples/*.rs` files (via the
       # `vihaco-doctests` crate) and runs the runnable ones.
       - run: cargo test --workspace --all-targets
+      - run: cargo test --workspace --all-targets --features vihaco/typed-declarations
 
   doctest:
     name: Doc tests
@@ -84,3 +91,4 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --doc
+      - run: cargo test --workspace --doc --features vihaco/typed-declarations

@@ -1,0 +1,21 @@
+error[E0277]: the trait bound `Cpu<'_>: vihaco_runtime::__private::Supports<Foreign>` is not satisfied
+ --> tests/compile_fail/declarations/undeclared-dialect.rs:4:61
+  |
+4 | fn check() { vihaco_runtime::__private::require_available::<Cpu, Extra>(); }
+  |                                                             ^^^ unsatisfied trait bound
+  |
+help: the trait `Supports<Foreign>` is not implemented for `Cpu<'_>`
+      but trait `Supports<Dialect>` is implemented for it
+ --> tests/compile_fail/declarations/../../support/declarations.rs
+  |
+  | impl<const N: usize> Supports<RenamedDialect> for Cpu<'_, N> {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = help: for that trait implementation, expected `Dialect`, found `Foreign`
+note: required by a bound in `vihaco_runtime::__private::require_available`
+ --> src/declarations.rs
+  |
+  | pub fn require_available<C, I>()
+  |        ----------------- required by a bound in this function
+...
+  |     C: Supports<I::Dialect> + Execute<I>,
+  |        ^^^^^^^^^^^^^^^^^^^^ required by this bound in `require_available`
