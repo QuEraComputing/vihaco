@@ -54,12 +54,31 @@ where
 ///
 /// Indices are local to the parent type. The composite macro emits an impl with
 /// a literal index and a hidden `__vihaco_field_<name>` associated constant.
+/// The child is the exact authored field type in the parent declaration scope.
+/// Imported aliases and associated/generic types retain ordinary Rust identity.
+/// Ordinary state and loadable section fields have no relation: a section stops
+/// parent target traversal and capability lifting, while its loader still runs.
 /// Target lookup reads that constant from the actual parent type, including
 /// through aliases; users never need to spell or coordinate numeric indices.
 pub trait Field<const INDEX: usize> {
     type Child;
     /// Canonical field name first, then aliases in declaration order.
     const SOURCE: &'static [&'static str];
+}
+
+/// Declaration-local device metadata, including loadable section boundaries.
+/// Codes remain optional; no implicit numeric code is assigned. Consumers of
+/// numbered metadata must require explicit codes rather than infer them from
+/// target indices. Ordinary state fields are absent.
+pub struct CompositeDevice {
+    pub name: &'static str,
+    pub code: Option<u8>,
+    pub source: &'static [&'static str],
+    pub section: Option<&'static str>,
+}
+
+pub trait CompositeSpec {
+    const DEVICES: &'static [CompositeDevice];
 }
 
 /// Canonical source selector for one declared instruction.
@@ -80,6 +99,11 @@ pub struct Device {
     pub child: &'static Description,
 }
 
+/// Complete availability, independent of `HasInstructionSet` selection.
+/// Composites reference every eligible child description in field order; a
+/// child's executable set never filters these descriptions. Repeated child
+/// types at distinct fields are distinct destinations. Parsing aliases live in
+/// source metadata, so reports use one canonical path per instruction.
 pub trait Capabilities {
     /// Raw generated data. Internal reporting uses the validated `capabilities`.
     const DESCRIPTION: &'static Description;

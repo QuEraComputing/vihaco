@@ -3,6 +3,8 @@
 
 use proc_macro_crate::{FoundCrate, crate_name};
 use proc_macro2::Span;
+#[cfg(feature = "typed-declarations")]
+use syn::{Attribute, Meta, Token, punctuated::Punctuated};
 use syn::{Ident, Path, parse_quote};
 
 /// Remove attributes consumed by this proc-macro crate before re-emitting an
@@ -92,6 +94,31 @@ fn crate_override(attrs: &[syn::Attribute]) -> syn::Result<Option<syn::Path>> {
         })?;
     }
     Ok(found)
+}
+
+#[cfg(feature = "typed-declarations")]
+// Only conditional item existence propagates to generated items. An authored
+// cfg_attr may also contain derive/repr attributes that cannot apply to a const.
+pub(crate) fn gates(attrs: &[Attribute]) -> Vec<Meta> {
+    fn gate(meta: &Meta) -> Option<Meta> {
+        if meta.path().is_ident("cfg") {
+            return Some(meta.clone());
+        }
+        if let Meta::List(list) = meta
+            && list.path.is_ident("cfg_attr")
+        {
+            let args = list
+                .parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
+                .ok()?;
+            let condition = args.first()?;
+            let nested: Vec<_> = args.iter().skip(1).filter_map(gate).collect();
+            if !nested.is_empty() {
+                return Some(syn::parse_quote!(cfg_attr(#condition, #(#nested),*)));
+            }
+        }
+        None
+    }
+    attrs.iter().filter_map(|attr| gate(&attr.meta)).collect()
 }
 
 #[cfg(test)]

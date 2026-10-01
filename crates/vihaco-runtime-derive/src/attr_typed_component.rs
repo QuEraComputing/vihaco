@@ -7,11 +7,9 @@ use std::collections::HashSet;
 
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote, quote_spanned};
-use syn::{
-    Attribute, ItemStruct, MacroDelimiter, Meta, Path, Result, Token, punctuated::Punctuated,
-};
+use syn::{ItemStruct, MacroDelimiter, Meta, Path, Result, Token, punctuated::Punctuated};
 
-use crate::common::{resolve_root, strip_attrs, validate_module_path};
+use crate::common::{gates, resolve_root, strip_attrs, validate_module_path};
 
 struct Component {
     item: ItemStruct,
@@ -84,30 +82,6 @@ fn parse(mut item: ItemStruct) -> Result<Component> {
         root,
         dialects,
     })
-}
-
-// Only conditional item existence propagates to generated items. An authored
-// cfg_attr may also contain derive/repr attributes that cannot apply to a const.
-fn gates(attrs: &[Attribute]) -> Vec<Meta> {
-    fn gate(meta: &Meta) -> Option<Meta> {
-        if meta.path().is_ident("cfg") {
-            return Some(meta.clone());
-        }
-        if let Meta::List(list) = meta
-            && list.path.is_ident("cfg_attr")
-        {
-            let args = list
-                .parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
-                .ok()?;
-            let condition = args.first()?;
-            let nested: Vec<_> = args.iter().skip(1).filter_map(gate).collect();
-            if !nested.is_empty() {
-                return Some(syn::parse_quote!(cfg_attr(#condition, #(#nested),*)));
-            }
-        }
-        None
-    }
-    attrs.iter().filter_map(|attr| gate(&attr.meta)).collect()
 }
 
 fn emit(component: Component) -> TokenStream {

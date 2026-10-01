@@ -4,9 +4,12 @@
 mod attr_component;
 mod attr_composite;
 mod attr_observe;
+#[cfg(feature = "typed-declarations")]
+mod attr_typed_composite;
 mod common;
 #[cfg(not(feature = "typed-declarations"))]
 mod component;
+mod composite_loader;
 mod derive_message;
 
 use crate::common::strip_vihaco_attrs;
