@@ -1,0 +1,25 @@
+error[E0277]: the trait bound `Cpu: Execute<B>` is not satisfied
+  --> tests/compile_fail/declarations/missing-coverage.rs:14:56
+   |
+14 |     vihaco_runtime::__private::require_coverage::<Cpu, Dialect>();
+   |                                                        ^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Execute<B>` is not implemented for `Cpu`
+      but trait `Execute<A>` is implemented for it
+  --> tests/compile_fail/declarations/missing-coverage.rs:7:1
+   |
+ 7 | impl Execute<A> for Cpu {
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for that trait implementation, expected `A`, found `B`
+note: required for `Dialect` to implement `vihaco_runtime::__private::Coverage<Cpu>`
+  --> tests/compile_fail/declarations/../../support/declarations.rs
+   |
+   | impl<C: Execute<A> + Execute<B>> Coverage<C> for Dialect {}
+   |                      ----------  ^^^^^^^^^^^     ^^^^^^^
+   |                      |
+   |                      unsatisfied trait bound introduced here
+note: required by a bound in `vihaco_runtime::__private::require_coverage`
+  --> src/declarations.rs
+   |
+   | pub fn require_coverage<C: Component, D: Coverage<C>>() {}
+   |                                          ^^^^^^^^^^^ required by this bound in `require_coverage`

@@ -110,6 +110,19 @@ No mise? A stable Rust 2024 toolchain is enough — `cargo test --workspace
 
 ## Documentation
 
+The nondefault `typed-declarations` feature enables experimental runtime
+contracts in `vihaco` or `vihaco-runtime`. It currently provides `Execute<I>`
+and internal support for upcoming declaration attributes. Capability reporting
+is under `__private`; it is not a user-facing API. On `vihaco-runtime`, the
+feature also enables `derive` and forwards it to the proc-macro crate.
+
+In this mode, `Component` and `Composite` no longer inherit `HasInstructionSet`:
+availability is independent of executable selection. Generic code needing
+runtime/syntax associations must state a `HasInstructionSet` bound explicitly.
+Cargo feature unification can activate this contract through another dependency.
+The default API stays current while the new declarations stabilize; the old
+implementation and gate will be removed after consumers migrate.
+
 Guides and the API reference are published to GitHub Pages:
 **<https://queracomputing.github.io/vihaco/>**. The guides walk through defining
 instructions, pattern parser integration, messages, components, observers, and

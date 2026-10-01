@@ -89,7 +89,11 @@ struct DemoComposite {
 #[test]
 fn generates_distinct_syntax_and_runtime_enums() {
     fn require_component<
-        T: Component<Runtime = demo::runtime::Instruction, Syntax = demo::syntax::Instruction>,
+        T: Component
+            + HasInstructionSet<
+                Runtime = demo::runtime::Instruction,
+                Syntax = demo::syntax::Instruction,
+            >,
     >() {
     }
     require_component::<demo::Demo>();

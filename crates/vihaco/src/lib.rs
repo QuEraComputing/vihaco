@@ -48,6 +48,12 @@ pub use vihaco_parser::Parse;
 pub use vihaco_parser::SurfaceInstruction;
 pub use vihaco_parser_derive::Parse;
 
+#[cfg(feature = "typed-declarations")]
+#[doc(hidden)]
+pub use runtime::__private;
+#[cfg(feature = "typed-declarations")]
+pub use runtime::Execute;
+
 #[cfg(test)]
 mod public_api_tests {
     use crate::{

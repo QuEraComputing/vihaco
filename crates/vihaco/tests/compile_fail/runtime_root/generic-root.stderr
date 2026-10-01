@@ -1,0 +1,5 @@
+error: module paths cannot have generic arguments
+ --> tests/compile_fail/runtime_root/generic-root.rs:2:23
+  |
+2 | #[vihaco(crate = first<u8>)]
+  |                       ^^^^

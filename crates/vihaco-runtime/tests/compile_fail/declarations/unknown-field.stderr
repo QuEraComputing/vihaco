@@ -1,0 +1,11 @@
+error[E0277]: the trait bound `Cpu<'static>: vihaco_runtime::__private::Field<0>` is not satisfied
+ --> tests/compile_fail/declarations/unknown-field.rs:6:27
+  |
+6 | fn main() { let _: Option<Wrong> = None; }
+  |                           ^^^^^ unsatisfied trait bound
+  |
+help: the trait `vihaco_runtime::__private::Field<0>` is not implemented for `Cpu<'static>`
+ --> tests/compile_fail/declarations/../../support/declarations.rs
+  |
+  | pub struct Cpu<'a, const N: usize = 2>(pub &'a [u8; N]);
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -26,9 +26,24 @@ pub trait HasInstructionSet {
     type Syntax;
 }
 
+/// A device that executes instructions.
+///
+/// With `typed-declarations`, capabilities are independent of an executable
+/// instruction set. Without it, components retain their instruction-set bound.
+#[cfg(not(feature = "typed-declarations"))]
 pub trait Component: HasInstructionSet {}
 
+/// An execution-capable device, independent of its executable instruction set.
+#[cfg(feature = "typed-declarations")]
+pub trait Component {}
+
+/// A machine assembled from device fields, with an executable instruction set.
+#[cfg(not(feature = "typed-declarations"))]
 pub trait Composite: HasInstructionSet {}
+
+/// A machine assembled from device fields, independent of executable selection.
+#[cfg(feature = "typed-declarations")]
+pub trait Composite {}
 
 pub fn expect_exactly_one_effect<E>(effects: Effects<E>) -> Result<E> {
     match effects {

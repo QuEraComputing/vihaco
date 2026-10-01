@@ -74,3 +74,9 @@ fn runtime_macros_honor_explicit_crate_override() {
         .for_each(drop);
     assert!(observer.observed);
 }
+
+#[test]
+fn runtime_macros_reject_invalid_crate_overrides() {
+    let cases = trybuild::TestCases::new();
+    cases.compile_fail("tests/compile_fail/runtime_root/*.rs");
+}
