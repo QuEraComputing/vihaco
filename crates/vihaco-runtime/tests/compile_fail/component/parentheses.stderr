@@ -1,0 +1,5 @@
+error: expected #[instructions { dialects, ... }]
+ --> tests/compile_fail/component/parentheses.rs:2:1
+  |
+2 | #[instructions(control)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^

@@ -1,0 +1,5 @@
+error[E0425]: cannot find type `__VihacoDialect` in module `plain`
+ --> tests/compile_fail/component/missing-contract.rs:3:18
+  |
+3 | #[instructions { plain }]
+  |                  ^^^^^ not found in `plain`

@@ -70,6 +70,18 @@ pub fn observe(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[cfg(feature = "typed-declarations")]
 mod attr_dialect;
 
+#[cfg(feature = "typed-declarations")]
+mod attr_typed_component;
+
+/// Declare complete dialect support on a struct with `#[instructions { dialects }]`.
+#[cfg(feature = "typed-declarations")]
+#[proc_macro_attribute]
+pub fn component(attr: TokenStream, item: TokenStream) -> TokenStream {
+    attr_typed_component::expand(attr.into(), item.into())
+        .unwrap_or_else(|error| error.into_compile_error())
+        .into()
+}
+
 /// Declare public runtime instructions and their paired surface parsers.
 ///
 /// The framework root is discovered automatically from a dependency on `vihaco`

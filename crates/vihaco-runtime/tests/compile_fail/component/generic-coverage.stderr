@@ -1,0 +1,53 @@
+error[E0277]: the trait bound `Cpu<T>: Execute<Halt>` is not satisfied
+  --> tests/compile_fail/component/generic-coverage.rs:9:18
+   |
+ 9 | #[instructions { control }]
+   |                  ^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Execute<Halt>` is not implemented for `Cpu<T>`
+  --> tests/compile_fail/component/generic-coverage.rs:10:1
+   |
+10 | struct Cpu<T>(T);
+   | ^^^^^^^^^^^^^
+note: required for `__VihacoDialect` to implement `vihaco_runtime::__private::Coverage<Cpu<T>>`
+  --> tests/compile_fail/component/generic-coverage.rs:1:1
+   |
+ 1 | #[vihaco_runtime::dialect]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `vihaco_runtime::__private::require_coverage`
+  --> src/declarations.rs
+   |
+   | pub fn require_coverage<C: Component, D: Coverage<C>>() {}
+   |                                          ^^^^^^^^^^^ required by this bound in `require_coverage`
+   = note: this error originates in the attribute macro `vihaco_runtime::dialect` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+   |
+ 8 | #[vihaco_runtime::component] where Cpu<T>: Execute<Halt>
+   |                              +++++++++++++++++++++++++++
+
+error[E0277]: the trait bound `Cpu<T>: Execute<NewlyAdded>` is not satisfied
+  --> tests/compile_fail/component/generic-coverage.rs:9:18
+   |
+ 9 | #[instructions { control }]
+   |                  ^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Execute<NewlyAdded>` is not implemented for `Cpu<T>`
+  --> tests/compile_fail/component/generic-coverage.rs:10:1
+   |
+10 | struct Cpu<T>(T);
+   | ^^^^^^^^^^^^^
+note: required for `__VihacoDialect` to implement `vihaco_runtime::__private::Coverage<Cpu<T>>`
+  --> tests/compile_fail/component/generic-coverage.rs:1:1
+   |
+ 1 | #[vihaco_runtime::dialect]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `vihaco_runtime::__private::require_coverage`
+  --> src/declarations.rs
+   |
+   | pub fn require_coverage<C: Component, D: Coverage<C>>() {}
+   |                                          ^^^^^^^^^^^ required by this bound in `require_coverage`
+   = note: this error originates in the attribute macro `vihaco_runtime::dialect` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
+   |
+ 8 | #[vihaco_runtime::component] where Cpu<T>: Execute<NewlyAdded>
+   |                              +++++++++++++++++++++++++++++++++

@@ -1,0 +1,5 @@
+error: expected identifier
+ --> tests/compile_fail/component/leaf-grammar.rs:2:27
+  |
+2 | #[instructions { control::{Halt} }]
+  |                           ^

@@ -1,0 +1,5 @@
+error: duplicate component dialect path
+ --> tests/compile_fail/component/duplicate-path.rs:2:27
+  |
+2 | #[instructions { control, control }]
+  |                           ^^^^^^^

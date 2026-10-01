@@ -132,3 +132,39 @@ pub use vihaco_parser_derive::Parse;
 /// ```
 #[cfg(feature = "typed-declarations")]
 pub use vihaco_runtime_derive::dialect;
+
+/// Declare a component's complete dialect capabilities.
+///
+/// Available with `typed-declarations`. Apply to any struct with exactly one
+/// nonempty `#[instructions { dialect_paths, ... }]` helper. Paths name whole
+/// dialect modules, including imported aliases. Implement [`Execute`] for every
+/// instruction in every listed dialect under the struct's original bounds.
+/// Each implementation may choose its own message, effect, and error types.
+/// The declaration preserves the struct and implements [`Component`] without
+/// requiring an aggregate instruction set. Canonical instruction overlaps are
+/// rejected even on unused generic components. `#[vihaco(crate = path)]`
+/// selects an explicit framework root in the struct's authored scope.
+///
+/// ```
+/// use vihaco_runtime::{component, dialect, Execute};
+/// #[dialect]
+/// # #[vihaco(crate = ::vihaco_runtime)]
+/// mod control {
+///     #[instruction]
+///     pub struct Halt;
+/// }
+/// #[component]
+/// # #[vihaco(crate = ::vihaco_runtime)]
+/// #[instructions { control }]
+/// struct Cpu<T = u8>(T);
+/// impl<T> Execute<control::Halt> for Cpu<T> {
+///     type Message = ();
+///     type Effect = ();
+///     type Error = std::convert::Infallible;
+///     fn execute(&mut self, _: &control::Halt, _: ()) -> Result<(), Self::Error> {
+///         Ok(())
+///     }
+/// }
+/// ```
+#[cfg(feature = "typed-declarations")]
+pub use vihaco_runtime_derive::component;

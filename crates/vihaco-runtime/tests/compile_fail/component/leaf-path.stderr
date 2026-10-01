@@ -1,0 +1,11 @@
+error[E0223]: ambiguous associated type
+ --> tests/compile_fail/component/leaf-path.rs:9:18
+  |
+9 | #[instructions { control::Halt }]
+  |                  ^^^^^^^^^^^^^
+  |
+help: if there were a trait named `Example` with associated type `__VihacoDialect` implemented for `Halt`, you could use the fully-qualified path
+  |
+9 - #[instructions { control::Halt }]
+9 + #[instructions { <Halt as Example>::Halt }]
+  |

@@ -2,4 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 pub use vihaco_abi::Instruction;
-pub use vihaco_runtime::{Message, component_macro as component, composite, dispatch, observe};
+#[cfg(feature = "typed-declarations")]
+pub use vihaco_runtime::component;
+#[cfg(not(feature = "typed-declarations"))]
+pub use vihaco_runtime::component_macro as component;
+pub use vihaco_runtime::{Message, composite, dispatch, observe};

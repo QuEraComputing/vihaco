@@ -1,0 +1,22 @@
+error[E0277]: the trait bound `Cpu: vihaco_runtime::__private::Supports<foreign::__VihacoDialect>` is not satisfied
+  --> tests/compile_fail/component/undeclared.rs:25:61
+   |
+25 | fn check() { vihaco_runtime::__private::require_available::<Cpu, foreign::Extra>(); }
+   |                                                             ^^^ unsatisfied trait bound
+   |
+help: the trait `Supports<foreign::__VihacoDialect>` is not implemented for `Cpu`
+      but trait `Supports<control::__VihacoDialect>` is implemented for it
+  --> tests/compile_fail/component/undeclared.rs:10:1
+   |
+10 | #[vihaco_runtime::component]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for that trait implementation, expected `control::__VihacoDialect`, found `foreign::__VihacoDialect`
+note: required by a bound in `vihaco_runtime::__private::require_available`
+  --> src/declarations.rs
+   |
+   | pub fn require_available<C, I>()
+   |        ----------------- required by a bound in this function
+...
+   |     C: Supports<I::Dialect> + Execute<I>,
+   |        ^^^^^^^^^^^^^^^^^^^^ required by this bound in `require_available`
+   = note: this error originates in the attribute macro `vihaco_runtime::component` (in Nightly builds, run with -Z macro-backtrace for more info)

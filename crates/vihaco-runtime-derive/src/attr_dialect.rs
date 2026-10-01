@@ -33,6 +33,7 @@ use crate::common::{resolve_root, strip_attrs};
 
 struct Dialect {
     module: ItemMod,
+    parent_root: Path,
     root: Path,
     leaves: Vec<ItemStruct>,
 }
@@ -50,7 +51,8 @@ pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStr
 }
 
 fn validate(mut module: ItemMod) -> Result<Dialect> {
-    let root = resolve_dialect_root(&module.attrs)?;
+    let parent_root = resolve_root(&module.attrs)?;
+    let root = resolve_dialect_root(parent_root.clone());
     strip_attrs(&mut module.attrs, &["vihaco"]);
     reject_helpers(&module.attrs)?;
     let (_, items) = module.content.as_mut().ok_or_else(|| {
@@ -81,13 +83,13 @@ fn validate(mut module: ItemMod) -> Result<Dialect> {
     }
     Ok(Dialect {
         module,
+        parent_root,
         root,
         leaves,
     })
 }
 
-fn resolve_dialect_root(attrs: &[Attribute]) -> Result<Path> {
-    let mut root = resolve_root(attrs)?;
+fn resolve_dialect_root(mut root: Path) -> Path {
     // The root helper is authored on the module in its parent scope. All
     // generated references live one module deeper; operand paths stay untouched.
     if root.leading_colon.is_none() {
@@ -103,7 +105,7 @@ fn resolve_dialect_root(attrs: &[Attribute]) -> Result<Path> {
             );
         }
     }
-    Ok(root)
+    root
 }
 
 fn collect_instruction_leaves(
@@ -364,6 +366,7 @@ fn surface_ident(runtime: &syn::Ident) -> syn::Ident {
 fn emit(dialect: Dialect) -> Result<TokenStream> {
     let Dialect {
         mut module,
+        parent_root,
         root,
         leaves,
     } = dialect;
@@ -422,7 +425,10 @@ fn emit(dialect: Dialect) -> Result<TokenStream> {
             let pattern = syn::LitStr::new(&pattern, runtime.span());
             surface.attrs.push(parse_quote!(#[pattern = #pattern]));
         }
-        surfaces.push(quote!(#runtime => #surface));
+        surface
+            .attrs
+            .push(parse_quote!(#[__vihaco_runtime(#runtime)]));
+        surfaces.push(quote!(#surface));
     }
     // A coverage parameter must not shadow an authored instruction type.
     let mut component = format_ident!("__VihacoComponent");
@@ -432,7 +438,6 @@ fn emit(dialect: Dialect) -> Result<TokenStream> {
         suffix += 1;
     }
     let declarations = quote! {
-        /// Paired surface instructions, using the runtime declaration's operand types.
         pub mod syntax {
             #(#reexports)*
         }
@@ -449,9 +454,13 @@ fn emit(dialect: Dialect) -> Result<TokenStream> {
         impl<#component: #root::Component> #root::__private::Coverage<#component> for __VihacoDialect
         where #(#component: #root::Execute<#runtime_names>),* {}
     };
-    let generated = quote! {
-        #root::__private::__dialect_parsers! { #root; { #declarations } #(#surfaces)* }
-    };
+    // Ordinary items remain visible to expansion formatters. The internal
+    // module attribute consumes surface markers and emits their parsers without
+    // hiding the declarations inside an opaque function-like macro body.
+    module.attrs.push(parse_quote!(
+        #[#parent_root::__private::__dialect_parsers(#root)]
+    ));
+    let generated = quote!(#declarations #(#surfaces)*);
     // Append ordinary items to the authored module, retaining item order/scope.
     let generated: syn::File = syn::parse2(generated)?;
     module
@@ -461,4 +470,43 @@ fn emit(dialect: Dialect) -> Result<TokenStream> {
         .1
         .extend(generated.items);
     Ok(quote!(#module))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expansion_exposes_declarations_to_rust_formatters() {
+        let expanded = expand(
+            TokenStream::new(),
+            quote! {
+                #[vihaco(crate = crate)]
+                mod control {
+                    #[instruction]
+                    pub struct Halt;
+                }
+            },
+        )
+        .unwrap();
+        let file: syn::File = syn::parse2(expanded).unwrap();
+        let formatted = prettyplease::unparse(&file);
+        assert!(
+            formatted.contains("\n    pub mod syntax {\n"),
+            "{formatted}"
+        );
+        assert!(
+            formatted.contains("\n        pub use super::__HaltSurface as Halt;\n"),
+            "{formatted}"
+        );
+        assert!(
+            formatted.contains("\n    pub struct __VihacoDialect;\n"),
+            "{formatted}"
+        );
+        assert!(
+            formatted.contains("\n    impl crate::__private::DialectSpec for __VihacoDialect {\n"),
+            "{formatted}"
+        );
+        assert!(!formatted.contains("__dialect_parsers!"), "{formatted}");
+    }
 }

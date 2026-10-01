@@ -33,3 +33,19 @@ fn facade_has_a_complete_parser_stack() {
             .has_output()
     );
 }
+
+#[vm::component]
+#[vihaco(crate = self::custom)]
+#[instructions { crate::custom_root, self::arithmetic }]
+struct Cpu<T = u8>(T);
+impl<T, I> vm::Execute<I> for Cpu<T> {
+    type Message = (); type Effect = (); type Error = std::convert::Infallible;
+    fn execute(&mut self, _: &I, _: ()) -> Result<(), Self::Error> { Ok(()) }
+}
+#[test]
+fn facade_component_has_complete_support() {
+    vm::__private::require_available::<Cpu<u8>, arithmetic::Add>();
+    let rows: Vec<_> = vm::__private::capabilities::<Cpu<u8>>().collect();
+    assert_eq!(rows.iter().map(|row| (row.dialect, row.instruction)).collect::<Vec<_>>(),
+        [("custom_root", "halt"), ("arithmetic", "add")]);
+}

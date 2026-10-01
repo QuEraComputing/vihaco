@@ -8,8 +8,9 @@ use producer::exported as imported;
 use rt::__private::{DialectSpec, InstructionSpec, require_coverage};
 #[cfg(test)]
 use rt::{Parse, chumsky::Parser};
+#[rt::component]
+#[instructions { ::producer::exported }]
 struct Cpu;
-impl rt::Component for Cpu {}
 macro_rules! execute {
     ($($instruction:ty),*) => {$(
         impl rt::Execute<$instruction> for Cpu {
@@ -27,6 +28,8 @@ fn cross_crate_imports_preserve_identity_and_parser() {
     require_coverage::<Cpu, Identity>();
     assert_eq!(Identity::LEAVES[0].dialect, "arithmetic");
     assert_eq!(Identity::LEAVES[1].mnemonic, "halt");
+    rt::__private::require_available::<Cpu, imported::Halt>();
+    assert_eq!(rt::__private::capabilities::<Cpu>().count(), 2);
     let value: <imported::Add as InstructionSpec>::Surface = imported::syntax::Add::parser()
         .parse("add -8")
         .into_result()

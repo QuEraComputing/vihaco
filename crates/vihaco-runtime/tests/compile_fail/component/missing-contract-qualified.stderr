@@ -1,0 +1,5 @@
+error[E0425]: cannot find type `__VihacoDialect` in module `nested::plain`
+ --> tests/compile_fail/component/missing-contract-qualified.rs:5:26
+  |
+5 | #[instructions { nested::plain }]
+  |                          ^^^^^ not found in `nested::plain`

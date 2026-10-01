@@ -1,0 +1,5 @@
+error: #[component] requires #[instructions { dialects, ... }]
+ --> tests/compile_fail/component/missing-helper.rs:2:8
+  |
+2 | struct Cpu;
+  |        ^^^

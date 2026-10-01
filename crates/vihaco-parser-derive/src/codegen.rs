@@ -1157,38 +1157,33 @@ fn fresh_lifetime(generics: &syn::Generics, base: &str) -> Lifetime {
 
 // Internal emitter hook: the dialect owns declarations; the parser owns pattern
 // validation, including the mnemonic used by the typed association.
-pub fn dialect_parsers(input: TokenStream2) -> Result<TokenStream2> {
-    use syn::parse::{Parse, ParseStream};
-    struct Input {
-        root: syn::Path,
-        declarations: TokenStream2,
-        leaves: Vec<(Ident, DeriveInput)>,
-    }
-    impl Parse for Input {
-        fn parse(input: ParseStream<'_>) -> Result<Self> {
-            let root = input.parse()?;
-            input.parse::<syn::Token![;]>()?;
-            let declarations;
-            syn::braced!(declarations in input);
-            let declarations = declarations.parse()?;
-            let mut leaves = Vec::new();
-            while !input.is_empty() {
-                let runtime = input.parse()?;
-                input.parse::<syn::Token![=>]>()?;
-                leaves.push((runtime, input.parse()?));
+pub fn dialect_parsers(root: TokenStream2, item: TokenStream2) -> Result<TokenStream2> {
+    let root: syn::Path = syn::parse2(root)?;
+    let mut module: syn::ItemMod = syn::parse2(item)?;
+    let items = &mut module
+        .content
+        .as_mut()
+        .ok_or_else(|| Error::new(module.ident.span(), "expected inline dialect module"))?
+        .1;
+    let mut leaves = Vec::new();
+    let mut declarations = Vec::new();
+    for item in items.drain(..) {
+        if let syn::Item::Struct(mut surface) = item {
+            if let Some(index) = surface
+                .attrs
+                .iter()
+                .position(|attr| attr.path().is_ident("__vihaco_runtime"))
+            {
+                let runtime: Ident = surface.attrs.remove(index).parse_args()?;
+                leaves.push((runtime, syn::parse2::<DeriveInput>(quote!(#surface))?));
+            } else {
+                declarations.push(syn::Item::Struct(surface));
             }
-            Ok(Self {
-                root,
-                declarations,
-                leaves,
-            })
+        } else {
+            declarations.push(item);
         }
     }
-    let Input {
-        root,
-        declarations,
-        leaves,
-    } = syn::parse2(input)?;
+    *items = declarations;
     let paths = ParserPaths {
         parser_root: root.clone(),
         chumsky: syn::parse_quote!(#root::chumsky),
@@ -1244,5 +1239,7 @@ pub fn dialect_parsers(input: TokenStream2) -> Result<TokenStream2> {
             }
         });
     }
-    Ok(quote!(#declarations #(#emitted)*))
+    let generated: syn::File = syn::parse2(quote!(#(#emitted)*))?;
+    items.extend(generated.items);
+    Ok(quote!(#module))
 }

@@ -48,7 +48,7 @@ fn discover_root(mut lookup: impl FnMut(&str) -> Option<FoundCrate>) -> Path {
 }
 
 /// A framework root names a module, not a generic type or associated namespace.
-fn validate_module_path(path: &Path) -> syn::Result<()> {
+pub(crate) fn validate_module_path(path: &Path) -> syn::Result<()> {
     let mut in_super_prefix = path.leading_colon.is_none();
     for (index, segment) in path.segments.iter().enumerate() {
         if !segment.arguments.is_none() {

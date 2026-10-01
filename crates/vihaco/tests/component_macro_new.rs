@@ -3,7 +3,8 @@
 
 use chumsky::Parser as _;
 use vihaco::{
-    Component, Composite, HasInstructionSet, Parse, SurfaceInstruction, component, composite,
+    Component, Composite, HasInstructionSet, Parse, SurfaceInstruction, composite,
+    runtime::component_macro as component,
 };
 use vihaco_parser::Ident;
 
