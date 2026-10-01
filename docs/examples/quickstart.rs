@@ -1,7 +1,6 @@
 use eyre::Result;
 use vihaco::{
-    dispatch, expect_exactly_one_effect, runtime::component_macro as component, Effects,
-    GeneratedComponent, Message,
+    component, dispatch, Effects, GeneratedComponent, Message, expect_exactly_one_effect,
 };
 
 component! {

@@ -96,7 +96,13 @@ pub use vihaco_abi::Instruction;
 
 // Re-export the runtime derives behind the `derive` feature (serde convention).
 #[cfg(feature = "derive")]
-pub use vihaco_runtime_derive::{Message, component_macro, composite, dispatch, machine, observe};
+pub use vihaco_runtime_derive::{Message, composite, dispatch, machine, observe};
+
+#[cfg(all(feature = "derive", not(feature = "typed-declarations")))]
+pub use vihaco_runtime_derive::component_macro;
+
+#[cfg(all(feature = "derive", not(feature = "typed-declarations")))]
+pub use vihaco_runtime_derive::component_macro as component;
 
 #[cfg(feature = "typed-declarations")]
 pub use vihaco_parser_derive::Parse;

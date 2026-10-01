@@ -1,0 +1,13 @@
+error[E0433]: cannot find `component_macro` in `vihaco_runtime`
+ --> tests/compile_fail/component/legacy-macro-unavailable.rs:2:21
+  |
+2 |     vihaco_runtime::component_macro! {
+  |                     ^^^^^^^^^^^^^^^ could not find `component_macro` in `vihaco_runtime`
+  |
+note: found an item that was configured out
+ --> src/lib.rs
+  |
+  | #[cfg(all(feature = "derive", not(feature = "typed-declarations")))]
+  |                                  -------------------------------- the item is gated here
+  | pub use vihaco_runtime_derive::component_macro;
+  |                                ^^^^^^^^^^^^^^^

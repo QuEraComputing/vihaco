@@ -5,6 +5,7 @@ mod attr_component;
 mod attr_composite;
 mod attr_observe;
 mod common;
+#[cfg(not(feature = "typed-declarations"))]
 mod component;
 mod derive_message;
 
@@ -53,6 +54,7 @@ pub fn dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+#[cfg(not(feature = "typed-declarations"))]
 pub fn component_macro(input: TokenStream) -> TokenStream {
     component::expand(input)
 }

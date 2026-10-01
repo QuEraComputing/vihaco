@@ -1,10 +1,11 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+#![cfg(not(feature = "typed-declarations"))]
+
 use chumsky::Parser as _;
 use vihaco::{
-    Component, Composite, HasInstructionSet, Parse, SurfaceInstruction, composite,
-    runtime::component_macro as component,
+    Component, Composite, HasInstructionSet, Parse, SurfaceInstruction, component, composite,
 };
 use vihaco_parser::Ident;
 

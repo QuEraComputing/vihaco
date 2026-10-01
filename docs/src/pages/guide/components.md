@@ -38,7 +38,7 @@ Example:
 
 ```rust
 use eyre::Result;
-use vihaco::{runtime::component_macro as component, dispatch, Effects, Message};
+use vihaco::{component, dispatch, Effects, Message};
 
 component! {
     #[derive(Debug, Default)]
@@ -68,7 +68,7 @@ Component execution lives on an impl block annotated with `#[dispatch(...)]`.
 
 ```rust
 # use eyre::Result;
-# use vihaco::{runtime::component_macro as component, dispatch, Effects, Message};
+# use vihaco::{component, dispatch, Effects, Message};
 # component! {
 #     #[derive(Debug, Default)]
 #     pub component Counter { value: i64, }
@@ -122,7 +122,7 @@ Use `message = ()` when the component can execute directly from its instruction 
 
 ```rust
 use eyre::Result;
-use vihaco::{runtime::component_macro as component, dispatch, Effects};
+use vihaco::{component, dispatch, Effects};
 
 component! {
     #[derive(Debug, Default)]
@@ -201,7 +201,7 @@ type; `component!` supplies the `HasInstructionSet` and `Component` implementati
 By default, `execute(...)` returns `Result<Effects<()>>`. When a component needs to return a real effect, use the `effect` parameter:
 
 ```rust
-use vihaco::{runtime::component_macro as component, dispatch, Effects, Message};
+use vihaco::{component, dispatch, Effects, Message};
 use vihaco_cpu::StepOutcome;
 
 component! {
@@ -333,10 +333,12 @@ Continue with [Observing Effects With `#[observe]`](/guide/observers).
 ## Experimental typed declarations
 
 Enable the nondefault `typed-declarations` Cargo feature to use `#[component]`
-with whole dialect modules. In this configuration, `vihaco::component` names
-this attribute. The existing function-like macro is exported as
-`vihaco::runtime::component_macro`; the examples above import it explicitly.
-Without the feature, `vihaco::component!` keeps its current behavior.
+with whole dialect modules. Both APIs use the crate-root name `component`:
+without the feature, `vihaco::component!` is the existing function-like macro;
+with the feature, `#[vihaco::component]` is the typed declaration attribute.
+The legacy macro is unavailable when the feature is enabled. The aggregate
+examples above and the current CPU component use the feature-off API; typed
+components are checked in a separate feature-enabled dependency graph.
 
 A typed component declares complete dialect support and implements `Execute<I>`
 for every instruction in each listed dialect. Adding an instruction to a dialect
