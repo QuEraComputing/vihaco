@@ -99,6 +99,8 @@ impl CPU {
             HeapAlloc(n_elements) => self.op_heap_alloc(*n_elements),
             GetItem => self.op_get_item(),
             HeapDealloc => self.op_heap_dealloc(),
+            HeapReserve => self.op_heap_reserve(),
+            HeapPush => self.op_heap_push(),
             ConstI32(v) | ConstI64(v) | ConstU32(v) | ConstU64(v) | ConstF32(v) | ConstF64(v)
             | ConstBool(v) | ConstString(v) | ConstFunctionRef(v) | ConstHeapRef(v) => {
                 self.op_const(*v)
@@ -382,7 +384,7 @@ impl CPU {
         let n: usize = n_elements as usize;
         self.require_operands(n)?;
         let start = self.stack.len() - n;
-        let values: Box<[Word]> = self.stack.drain(start..).collect();
+        let values: Vec<Word> = self.stack.drain(start..).collect();
         let heap_id = self.push_heap_object(values);
         self.stack_push(encode_heap_ref(heap_id));
         Ok(StepOutcome::Continue)
@@ -402,6 +404,24 @@ impl CPU {
     pub fn op_heap_dealloc(&mut self) -> Result<StepOutcome> {
         let id = decode_heap_ref(self.stack_pop()?);
         self.dealloc_heap_object(id)?;
+        Ok(StepOutcome::Continue)
+    }
+
+    pub fn op_heap_reserve(&mut self) -> Result<StepOutcome> {
+        let capacity = decode_u64(self.stack_pop()?);
+        let capacity = usize::try_from(capacity)
+            .map_err(|_| eyre::eyre!("heap capacity {} does not fit in usize", capacity))?;
+        let heap_id = self.heap.reserve(capacity)?;
+        self.stack_push(encode_heap_ref(heap_id));
+        Ok(StepOutcome::Continue)
+    }
+
+    pub fn op_heap_push(&mut self) -> Result<StepOutcome> {
+        self.require_operands(2)?;
+        let value = self.stack_pop()?;
+        let heap_ref = self.stack_pop()?;
+        self.heap.push(decode_heap_ref(heap_ref), value)?;
+        self.stack_push(heap_ref);
         Ok(StepOutcome::Continue)
     }
 
@@ -630,6 +650,138 @@ mod tests {
         assert_eq!(outcome, StepOutcome::Continue);
         assert_eq!(cpu.stack(), &vec![encode_heap_ref(0)]);
         assert_eq!(cpu.heap.get(0).unwrap(), &[] as &[Word]);
+    }
+
+    #[test]
+    fn reserved_heap_appends_in_order_and_returns_same_reference() {
+        let mut cpu = CPU::default();
+        cpu.stack_push(encode_u32(2));
+        assert_eq!(
+            cpu.execute_instruction(RuntimeInstruction::HeapReserve)
+                .unwrap(),
+            StepOutcome::Continue
+        );
+        let heap_ref = *cpu.stack_top().unwrap();
+        assert_eq!(cpu.heap_object(decode_heap_ref(heap_ref)).unwrap(), &[]);
+
+        for value in [10, 20] {
+            cpu.stack_push(encode_i64(value));
+            assert_eq!(
+                cpu.execute_instruction(RuntimeInstruction::HeapPush)
+                    .unwrap(),
+                StepOutcome::Continue
+            );
+            assert_eq!(cpu.stack(), &[heap_ref]);
+        }
+        assert_eq!(
+            cpu.heap_object(decode_heap_ref(heap_ref)).unwrap(),
+            &[encode_i64(10), encode_i64(20)]
+        );
+
+        cpu.stack_push(encode_i64(30));
+        let err = cpu
+            .execute_instruction(RuntimeInstruction::HeapPush)
+            .unwrap_err();
+        assert!(err.to_string().contains("full"));
+        assert_eq!(
+            cpu.heap_object(decode_heap_ref(heap_ref)).unwrap(),
+            &[encode_i64(10), encode_i64(20)]
+        );
+
+        cpu.stack_push(heap_ref);
+        cpu.stack_push(encode_u32(1));
+        cpu.execute_instruction(RuntimeInstruction::GetItem)
+            .unwrap();
+        assert_eq!(cpu.stack(), &[encode_i64(20)]);
+    }
+
+    #[test]
+    fn reserved_heap_get_item_checks_current_length() {
+        let mut cpu = CPU::default();
+        cpu.stack_push(encode_u64(3));
+        cpu.execute_instruction(RuntimeInstruction::HeapReserve)
+            .unwrap();
+        cpu.stack_push(encode_i64(10));
+        cpu.execute_instruction(RuntimeInstruction::HeapPush)
+            .unwrap();
+        cpu.stack_push(encode_u32(1));
+        let err = cpu
+            .execute_instruction(RuntimeInstruction::GetItem)
+            .unwrap_err();
+        assert!(err.to_string().contains("out of bounds"));
+    }
+
+    #[test]
+    fn heap_push_rejects_allocated_and_zero_capacity_objects() {
+        for instruction in [
+            RuntimeInstruction::HeapAlloc(1),
+            RuntimeInstruction::HeapReserve,
+        ] {
+            let mut cpu = CPU::default();
+            cpu.stack_push(encode_u64(0));
+            cpu.execute_instruction(instruction).unwrap();
+            cpu.stack_push(encode_i64(42));
+            let err = cpu
+                .execute_instruction(RuntimeInstruction::HeapPush)
+                .unwrap_err();
+            assert!(err.to_string().contains("full"));
+        }
+    }
+
+    #[test]
+    fn heap_push_rejects_invalid_and_deallocated_objects() {
+        let mut cpu = CPU::default();
+        cpu.stack_push(encode_u64(1));
+        cpu.execute_instruction(RuntimeInstruction::HeapReserve)
+            .unwrap();
+        cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
+            .unwrap();
+        for (id, message) in [(0, "deallocated"), (42, "invalid heap object id")] {
+            cpu.stack_push(encode_heap_ref(id));
+            cpu.stack_push(encode_i64(1));
+            let err = cpu
+                .execute_instruction(RuntimeInstruction::HeapPush)
+                .unwrap_err();
+            assert!(err.to_string().contains(message));
+        }
+        cpu.stack_push(encode_u64(1));
+        cpu.execute_instruction(RuntimeInstruction::HeapReserve)
+            .unwrap();
+        assert_eq!(cpu.stack(), &[encode_heap_ref(0)]);
+        cpu.stack_push(encode_i64(7));
+        cpu.execute_instruction(RuntimeInstruction::HeapPush)
+            .unwrap();
+        assert_eq!(cpu.heap_object(0).unwrap(), &[encode_i64(7)]);
+    }
+
+    #[test]
+    fn heap_reserve_rejects_unrepresentable_allocation() {
+        let mut cpu = CPU::default();
+        cpu.stack_push(encode_u64(u64::MAX));
+        assert!(
+            cpu.execute_instruction(RuntimeInstruction::HeapReserve)
+                .is_err()
+        );
+        assert!(cpu.heap.is_empty());
+    }
+
+    #[test]
+    fn heap_append_instructions_require_operands() {
+        let mut cpu = CPU::default();
+        assert!(
+            cpu.execute_instruction(RuntimeInstruction::HeapReserve)
+                .is_err()
+        );
+        assert!(
+            cpu.execute_instruction(RuntimeInstruction::HeapPush)
+                .is_err()
+        );
+        cpu.stack_push(encode_heap_ref(0));
+        assert!(
+            cpu.execute_instruction(RuntimeInstruction::HeapPush)
+                .is_err()
+        );
+        assert_eq!(cpu.stack(), &[encode_heap_ref(0)]);
     }
 
     #[test]

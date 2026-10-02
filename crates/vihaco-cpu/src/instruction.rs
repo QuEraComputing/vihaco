@@ -166,6 +166,12 @@ mod parse_tests {
     }
 
     #[test]
+    fn parses_heap_reserve_and_push() {
+        assert_parses!("cpu.heap_reserve", SurfaceInstruction::HeapReserve);
+        assert_parses!("cpu.heap_push", SurfaceInstruction::HeapPush);
+    }
+
+    #[test]
     fn parses_span() {
         assert_parses!("cpu.span 0 1 2", SurfaceInstruction::Span(0, 1, 2));
     }
