@@ -172,6 +172,11 @@ mod parse_tests {
     }
 
     #[test]
+    fn parses_heap_len() {
+        assert_parses!("cpu.heap_len", SurfaceInstruction::HeapLen);
+    }
+
+    #[test]
     fn parses_span() {
         assert_parses!("cpu.span 0 1 2", SurfaceInstruction::Span(0, 1, 2));
     }

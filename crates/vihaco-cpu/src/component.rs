@@ -101,6 +101,7 @@ impl CPU {
             HeapDealloc => self.op_heap_dealloc(),
             HeapReserve => self.op_heap_reserve(),
             HeapPush => self.op_heap_push(),
+            HeapLen => self.op_heap_len(),
             ConstI32(v) | ConstI64(v) | ConstU32(v) | ConstU64(v) | ConstF32(v) | ConstF64(v)
             | ConstBool(v) | ConstString(v) | ConstFunctionRef(v) | ConstHeapRef(v) => {
                 self.op_const(*v)
@@ -425,6 +426,13 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
+    pub fn op_heap_len(&mut self) -> Result<StepOutcome> {
+        let heap_id = decode_heap_ref(self.stack_pop()?);
+        let len = u64::try_from(self.heap_object(heap_id)?.len())?;
+        self.stack_push(encode_u64(len));
+        Ok(StepOutcome::Continue)
+    }
+
     pub fn op_const(&mut self, v: Word) -> Result<StepOutcome> {
         self.stack.push(v);
         Ok(StepOutcome::Continue)
@@ -693,6 +701,71 @@ mod tests {
         cpu.execute_instruction(RuntimeInstruction::GetItem)
             .unwrap();
         assert_eq!(cpu.stack(), &[encode_i64(20)]);
+    }
+
+    #[test]
+    fn heap_len_consumes_reference_and_preserves_other_stack_values() {
+        for values in [vec![], vec![encode_i64(10), encode_i64(20)]] {
+            let mut cpu = CPU::default();
+            let heap_id = cpu.push_heap_object(values.clone());
+            cpu.stack_push(encode_i64(42));
+            cpu.stack_push(encode_heap_ref(heap_id));
+
+            let outcome = cpu
+                .execute_instruction(RuntimeInstruction::HeapLen)
+                .unwrap();
+
+            assert_eq!(outcome, StepOutcome::Continue);
+            assert_eq!(
+                cpu.stack(),
+                &[encode_i64(42), encode_u64(values.len() as u64)]
+            );
+            assert_eq!(cpu.heap_object(heap_id).unwrap(), values);
+        }
+    }
+
+    #[test]
+    fn heap_len_reports_current_length_of_reserved_object() {
+        let mut cpu = CPU::default();
+        cpu.stack_push(encode_u64(3));
+        cpu.execute_instruction(RuntimeInstruction::HeapReserve)
+            .unwrap();
+        let heap_ref = *cpu.stack_top().unwrap();
+
+        cpu.execute_instruction(RuntimeInstruction::HeapLen)
+            .unwrap();
+        assert_eq!(cpu.stack_pop().unwrap(), encode_u64(0));
+
+        cpu.stack_push(heap_ref);
+        cpu.stack_push(encode_i64(10));
+        cpu.execute_instruction(RuntimeInstruction::HeapPush)
+            .unwrap();
+        cpu.execute_instruction(RuntimeInstruction::HeapLen)
+            .unwrap();
+        assert_eq!(cpu.stack(), &[encode_u64(1)]);
+    }
+
+    #[test]
+    fn heap_len_rejects_invalid_and_deallocated_objects() {
+        let mut cpu = CPU::default();
+        let heap_id = cpu.push_heap_object(vec![]);
+        cpu.dealloc_heap_object(heap_id).unwrap();
+        for (id, message) in [(heap_id, "deallocated"), (42, "invalid heap object id")] {
+            cpu.stack_push(encode_heap_ref(id));
+            let err = cpu
+                .execute_instruction(RuntimeInstruction::HeapLen)
+                .unwrap_err();
+            assert!(err.to_string().contains(message));
+        }
+    }
+
+    #[test]
+    fn heap_len_requires_operand() {
+        let mut cpu = CPU::default();
+        assert!(
+            cpu.execute_instruction(RuntimeInstruction::HeapLen)
+                .is_err()
+        );
     }
 
     #[test]

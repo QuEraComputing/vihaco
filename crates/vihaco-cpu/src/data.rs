@@ -332,6 +332,10 @@ vihaco::component! {
         GeF32,
         #[pattern = "'ge_f64"]
         GeF64,
+
+        /// Pop a heap reference and push the object's current length as a u64.
+        #[pattern = "'heap_len"]
+        HeapLen,
     }
 }
 
