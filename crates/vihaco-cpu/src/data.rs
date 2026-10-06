@@ -8,16 +8,22 @@ use vihaco::{
 };
 use vihaco_parser::Ident;
 
+// Keep execution inside the state-owning module so CPU fields need no
+// crate-wide visibility. The component macro scopes implicit fields here.
+#[path = "component.rs"]
+mod component;
+pub use component::CPUMessage;
+
 vihaco::component! {
     #[derive(Default, Debug)]
     pub component CPU {
-        pub(crate) frames: Vec<Frame>,
-        pub(crate) heap: Heap,
-        pub(crate) stack: Vec<Word>,
-        pub(crate) span: (u32, u32, u32),
-        pub(crate) pending_pc: Option<u32>,
-        pub(crate) current_pc: u32,
-        pub(crate) return_values: Vec<Word>,
+        frames: Vec<Frame>,
+        heap: Heap,
+        stack: Vec<Word>,
+        span: (u32, u32, u32),
+        pending_pc: Option<u32>,
+        current_pc: u32,
+        return_values: Vec<Word>,
     }
 
     type Type = vihaco::Type;
