@@ -292,16 +292,29 @@ impl CPU {
         }
     }
 
-    /// Set up an invocation from arguments already on the operand stack.
+    /// Start a program function from arguments already on the operand stack.
     ///
-    /// Also used for program entry: push the entry arguments before calling this
-    /// method, then begin execution at the returned pending PC. `local_count`
+    /// Push the entry arguments before calling this method, then begin execution
+    /// at the pending PC returned by `take_pending_pc`. `local_count`
     /// includes parameters and comes from the composite's function metadata.
     ///
     /// # Errors
-    /// Returns an error for insufficient operand arguments, a local count
+    /// Returns an error if a function is already active, for insufficient
+    /// operand arguments, a local count
     /// smaller than the arity, or an overflowing frame size or return address.
-    pub fn enter_function(
+    pub fn start_function(
+        &mut self,
+        arity: u32,
+        target: u32,
+        local_count: u32,
+        function: usize,
+    ) -> eyre::Result<StepOutcome> {
+        eyre::ensure!(self.frames.is_empty(), "a function is already active");
+        self.enter_function(arity, target, local_count, Some(function))
+    }
+
+    /// Shared frame setup for program entry and call instructions.
+    fn enter_function(
         &mut self,
         arity: u32,
         target: u32,
