@@ -104,7 +104,17 @@ fn reserved_locals_cannot_be_used_as_operands() {
     assert!(cpu.stack_pop().is_err());
     assert!(cpu.stack_top().is_err());
     assert!(cpu.stack_top_mut().is_err());
-    assert!(cpu.op_call(1, 10, 1).is_err());
+    assert!(
+        cpu.execute_generated(
+            &I::Call(1, 10),
+            CPUMessage::FunctionInfo {
+                arity: 1,
+                start_address: 10,
+                local_count: 1,
+            },
+        )
+        .is_err()
+    );
     assert_eq!(cpu.stack(), &[12, 0, 0]);
 }
 

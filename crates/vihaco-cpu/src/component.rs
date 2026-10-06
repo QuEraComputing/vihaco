@@ -237,17 +237,17 @@ impl CPU {
 }
 
 impl CPU {
-    pub fn op_span(&mut self, file: u32, start: u32, end: u32) -> eyre::Result<StepOutcome> {
+    fn op_span(&mut self, file: u32, start: u32, end: u32) -> eyre::Result<StepOutcome> {
         self.span = (file, start, end);
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_branch(&mut self, target: u32) -> eyre::Result<StepOutcome> {
+    fn op_branch(&mut self, target: u32) -> eyre::Result<StepOutcome> {
         self.set_pending_pc(target);
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_conditional_branch(
+    fn op_conditional_branch(
         &mut self,
         true_target: u32,
         false_target: u32,
@@ -265,7 +265,7 @@ impl CPU {
         }
     }
 
-    pub fn op_return(&mut self, keep: u32) -> eyre::Result<StepOutcome> {
+    fn op_return(&mut self, keep: u32) -> eyre::Result<StepOutcome> {
         let frame = *self.get_frame()?;
         let available = self
             .stack
@@ -333,16 +333,11 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_call(
-        &mut self,
-        arity: u32,
-        target: u32,
-        local_count: u32,
-    ) -> eyre::Result<StepOutcome> {
+    fn op_call(&mut self, arity: u32, target: u32, local_count: u32) -> eyre::Result<StepOutcome> {
         self.enter_function(arity, target, local_count, None)
     }
 
-    pub fn op_indirect_call(
+    fn op_indirect_call(
         &mut self,
         arity: u32,
         target: u32,
@@ -365,7 +360,7 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_store(&mut self, addr: u32) -> Result<StepOutcome> {
+    fn op_store(&mut self, addr: u32) -> Result<StepOutcome> {
         let address = self.local_address(addr as usize)?;
         let value: Word = self.stack_pop()?;
         *self
@@ -375,13 +370,13 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_dup(&mut self) -> Result<StepOutcome> {
+    fn op_dup(&mut self) -> Result<StepOutcome> {
         let v = *self.stack_top()?;
         self.stack.push(v);
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_heap_alloc(&mut self, n_elements: u32) -> Result<StepOutcome> {
+    fn op_heap_alloc(&mut self, n_elements: u32) -> Result<StepOutcome> {
         let n: usize = n_elements as usize;
         self.require_operands(n)?;
         let start = self.stack.len() - n;
@@ -391,7 +386,7 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_get_item(&mut self) -> Result<StepOutcome> {
+    fn op_get_item(&mut self) -> Result<StepOutcome> {
         let index = Self::heap_index(self.stack_pop()?)?;
         let heap_id = decode_heap_ref(self.stack_pop()?);
         let value = *self
@@ -402,13 +397,13 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_heap_dealloc(&mut self) -> Result<StepOutcome> {
+    fn op_heap_dealloc(&mut self) -> Result<StepOutcome> {
         let id = decode_heap_ref(self.stack_pop()?);
         self.dealloc_heap_object(id)?;
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_heap_reserve(&mut self) -> Result<StepOutcome> {
+    fn op_heap_reserve(&mut self) -> Result<StepOutcome> {
         let capacity = decode_u64(self.stack_pop()?);
         let capacity = usize::try_from(capacity)
             .map_err(|_| eyre::eyre!("heap capacity {} does not fit in usize", capacity))?;
@@ -417,7 +412,7 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_heap_push(&mut self) -> Result<StepOutcome> {
+    fn op_heap_push(&mut self) -> Result<StepOutcome> {
         self.require_operands(2)?;
         let value = self.stack_pop()?;
         let heap_ref = self.stack_pop()?;
@@ -426,14 +421,14 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_heap_len(&mut self) -> Result<StepOutcome> {
+    fn op_heap_len(&mut self) -> Result<StepOutcome> {
         let heap_id = decode_heap_ref(self.stack_pop()?);
         let len = u64::try_from(self.heap_object(heap_id)?.len())?;
         self.stack_push(encode_u64(len));
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_const(&mut self, v: Word) -> Result<StepOutcome> {
+    fn op_const(&mut self, v: Word) -> Result<StepOutcome> {
         self.stack.push(v);
         Ok(StepOutcome::Continue)
     }
