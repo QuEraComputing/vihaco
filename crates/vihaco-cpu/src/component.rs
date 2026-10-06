@@ -13,7 +13,7 @@ use vihaco::{dispatch, frame::Frame, traits::*};
 impl Reset for CPU {
     fn reset(&mut self) {
         self.frames.clear();
-        self.heap.clear();
+        self.clear_heap();
         self.stack.clear();
         self.span = (0, 0, 0);
         self.pending_pc = None;
@@ -642,7 +642,7 @@ mod tests {
         assert_eq!(outcome, StepOutcome::Continue);
         assert_eq!(cpu.stack(), &vec![encode_heap_ref(0)]);
         assert_eq!(
-            cpu.heap.get(0).unwrap(),
+            cpu.heap_object(0).unwrap(),
             &[encode_i64(10), encode_i64(20), encode_i64(30)]
         );
     }
@@ -657,7 +657,7 @@ mod tests {
 
         assert_eq!(outcome, StepOutcome::Continue);
         assert_eq!(cpu.stack(), &vec![encode_heap_ref(0)]);
-        assert_eq!(cpu.heap.get(0).unwrap(), &[] as &[Word]);
+        assert_eq!(cpu.heap_object(0).unwrap(), &[] as &[Word]);
     }
 
     #[test]
@@ -835,7 +835,7 @@ mod tests {
             cpu.execute_instruction(RuntimeInstruction::HeapReserve)
                 .is_err()
         );
-        assert!(cpu.heap.is_empty());
+        assert!(cpu.heap_is_empty());
     }
 
     #[test]
@@ -925,7 +925,7 @@ mod tests {
 
         cpu.reset();
 
-        assert!(cpu.heap.is_empty());
+        assert!(cpu.heap_is_empty());
         assert!(cpu.stack().is_empty());
     }
 
@@ -1034,8 +1034,7 @@ mod tests {
             .unwrap();
 
         assert!(
-            cpu.heap
-                .get(0)
+            cpu.heap_object(0)
                 .unwrap_err()
                 .to_string()
                 .contains("deallocated")
@@ -1056,7 +1055,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(cpu.stack(), &vec![encode_heap_ref(0)]);
-        assert_eq!(cpu.heap.get(0).unwrap(), &[encode_i64(2)]);
+        assert_eq!(cpu.heap_object(0).unwrap(), &[encode_i64(2)]);
     }
 
     #[test]
@@ -1101,7 +1100,7 @@ mod tests {
 
         cpu.reset();
 
-        assert!(cpu.heap.is_empty());
+        assert!(cpu.heap_is_empty());
     }
 
     #[test]

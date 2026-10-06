@@ -380,7 +380,7 @@ pub struct Heap {
 
 impl Heap {
     /// Allocate a full object; spare Vec capacity does not permit appending.
-    pub fn alloc(&mut self, values: impl Into<Vec<Word>>) -> u32 {
+    pub(crate) fn alloc(&mut self, values: impl Into<Vec<Word>>) -> u32 {
         let values = values.into();
         let capacity = values.len();
         self.insert(HeapObject { values, capacity })
@@ -388,7 +388,7 @@ impl Heap {
 
     /// Allocate an empty object with an exact, fixed element limit.
     /// Returns an error if its storage cannot be allocated.
-    pub fn reserve(&mut self, capacity: usize) -> eyre::Result<u32> {
+    pub(crate) fn reserve(&mut self, capacity: usize) -> eyre::Result<u32> {
         let mut values = Vec::new();
         values.try_reserve_exact(capacity)?;
         Ok(self.insert(HeapObject { values, capacity }))
@@ -396,7 +396,7 @@ impl Heap {
 
     /// Append without reallocating or overwriting existing elements.
     /// Returns an error for invalid, deallocated, or full objects.
-    pub fn push(&mut self, id: u32, value: Word) -> eyre::Result<()> {
+    pub(crate) fn push(&mut self, id: u32, value: Word) -> eyre::Result<()> {
         let object = match self.slots.get_mut(id as usize) {
             Some(HeapSlot::Alive(object)) => object,
             Some(HeapSlot::Deallocated) => {
@@ -425,7 +425,7 @@ impl Heap {
         }
     }
 
-    pub fn dealloc(&mut self, id: u32) -> eyre::Result<()> {
+    fn dealloc(&mut self, id: u32) -> eyre::Result<()> {
         match self.slots.get_mut(id as usize) {
             Some(slot @ HeapSlot::Alive(_)) => {
                 *slot = HeapSlot::Deallocated;
@@ -440,7 +440,7 @@ impl Heap {
         }
     }
 
-    pub fn get(&self, id: u32) -> eyre::Result<&[Word]> {
+    fn get(&self, id: u32) -> eyre::Result<&[Word]> {
         match self.slots.get(id as usize) {
             Some(HeapSlot::Alive(object)) => Ok(&object.values),
             Some(HeapSlot::Deallocated) => {
@@ -450,13 +450,13 @@ impl Heap {
         }
     }
 
-    pub fn clear(&mut self) {
+    fn clear(&mut self) {
         self.slots.clear();
         self.free_list.clear();
     }
 
     #[cfg(test)]
-    pub fn is_empty(&self) -> bool {
+    fn is_empty(&self) -> bool {
         self.slots.is_empty()
     }
 }
@@ -603,6 +603,15 @@ impl CPU {
 
     pub fn dealloc_heap_object(&mut self, id: u32) -> eyre::Result<()> {
         self.heap.dealloc(id)
+    }
+
+    pub(crate) fn clear_heap(&mut self) {
+        self.heap.clear();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn heap_is_empty(&self) -> bool {
+        self.heap.is_empty()
     }
 
     pub fn take_pending_pc(&mut self) -> Option<u32> {
