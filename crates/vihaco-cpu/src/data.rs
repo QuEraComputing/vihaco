@@ -593,15 +593,15 @@ impl CPU {
             .ok_or_else(|| eyre::eyre!("local address overflow"))
     }
 
-    pub fn push_heap_object(&mut self, values: impl Into<Vec<Word>>) -> u32 {
+    pub(crate) fn push_heap_object(&mut self, values: impl Into<Vec<Word>>) -> u32 {
         self.heap.alloc(values)
     }
 
-    pub fn heap_object(&self, id: u32) -> eyre::Result<&[Word]> {
+    pub(crate) fn heap_object(&self, id: u32) -> eyre::Result<&[Word]> {
         self.heap.get(id)
     }
 
-    pub fn dealloc_heap_object(&mut self, id: u32) -> eyre::Result<()> {
+    pub(crate) fn dealloc_heap_object(&mut self, id: u32) -> eyre::Result<()> {
         self.heap.dealloc(id)
     }
 
@@ -618,11 +618,11 @@ impl CPU {
         self.pending_pc.take()
     }
 
-    pub fn set_pending_pc(&mut self, pc: u32) {
+    pub(crate) fn set_pending_pc(&mut self, pc: u32) {
         self.pending_pc = Some(pc);
     }
 
-    pub fn clear_pending_pc(&mut self) {
+    pub(crate) fn clear_pending_pc(&mut self) {
         self.pending_pc = None;
     }
 
@@ -634,7 +634,7 @@ impl CPU {
         &self.return_values
     }
 
-    pub fn set_return_values(&mut self, values: Vec<Word>) {
+    pub(crate) fn set_return_values(&mut self, values: Vec<Word>) {
         self.return_values = values;
     }
 }
