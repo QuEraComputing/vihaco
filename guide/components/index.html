@@ -246,7 +246,7 @@ let function = FunctionInfo {
 
 let mut machine = Machine { cpu: CPU::default() };
 machine.cpu.stack_push(42_u64);
-machine.cpu.enter_function(arity, function.start_address, function.local_count, Some(0))?;
+machine.cpu.start_function(arity, function.start_address, function.local_count, 0)?;
 assert_eq!(machine.cpu.stack(), &#x26;[42, 0, 0, 0]);
 assert_eq!(machine.cpu.get_frame()?.operands_index(), 4);
 assert_eq!(machine.cpu.take_pending_pc(), Some(function.start_address));
@@ -268,8 +268,9 @@ stack. Direct <code>Call(arity, address)</code> requires a <code>CPUMessage::Fun
 its selected local count. Indirect calls receive arity, address, and local count
 through that message; only the function reference, above the arguments, is popped
 from the operand stack. Metadata is never pushed as operand words.</p>
-<p><code>enter_function</code> implements frame setup for entry and both call forms. It reuses
-the argument operand slots and appends zero-filled additional locals. <code>Return(n)</code>
+<p><code>start_function</code> sets up program entry; call instructions use the same internal
+frame setup. Both reuse the argument operand slots and append zero-filled
+additional locals. <code>start_function</code> rejects entry while a function is active. <code>Return(n)</code>
 preserves the top <code>n</code> operands, removes the rest of the frame, and restores the
 caller. With no caller, results are available through <code>CPU::return_values()</code>.
 The composite continues to own program-counter routing and instruction execution.</p>
@@ -427,7 +428,7 @@ The composite continues to own program-counter routing and instruction execution
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-10-06</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-10-07</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {
