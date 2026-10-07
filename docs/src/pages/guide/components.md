@@ -289,7 +289,7 @@ let function = FunctionInfo {
 
 let mut machine = Machine { cpu: CPU::default() };
 machine.cpu.stack_push(42_u64);
-machine.cpu.enter_function(arity, function.start_address, function.local_count, Some(0))?;
+machine.cpu.start_function(arity, function.start_address, function.local_count, 0)?;
 assert_eq!(machine.cpu.stack(), &[42, 0, 0, 0]);
 assert_eq!(machine.cpu.get_frame()?.operands_index(), 4);
 assert_eq!(machine.cpu.take_pending_pc(), Some(function.start_address));
@@ -317,8 +317,9 @@ its selected local count. Indirect calls receive arity, address, and local count
 through that message; only the function reference, above the arguments, is popped
 from the operand stack. Metadata is never pushed as operand words.
 
-`enter_function` implements frame setup for entry and both call forms. It reuses
-the argument operand slots and appends zero-filled additional locals. `Return(n)`
+`start_function` sets up program entry; call instructions use the same internal
+frame setup. Both reuse the argument operand slots and append zero-filled
+additional locals. `start_function` rejects entry while a function is active. `Return(n)`
 preserves the top `n` operands, removes the rest of the frame, and restores the
 caller. With no caller, results are available through `CPU::return_values()`.
 The composite continues to own program-counter routing and instruction execution.

@@ -27,7 +27,7 @@ fn call(cpu: &mut CPU, instruction: I, arity: u32, target: u32, locals: u32) {
 fn entry_and_nested_calls_preserve_arguments_locals_and_caller_operands() {
     let mut cpu = CPU::default();
     cpu.stack_mut().extend([10, 20]);
-    cpu.enter_function(2, 0, 4, Some(0)).unwrap();
+    cpu.start_function(2, 0, 4, 0).unwrap();
     assert_eq!(cpu.stack(), &[10, 20, 0, 0]);
     assert_eq!(cpu.operand_count(), 0);
     assert_eq!(cpu.get_frame().unwrap().operands_index(), 4);
@@ -71,7 +71,7 @@ fn entry_and_nested_calls_preserve_arguments_locals_and_caller_operands() {
 #[test]
 fn indirect_call_gets_metadata_from_message_without_stack_metadata_words() {
     let mut cpu = CPU::default();
-    cpu.enter_function(0, 0, 1, Some(0)).unwrap();
+    cpu.start_function(0, 0, 1, 0).unwrap();
     cpu.stack_mut().extend([41, encode_function_ref(3)]);
     call(&mut cpu, I::IndirectCall, 1, 42, 3);
     assert_eq!(cpu.stack(), &[0, 41, 0, 0]);
@@ -87,7 +87,7 @@ fn indirect_call_gets_metadata_from_message_without_stack_metadata_words() {
 fn reserved_locals_cannot_be_used_as_operands() {
     let mut cpu = CPU::default();
     cpu.stack_push(12_u64);
-    cpu.enter_function(1, 0, 3, Some(0)).unwrap();
+    cpu.start_function(1, 0, 3, 0).unwrap();
     let original_frame = *cpu.get_frame().unwrap();
     for instruction in [
         I::Dup,
@@ -104,14 +104,24 @@ fn reserved_locals_cannot_be_used_as_operands() {
     assert!(cpu.stack_pop().is_err());
     assert!(cpu.stack_top().is_err());
     assert!(cpu.stack_top_mut().is_err());
-    assert!(cpu.op_call(1, 10, 1).is_err());
+    assert!(
+        cpu.execute_generated(
+            &I::Call(1, 10),
+            CPUMessage::FunctionInfo {
+                arity: 1,
+                start_address: 10,
+                local_count: 1,
+            },
+        )
+        .is_err()
+    );
     assert_eq!(cpu.stack(), &[12, 0, 0]);
 }
 
 #[test]
 fn load_store_cannot_address_operands_or_grow_locals() {
     let mut cpu = CPU::default();
-    cpu.enter_function(0, 0, 2, Some(0)).unwrap();
+    cpu.start_function(0, 0, 2, 0).unwrap();
     cpu.stack_push(99_u64);
     for index in [2, 10, u32::MAX] {
         assert!(execute(&mut cpu, I::LoadU64(index)).is_err());
@@ -126,7 +136,7 @@ fn load_store_cannot_address_operands_or_grow_locals() {
 #[test]
 fn failed_store_does_not_consume_operand() {
     let mut cpu = CPU::default();
-    cpu.enter_function(0, 0, 1, Some(0)).unwrap();
+    cpu.start_function(0, 0, 1, 0).unwrap();
     cpu.stack_push(99_u64);
 
     assert!(execute(&mut cpu, I::StoreU64(1)).is_err());
@@ -136,7 +146,7 @@ fn failed_store_does_not_consume_operand() {
 #[test]
 fn subsequent_invocations_zero_reused_local_slots() {
     let mut cpu = CPU::default();
-    cpu.enter_function(0, 0, 0, Some(0)).unwrap();
+    cpu.start_function(0, 0, 0, 0).unwrap();
     for _ in 0..2 {
         cpu.stack_push(7_u64);
         call(&mut cpu, I::Call(1, 10), 1, 10, 3);
@@ -165,8 +175,22 @@ fn entry_rejects_local_count_smaller_than_arity_without_mutating_state() {
     let mut cpu = CPU::default();
     cpu.stack_mut().extend([10_u64, 20_u64]);
 
-    assert!(cpu.enter_function(2, 42, 1, Some(0)).is_err());
+    assert!(cpu.start_function(2, 42, 1, 0).is_err());
     assert_eq!(cpu.stack(), &[10, 20]);
     assert!(cpu.get_frame().is_err());
     assert_eq!(cpu.take_pending_pc(), None);
+}
+
+#[test]
+fn start_function_rejects_active_invocation_without_mutating_state() {
+    let mut cpu = CPU::default();
+    cpu.start_function(0, 5, 1, 3).unwrap();
+    cpu.stack_push(42_u64);
+    let original_stack = cpu.stack().clone();
+    let original_frame = *cpu.get_frame().unwrap();
+
+    assert!(cpu.start_function(1, 10, 2, 4).is_err());
+    assert_eq!(cpu.stack(), &original_stack);
+    assert_eq!(*cpu.get_frame().unwrap(), original_frame);
+    assert_eq!(cpu.take_pending_pc(), Some(5));
 }

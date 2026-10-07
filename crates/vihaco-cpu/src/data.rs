@@ -8,16 +8,22 @@ use vihaco::{
 };
 use vihaco_parser::Ident;
 
+// Keep execution inside the state-owning module so CPU fields need no
+// crate-wide visibility. The component macro scopes implicit fields here.
+#[path = "component.rs"]
+mod component;
+pub use component::CPUMessage;
+
 vihaco::component! {
     #[derive(Default, Debug)]
     pub component CPU {
-        pub(crate) frames: Vec<Frame>,
-        pub(crate) heap: Heap,
-        pub(crate) stack: Vec<Word>,
-        pub(crate) span: (u32, u32, u32),
-        pub(crate) pending_pc: Option<u32>,
-        pub(crate) current_pc: u32,
-        pub(crate) return_values: Vec<Word>,
+        frames: Vec<Frame>,
+        heap: Heap,
+        stack: Vec<Word>,
+        span: (u32, u32, u32),
+        pending_pc: Option<u32>,
+        current_pc: u32,
+        return_values: Vec<Word>,
     }
 
     type Type = vihaco::Type;
@@ -373,14 +379,14 @@ enum HeapSlot {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Heap {
+struct Heap {
     slots: Vec<HeapSlot>,
     free_list: Vec<u32>,
 }
 
 impl Heap {
     /// Allocate a full object; spare Vec capacity does not permit appending.
-    pub fn alloc(&mut self, values: impl Into<Vec<Word>>) -> u32 {
+    fn alloc(&mut self, values: impl Into<Vec<Word>>) -> u32 {
         let values = values.into();
         let capacity = values.len();
         self.insert(HeapObject { values, capacity })
@@ -388,7 +394,7 @@ impl Heap {
 
     /// Allocate an empty object with an exact, fixed element limit.
     /// Returns an error if its storage cannot be allocated.
-    pub fn reserve(&mut self, capacity: usize) -> eyre::Result<u32> {
+    fn reserve(&mut self, capacity: usize) -> eyre::Result<u32> {
         let mut values = Vec::new();
         values.try_reserve_exact(capacity)?;
         Ok(self.insert(HeapObject { values, capacity }))
@@ -396,7 +402,7 @@ impl Heap {
 
     /// Append without reallocating or overwriting existing elements.
     /// Returns an error for invalid, deallocated, or full objects.
-    pub fn push(&mut self, id: u32, value: Word) -> eyre::Result<()> {
+    fn push(&mut self, id: u32, value: Word) -> eyre::Result<()> {
         let object = match self.slots.get_mut(id as usize) {
             Some(HeapSlot::Alive(object)) => object,
             Some(HeapSlot::Deallocated) => {
@@ -425,7 +431,7 @@ impl Heap {
         }
     }
 
-    pub fn dealloc(&mut self, id: u32) -> eyre::Result<()> {
+    fn dealloc(&mut self, id: u32) -> eyre::Result<()> {
         match self.slots.get_mut(id as usize) {
             Some(slot @ HeapSlot::Alive(_)) => {
                 *slot = HeapSlot::Deallocated;
@@ -440,7 +446,7 @@ impl Heap {
         }
     }
 
-    pub fn get(&self, id: u32) -> eyre::Result<&[Word]> {
+    fn get(&self, id: u32) -> eyre::Result<&[Word]> {
         match self.slots.get(id as usize) {
             Some(HeapSlot::Alive(object)) => Ok(&object.values),
             Some(HeapSlot::Deallocated) => {
@@ -450,13 +456,13 @@ impl Heap {
         }
     }
 
-    pub fn clear(&mut self) {
+    fn clear(&mut self) {
         self.slots.clear();
         self.free_list.clear();
     }
 
     #[cfg(test)]
-    pub fn is_empty(&self) -> bool {
+    fn is_empty(&self) -> bool {
         self.slots.is_empty()
     }
 }
@@ -593,27 +599,36 @@ impl CPU {
             .ok_or_else(|| eyre::eyre!("local address overflow"))
     }
 
-    pub fn push_heap_object(&mut self, values: impl Into<Vec<Word>>) -> u32 {
+    fn push_heap_object(&mut self, values: impl Into<Vec<Word>>) -> u32 {
         self.heap.alloc(values)
     }
 
-    pub fn heap_object(&self, id: u32) -> eyre::Result<&[Word]> {
+    fn heap_object(&self, id: u32) -> eyre::Result<&[Word]> {
         self.heap.get(id)
     }
 
-    pub fn dealloc_heap_object(&mut self, id: u32) -> eyre::Result<()> {
+    fn dealloc_heap_object(&mut self, id: u32) -> eyre::Result<()> {
         self.heap.dealloc(id)
+    }
+
+    fn clear_heap(&mut self) {
+        self.heap.clear();
+    }
+
+    #[cfg(test)]
+    fn heap_is_empty(&self) -> bool {
+        self.heap.is_empty()
     }
 
     pub fn take_pending_pc(&mut self) -> Option<u32> {
         self.pending_pc.take()
     }
 
-    pub fn set_pending_pc(&mut self, pc: u32) {
+    pub(crate) fn set_pending_pc(&mut self, pc: u32) {
         self.pending_pc = Some(pc);
     }
 
-    pub fn clear_pending_pc(&mut self) {
+    pub(crate) fn clear_pending_pc(&mut self) {
         self.pending_pc = None;
     }
 
@@ -625,7 +640,7 @@ impl CPU {
         &self.return_values
     }
 
-    pub fn set_return_values(&mut self, values: Vec<Word>) {
+    pub(crate) fn set_return_values(&mut self, values: Vec<Word>) {
         self.return_values = values;
     }
 }

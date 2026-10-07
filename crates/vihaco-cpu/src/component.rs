@@ -13,7 +13,7 @@ use vihaco::{dispatch, frame::Frame, traits::*};
 impl Reset for CPU {
     fn reset(&mut self) {
         self.frames.clear();
-        self.heap.clear();
+        self.clear_heap();
         self.stack.clear();
         self.span = (0, 0, 0);
         self.pending_pc = None;
@@ -237,17 +237,17 @@ impl CPU {
 }
 
 impl CPU {
-    pub fn op_span(&mut self, file: u32, start: u32, end: u32) -> eyre::Result<StepOutcome> {
+    fn op_span(&mut self, file: u32, start: u32, end: u32) -> eyre::Result<StepOutcome> {
         self.span = (file, start, end);
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_branch(&mut self, target: u32) -> eyre::Result<StepOutcome> {
+    fn op_branch(&mut self, target: u32) -> eyre::Result<StepOutcome> {
         self.set_pending_pc(target);
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_conditional_branch(
+    fn op_conditional_branch(
         &mut self,
         true_target: u32,
         false_target: u32,
@@ -265,7 +265,7 @@ impl CPU {
         }
     }
 
-    pub fn op_return(&mut self, keep: u32) -> eyre::Result<StepOutcome> {
+    fn op_return(&mut self, keep: u32) -> eyre::Result<StepOutcome> {
         let frame = *self.get_frame()?;
         let available = self
             .stack
@@ -292,16 +292,29 @@ impl CPU {
         }
     }
 
-    /// Set up an invocation from arguments already on the operand stack.
+    /// Start a program function from arguments already on the operand stack.
     ///
-    /// Also used for program entry: push the entry arguments before calling this
-    /// method, then begin execution at the returned pending PC. `local_count`
+    /// Push the entry arguments before calling this method, then begin execution
+    /// at the pending PC returned by `take_pending_pc`. `local_count`
     /// includes parameters and comes from the composite's function metadata.
     ///
     /// # Errors
-    /// Returns an error for insufficient operand arguments, a local count
+    /// Returns an error if a function is already active, for insufficient
+    /// operand arguments, a local count
     /// smaller than the arity, or an overflowing frame size or return address.
-    pub fn enter_function(
+    pub fn start_function(
+        &mut self,
+        arity: u32,
+        target: u32,
+        local_count: u32,
+        function: usize,
+    ) -> eyre::Result<StepOutcome> {
+        eyre::ensure!(self.frames.is_empty(), "a function is already active");
+        self.enter_function(arity, target, local_count, Some(function))
+    }
+
+    /// Shared frame setup for program entry and call instructions.
+    fn enter_function(
         &mut self,
         arity: u32,
         target: u32,
@@ -333,16 +346,11 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_call(
-        &mut self,
-        arity: u32,
-        target: u32,
-        local_count: u32,
-    ) -> eyre::Result<StepOutcome> {
+    fn op_call(&mut self, arity: u32, target: u32, local_count: u32) -> eyre::Result<StepOutcome> {
         self.enter_function(arity, target, local_count, None)
     }
 
-    pub fn op_indirect_call(
+    fn op_indirect_call(
         &mut self,
         arity: u32,
         target: u32,
@@ -365,7 +373,7 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_store(&mut self, addr: u32) -> Result<StepOutcome> {
+    fn op_store(&mut self, addr: u32) -> Result<StepOutcome> {
         let address = self.local_address(addr as usize)?;
         let value: Word = self.stack_pop()?;
         *self
@@ -375,13 +383,13 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_dup(&mut self) -> Result<StepOutcome> {
+    fn op_dup(&mut self) -> Result<StepOutcome> {
         let v = *self.stack_top()?;
         self.stack.push(v);
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_heap_alloc(&mut self, n_elements: u32) -> Result<StepOutcome> {
+    fn op_heap_alloc(&mut self, n_elements: u32) -> Result<StepOutcome> {
         let n: usize = n_elements as usize;
         self.require_operands(n)?;
         let start = self.stack.len() - n;
@@ -391,7 +399,7 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_get_item(&mut self) -> Result<StepOutcome> {
+    fn op_get_item(&mut self) -> Result<StepOutcome> {
         let index = Self::heap_index(self.stack_pop()?)?;
         let heap_id = decode_heap_ref(self.stack_pop()?);
         let value = *self
@@ -402,13 +410,13 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_heap_dealloc(&mut self) -> Result<StepOutcome> {
+    fn op_heap_dealloc(&mut self) -> Result<StepOutcome> {
         let id = decode_heap_ref(self.stack_pop()?);
         self.dealloc_heap_object(id)?;
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_heap_reserve(&mut self) -> Result<StepOutcome> {
+    fn op_heap_reserve(&mut self) -> Result<StepOutcome> {
         let capacity = decode_u64(self.stack_pop()?);
         let capacity = usize::try_from(capacity)
             .map_err(|_| eyre::eyre!("heap capacity {} does not fit in usize", capacity))?;
@@ -417,7 +425,7 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_heap_push(&mut self) -> Result<StepOutcome> {
+    fn op_heap_push(&mut self) -> Result<StepOutcome> {
         self.require_operands(2)?;
         let value = self.stack_pop()?;
         let heap_ref = self.stack_pop()?;
@@ -426,14 +434,14 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_heap_len(&mut self) -> Result<StepOutcome> {
+    fn op_heap_len(&mut self) -> Result<StepOutcome> {
         let heap_id = decode_heap_ref(self.stack_pop()?);
         let len = u64::try_from(self.heap_object(heap_id)?.len())?;
         self.stack_push(encode_u64(len));
         Ok(StepOutcome::Continue)
     }
 
-    pub fn op_const(&mut self, v: Word) -> Result<StepOutcome> {
+    fn op_const(&mut self, v: Word) -> Result<StepOutcome> {
         self.stack.push(v);
         Ok(StepOutcome::Continue)
     }
@@ -642,7 +650,7 @@ mod tests {
         assert_eq!(outcome, StepOutcome::Continue);
         assert_eq!(cpu.stack(), &vec![encode_heap_ref(0)]);
         assert_eq!(
-            cpu.heap.get(0).unwrap(),
+            cpu.heap_object(0).unwrap(),
             &[encode_i64(10), encode_i64(20), encode_i64(30)]
         );
     }
@@ -657,7 +665,7 @@ mod tests {
 
         assert_eq!(outcome, StepOutcome::Continue);
         assert_eq!(cpu.stack(), &vec![encode_heap_ref(0)]);
-        assert_eq!(cpu.heap.get(0).unwrap(), &[] as &[Word]);
+        assert_eq!(cpu.heap_object(0).unwrap(), &[] as &[Word]);
     }
 
     #[test]
@@ -835,7 +843,7 @@ mod tests {
             cpu.execute_instruction(RuntimeInstruction::HeapReserve)
                 .is_err()
         );
-        assert!(cpu.heap.is_empty());
+        assert!(cpu.heap_is_empty());
     }
 
     #[test]
@@ -925,7 +933,7 @@ mod tests {
 
         cpu.reset();
 
-        assert!(cpu.heap.is_empty());
+        assert!(cpu.heap_is_empty());
         assert!(cpu.stack().is_empty());
     }
 
@@ -1034,8 +1042,7 @@ mod tests {
             .unwrap();
 
         assert!(
-            cpu.heap
-                .get(0)
+            cpu.heap_object(0)
                 .unwrap_err()
                 .to_string()
                 .contains("deallocated")
@@ -1056,7 +1063,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(cpu.stack(), &vec![encode_heap_ref(0)]);
-        assert_eq!(cpu.heap.get(0).unwrap(), &[encode_i64(2)]);
+        assert_eq!(cpu.heap_object(0).unwrap(), &[encode_i64(2)]);
     }
 
     #[test]
@@ -1101,7 +1108,7 @@ mod tests {
 
         cpu.reset();
 
-        assert!(cpu.heap.is_empty());
+        assert!(cpu.heap_is_empty());
     }
 
     #[test]
