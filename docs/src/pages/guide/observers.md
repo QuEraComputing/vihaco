@@ -107,6 +107,60 @@ impl MultiObserver {
 
 The macro generates a separate `Observe<T>` impl for each listed effect type.
 
+## Standard Text Output
+
+`StdoutObserver` handles the standard `StdoutEffect`. Choose its destination
+when constructing it. Each destination uses the same observer type, so a
+machine can select one at runtime without changing its field types.
+
+The default destination captures bytes in memory. `buffered()` selects the
+same behavior explicitly:
+
+```rust
+use vihaco::Observe;
+use vihaco::observer::stdio::{StdoutEffect, StdoutObserver};
+
+let mut output = StdoutObserver::default();
+output.observe(&StdoutEffect("result=1\n".to_owned()))?;
+assert_eq!(output.output(), b"result=1\n");
+# Ok::<(), eyre::Report>(())
+```
+
+Use `stdout()` to write directly to process stdout:
+
+```rust,no_run
+use vihaco::observer::stdio::StdoutObserver;
+
+let mut output = StdoutObserver::stdout();
+output.write_stdout("result=1\n")?;
+output.flush()?;
+# Ok::<(), eyre::Report>(())
+```
+
+Use `file()` to transfer ownership of an open file to the observer:
+
+```rust,no_run
+use std::fs::File;
+use vihaco::observer::stdio::StdoutObserver;
+
+let mut output = StdoutObserver::file(File::create("vm-output.txt")?);
+output.write_stdout("result=1\n")?;
+output.flush()?;
+# Ok::<(), eyre::Report>(())
+```
+
+`File::create` creates or truncates the file. To append instead, open it with
+`OpenOptions::new().create(true).append(true).open(path)` and pass the result
+to `file()`. The observer uses the file's current position and open options.
+
+Both `write_stdout()` and delivered effects write UTF-8 bytes unchanged,
+without adding newlines. The observer does not explicitly flush after each
+write; process stdout keeps its standard buffering behavior. Call `flush()`
+when needed and handle its result, as with writes. Flushing a file does not sync
+it to disk. Stdout and file destinations retain no memory copy;
+`output()` returns an empty slice for these destinations. Buffer capture is
+useful when the caller needs to include VM text in a structured result.
+
 ## When To Declare `effect = ...`
 
 An `#[observe(...)]` block defaults to a `()` follow-up effect type. Declare an explicit follow-up type with `effect = ...` once the boundary does typed continuation work instead of a simple `Effects<()>` handoff. In practice, write `effect = CompositeEffect` on the `#[observe(...)]` block when any of these are true:
