@@ -1,3 +1,11 @@
+error[E0433]: cannot find `__vihaco_inventory` in `plain`
+ --> tests/compile_fail/component/missing-contract.rs:2:1
+  |
+2 | #[vihaco_runtime::component]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ could not find `__vihaco_inventory` in `plain`
+  |
+  = note: this error originates in the attribute macro `vihaco_runtime::component` (in Nightly builds, run with -Z macro-backtrace for more info)
+
 error[E0425]: cannot find type `__VihacoDialect` in module `plain`
  --> tests/compile_fail/component/missing-contract.rs:3:18
   |

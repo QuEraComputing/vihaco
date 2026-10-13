@@ -22,13 +22,13 @@ impl Capabilities for Bad {
 #[composite]
 #[vihaco(crate = framework)]
 struct Inner<T: Capabilities> {
-    #[device]
+    #[device(100)]
     child: T,
 }
 #[composite]
 #[vihaco(crate = framework)]
 struct Parent<T: Capabilities> {
-    #[device]
+    #[device(101)]
     child: Inner<T>,
 }
 const _: () = validate(<Parent<Bad> as Capabilities>::DESCRIPTION);

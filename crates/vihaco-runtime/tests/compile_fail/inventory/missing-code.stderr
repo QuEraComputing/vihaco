@@ -1,0 +1,5 @@
+error: every #[device] requires an explicit u8 code
+ --> tests/compile_fail/inventory/missing-code.rs:8:41
+  |
+8 | #[composite] struct Machine { #[device] cpu: Cpu }
+  |                                         ^^^

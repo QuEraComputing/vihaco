@@ -1,3 +1,26 @@
+error[E0433]: cannot find module or crate `__vihaco_inventory_Bad` in this scope
+  --> tests/compile_fail/composites/fixed-overlap.rs:26:12
+   |
+26 |     child: Bad,
+   |            ^^^ use of unresolved module or unlinked crate `__vihaco_inventory_Bad`
+
+error[E0277]: the trait bound `Bad: vihaco_runtime::__private::HasInventory` is not satisfied
+  --> tests/compile_fail/composites/fixed-overlap.rs:26:12
+   |
+26 |     child: Bad,
+   |            ^^^ unsatisfied trait bound
+   |
+help: the trait `vihaco_runtime::__private::HasInventory` is not implemented for `Bad`
+  --> tests/compile_fail/composites/fixed-overlap.rs:7:1
+   |
+ 7 | struct Bad;
+   | ^^^^^^^^^^
+note: required by a bound in `vihaco_runtime::__private::require_inventory`
+  --> src/declarations.rs
+   |
+   | pub fn require_inventory<C: HasInventory<Provider = P>, P>() {}
+   |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `require_inventory`
+
 error[E0080]: evaluation panicked: overlapping canonical instruction selector
   --> tests/compile_fail/composites/fixed-overlap.rs:22:1
    |
@@ -22,3 +45,11 @@ note: inside `vihaco_runtime::__private::assert_disjoint_dialects`
    | |                 "overlapping canonical instruction selector"
    | |             );
    | |_____________- in this macro invocation
+
+error[E0433]: cannot find module or crate `__vihaco_inventory_Bad` in this scope
+  --> tests/compile_fail/composites/fixed-overlap.rs:26:12
+   |
+26 |     child: Bad,
+   |            ^^^ use of unresolved module or unlinked crate `__vihaco_inventory_Bad`
+   |
+   = help: if you wanted to use a crate named `__vihaco_inventory_Bad`, use `cargo add __vihaco_inventory_Bad` to add it to your `Cargo.toml`

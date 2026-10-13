@@ -38,6 +38,7 @@ struct Dialect {
     leaves: Vec<ItemStruct>,
 }
 
+/// Validate an inline dialect declaration and generate its runtime and surface instruction pairs.
 pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStream> {
     if !options.is_empty() {
         return Err(syn::Error::new_spanned(
@@ -50,6 +51,7 @@ pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStr
     emit(declaration)
 }
 
+/// Resolve the framework root and collect valid leaves after checking reserved names.
 fn validate(mut module: ItemMod) -> Result<Dialect> {
     let parent_root = resolve_root(&module.attrs)?;
     let root = resolve_dialect_root(parent_root.clone());
@@ -66,6 +68,12 @@ fn validate(mut module: ItemMod) -> Result<Dialect> {
         return Err(syn::Error::new(
             module.ident.span(),
             "reserved dialect identity name `__VihacoDialect`",
+        ));
+    }
+    if names.contains("__vihaco_inventory") {
+        return Err(syn::Error::new(
+            module.ident.span(),
+            "generated inventory module collides with an authored item",
         ));
     }
     if names.contains("syntax") {
@@ -89,6 +97,7 @@ fn validate(mut module: ItemMod) -> Result<Dialect> {
     })
 }
 
+/// Adjust the parent-authored framework path for references inside the dialect module.
 fn resolve_dialect_root(mut root: Path) -> Path {
     // The root helper is authored on the module in its parent scope. All
     // generated references live one module deeper; operand paths stay untouched.
@@ -108,6 +117,7 @@ fn resolve_dialect_root(mut root: Path) -> Path {
     root
 }
 
+/// Collect immediate marked instruction structs and reject misplaced helpers elsewhere.
 fn collect_instruction_leaves(
     items: &mut [Item],
     names: &HashSet<String>,
@@ -126,6 +136,7 @@ fn collect_instruction_leaves(
     Ok(leaves)
 }
 
+/// Recognize a single argument-free instruction marker, diagnosing malformed markers.
 fn has_instruction_marker(attrs: &[Attribute]) -> Result<bool> {
     let mut markers = attrs
         .iter()
@@ -148,6 +159,7 @@ fn has_instruction_marker(attrs: &[Attribute]) -> Result<bool> {
     Ok(true)
 }
 
+/// Prepare one runtime leaf and its parser-bearing copy after validating names and helpers.
 fn validate_instruction(
     leaf: &mut ItemStruct,
     names: &HashSet<String>,
@@ -185,6 +197,7 @@ fn validate_instruction(
     Ok(paired)
 }
 
+/// Require public, nongeneric unit or tuple structs for instruction leaves.
 fn validate_instruction_shape(leaf: &ItemStruct) -> Result<()> {
     if !matches!(leaf.vis, Visibility::Public(_)) {
         return Err(syn::Error::new(
@@ -207,6 +220,7 @@ fn validate_instruction_shape(leaf: &ItemStruct) -> Result<()> {
     Ok(())
 }
 
+/// Check parser helper placement and reject conditional instruction membership.
 fn validate_instruction_attrs(attrs: &[Attribute]) -> Result<()> {
     let mut pattern_seen = false;
     for attr in attrs {
@@ -234,6 +248,7 @@ fn validate_instruction_attrs(attrs: &[Attribute]) -> Result<()> {
     Ok(())
 }
 
+/// Add the aggregate-required Clone, Debug, and PartialEq derives when absent.
 fn add_derives(leaf: &mut ItemStruct) -> Result<()> {
     let mut derives = HashSet::new();
     for attr in &leaf.attrs {
@@ -256,6 +271,7 @@ fn add_derives(leaf: &mut ItemStruct) -> Result<()> {
     Ok(())
 }
 
+/// Reject instruction and parser helpers where the dialect cannot consume them.
 fn reject_helpers(attrs: &[Attribute]) -> Result<()> {
     for attr in attrs {
         if ["instruction", "pattern", "syntax_class"]
@@ -276,11 +292,13 @@ enum HelperValidationMode {
     UnmarkedItem,
 }
 
+/// Walk an item for misplaced or conditional helpers according to its instruction status.
 fn check_item(item: &Item, mode: HelperValidationMode) -> Result<()> {
     struct HelperValidator {
         error: Option<syn::Error>,
         mode: HelperValidationMode,
     }
+
     impl<'ast> Visit<'ast> for HelperValidator {
         fn visit_attribute(&mut self, attr: &'ast Attribute) {
             if self.error.is_some() {
@@ -320,6 +338,7 @@ fn check_item(item: &Item, mode: HelperValidationMode) -> Result<()> {
     }
 }
 
+/// Collect authored names and explicit import bindings to detect generated-name collisions.
 fn collect_names(item: &Item, names: &mut HashSet<String>) {
     let ident = match item {
         Item::Struct(i) => Some(&i.ident),
@@ -337,6 +356,7 @@ fn collect_names(item: &Item, names: &mut HashSet<String>) {
     if let Some(ident) = ident {
         names.insert(ident.unraw().to_string());
     }
+
     fn imports(tree: &syn::UseTree, names: &mut HashSet<String>) {
         match tree {
             syn::UseTree::Name(i) => {
@@ -359,10 +379,12 @@ fn collect_names(item: &Item, names: &mut HashSet<String>) {
     }
 }
 
+/// Choose the hidden name of a runtime leaf's paired surface struct.
 fn surface_ident(runtime: &syn::Ident) -> syn::Ident {
     format_ident!("__{}Surface", runtime)
 }
 
+/// Emit dialect identity, surface parsers, coverage obligations, and the leaf inventory producer.
 fn emit(dialect: Dialect) -> Result<TokenStream> {
     let Dialect {
         mut module,
@@ -437,12 +459,26 @@ fn emit(dialect: Dialect) -> Result<TokenStream> {
         component = format_ident!("__VihacoComponent{suffix}");
         suffix += 1;
     }
+    let slots = runtime_names.iter().enumerate().map(|(slot, runtime)| quote! {
+        impl #root::__private::LeafAt<#slot> for __VihacoDialect { type Instruction = #runtime; }
+    });
+    let dialect_name = &module.ident;
+    let records = runtime_names
+        .iter()
+        .enumerate()
+        .map(|(slot, leaf)| quote!(([] #dialect_name #leaf #slot [])))
+        .collect();
+    let producer = crate::inventory::producer(&format_ident!("__vihaco_inventory"), records, false);
     let declarations = quote! {
+        #producer
+        #(#slots)*
         pub mod syntax {
             #(#reexports)*
         }
+
         #[doc(hidden)]
         pub struct __VihacoDialect;
+
         impl #root::__private::DialectSpec for __VihacoDialect {
             const LEAVES: &'static [#root::__private::Leaf] = &[
                 #(#root::__private::Leaf {
@@ -451,6 +487,7 @@ fn emit(dialect: Dialect) -> Result<TokenStream> {
                 }),*
             ];
         }
+
         impl<#component: #root::Component> #root::__private::Coverage<#component> for __VihacoDialect
         where #(#component: #root::Execute<#runtime_names>),* {}
     };

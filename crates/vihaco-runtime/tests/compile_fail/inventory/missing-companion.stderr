@@ -1,0 +1,13 @@
+error[E0433]: cannot find module or crate `__vihaco_inventory_Alias` in this scope
+  --> tests/compile_fail/inventory/missing-companion.rs:10:49
+   |
+10 | #[composite] struct Machine { #[device(1)] cpu: Alias }
+   |                                                 ^^^^^ use of unresolved module or unlinked crate `__vihaco_inventory_Alias`
+
+error[E0433]: cannot find module or crate `__vihaco_inventory_Alias` in this scope
+  --> tests/compile_fail/inventory/missing-companion.rs:10:49
+   |
+10 | #[composite] struct Machine { #[device(1)] cpu: Alias }
+   |                                                 ^^^^^ use of unresolved module or unlinked crate `__vihaco_inventory_Alias`
+   |
+   = help: if you wanted to use a crate named `__vihaco_inventory_Alias`, use `cargo add __vihaco_inventory_Alias` to add it to your `Cargo.toml`

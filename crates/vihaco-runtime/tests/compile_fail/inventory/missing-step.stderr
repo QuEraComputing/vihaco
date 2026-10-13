@@ -1,0 +1,12 @@
+error[E0277]: the trait bound `Machine: vihaco_runtime::Step<cpu, arithmetic::Add>` is not satisfied
+ --> tests/compile_fail/inventory/missing-step.rs:8:1
+  |
+8 | #[composite] struct Machine { #[device(1)] cpu: Cpu }
+  | ^^^^^^^^^^^^ unsatisfied trait bound
+  |
+help: the trait `vihaco_runtime::Step<cpu, arithmetic::Add>` is not implemented for `Machine`
+ --> tests/compile_fail/inventory/missing-step.rs:8:14
+  |
+8 | #[composite] struct Machine { #[device(1)] cpu: Cpu }
+  |              ^^^^^^^^^^^^^^
+  = note: this error originates in the macro `::vihaco_runtime::__private::__inventory_collect` (in Nightly builds, run with -Z macro-backtrace for more info)

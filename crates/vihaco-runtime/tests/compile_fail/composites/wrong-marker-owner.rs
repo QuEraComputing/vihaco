@@ -6,8 +6,8 @@ use vihaco_runtime::Field;
 #[composite]
 struct Child {}
 #[composite]
-struct Left { #[device] child: Child }
+struct Left { #[device(100)] child: Child }
 #[composite]
-struct Right { #[device] child: Child }
+struct Right { #[device(101)] child: Child }
 type Wrong = <Left as Field<field!(Right::child)>>::Child;
 fn main() { let _: Option<Wrong> = None; }

@@ -8,6 +8,7 @@ use quote::{format_ident, quote};
 use syn::ext::IdentExt;
 use syn::{Ident, Path, Result};
 
+/// Derive the reproducible companion namespace used to look up field markers.
 pub(crate) fn module_ident(composite: &Ident) -> Ident {
     format_ident!(
         "__vihaco_fields_{}",
@@ -16,6 +17,7 @@ pub(crate) fn module_ident(composite: &Ident) -> Ident {
     )
 }
 
+/// Resolve a field route into checked marker projections, including nested children.
 pub(crate) fn expand(input: TokenStream) -> Result<TokenStream> {
     let path: Path = syn::parse2(input)?;
     if path.leading_colon.is_some() || path.segments.len() < 2 {

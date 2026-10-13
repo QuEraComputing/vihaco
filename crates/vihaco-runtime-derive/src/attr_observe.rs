@@ -24,6 +24,7 @@ struct ObserveArgs {
 }
 
 impl Parse for ObserveArgs {
+    /// Read observed effect types and an optional composite effect type.
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
         let mut entries = Vec::new();
         let mut composite_effect = None;
@@ -85,6 +86,7 @@ impl Parse for ObserveArgs {
     }
 }
 
+/// Compare authored method types structurally when validating observer signatures.
 fn types_equivalent(lhs: &Type, rhs: &Type) -> bool {
     match (lhs, rhs) {
         (Type::Array(lhs), Type::Array(rhs)) => {
@@ -117,6 +119,7 @@ fn types_equivalent(lhs: &Type, rhs: &Type) -> bool {
     }
 }
 
+/// Compare path segments and arguments, treating leading qualification as equivalent.
 fn paths_equivalent(lhs: &Path, rhs: &Path) -> bool {
     lhs.segments.len() == rhs.segments.len()
         && lhs
@@ -128,6 +131,7 @@ fn paths_equivalent(lhs: &Path, rhs: &Path) -> bool {
             })
 }
 
+/// Compare generic or function-style path arguments used in observer method types.
 fn path_arguments_equivalent(lhs: &PathArguments, rhs: &PathArguments) -> bool {
     match (lhs, rhs) {
         (PathArguments::None, PathArguments::None) => true,
@@ -158,6 +162,7 @@ fn path_arguments_equivalent(lhs: &PathArguments, rhs: &PathArguments) -> bool {
     }
 }
 
+/// Compare type, lifetime, const, and associated arguments in observer signatures.
 fn generic_arguments_equivalent(lhs: &GenericArgument, rhs: &GenericArgument) -> bool {
     match (lhs, rhs) {
         (GenericArgument::Type(lhs), GenericArgument::Type(rhs)) => types_equivalent(lhs, rhs),
@@ -180,6 +185,7 @@ fn generic_arguments_equivalent(lhs: &GenericArgument, rhs: &GenericArgument) ->
     }
 }
 
+/// Compare optional explicitly written lifetimes in reference types.
 fn lifetimes_equivalent(lhs: Option<&syn::Lifetime>, rhs: Option<&syn::Lifetime>) -> bool {
     match (lhs, rhs) {
         (Some(lhs), Some(rhs)) => lhs == rhs,
@@ -188,10 +194,12 @@ fn lifetimes_equivalent(lhs: Option<&syn::Lifetime>, rhs: Option<&syn::Lifetime>
     }
 }
 
+/// Compare expression spellings for array lengths and const generic arguments.
 fn expr_tokens_eq(lhs: &syn::Expr, rhs: &syn::Expr) -> bool {
     lhs.to_token_stream().to_string() == rhs.to_token_stream().to_string()
 }
 
+/// Validate observer methods and generate Observe implementations for the declared effects.
 pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as ObserveArgs);
     let mut item_impl = parse_macro_input!(item as ItemImpl);

@@ -16,6 +16,7 @@ struct ComponentArgs {
 }
 
 impl Parse for ComponentArgs {
+    /// Read instruction, message, and optional effect/outcome types for dispatch generation.
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
         let mut instruction = None;
         let mut message = None;
@@ -56,6 +57,7 @@ impl Parse for ComponentArgs {
     }
 }
 
+/// Validate an execute method and generate its GeneratedComponent dispatch adapter.
 pub fn expand(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = syn::parse_macro_input!(attr as ComponentArgs);
     let mut item_impl = syn::parse_macro_input!(item as ItemImpl);

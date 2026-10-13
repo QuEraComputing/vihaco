@@ -17,12 +17,32 @@
 use crate::{Component, Execute, Field, Parse};
 
 pub use vihaco_parser_derive::__dialect_parsers;
+pub use vihaco_runtime_derive::__inventory_collect;
+
+/// Indexed instruction types; slots are not bytecode identities.
+pub trait LeafAt<const SLOT: usize> {
+    type Instruction: InstructionSpec;
+    const DEVICE_CODES: &'static [u8] = &[];
+}
+
+/// The nominal inventory producer associated with a declaration.
+pub trait HasInventory {
+    type Provider;
+}
+
+pub fn require_inventory<C: HasInventory<Provider = P>, P>() {}
+
+/// Full destination marker for an entry in a composite inventory.
+pub trait RouteAt<const SLOT: usize> {
+    type Field;
+}
 
 pub use crate::capability::{InstructionCapability, capabilities};
 
 /// One actual runtime instruction and its paired source representation.
 pub trait InstructionSpec {
     type Surface: for<'src> Parse<'src>;
+
     type Dialect: DialectSpec;
     const MNEMONIC: &'static str;
 }
@@ -81,12 +101,11 @@ where
 }
 
 /// Declaration-local device metadata, including loadable section boundaries.
-/// Codes remain optional; no implicit numeric code is assigned. Consumers of
-/// numbered metadata must require explicit codes rather than infer them from
-/// field identity. Ordinary state fields are absent.
+/// Every device has an explicit code, independent of marker type identity.
+/// Ordinary state fields are absent.
 pub struct CompositeDevice {
     pub name: &'static str,
-    pub code: Option<u8>,
+    pub code: u8,
     pub source: &'static [&'static str],
     pub section: Option<&'static str>,
 }

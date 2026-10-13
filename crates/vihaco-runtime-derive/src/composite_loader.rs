@@ -13,6 +13,7 @@ pub(crate) struct SectionLoadField {
     pub(crate) section_name: String,
 }
 
+/// Build a method where clause only when section forwarding requires additional bounds.
 fn method_where_clause(predicates: &[TokenStream2]) -> TokenStream2 {
     if predicates.is_empty() {
         quote! {}
@@ -24,6 +25,7 @@ fn method_where_clause(predicates: &[TokenStream2]) -> TokenStream2 {
     }
 }
 
+/// Generate bytecode and SST section routing to the composite and its loadable children.
 pub(crate) fn emit(
     ident: &syn::Ident,
     generics: &syn::Generics,
@@ -238,6 +240,7 @@ pub(crate) fn emit(
     Ok(quote! { #loadable_impl #text_loadable_impl })
 }
 
+/// Choose a generated generic parameter name that cannot shadow an authored parameter.
 // Generated method/impl parameters must not shadow authored parameters.
 fn fresh_generic(base: &str, generics: &syn::Generics) -> String {
     let names: Vec<_> = generics

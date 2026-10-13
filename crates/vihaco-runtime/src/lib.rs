@@ -51,17 +51,23 @@
 extern crate self as vihaco_runtime;
 
 mod generated;
+
 mod marker;
+
 mod observe;
 
 #[cfg(feature = "typed-declarations")]
 mod capability;
+
 #[cfg(feature = "typed-declarations")]
 mod dispatch;
+
 #[cfg(feature = "typed-declarations")]
 mod execute;
+
 #[cfg(feature = "typed-declarations")]
 mod field;
+
 #[cfg(feature = "typed-declarations")]
 mod step;
 
@@ -73,10 +79,13 @@ pub mod __private;
 
 #[cfg(feature = "typed-declarations")]
 pub use dispatch::Dispatch;
+
 #[cfg(feature = "typed-declarations")]
 pub use execute::Execute;
+
 #[cfg(feature = "typed-declarations")]
 pub use field::Field;
+
 #[cfg(feature = "typed-declarations")]
 pub use step::Step;
 
@@ -84,6 +93,7 @@ pub use step::Step;
 // that `vihaco-runtime` is a valid derive root on its own, mirroring the facade
 // (see design/crate-split.md §5.3).
 pub use chumsky;
+
 #[doc(hidden)]
 pub use eyre;
 pub use vihaco_abi::traits::{EffectSink, Reset};
@@ -116,18 +126,24 @@ pub use vihaco_runtime_derive::{Message, dispatch, machine, observe};
 
 /// Declare device fields, complete child capabilities, and loadable sections.
 ///
-/// With `typed-declarations`, field relationships retain the actual authored
-/// child type, including aliases and generic or associated types. Ordinary
-/// state and `#[loadable]` fields do not contribute parent capabilities.
-/// Source aliases are metadata; this macro does not generate an instruction
-/// enum, parser, or dispatch. Device codes are optional metadata. Each eligible
-/// field has a distinct marker type named through [`field!`]. Nested field paths
-/// compose those markers. Child namespaces are inferred from authored type paths.
+/// With `typed-declarations`, named device declarations contribute every leaf
+/// from their declared dialects to a hidden flat runtime enum and paired syntax
+/// enum, exposed through [`HasInstructionSet`]. Syntax uses
+/// `field::nested_field::dialect::instruction` prefixes and accepts device aliases.
+/// Implement [`Step`] for every destination/leaf pair. The generated [`Dispatch`]
+/// implementation checks complete coverage when the composite is compiled,
+/// even if dispatch is never called. Generic declarations retain their original bounds.
+/// Every device needs an explicit u8 code, unique within its parent. Ordinary
+/// state and `#[loadable]` subtrees are excluded from parent instruction sets.
+/// Named generic children are supported; bare type parameters and associated
+/// child types cannot supply an inferred inventory companion. Renamed child
+/// imports/type aliases require matching `__vihaco_inventory_Name` and field
+/// companion reexports. Inventory slots and variant names are not bytecode IDs.
 ///
 /// ```
 /// # #[cfg(feature = "typed-declarations")]
 /// # mod example {
-/// use vihaco_runtime::{Execute, component, composite, dialect};
+/// use vihaco_runtime::{Execute, Step, field, component, composite, dialect};
 /// #[dialect]
 /// # #[vihaco(crate = ::vihaco_runtime)]
 /// mod control { #[instruction] pub struct Halt; }
@@ -146,6 +162,11 @@ pub use vihaco_runtime_derive::{Message, dispatch, machine, observe};
 /// #[composite]
 /// # #[vihaco(crate = ::vihaco_runtime)]
 /// struct Machine { #[device(7, alias = "host")] cpu: Cpu }
+/// impl Step<field!(Machine::cpu), control::Halt> for Machine {
+///     fn step(&mut self, instruction: control::Halt) {
+///         self.cpu.execute(&instruction, ()).unwrap();
+///     }
+/// }
 /// # }
 /// # fn main() {}
 /// ```
@@ -244,8 +265,8 @@ pub use vihaco_runtime_derive::component;
 /// Ordinary state, loadable fields, and source aliases are not field targets.
 ///
 /// Child namespaces follow their authored type paths. Alternate type spellings
-/// need matching companion namespace reexports. Opaque generic or associated
-/// child types retain one-field markers but do not expose descendant namespaces.
+/// need matching companion namespace reexports. Inventory generation requires
+/// a named child declaration; it cannot infer bare generic or associated children.
 ///
 /// ```
 /// use vihaco_runtime::{composite, field};
@@ -255,14 +276,14 @@ pub use vihaco_runtime_derive::component;
 /// struct Leaf { state: u8 }
 /// #[composite]
 /// # #[vihaco(crate = ::vihaco_runtime)]
-/// struct Controller<T: vihaco_runtime::__private::Capabilities> { #[device(1)] cpu: T }
+/// struct Controller { #[device(1)] cpu: Leaf }
 /// #[composite]
 /// # #[vihaco(crate = ::vihaco_runtime)]
-/// struct Machine<T: vihaco_runtime::__private::Capabilities> {
-///     #[device(7)] controller: Controller<T>,
+/// struct Machine {
+///     #[device(7)] controller: Controller,
 /// }
-/// type Route = field!(Machine<Leaf>::controller::cpu);
-/// type Child = <Machine<Leaf> as Field<Route>>::Child;
+/// type Route = field!(Machine::controller::cpu);
+/// type Child = <Machine as Field<Route>>::Child;
 /// fn main() {
 ///     let _: Child = Leaf { state: 0 };
 /// }

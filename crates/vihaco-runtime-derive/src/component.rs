@@ -43,6 +43,7 @@ struct FieldMapping {
 }
 
 impl Parse for Declaration {
+    /// Read component state, type/value aliases, and the optional instruction block.
     fn parse(input: ParseStream<'_>) -> Result<Self> {
         let attrs = Attribute::parse_outer(input)?;
         let visibility = input.parse()?;
@@ -107,6 +108,7 @@ impl Parse for Declaration {
     }
 }
 
+/// Parse a component type or value alias with its visibility and target type.
 fn parse_alias(input: ParseStream<'_>) -> Result<Alias> {
     let visibility = input.parse()?;
     let name = input.parse()?;
@@ -120,6 +122,7 @@ fn parse_alias(input: ParseStream<'_>) -> Result<Alias> {
     })
 }
 
+/// Read instruction variants and their optional surface-to-runtime payload type mappings.
 fn parse_instructions(input: ParseStream<'_>) -> Result<Vec<Instruction>> {
     let mut result = Vec::new();
     while !input.is_empty() {
@@ -158,6 +161,7 @@ fn parse_instructions(input: ParseStream<'_>) -> Result<Vec<Instruction>> {
     Ok(result)
 }
 
+/// Keep generic parameters mentioned by generated payload types and related where bounds.
 fn retain_generics(generics: &Generics, types: impl IntoIterator<Item = Type>) -> Generics {
     let tokens: Vec<_> = types.into_iter().map(|ty| quote! { #ty }).collect();
     let text = quote! { #(#tokens)* }.to_string();
@@ -182,6 +186,7 @@ fn retain_generics(generics: &Generics, types: impl IntoIterator<Item = Type>) -
     result
 }
 
+/// Make an unspecified generated alias visibility public while preserving explicit visibility.
 fn public_visibility(visibility: Visibility) -> Visibility {
     if matches!(visibility, Visibility::Inherited) {
         syn::parse_quote!(pub)
@@ -190,6 +195,7 @@ fn public_visibility(visibility: Visibility) -> Visibility {
     }
 }
 
+/// Expose otherwise private state fields to the parent scope of the generated module.
 fn parent_fields(mut fields: Fields) -> Fields {
     if let Fields::Named(fields) = &mut fields {
         for field in &mut fields.named {
@@ -201,6 +207,7 @@ fn parent_fields(mut fields: Fields) -> Fields {
     fields
 }
 
+/// Check instruction names and supported variant helpers before generating component items.
 fn validate(declaration: &Declaration) -> Result<()> {
     let mut names = BTreeSet::new();
     if let Some(instructions) = &declaration.instructions {
@@ -224,6 +231,7 @@ fn validate(declaration: &Declaration) -> Result<()> {
     Ok(())
 }
 
+/// Expand the component declaration DSL into state, aliases, and instruction representations.
 pub fn expand(input: TokenStream) -> TokenStream {
     let declaration = syn::parse_macro_input!(input as Declaration);
     let root = match resolve_root(&declaration.attrs) {
