@@ -54,7 +54,7 @@ pub use vihaco_parser_derive::Parse;
 #[doc(hidden)]
 pub use runtime::__private;
 #[cfg(feature = "typed-declarations")]
-pub use runtime::{Execute, Field};
+pub use runtime::{Dispatch, Execute, Field, Step};
 
 /// Name a composite field or nested route. See [`runtime::field`].
 #[cfg(feature = "typed-declarations")]

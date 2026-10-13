@@ -57,9 +57,13 @@ mod observe;
 #[cfg(feature = "typed-declarations")]
 mod capability;
 #[cfg(feature = "typed-declarations")]
+mod dispatch;
+#[cfg(feature = "typed-declarations")]
 mod execute;
 #[cfg(feature = "typed-declarations")]
 mod field;
+#[cfg(feature = "typed-declarations")]
+mod step;
 
 /// Generated declaration contracts. Manual implementations are unsupported.
 #[cfg(feature = "typed-declarations")]
@@ -68,9 +72,13 @@ mod field;
 pub mod __private;
 
 #[cfg(feature = "typed-declarations")]
+pub use dispatch::Dispatch;
+#[cfg(feature = "typed-declarations")]
 pub use execute::Execute;
 #[cfg(feature = "typed-declarations")]
 pub use field::Field;
+#[cfg(feature = "typed-declarations")]
+pub use step::Step;
 
 // Re-export the sub-paths the runtime derive (`vihaco-runtime-derive`) emits so
 // that `vihaco-runtime` is a valid derive root on its own, mirroring the facade

@@ -1,0 +1,19 @@
+error[E0277]: the trait bound `Child: Execute<Unsupported>` is not satisfied
+  --> tests/compile_fail/composites/step-missing-execute.rs:14:6
+   |
+14 | impl Step<field!(Machine::child), Unsupported> for Machine {
+   |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Execute<Unsupported>` is not implemented for `Child`
+  --> tests/compile_fail/composites/step-missing-execute.rs:4:1
+   |
+ 4 | struct Child {}
+   | ^^^^^^^^^^^^
+note: required by a bound in `vihaco_runtime::Step`
+  --> src/step.rs
+   |
+   | pub trait Step<F, I>
+   |           ---- required by a bound in this trait
+...
+   |     <Self as Field<F>>::Child: Execute<I>,
+   |                                ^^^^^^^^^^ required by this bound in `Step`
