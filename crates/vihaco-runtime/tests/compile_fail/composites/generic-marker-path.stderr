@@ -1,0 +1,5 @@
+error: field names cannot have generic arguments
+ --> tests/compile_fail/composites/generic-marker-path.rs:5:47
+  |
+5 | fn main() { let _: Option<field!(Parent::child<u8>)> = None; }
+  |                                               ^^^^

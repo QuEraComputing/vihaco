@@ -61,6 +61,31 @@ impl counter::Counter {
 }
 ```
 
+## Experimental typed declarations
+
+The nondefault `typed-declarations` feature enables `#[dialect]`,
+`#[component]`, and typed `#[composite]`. Components declare whole dialects;
+composites preserve actual child types and describe all eligible child
+capabilities in field order. Ordinary state and loadable fields do not contribute
+parent capabilities. Field names and aliases are source metadata; device codes
+are optional metadata. Use `field!(Machine::controller::cpu)` to name a nested
+route in type position. Each route composes nominal field markers and preserves
+its complete destination identity. The first identifier names the root composite;
+supply its generic arguments when needed, such as
+`field!(Machine<T>::controller::cpu)`. Used routes are checked against that root
+through `CheckedRoute` before resolving to their unchanged marker type. Unused
+type aliases may defer validation. Child namespaces are inferred from their
+authored type paths. Alternate type spellings need matching companion namespace
+reexports. Opaque generic or associated child types do not expose descendant
+namespaces. Root type aliases and renamed composite imports are not discovered
+automatically. Typed composites do not generate instruction enums, parsers, or
+dispatch.
+
+Cargo unifies this feature across all users of the same runtime package,
+including indirect dependencies. Existing `component!`, CPU, aggregate examples,
+and guide snippets require a separate feature-off graph. Old declarations need
+not compile in the experimental mode.
+
 ## Workspace
 
 vihaco is a Cargo workspace of focused crates — depend on what your workload

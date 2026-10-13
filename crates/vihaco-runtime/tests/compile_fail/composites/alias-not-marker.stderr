@@ -1,0 +1,5 @@
+error[E0425]: cannot find type `host` in module `__vihaco_fields_Parent::__markers`
+ --> tests/compile_fail/composites/alias-not-marker.rs:9:42
+  |
+9 | fn main() { let _: Option<field!(Parent::host)> = None; }
+  |                                          ^^^^ not found in `__vihaco_fields_Parent::__markers`

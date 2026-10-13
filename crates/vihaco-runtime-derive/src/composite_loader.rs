@@ -90,7 +90,7 @@ pub(crate) fn emit(
             pub fn load_generated_bytecode_sections<#bc_lifetime, #loadable_context_param>(
                 &mut self,
                 section: #root::BytecodeSectionView<#bc_lifetime, #loadable_context_param>,
-            ) -> ::eyre::Result<()>
+            ) -> #root::eyre::Result<()>
             #loadable_method_where
             {
                 #root::loader::LoadOwnBytecodeSection::<#loadable_context_param>::load_own_bytecode_section(
@@ -102,7 +102,7 @@ pub(crate) fn emit(
 
                 for __vihaco_child in section.children() {
                     let __vihaco_child_name = __vihaco_child.local_name().ok_or_else(|| {
-                        ::eyre::eyre!(
+                        #root::eyre::eyre!(
                             "section `{}` yielded a root section as a child",
                             section.display_path(),
                         )
@@ -111,7 +111,7 @@ pub(crate) fn emit(
                         .iter()
                         .any(|__vihaco_expected| *__vihaco_expected == __vihaco_child_name)
                     {
-                        return Err(::eyre::eyre!(
+                        return Err(#root::eyre::eyre!(
                             "section `{}` has unexpected child section `{}`",
                             section.display_path(),
                             __vihaco_child.display_path(),
@@ -132,7 +132,7 @@ pub(crate) fn emit(
             fn load_bytecode_section<#bc_lifetime>(
                 &mut self,
                 section: #root::BytecodeSectionView<#bc_lifetime, #loadable_context_param>,
-            ) -> ::eyre::Result<()> {
+            ) -> #root::eyre::Result<()> {
                 self.load_generated_bytecode_sections(section)
             }
         }
@@ -187,7 +187,7 @@ pub(crate) fn emit(
             pub fn load_generated_sst_sections<#bc_lifetime, #loadable_context_param>(
                 &mut self,
                 section: #root::SstSectionView<#bc_lifetime, #loadable_context_param>,
-            ) -> ::eyre::Result<()>
+            ) -> #root::eyre::Result<()>
             #text_loadable_method_where
             {
                 #root::loader::LoadOwnSstSection::<#loadable_context_param>::load_own_sst_section(
@@ -199,7 +199,7 @@ pub(crate) fn emit(
 
                 for __vihaco_child in section.children() {
                     let __vihaco_child_name = __vihaco_child.local_name().ok_or_else(|| {
-                        ::eyre::eyre!(
+                        #root::eyre::eyre!(
                             "section `{}` yielded a root section as a child",
                             section.display_path(),
                         )
@@ -208,7 +208,7 @@ pub(crate) fn emit(
                         .iter()
                         .any(|__vihaco_expected| *__vihaco_expected == __vihaco_child_name)
                     {
-                        return Err(::eyre::eyre!(
+                        return Err(#root::eyre::eyre!(
                             "section `{}` has unexpected child section `{}`",
                             section.display_path(),
                             __vihaco_child.display_path(),
@@ -229,7 +229,7 @@ pub(crate) fn emit(
             fn load_sst_section<#bc_lifetime>(
                 &mut self,
                 section: #root::SstSectionView<#bc_lifetime, #loadable_context_param>,
-            ) -> ::eyre::Result<()> {
+            ) -> #root::eyre::Result<()> {
                 self.load_generated_sst_sections(section)
             }
         }

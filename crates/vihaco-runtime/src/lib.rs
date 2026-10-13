@@ -7,7 +7,9 @@
 //! execution and capability contracts, including derive support. It decouples
 //! the Component/Composite markers from HasInstructionSet; Cargo unification
 //! selects that contract for the shared runtime package instance. Declaration
-//! macros are being added separately. Default execution remains unchanged.
+//! macros provide complete dialect/component capabilities and typed composite
+//! fields. Feature-off execution retains the existing declarations. The two
+//! declaration modes require separate Cargo feature graphs.
 //!
 //! With `typed-declarations`, `#[dialect]` pairs public runtime structs with
 //! surface structs defined in the same module and reexported as `syntax::Name`.
@@ -70,6 +72,8 @@ pub use execute::Execute;
 // that `vihaco-runtime` is a valid derive root on its own, mirroring the facade
 // (see design/crate-split.md §5.3).
 pub use chumsky;
+#[doc(hidden)]
+pub use eyre;
 pub use vihaco_abi::traits::{EffectSink, Reset};
 pub use vihaco_abi::{Effects, metadata};
 pub use vihaco_bytecode::{BytecodeSectionView, SstSectionView};
@@ -96,7 +100,47 @@ pub use vihaco_abi::Instruction;
 
 // Re-export the runtime derives behind the `derive` feature (serde convention).
 #[cfg(feature = "derive")]
-pub use vihaco_runtime_derive::{Message, composite, dispatch, machine, observe};
+pub use vihaco_runtime_derive::{Message, dispatch, machine, observe};
+
+/// Declare device fields, complete child capabilities, and loadable sections.
+///
+/// With `typed-declarations`, field relationships retain the actual authored
+/// child type, including aliases and generic or associated types. Ordinary
+/// state and `#[loadable]` fields do not contribute parent capabilities.
+/// Source aliases are metadata; this macro does not generate an instruction
+/// enum, parser, or dispatch. Device codes are optional metadata. Each eligible
+/// field has a distinct marker type named through [`field!`]. Nested field paths
+/// compose those markers. Child namespaces are inferred from authored type paths.
+///
+/// ```
+/// # #[cfg(feature = "typed-declarations")]
+/// # mod example {
+/// use vihaco_runtime::{Execute, component, composite, dialect};
+/// #[dialect]
+/// # #[vihaco(crate = ::vihaco_runtime)]
+/// mod control { #[instruction] pub struct Halt; }
+/// #[component]
+/// # #[vihaco(crate = ::vihaco_runtime)]
+/// #[instructions { control }]
+/// struct Cpu;
+/// impl Execute<control::Halt> for Cpu {
+///     type Message = ();
+///     type Effect = ();
+///     type Error = std::convert::Infallible;
+///     fn execute(&mut self, _: &control::Halt, _: ()) -> Result<(), Self::Error> {
+///         Ok(())
+///     }
+/// }
+/// #[composite]
+/// # #[vihaco(crate = ::vihaco_runtime)]
+/// struct Machine { #[device(7, alias = "host")] cpu: Cpu }
+/// # }
+/// # fn main() {}
+/// ```
+///
+/// Without `typed-declarations`, this retains the legacy composite expansion.
+#[cfg(feature = "derive")]
+pub use vihaco_runtime_derive::composite;
 
 #[cfg(all(feature = "derive", not(feature = "typed-declarations")))]
 pub use vihaco_runtime_derive::component_macro;
@@ -174,3 +218,42 @@ pub use vihaco_runtime_derive::dialect;
 /// ```
 #[cfg(feature = "typed-declarations")]
 pub use vihaco_runtime_derive::component;
+
+/// Name a composite field or nested route as a marker type.
+///
+/// Write `field!(Machine::controller::cpu)` with the composite declaration name
+/// first, followed by Rust field names. The generated namespace must be in scope;
+/// renamed composite imports and root type aliases are not discovered automatically.
+/// For generic roots, supply their arguments: `field!(Machine<T>::controller::cpu)`.
+/// The macro checks the route through CheckedRoute before resolving to its
+/// unchanged nominal marker type. An unused type alias may defer that check.
+/// Nested routes compose nominal markers with FieldPath and project the final
+/// child. Route SOURCE describes the final field, not the full source prefix.
+/// Ordinary state, loadable fields, and source aliases are not field targets.
+///
+/// Child namespaces follow their authored type paths. Alternate type spellings
+/// need matching companion namespace reexports. Opaque generic or associated
+/// child types retain one-field markers but do not expose descendant namespaces.
+///
+/// ```
+/// use vihaco_runtime::{composite, field};
+/// use vihaco_runtime::__private::Field;
+/// #[composite]
+/// # #[vihaco(crate = ::vihaco_runtime)]
+/// struct Leaf { state: u8 }
+/// #[composite]
+/// # #[vihaco(crate = ::vihaco_runtime)]
+/// struct Controller<T: vihaco_runtime::__private::Capabilities> { #[device(1)] cpu: T }
+/// #[composite]
+/// # #[vihaco(crate = ::vihaco_runtime)]
+/// struct Machine<T: vihaco_runtime::__private::Capabilities> {
+///     #[device(7)] controller: Controller<T>,
+/// }
+/// type Route = field!(Machine<Leaf>::controller::cpu);
+/// type Child = <Machine<Leaf> as Field<Route>>::Child;
+/// fn main() {
+///     let _: Child = Leaf { state: 0 };
+/// }
+/// ```
+#[cfg(feature = "typed-declarations")]
+pub use vihaco_runtime_derive::field;

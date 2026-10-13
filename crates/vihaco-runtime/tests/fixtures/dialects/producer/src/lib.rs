@@ -10,3 +10,19 @@ pub mod arithmetic {
     pub struct Halt;
 }
 pub use arithmetic as exported;
+
+#[rt::component]
+#[instructions { crate::arithmetic }]
+pub struct Cpu;
+impl<I> rt::Execute<I> for Cpu {
+    type Message = ();
+    type Effect = ();
+    type Error = std::convert::Infallible;
+    fn execute(&mut self, _: &I, _: ()) -> Result<(), Self::Error> { Ok(()) }
+}
+#[rt::composite]
+pub struct Machine {
+    #[allow(dead_code)]
+    #[device(42, alias = "host")]
+    cpu: Cpu,
+}

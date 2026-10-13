@@ -30,6 +30,8 @@ pub use binary::{
 };
 pub use chumsky;
 pub use effect::Effects;
+#[doc(hidden)]
+pub use eyre;
 pub use instruction_syntax::{
     CanonicalInstructionSyntax, CanonicalInstructionVariantSyntax, InstructionSugarSyntax,
     InstructionSugarVariantSyntax, OperandKind, SugarOperandKind,
@@ -53,6 +55,10 @@ pub use vihaco_parser_derive::Parse;
 pub use runtime::__private;
 #[cfg(feature = "typed-declarations")]
 pub use runtime::Execute;
+
+/// Name a composite field or nested route. See [`runtime::field`].
+#[cfg(feature = "typed-declarations")]
+pub use runtime::field;
 
 /// Declare runtime leaves and paired surface parsers with `typed-declarations`.
 /// See [`runtime::dialect`] for the `#[vihaco(crate = path)]` framework-root override.

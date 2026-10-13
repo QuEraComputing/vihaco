@@ -1,0 +1,27 @@
+error[E0433]: cannot find module or crate `__vihaco_fields_Alias` in this scope
+  --> tests/compile_fail/composites/alias-marker-path.rs:10:34
+   |
+10 | fn main() { let _: Option<field!(Alias::child)> = None; }
+   |                                  ^^^^^ use of unresolved module or unlinked crate `__vihaco_fields_Alias`
+   |
+help: there is a crate or module with a similar name
+   |
+10 - fn main() { let _: Option<field!(Alias::child)> = None; }
+10 + fn main() { let _: Option<field!(__vihaco_fields_Child::child)> = None; }
+   |
+help: consider importing this module
+   |
+ 4 + use crate::__vihaco_fields_Parent::__markers;
+   |
+
+error[E0433]: cannot find module or crate `__vihaco_fields_Alias` in this scope
+  --> tests/compile_fail/composites/alias-marker-path.rs:10:34
+   |
+10 | fn main() { let _: Option<field!(Alias::child)> = None; }
+   |                                  ^^^^^ use of unresolved module or unlinked crate `__vihaco_fields_Alias`
+   |
+help: there is a crate or module with a similar name
+   |
+10 - fn main() { let _: Option<field!(Alias::child)> = None; }
+10 + fn main() { let _: Option<field!(__vihaco_fields_Child::child)> = None; }
+   |

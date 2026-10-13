@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 mod attr_component;
+#[cfg(not(feature = "typed-declarations"))]
 mod attr_composite;
 mod attr_observe;
 #[cfg(feature = "typed-declarations")]
@@ -12,9 +13,12 @@ mod component;
 mod composite_loader;
 mod derive_message;
 
+#[cfg(not(feature = "typed-declarations"))]
 use crate::common::strip_vihaco_attrs;
 use proc_macro::TokenStream;
+#[cfg(not(feature = "typed-declarations"))]
 use quote::quote;
+#[cfg(not(feature = "typed-declarations"))]
 use syn::{Data, DeriveInput, Fields};
 
 #[proc_macro_derive(Message, attributes(vihaco))]
@@ -22,6 +26,7 @@ pub fn derive_message(input: TokenStream) -> TokenStream {
     derive_message::expand(input)
 }
 
+#[cfg(not(feature = "typed-declarations"))]
 #[proc_macro_attribute]
 pub fn composite(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let original = proc_macro2::TokenStream::from(item.clone());
@@ -99,6 +104,27 @@ pub fn component(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn dialect(attr: TokenStream, item: TokenStream) -> TokenStream {
     attr_dialect::expand(attr.into(), item.into())
+        .unwrap_or_else(|error| error.into_compile_error())
+        .into()
+}
+
+/// Declare typed device fields, complete capabilities, and section boundaries.
+#[cfg(feature = "typed-declarations")]
+#[proc_macro_attribute]
+pub fn composite(attr: TokenStream, item: TokenStream) -> TokenStream {
+    attr_typed_composite::expand(attr.into(), item.into())
+        .unwrap_or_else(|error| error.into_compile_error())
+        .into()
+}
+
+#[cfg(feature = "typed-declarations")]
+mod field;
+
+/// Name an eligible composite field or nested route in type position.
+#[cfg(feature = "typed-declarations")]
+#[proc_macro]
+pub fn field(input: TokenStream) -> TokenStream {
+    field::expand(input.into())
         .unwrap_or_else(|error| error.into_compile_error())
         .into()
 }

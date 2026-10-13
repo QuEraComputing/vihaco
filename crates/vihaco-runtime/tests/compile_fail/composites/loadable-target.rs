@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 use vihaco_runtime as framework;
+use framework::composite;
 #[composite]
 #[vihaco(crate = framework)]
 struct Parent {
@@ -10,5 +11,5 @@ struct Parent {
     image: u8,
 }
 fn main() {
-    let _ = Parent::__vihaco_field_image;
+    let _: Option<framework::field!(Parent::image)> = None;
 }

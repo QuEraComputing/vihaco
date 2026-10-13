@@ -1,13 +1,12 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Internal typed composite preparation. Public activation belongs to the
-//! complete instruction-set/parser contract, not this emitter in isolation.
+//! Typed composite fields, capabilities, and section loaders.
 
 use std::collections::HashSet;
 
 use proc_macro2::{Span, TokenStream};
-use quote::{format_ident, quote};
+use quote::quote;
 use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream};
 use syn::visit::Visit;
@@ -256,9 +255,47 @@ fn depends_on_generics(ty: &Type, generics: &syn::Generics) -> bool {
     dependencies.found
 }
 
-// Kept unreachable from the proc-macro entry point until Step 7. Unit compiler
-// fixtures exercise this exact emitter, rather than a public placeholder macro.
-#[allow(dead_code)]
+// Relative authored paths are evaluated in a generated module two levels
+// below the owning declaration. Bare names are imported from its original scope.
+fn child_namespace(ty: &Type, generics: &syn::Generics) -> Option<Path> {
+    let Type::Path(ty) = ty else {
+        return None;
+    };
+    if ty.qself.is_some() {
+        return None;
+    }
+    let first = &ty.path.segments.first()?.ident;
+    if generics.type_params().any(|param| param.ident == *first) {
+        return None;
+    }
+    let mut path = ty.path.clone();
+    let last = path.segments.last_mut()?;
+    last.ident = crate::field::module_ident(&last.ident);
+    last.arguments = syn::PathArguments::None;
+    Some(rebase_namespace(path))
+}
+
+fn rebase_namespace(mut path: Path) -> Path {
+    if path.leading_colon.is_some() {
+        return path;
+    }
+    let first = &path.segments.first().expect("nonempty namespace").ident;
+    if first == "self" || first == "super" {
+        let prefix: Path = syn::parse_quote!(super::super);
+        let skip = usize::from(first == "self");
+        path.segments = prefix
+            .segments
+            .into_iter()
+            .chain(path.segments.into_iter().skip(skip))
+            .collect();
+    }
+    if path.segments.len() == 1 {
+        let prefix: Path = syn::parse_quote!(super::super);
+        path.segments = prefix.segments.into_iter().chain(path.segments).collect();
+    }
+    path
+}
+
 pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStream> {
     if !options.is_empty() {
         return Err(syn::Error::new_spanned(
@@ -267,39 +304,51 @@ pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStr
         ));
     }
     let Composite { item, root, fields } = parse(syn::parse2(item)?)?;
+    let namespace_root = crate::common::root_in_child_module(&root);
     let name = &item.ident;
     let (impl_generics, type_generics, where_clause) = item.generics.split_for_impl();
     let gates = gates(&item.attrs);
+    let marker_module = crate::field::module_ident(name);
     let eligible: Vec<_> = fields.iter().filter(|f| f.eligible).collect();
-    let relations = eligible.iter().enumerate().map(|(index, field)| {
+    let relations = eligible.iter().map(|field| {
+        let marker = &field.ident;
         let ty = &field.ty;
         let source = &field.source;
         let aliases = &field.device.as_ref().expect("eligible device").aliases;
         quote! {
             #(#[#gates])*
-            impl #impl_generics #root::__private::Field<#index> for #name #type_generics #where_clause {
+            impl #impl_generics #root::__private::DirectField<#marker_module::__markers::#marker> for #name #type_generics #where_clause {}
+            #(#[#gates])*
+            impl #impl_generics #root::__private::Field<#marker_module::__markers::#marker> for #name #type_generics #where_clause {
                 type Child = #ty;
                 const SOURCE: &'static [&'static str] = &[#source, #(#aliases),*];
             }
         }
     });
-    let constants = eligible.iter().enumerate().map(|(index, field)| {
-        let constant = format_ident!(
-            "__vihaco_field_{}",
-            field.ident.unraw(),
-            span = field.ident.span()
-        );
+    let markers = eligible.iter().map(|field| {
+        let marker = &field.ident;
         quote! {
             #[doc(hidden)]
-            #[allow(non_upper_case_globals)]
-            pub const #constant: usize = #index;
+            #[allow(non_camel_case_types)]
+            pub struct #marker;
         }
     });
-    let devices = eligible.iter().enumerate().map(|(index, field)| {
+    let children: Vec<_> = eligible
+        .iter()
+        .filter_map(|field| {
+            let namespace = child_namespace(&field.ty, &item.generics);
+            namespace.map(|namespace| {
+                let field = &field.ident;
+                quote! { #[allow(unused_imports)] pub use #namespace as #field; }
+            })
+        })
+        .collect();
+    let devices = eligible.iter().map(|field| {
+        let marker = &field.ident;
         let source = &field.source;
         quote! { #root::__private::Device {
             name: #source,
-            child: <<Self as #root::__private::Field<#index>>::Child as #root::__private::Capabilities>::DESCRIPTION,
+            child: <<Self as #root::__private::Field<#marker_module::__markers::#marker>>::Child as #root::__private::Capabilities>::DESCRIPTION,
         } }
     });
     let metadata = fields.iter().filter_map(|field| {
@@ -346,7 +395,26 @@ pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStr
         const _: () = { #(#fixed_checks)* };
         #(#relations)*
         #(#[#gates])*
-        impl #impl_generics #name #type_generics #where_clause { #(#constants)* }
+        #[doc(hidden)]
+        #[allow(non_snake_case)]
+        pub mod #marker_module {
+            #[allow(unused_imports)]
+            use super::*;
+            #[doc(hidden)]
+            #[allow(unused_imports)]
+            pub use #namespace_root::__private::FieldPath as __FieldPath;
+            #[doc(hidden)]
+            #[allow(unused_imports)]
+            pub use #namespace_root::__private::CheckedRoute as __CheckedRoute;
+            #[doc(hidden)]
+            pub mod __markers { #(#markers)* }
+            #[doc(hidden)]
+            pub mod __children {
+                #[allow(unused_imports)]
+                use super::super::*;
+                #(#children)*
+            }
+        }
         #(#[#gates])*
         impl #impl_generics #root::Composite for #name #type_generics #where_clause {}
         #(#[#gates])*
@@ -365,11 +433,6 @@ pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use quote::ToTokens;
-    use std::io::Write;
-    use std::path::{Path as FilePath, PathBuf};
-    use std::process::{Command, Stdio};
-    use syn::visit_mut::{self, VisitMut};
 
     #[test]
     fn validation_distinguishes_fixed_and_generic_child_types() {
@@ -464,165 +527,5 @@ mod tests {
             )
             .is_err()
         );
-    }
-
-    struct Expand;
-    impl VisitMut for Expand {
-        fn visit_item_mut(&mut self, item: &mut syn::Item) {
-            visit_mut::visit_item_mut(self, item);
-            if let syn::Item::Struct(declaration) = item
-                && declaration
-                    .attrs
-                    .iter()
-                    .any(|a| a.path().is_ident("composite"))
-            {
-                strip_attrs(&mut declaration.attrs, &["composite"]);
-                *item = syn::Item::Verbatim(
-                    expand(TokenStream::new(), declaration.to_token_stream()).unwrap(),
-                );
-            }
-        }
-    }
-
-    fn library(dependencies: &FilePath, name: &str) -> PathBuf {
-        // Explicitly selected library targets have stable artifact paths, even
-        // when dependency hashes from older fixture runs remain in deps/.
-        dependencies
-            .parent()
-            .unwrap()
-            .join(format!("lib{name}.rlib"))
-    }
-
-    #[test]
-    fn static_fixtures_compile_and_run_the_internal_emitter() {
-        // Build the real runtime in an isolated graph. No stubbed contracts or
-        // generated source files: authored fixtures are expanded to rustc stdin.
-        let target =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/typed-composite-fixtures");
-        let built = Command::new(env!("CARGO"))
-            .args([
-                "build",
-                "--offline",
-                "-p",
-                "vihaco-runtime",
-                "-p",
-                "vihaco-bytecode",
-                "-p",
-                "vihaco-module",
-                "-p",
-                "eyre",
-                "--features",
-                "typed-declarations",
-                "--target-dir",
-            ])
-            .arg(&target)
-            .arg("--manifest-path")
-            .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vihaco-runtime/Cargo.toml"))
-            .output()
-            .unwrap();
-        assert!(
-            built.status.success(),
-            "{}",
-            String::from_utf8_lossy(&built.stderr)
-        );
-        let dependencies = target.join("debug/deps");
-        for (name, source, error) in [
-            (
-                "positive",
-                include_str!("../tests/fixtures/composites/positive.rs"),
-                None,
-            ),
-            (
-                "ordinary-target",
-                include_str!("../tests/fixtures/composites/ordinary-target.rs"),
-                Some("__vihaco_field_state"),
-            ),
-            (
-                "loadable-target",
-                include_str!("../tests/fixtures/composites/loadable-target.rs"),
-                Some("__vihaco_field_image"),
-            ),
-            (
-                "fixed-overlap",
-                include_str!("../tests/fixtures/composites/fixed-overlap.rs"),
-                Some("overlapping canonical instruction selector"),
-            ),
-            (
-                "generic-overlap",
-                include_str!("../tests/fixtures/composites/generic-overlap.rs"),
-                Some("overlapping canonical instruction selector"),
-            ),
-            (
-                "missing-bound",
-                include_str!("../tests/fixtures/composites/missing-bound.rs"),
-                Some("not implemented for `T`"),
-            ),
-            (
-                "loaders",
-                include_str!("../tests/fixtures/composites/loaders.rs"),
-                None,
-            ),
-        ] {
-            let mut file: syn::File = syn::parse_str(source).unwrap();
-            Expand.visit_file_mut(&mut file);
-            let binary = target.join(name);
-            let mut compiler = Command::new("rustc")
-                .args([
-                    "--edition=2024",
-                    "--crate-name",
-                    "composite_fixture",
-                    "-",
-                    "-o",
-                ])
-                .arg(&binary)
-                .arg("-L")
-                .arg(format!("dependency={}", dependencies.display()))
-                .arg("--extern")
-                .arg(format!(
-                    "vihaco_runtime={}",
-                    library(&dependencies, "vihaco_runtime").display()
-                ))
-                .arg("--extern")
-                .arg(format!("eyre={}", library(&dependencies, "eyre").display()))
-                .arg("--extern")
-                .arg(format!(
-                    "vihaco_bytecode={}",
-                    library(&dependencies, "vihaco_bytecode").display()
-                ))
-                .arg("--extern")
-                .arg(format!(
-                    "vihaco_module={}",
-                    library(&dependencies, "vihaco_module").display()
-                ))
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap();
-            compiler
-                .stdin
-                .take()
-                .unwrap()
-                .write_all(
-                    prettyplease::unparse(&syn::parse2(file.to_token_stream()).unwrap()).as_bytes(),
-                )
-                .unwrap();
-            let result = compiler.wait_with_output().unwrap();
-            let diagnostic = String::from_utf8_lossy(&result.stderr);
-            if let Some(error) = error {
-                assert!(
-                    !result.status.success() && diagnostic.contains(error),
-                    "{name}: {diagnostic}"
-                );
-            } else {
-                assert!(result.status.success(), "{name}: {diagnostic}");
-                let run = Command::new(&binary).output().unwrap();
-                assert!(
-                    run.status.success(),
-                    "{name}: {}",
-                    String::from_utf8_lossy(&run.stderr)
-                );
-            }
-        }
     }
 }

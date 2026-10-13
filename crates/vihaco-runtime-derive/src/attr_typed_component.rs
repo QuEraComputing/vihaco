@@ -90,7 +90,9 @@ fn emit(component: Component) -> TokenStream {
         root,
         dialects,
     } = component;
+    let namespace_root = crate::common::root_in_child_module(&root);
     let name = &item.ident;
+    let fields_module = crate::field::module_ident(name);
     let (impl_generics, type_generics, where_clause) = item.generics.split_for_impl();
     let gates = gates(&item.attrs);
     let identities: Vec<_> = dialects
@@ -121,6 +123,21 @@ fn emit(component: Component) -> TokenStream {
     };
     quote! {
         #item
+        #(#[#gates])*
+        #[doc(hidden)]
+        #[allow(non_snake_case)]
+        pub mod #fields_module {
+            #[allow(unused_imports)]
+            use super::*;
+            #[doc(hidden)]
+            #[allow(unused_imports)]
+            pub use #namespace_root::__private::FieldPath as __FieldPath;
+            #[doc(hidden)]
+            #[allow(unused_imports)]
+            pub use #namespace_root::__private::CheckedRoute as __CheckedRoute;
+            pub mod __markers {}
+            pub mod __children {}
+        }
         #(#[#gates])*
         const _: () = {
             // The function body is checked for every original generic parameter;

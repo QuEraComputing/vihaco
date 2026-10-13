@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+#![cfg(feature = "typed-declarations")]
+
+use framework::composite;
 use framework::loader::{
     LoadBytecodeSection, LoadOwnBytecodeSection, LoadOwnSstSection, LoadSstSection,
 };
@@ -139,7 +142,8 @@ fn bytecode(children: &[(u32, Vec<u8>)]) -> BytecodeFile<Context> {
     bytes.extend_from_slice(&section(children));
     BytecodeFile::from_bytes(bytes).unwrap()
 }
-fn main() {
+#[test]
+fn typed_composite_section_loading() {
     let events = Events::default();
     let mut root = Root {
         events: events.clone(),

@@ -1,0 +1,5 @@
+error[E0425]: cannot find type `missing` in module `__vihaco_fields_Parent::__children::child::__markers`
+ --> tests/compile_fail/composites/nested-unknown.rs:7:49
+  |
+7 | fn main() { let _: Option<field!(Parent::child::missing)> = None; }
+  |                                                 ^^^^^^^ not found in `__vihaco_fields_Parent::__children::child::__markers`

@@ -1,0 +1,11 @@
+error[E0433]: cannot find `image` in `__children`
+ --> tests/compile_fail/composites/nested-loadable.rs:7:49
+  |
+7 | fn main() { let _: Option<field!(Parent::child::image::leaf)> = None; }
+  |                                                 ^^^^^ could not find `image` in `__children`
+
+error[E0425]: cannot find type `image` in module `__vihaco_fields_Parent::__children::child::__markers`
+ --> tests/compile_fail/composites/nested-loadable.rs:7:49
+  |
+7 | fn main() { let _: Option<field!(Parent::child::image::leaf)> = None; }
+  |                                                 ^^^^^ not found in `__vihaco_fields_Parent::__children::child::__markers`

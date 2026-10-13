@@ -25,3 +25,22 @@ fn indirect_feature_enables_complete_contract() {
         "add"
     );
 }
+
+#[rt::composite]
+struct Machine {
+    #[device(7, alias = "host")]
+    r#type: Cpu,
+}
+type MachineAlias = Machine;
+#[test]
+fn composite_preserves_actual_child_and_source_identity() {
+    fn same<T>(_: std::marker::PhantomData<T>, _: std::marker::PhantomData<T>) {}
+    same(
+        std::marker::PhantomData::<<MachineAlias as rt::__private::Field<rt::field!(Machine::r#type)>>::Child>,
+        std::marker::PhantomData::<Cpu>,
+    );
+    assert_eq!(<MachineAlias as rt::__private::Field<rt::field!(Machine::r#type)>>::SOURCE, ["type", "host"]);
+    let rows: Vec<_> = rt::__private::capabilities::<MachineAlias>().collect();
+    assert!(!rows.is_empty());
+    assert!(rows.iter().all(|row| row.target == ["type"]));
+}

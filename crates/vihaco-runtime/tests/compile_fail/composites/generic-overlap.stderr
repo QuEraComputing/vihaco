@@ -1,0 +1,34 @@
+error[E0080]: evaluation panicked: overlapping canonical instruction selector
+  --> tests/compile_fail/composites/generic-overlap.rs:34:15
+   |
+34 | const _: () = validate(<Parent<Bad> as Capabilities>::DESCRIPTION);
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+   |
+note: inside `vihaco_runtime::__private::validate`
+  --> src/declarations.rs
+   |
+   |                 validate(device.child);
+   |                 ^^^^^^^^^^^^^^^^^^^^^^
+note: inside `vihaco_runtime::__private::validate`
+  --> src/declarations.rs
+   |
+   |                 validate(device.child);
+   |                 ^^^^^^^^^^^^^^^^^^^^^^
+note: inside `vihaco_runtime::__private::validate`
+  --> src/declarations.rs
+   |
+   |                     assert_disjoint_dialects(dialect, other);
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `vihaco_runtime::__private::assert_disjoint_dialects`
+  --> $RUST/core/src/panic.rs
+   |
+   |           $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the failure occurred here
+   |
+  ::: src/declarations.rs
+   |
+   | /             assert!(
+   | |                 !equal(leaf.mnemonic, other.mnemonic),
+   | |                 "overlapping canonical instruction selector"
+   | |             );
+   | |_____________- in this macro invocation

@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: MIT
 
 use vihaco_runtime as framework;
+use framework::composite;
 #[composite]
 #[vihaco(crate = framework)]
-struct Parent<T> {
-    #[device]
-    child: T,
+struct Parent {
+    state: u8,
 }
-fn main() {}
+fn main() {
+    let _: Option<framework::field!(Parent::state)> = None;
+}

@@ -1,0 +1,5 @@
+error[E0425]: cannot find type `missing` in module `__vihaco_fields_Parent::__children::cpu::__markers`
+  --> tests/compile_fail/composites/nested-component.rs:12:47
+   |
+12 | fn main() { let _: Option<field!(Parent::cpu::missing)> = None; }
+   |                                               ^^^^^^^ not found in `__vihaco_fields_Parent::__children::cpu::__markers`

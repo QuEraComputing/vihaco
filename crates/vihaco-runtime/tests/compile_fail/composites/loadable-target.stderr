@@ -1,0 +1,5 @@
+error[E0425]: cannot find type `image` in module `__vihaco_fields_Parent::__markers`
+  --> tests/compile_fail/composites/loadable-target.rs:14:45
+   |
+14 |     let _: Option<framework::field!(Parent::image)> = None;
+   |                                             ^^^^^ not found in `__vihaco_fields_Parent::__markers`

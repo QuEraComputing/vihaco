@@ -121,6 +121,25 @@ pub(crate) fn gates(attrs: &[Attribute]) -> Vec<Meta> {
     attrs.iter().filter_map(|attr| gate(&attr.meta)).collect()
 }
 
+/// Preserve an authored framework root when emitted one module below its scope.
+#[cfg(feature = "typed-declarations")]
+pub(crate) fn root_in_child_module(root: &Path) -> Path {
+    let mut path = root.clone();
+    if path.leading_colon.is_none() {
+        let first = &path.segments.first().expect("nonempty root").ident;
+        if first == "self" || first == "super" {
+            let prefix: Path = parse_quote!(super);
+            let skip = usize::from(first == "self");
+            path.segments = prefix
+                .segments
+                .into_iter()
+                .chain(path.segments.into_iter().skip(skip))
+                .collect();
+        }
+    }
+    path
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
