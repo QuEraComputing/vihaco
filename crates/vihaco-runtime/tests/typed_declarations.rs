@@ -7,10 +7,10 @@
 mod declarations;
 use declarations::*;
 use vihaco_runtime::__private::{
-    Capabilities, Description, Device, DialectSpec, DirectField, Field, InstructionCapability,
-    Leaf, capabilities, require_available, require_coverage, validate,
+    Capabilities, Description, Device, DialectSpec, DirectField, InstructionCapability, Leaf,
+    capabilities, require_available, require_coverage, validate,
 };
-use vihaco_runtime::{Composite, Effects, Execute, field};
+use vihaco_runtime::{Composite, Effects, Execute, Field, field};
 
 // These functions are checked with the original lifetime/const bounds.
 fn coverage<'a, const N: usize>(_: &'a [u8; N]) {

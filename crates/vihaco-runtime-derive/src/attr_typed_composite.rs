@@ -319,7 +319,7 @@ pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStr
             #(#[#gates])*
             impl #impl_generics #root::__private::DirectField<#marker_module::__markers::#marker> for #name #type_generics #where_clause {}
             #(#[#gates])*
-            impl #impl_generics #root::__private::Field<#marker_module::__markers::#marker> for #name #type_generics #where_clause {
+            impl #impl_generics #root::Field<#marker_module::__markers::#marker> for #name #type_generics #where_clause {
                 type Child = #ty;
                 const SOURCE: &'static [&'static str] = &[#source, #(#aliases),*];
             }
@@ -348,7 +348,7 @@ pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStr
         let source = &field.source;
         quote! { #root::__private::Device {
             name: #source,
-            child: <<Self as #root::__private::Field<#marker_module::__markers::#marker>>::Child as #root::__private::Capabilities>::DESCRIPTION,
+            child: <<Self as #root::Field<#marker_module::__markers::#marker>>::Child as #root::__private::Capabilities>::DESCRIPTION,
         } }
     });
     let metadata = fields.iter().filter_map(|field| {

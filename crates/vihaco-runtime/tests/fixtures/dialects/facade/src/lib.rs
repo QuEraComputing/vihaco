@@ -60,10 +60,10 @@ type MachineAlias = Machine;
 fn composite_preserves_actual_child_and_source_identity() {
     fn same<T>(_: std::marker::PhantomData<T>, _: std::marker::PhantomData<T>) {}
     same(
-        std::marker::PhantomData::<<MachineAlias as vm::__private::Field<vm::field!(Machine::r#type)>>::Child>,
+        std::marker::PhantomData::<<MachineAlias as vm::Field<vm::field!(Machine::r#type)>>::Child>,
         std::marker::PhantomData::<Cpu<u8>>,
     );
-    assert_eq!(<MachineAlias as vm::__private::Field<vm::field!(Machine::r#type)>>::SOURCE, ["type", "host"]);
+    assert_eq!(<MachineAlias as vm::Field<vm::field!(Machine::r#type)>>::SOURCE, ["type", "host"]);
     let rows: Vec<_> = vm::__private::capabilities::<MachineAlias>().collect();
     assert!(!rows.is_empty());
     assert!(rows.iter().all(|row| row.target == ["type"]));

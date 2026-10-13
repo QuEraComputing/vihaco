@@ -47,10 +47,10 @@ type MachineAlias = Machine;
 fn composite_preserves_actual_child_and_source_identity() {
     fn same<T>(_: std::marker::PhantomData<T>, _: std::marker::PhantomData<T>) {}
     same(
-        std::marker::PhantomData::<<MachineAlias as rt::__private::Field<rt::field!(Machine::r#type)>>::Child>,
+        std::marker::PhantomData::<<MachineAlias as rt::Field<rt::field!(Machine::r#type)>>::Child>,
         std::marker::PhantomData::<Cpu>,
     );
-    assert_eq!(<MachineAlias as rt::__private::Field<rt::field!(Machine::r#type)>>::SOURCE, ["type", "host"]);
+    assert_eq!(<MachineAlias as rt::Field<rt::field!(Machine::r#type)>>::SOURCE, ["type", "host"]);
     let rows: Vec<_> = rt::__private::capabilities::<MachineAlias>().collect();
     assert!(!rows.is_empty());
     assert!(rows.iter().all(|row| row.target == ["type"]));
@@ -66,7 +66,7 @@ fn markers_resolve_across_crates() {
     type Main = rt::field!(ExternalRoot::main::cpu);
     type Spare = rt::field!(ExternalRoot::spare::cpu);
     fn same<T>(_: std::marker::PhantomData<T>, _: std::marker::PhantomData<T>) {}
-    same(std::marker::PhantomData::<<ExternalRoot as rt::__private::Field<Main>>::Child>, std::marker::PhantomData::<producer::Cpu>);
-    assert_eq!(<ExternalRoot as rt::__private::Field<Main>>::SOURCE, ["cpu", "host"]);
+    same(std::marker::PhantomData::<<ExternalRoot as rt::Field<Main>>::Child>, std::marker::PhantomData::<producer::Cpu>);
+    assert_eq!(<ExternalRoot as rt::Field<Main>>::SOURCE, ["cpu", "host"]);
     assert_ne!(std::any::TypeId::of::<Main>(), std::any::TypeId::of::<Spare>());
 }

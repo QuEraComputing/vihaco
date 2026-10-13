@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 use vihaco_runtime::{composite, field};
-use vihaco_runtime::__private::Field;
+use vihaco_runtime::Field;
 #[composite]
 struct Child {}
 #[composite]

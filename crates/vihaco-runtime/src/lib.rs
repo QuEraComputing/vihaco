@@ -58,6 +58,8 @@ mod observe;
 mod capability;
 #[cfg(feature = "typed-declarations")]
 mod execute;
+#[cfg(feature = "typed-declarations")]
+mod field;
 
 /// Generated declaration contracts. Manual implementations are unsupported.
 #[cfg(feature = "typed-declarations")]
@@ -67,6 +69,8 @@ pub mod __private;
 
 #[cfg(feature = "typed-declarations")]
 pub use execute::Execute;
+#[cfg(feature = "typed-declarations")]
+pub use field::Field;
 
 // Re-export the sub-paths the runtime derive (`vihaco-runtime-derive`) emits so
 // that `vihaco-runtime` is a valid derive root on its own, mirroring the facade
@@ -237,7 +241,7 @@ pub use vihaco_runtime_derive::component;
 ///
 /// ```
 /// use vihaco_runtime::{composite, field};
-/// use vihaco_runtime::__private::Field;
+/// use vihaco_runtime::Field;
 /// #[composite]
 /// # #[vihaco(crate = ::vihaco_runtime)]
 /// struct Leaf { state: u8 }

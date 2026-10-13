@@ -3,8 +3,8 @@
 
 #![cfg(feature = "typed-declarations")]
 #![allow(dead_code, non_snake_case)]
-use framework::__private::{Capabilities, CompositeSpec, Field, capabilities};
-use framework::{Execute, HasInstructionSet, component, dialect};
+use framework::__private::{Capabilities, CompositeSpec, capabilities};
+use framework::{Execute, Field, HasInstructionSet, component, dialect};
 use framework::{composite, field};
 use vihaco_runtime as framework;
 

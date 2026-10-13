@@ -1,4 +1,4 @@
-error[E0277]: the trait bound `Left: vihaco_runtime::__private::Field<__vihaco_fields_Right::__markers::child>` is not satisfied
+error[E0277]: the trait bound `Left: vihaco_runtime::Field<__vihaco_fields_Right::__markers::child>` is not satisfied
   --> tests/compile_fail/composites/wrong-marker-owner.rs:13:27
    |
 13 | fn main() { let _: Option<Wrong> = None; }

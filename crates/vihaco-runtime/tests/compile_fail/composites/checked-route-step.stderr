@@ -1,4 +1,4 @@
-error[E0277]: the trait bound `Actual: vihaco_runtime::__private::Field<leaf>` is not satisfied
+error[E0277]: the trait bound `Actual: vihaco_runtime::Field<leaf>` is not satisfied
   --> tests/compile_fail/composites/checked-route-step.rs:12:11
    |
 12 | impl Step<field!(Machine::child::leaf)> for Machine {}
@@ -11,7 +11,7 @@ help: the trait `Field<leaf>` is not implemented for `Actual`
  7 | #[composite] struct Actual { #[device] other: Leaf }
    | ^^^^^^^^^^^^
    = help: for that trait implementation, expected `other`, found `leaf`
-   = note: required for `Machine` to implement `vihaco_runtime::__private::Field<vihaco_runtime::__private::FieldPath<child, leaf>>`
+   = note: required for `Machine` to implement `vihaco_runtime::Field<vihaco_runtime::__private::FieldPath<child, leaf>>`
 note: required by a bound in `vihaco_runtime::__private::CheckedRoute`
   --> src/declarations.rs
    |
