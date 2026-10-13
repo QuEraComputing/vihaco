@@ -6,7 +6,7 @@ use framework::composite;
 #[composite]
 #[vihaco(crate = framework)]
 struct Parent<T> {
-    #[device]
+    #[device(100)]
     child: T,
 }
 fn main() {}

@@ -3,3 +3,16 @@ error[E0425]: cannot find type `missing` in module `__vihaco_fields_Parent::__ch
    |
 12 | fn main() { let _: Option<field!(Parent::cpu::missing)> = None; }
    |                                               ^^^^^^^ not found in `__vihaco_fields_Parent::__children::cpu::__markers`
+
+error[E0277]: the trait bound `Parent: vihaco_runtime::Step<cpu, Halt>` is not satisfied
+  --> tests/compile_fail/composites/nested-component.rs:11:1
+   |
+11 | #[composite] struct Parent { #[device(100)] cpu: Cpu }
+   | ^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `vihaco_runtime::Step<cpu, Halt>` is not implemented for `Parent`
+  --> tests/compile_fail/composites/nested-component.rs:11:14
+   |
+11 | #[composite] struct Parent { #[device(100)] cpu: Cpu }
+   |              ^^^^^^^^^^^^^
+   = note: this error originates in the macro `::vihaco_runtime::__private::__inventory_collect` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,0 +1,5 @@
+error: instruction inventory requires a named child declaration path; generic and associated child declarations cannot be inferred
+ --> tests/compile_fail/inventory/associated-child.rs:3:60
+  |
+3 | #[composite] struct Machine<T: Choice> { #[device(1)] cpu: T::Child }
+  |                                                            ^^^^^^^^

@@ -1,0 +1,35 @@
+error[E0271]: type mismatch resolving `<Cpu as HasInventory>::Provider == Provider`
+  --> tests/compile_fail/inventory/wrong-companion.rs:16:49
+   |
+16 | #[composite] struct Machine { #[device(1)] cpu: Alias }
+   |                                                 ^^^^^ type mismatch resolving `<Cpu as HasInventory>::Provider == Provider`
+   |
+note: expected this to be `__vihaco_inventory_Other::Provider`
+  --> tests/compile_fail/inventory/wrong-companion.rs:2:1
+   |
+ 2 | #[dialect] mod arithmetic { #[instruction] pub struct Add(pub i64); }
+   | ^^^^^^^^^^
+ 3 | #[component] #[instructions { arithmetic }] struct Cpu;
+   | ------------ in this attribute macro expansion
+   = note: `__vihaco_inventory_Cpu::Provider` and `__vihaco_inventory_Other::Provider` have similar names, but are actually distinct types
+note: `__vihaco_inventory_Cpu::Provider` is defined in module `crate::__vihaco_inventory_Cpu` of the current crate
+  --> tests/compile_fail/inventory/wrong-companion.rs:2:1
+   |
+ 2 | #[dialect] mod arithmetic { #[instruction] pub struct Add(pub i64); }
+   | ^^^^^^^^^^
+ 3 | #[component] #[instructions { arithmetic }] struct Cpu;
+   | ------------ in this attribute macro expansion
+note: `__vihaco_inventory_Other::Provider` is defined in module `crate::__vihaco_inventory_Other` of the current crate
+  --> tests/compile_fail/inventory/wrong-companion.rs:2:1
+   |
+ 2 | #[dialect] mod arithmetic { #[instruction] pub struct Add(pub i64); }
+   | ^^^^^^^^^^
+...
+ 8 | #[component] #[instructions { arithmetic }] struct Other;
+   | ------------ in this attribute macro expansion
+note: required by a bound in `vihaco_runtime::__private::require_inventory`
+  --> src/declarations.rs
+   |
+   | pub fn require_inventory<C: HasInventory<Provider = P>, P>() {}
+   |                                          ^^^^^^^^^^^^ required by this bound in `require_inventory`
+   = note: this error originates in the macro `::vihaco_runtime::__private::__inventory_collect` which comes from the expansion of the attribute macro `component` (in Nightly builds, run with -Z macro-backtrace for more info)

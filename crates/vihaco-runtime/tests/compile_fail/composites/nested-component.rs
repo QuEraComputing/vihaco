@@ -8,5 +8,5 @@ impl Execute<control::Halt> for Cpu {
     type Message = (); type Effect = (); type Error = std::convert::Infallible;
     fn execute(&mut self, _: &control::Halt, _: ()) -> Result<(), Self::Error> { Ok(()) }
 }
-#[composite] struct Parent { #[device] cpu: Cpu }
+#[composite] struct Parent { #[device(100)] cpu: Cpu }
 fn main() { let _: Option<field!(Parent::cpu::missing)> = None; }

@@ -1,3 +1,9 @@
+error[E0433]: cannot find module `Halt` in `control`
+ --> tests/compile_fail/component/leaf-path.rs:9:27
+  |
+9 | #[instructions { control::Halt }]
+  |                           ^^^^ `Halt` is a struct, not a module
+
 error[E0223]: ambiguous associated type
  --> tests/compile_fail/component/leaf-path.rs:9:18
   |

@@ -5,6 +5,6 @@ use vihaco_runtime::{composite, field};
 #[composite]
 struct Child {}
 #[composite]
-struct Parent { #[device] child: Child }
+struct Parent { #[device(100)] child: Child }
 type Alias = Parent;
 fn main() { let _: Option<field!(Alias::child)> = None; }

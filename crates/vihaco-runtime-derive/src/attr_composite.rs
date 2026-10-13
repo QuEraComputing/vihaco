@@ -23,6 +23,7 @@ struct SectionLoadArgs {
 }
 
 impl Parse for SectionLoadArgs {
+    /// Read an optional explicit section name from a loadable field helper.
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let section_name = if input.is_empty() {
             None
@@ -38,6 +39,7 @@ impl Parse for SectionLoadArgs {
 }
 
 impl Parse for DeviceArgs {
+    /// Read the legacy device code and its source aliases.
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
         let code_lit: syn::LitInt = input.parse()?;
         let code = code_lit.base10_parse::<u8>()?;
@@ -65,6 +67,7 @@ impl Parse for DeviceArgs {
     }
 }
 
+/// Convert a device field identifier into the legacy aggregate enum variant name.
 fn pascal_case(ident: &syn::Ident) -> syn::Ident {
     let mut out = String::new();
     for part in ident.to_string().split('_') {
@@ -80,6 +83,7 @@ fn pascal_case(ident: &syn::Ident) -> syn::Ident {
     format_ident!("{}", out)
 }
 
+/// Reject section names that cannot form a nonempty section path segment.
 fn validate_loadable_name(name: &str, span: proc_macro2::Span) -> syn::Result<()> {
     if name.is_empty() {
         return Err(syn::Error::new(
@@ -96,6 +100,7 @@ fn validate_loadable_name(name: &str, span: proc_macro2::Span) -> syn::Result<()
     Ok(())
 }
 
+/// Search nested token groups for a particular type or const parameter identifier.
 fn stream_contains_ident(stream: TokenStream2, ident: &syn::Ident) -> bool {
     stream.into_iter().any(|tree| match tree {
         proc_macro2::TokenTree::Ident(found) => found == *ident,
@@ -104,10 +109,12 @@ fn stream_contains_ident(stream: TokenStream2, ident: &syn::Ident) -> bool {
     })
 }
 
+/// Check token text for an authored lifetime reference when retaining enum generics.
 fn stream_contains_lifetime(stream: &TokenStream2, lifetime: &Lifetime) -> bool {
     stream.to_string().contains(&lifetime.to_string())
 }
 
+/// Determine whether any device payload references a generic parameter.
 fn generic_param_used(param: &GenericParam, streams: &[TokenStream2]) -> bool {
     match param {
         GenericParam::Lifetime(param) => streams
@@ -122,6 +129,7 @@ fn generic_param_used(param: &GenericParam, streams: &[TokenStream2]) -> bool {
     }
 }
 
+/// Identify where predicates that reference retained enum parameters.
 fn stream_mentions_any_generic(stream: TokenStream2, params: &[GenericParam]) -> bool {
     params.iter().any(|param| match param {
         GenericParam::Lifetime(param) => stream_contains_lifetime(&stream, &param.lifetime),
@@ -130,6 +138,7 @@ fn stream_mentions_any_generic(stream: TokenStream2, params: &[GenericParam]) ->
     })
 }
 
+/// Retain the generic parameters and predicates needed by legacy device payload enums.
 fn enum_generics_for_device_fields(
     generics: &syn::Generics,
     devices: &[(syn::Ident, syn::Type, DeviceArgs)],
@@ -165,6 +174,7 @@ fn enum_generics_for_device_fields(
     enum_generics
 }
 
+/// Parse a legacy composite and turn expansion failures into compiler diagnostics.
 pub fn expand(input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as DeriveInput);
     match try_expand(input) {
@@ -173,6 +183,7 @@ pub fn expand(input: TokenStream) -> TokenStream {
     }
 }
 
+/// Validate legacy device wiring and emit aggregate instructions, metadata, and loaders.
 fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
     let root = resolve_root(&input.attrs)?;
     let ident = input.ident;

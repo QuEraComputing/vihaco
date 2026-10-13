@@ -6,7 +6,7 @@ use framework::composite;
 #[composite]
 #[vihaco(crate = framework)]
 struct Parent {
-    #[device]
+    #[device(100)]
     #[loadable]
     image: u8,
 }

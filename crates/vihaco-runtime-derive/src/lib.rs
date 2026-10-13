@@ -2,30 +2,41 @@
 // SPDX-License-Identifier: MIT
 
 mod attr_component;
+
 #[cfg(not(feature = "typed-declarations"))]
 mod attr_composite;
+
 mod attr_observe;
+
 #[cfg(feature = "typed-declarations")]
 mod attr_typed_composite;
+
 mod common;
+
 #[cfg(not(feature = "typed-declarations"))]
 mod component;
+
 mod composite_loader;
+
 mod derive_message;
 
 #[cfg(not(feature = "typed-declarations"))]
 use crate::common::strip_vihaco_attrs;
 use proc_macro::TokenStream;
+
 #[cfg(not(feature = "typed-declarations"))]
 use quote::quote;
+
 #[cfg(not(feature = "typed-declarations"))]
 use syn::{Data, DeriveInput, Fields};
 
+/// Mark a runtime-supplied message type with the Message trait.
 #[proc_macro_derive(Message, attributes(vihaco))]
 pub fn derive_message(input: TokenStream) -> TokenStream {
     derive_message::expand(input)
 }
 
+/// Generate legacy device wiring and remove the consumed field helper attributes.
 #[cfg(not(feature = "typed-declarations"))]
 #[proc_macro_attribute]
 pub fn composite(_attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -56,22 +67,26 @@ pub fn composite(_attr: TokenStream, item: TokenStream) -> TokenStream {
     .into()
 }
 
+/// Adapt an authored execute method to the generated component runtime interface.
 #[proc_macro_attribute]
 pub fn dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
     attr_component::expand(attr, item)
 }
 
+/// Expand the legacy component declaration DSL.
 #[proc_macro]
 #[cfg(not(feature = "typed-declarations"))]
 pub fn component_macro(input: TokenStream) -> TokenStream {
     component::expand(input)
 }
 
+/// Preserve the annotated item as the compatibility machine marker.
 #[proc_macro_attribute]
 pub fn machine(_attr: TokenStream, item: TokenStream) -> TokenStream {
     item
 }
 
+/// Generate effect observer implementations from the annotated methods.
 #[proc_macro_attribute]
 pub fn observe(attr: TokenStream, item: TokenStream) -> TokenStream {
     attr_observe::expand(attr, item)
@@ -125,6 +140,19 @@ mod field;
 #[proc_macro]
 pub fn field(input: TokenStream) -> TokenStream {
     field::expand(input.into())
+        .unwrap_or_else(|error| error.into_compile_error())
+        .into()
+}
+
+#[cfg(feature = "typed-declarations")]
+mod inventory;
+
+/// Internal collector invoked by generated inventory callbacks.
+#[doc(hidden)]
+#[cfg(feature = "typed-declarations")]
+#[proc_macro]
+pub fn __inventory_collect(input: TokenStream) -> TokenStream {
+    inventory::collect(input.into())
         .unwrap_or_else(|error| error.into_compile_error())
         .into()
 }

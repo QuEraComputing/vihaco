@@ -21,6 +21,7 @@ struct DeviceArgs {
 }
 
 impl Parse for DeviceArgs {
+    /// Read a device code and source aliases for subsequent declaration validation.
     fn parse(input: ParseStream<'_>) -> Result<Self> {
         let code = if input.peek(syn::LitInt) {
             let code = input.parse::<syn::LitInt>()?.base10_parse()?;
@@ -65,6 +66,7 @@ struct Composite {
     fields: Vec<Field>,
 }
 
+/// Validate a field name or alias as one unambiguous source instruction segment.
 fn segment(value: &str, span: Span) -> Result<()> {
     if value.is_empty()
         || value.contains("::")
@@ -78,6 +80,7 @@ fn segment(value: &str, span: Span) -> Result<()> {
     Ok(())
 }
 
+/// Record a declaration-local identity, reporting duplicates at the authored span.
 fn insert<T: Eq + std::hash::Hash>(
     seen: &mut HashSet<T>,
     value: T,
@@ -90,6 +93,7 @@ fn insert<T: Eq + std::hash::Hash>(
     Ok(())
 }
 
+/// Validate device codes, aliases, and loadable boundaries while collecting device fields.
 fn parse(mut item: ItemStruct) -> Result<Composite> {
     let root = resolve_root(&item.attrs)?;
     strip_attrs(&mut item.attrs, &["vihaco"]);
@@ -182,6 +186,12 @@ fn parse(mut item: ItemStruct) -> Result<Composite> {
                 ident.span(),
                 "duplicate device source segment",
             )?;
+            if args.code.is_none() {
+                return Err(syn::Error::new(
+                    ident.span(),
+                    "every #[device] requires an explicit u8 code",
+                ));
+            }
             if let Some(code) = args.code {
                 insert(&mut codes, code, ident.span(), "duplicate device code")?;
             }
@@ -209,6 +219,7 @@ fn parse(mut item: ItemStruct) -> Result<Composite> {
     Ok(Composite { item, root, fields })
 }
 
+/// Determine whether validating a child type requires the declaration's generic scope.
 // Only fixed child types can be validated outside the owning generic impl.
 // Rust still checks all projected child obligations under the original bounds.
 fn depends_on_generics(ty: &Type, generics: &syn::Generics) -> bool {
@@ -216,6 +227,7 @@ fn depends_on_generics(ty: &Type, generics: &syn::Generics) -> bool {
         names: HashSet<String>,
         found: bool,
     }
+
     impl<'ast> Visit<'ast> for Dependencies {
         fn visit_path(&mut self, path: &'ast Path) {
             // A qualified module's later segment may happen to share a generic
@@ -230,9 +242,11 @@ fn depends_on_generics(ty: &Type, generics: &syn::Generics) -> bool {
                 self.visit_path_arguments(&segment.arguments);
             }
         }
+
         fn visit_lifetime(&mut self, lifetime: &'ast syn::Lifetime) {
             self.found |= self.names.contains(&lifetime.ident.to_string());
         }
+
         fn visit_macro(&mut self, _: &'ast syn::Macro) {
             // Type/const macros may refer to parameters inside opaque tokens.
             self.found = true;
@@ -255,6 +269,7 @@ fn depends_on_generics(ty: &Type, generics: &syn::Generics) -> bool {
     dependencies.found
 }
 
+/// Find a named child's field companion namespace for nested route lookup.
 // Relative authored paths are evaluated in a generated module two levels
 // below the owning declaration. Bare names are imported from its original scope.
 fn child_namespace(ty: &Type, generics: &syn::Generics) -> Option<Path> {
@@ -275,6 +290,7 @@ fn child_namespace(ty: &Type, generics: &syn::Generics) -> Option<Path> {
     Some(rebase_namespace(path))
 }
 
+/// Preserve relative child paths inside the generated nested companion modules.
 fn rebase_namespace(mut path: Path) -> Path {
     if path.leading_colon.is_some() {
         return path;
@@ -296,6 +312,7 @@ fn rebase_namespace(mut path: Path) -> Path {
     path
 }
 
+/// Generate typed field routes, capabilities, loaders, and flat instruction inventory queries.
 pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStream> {
     if !options.is_empty() {
         return Err(syn::Error::new_spanned(
@@ -310,6 +327,60 @@ pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStr
     let gates = gates(&item.attrs);
     let marker_module = crate::field::module_ident(name);
     let eligible: Vec<_> = fields.iter().filter(|f| f.eligible).collect();
+    let mut requests = Vec::new();
+    let mut inventory_checks = Vec::new();
+    for field in &eligible {
+        let Type::Path(child) = &field.ty else {
+            return Err(syn::Error::new_spanned(
+                &field.ty,
+                "instruction inventory requires a named child declaration path",
+            ));
+        };
+        let first = &child
+            .path
+            .segments
+            .first()
+            .expect("nonempty type path")
+            .ident;
+        if child.qself.is_some()
+            || first == "Self"
+            || item
+                .generics
+                .type_params()
+                .any(|param| param.ident == *first)
+        {
+            return Err(syn::Error::new_spanned(
+                &field.ty,
+                "instruction inventory requires a named child declaration path; generic and associated child declarations cannot be inferred",
+            ));
+        }
+        let mut companion = child.path.clone();
+        for segment in &mut companion.segments {
+            segment.arguments = syn::PathArguments::None;
+        }
+        let last = companion.segments.last_mut().expect("nonempty type path");
+        last.ident = crate::inventory::module_ident(&last.ident);
+        let child_type = &field.ty;
+        inventory_checks.push(
+            quote! { #root::__private::require_inventory::<#child_type, #companion::Provider>(); },
+        );
+        let marker = &field.ident;
+        let args = field.device.as_ref().expect("eligible device");
+        let code = args.code.expect("validated code");
+        let mut source = vec![LitStr::new(&field.source, marker.span())];
+        source.extend(args.aliases.clone());
+        requests.push(crate::inventory::Request {
+            callback: syn::parse_quote!(#companion::__enumerate),
+            provider: syn::parse_quote!(#companion::Provider),
+            prefix: vec![crate::inventory::Segment {
+                name: marker.clone(),
+                source,
+            }],
+            field: Some(syn::parse_quote!(#marker_module::__markers::#marker)),
+            codes: vec![syn::LitInt::new(&code.to_string(), marker.span())],
+        });
+    }
+    let inventory = crate::inventory::start("composite", &root, &item, requests);
     let relations = eligible.iter().map(|field| {
         let marker = &field.ident;
         let ty = &field.ty;
@@ -355,10 +426,7 @@ pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStr
         field.device.as_ref().map(|args| {
             let source = &field.source;
             let aliases = &args.aliases;
-            let code = match args.code {
-                Some(code) => quote!(::core::option::Option::Some(#code)),
-                None => quote!(::core::option::Option::None),
-            };
+            let code = args.code.expect("validated device code");
             let section = match &field.section {
                 Some(section) => quote!(::core::option::Option::Some(#section)),
                 None => quote!(::core::option::Option::None),
@@ -392,6 +460,13 @@ pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStr
     Ok(quote! {
         #item
         #(#[#gates])*
+        #inventory
+        #(#[#gates])*
+        const _: () = {
+            #[allow(dead_code, clippy::multiple_bound_locations)]
+            fn __vihaco_check_inventory #impl_generics () #where_clause { #(#inventory_checks)* }
+        };
+        #(#[#gates])*
         const _: () = { #(#fixed_checks)* };
         #(#relations)*
         #(#[#gates])*
@@ -400,14 +475,18 @@ pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStr
         pub mod #marker_module {
             #[allow(unused_imports)]
             use super::*;
+
             #[doc(hidden)]
             #[allow(unused_imports)]
             pub use #namespace_root::__private::FieldPath as __FieldPath;
+
             #[doc(hidden)]
             #[allow(unused_imports)]
             pub use #namespace_root::__private::CheckedRoute as __CheckedRoute;
+
             #[doc(hidden)]
             pub mod __markers { #(#markers)* }
+
             #[doc(hidden)]
             pub mod __children {
                 #[allow(unused_imports)]
@@ -470,24 +549,24 @@ mod tests {
         for fields in [
             "#[device] #[device] a: u8",
             "#[device(1)] a: u8, #[device(1)] #[loadable] b: u8",
-            "#[device(alias = \"b\")] a: u8, #[device] b: u8",
-            "#[device(alias = \"a\")] a: u8",
-            "#[device(alias = \"x\", alias = \"x\")] a: u8",
-            "#[device(alias = \"\")] a: u8",
-            "#[device(alias = \"a::b\")] a: u8",
-            "#[device(alias = \"a b\")] a: u8",
-            "#[device(alias = \"a\\n\")] a: u8",
-            "#[device(alias = \"a\\u{7f}\")] a: u8",
-            "#[device(alias = \"a\\u{2003}b\")] a: u8",
+            "#[device(1, alias = \"b\")] a: u8, #[device(2)] b: u8",
+            "#[device(1, alias = \"a\")] a: u8",
+            "#[device(1, alias = \"x\", alias = \"x\")] a: u8",
+            "#[device(1, alias = \"\")] a: u8",
+            "#[device(1, alias = \"a::b\")] a: u8",
+            "#[device(1, alias = \"a b\")] a: u8",
+            "#[device(1, alias = \"a\\n\")] a: u8",
+            "#[device(1, alias = \"a\\u{7f}\")] a: u8",
+            "#[device(1, alias = \"a\\u{2003}b\")] a: u8",
             "#[device(code = 2)] a: u8",
             "#[device(256)] a: u8",
             "#[loadable] a: u8",
-            "#[device] #[loadable] #[loadable] a: u8",
-            "#[device] #[loadable(\"\")] a: u8",
-            "#[device] #[loadable(\"a/b\")] a: u8",
-            "#[device] #[loadable(\"x\")] a: u8, #[device] #[loadable(\"x\")] b: u8",
-            "#[device(alias = \"x\")] #[loadable] a: u8, #[device(alias = \"x\")] b: u8",
-            "#[cfg(any())] #[device] a: u8",
+            "#[device(1)] #[loadable] #[loadable] a: u8",
+            "#[device(1)] #[loadable(\"\")] a: u8",
+            "#[device(1)] #[loadable(\"a/b\")] a: u8",
+            "#[device(1)] #[loadable(\"x\")] a: u8, #[device(1)] #[loadable(\"x\")] b: u8",
+            "#[device(1, alias = \"x\")] #[loadable] a: u8, #[device(1, alias = \"x\")] b: u8",
+            "#[cfg(any())] #[device(1)] a: u8",
         ] {
             let item: TokenStream =
                 format!("#[vihaco(crate = crate)] struct Parent {{ {fields} }}")
