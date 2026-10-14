@@ -7,6 +7,6 @@ impl<I> vihaco_runtime::Execute<I> for Cpu {
 }
 #[composite] struct Machine { #[device(1)] first: Cpu, #[device(2)] second: Cpu }
 impl vihaco_runtime::Step<vihaco_runtime::field!(Machine::first), arithmetic::Add> for Machine {
-    fn step(&mut self, _: arithmetic::Add) {}
+    fn step(&mut self, _: arithmetic::Add) -> vihaco_runtime::eyre::Result<()> { Ok(()) }
 }
 fn main() {}

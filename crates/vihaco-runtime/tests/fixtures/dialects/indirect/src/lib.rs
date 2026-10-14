@@ -52,6 +52,6 @@ fn composite_preserves_actual_child_and_source_identity() {
 }
 
 impl<I> rt::Step<rt::field!(Machine::r#type), I> for Machine
-where Cpu: rt::Execute<I, Message = ()> {
-    fn step(&mut self, instruction: I) { assert!(rt::Execute::execute(&mut self.r#type, &instruction, ()).is_ok()); }
+where Cpu: rt::Execute<I, Message = (), Error = std::convert::Infallible> {
+    fn step(&mut self, instruction: I) -> rt::eyre::Result<()> { rt::Execute::execute(&mut self.r#type, &instruction, ())?; Ok(()) }
 }

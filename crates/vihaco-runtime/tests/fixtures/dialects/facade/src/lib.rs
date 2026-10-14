@@ -79,6 +79,6 @@ fn composite_preserves_actual_child_and_source_identity() {
 }
 
 impl<I> vm::Step<vm::field!(Machine::r#type), I> for Machine
-where Cpu<u8>: vm::Execute<I, Message = ()> {
-    fn step(&mut self, instruction: I) { assert!(vm::Execute::execute(&mut self.r#type, &instruction, ()).is_ok()); }
+where Cpu<u8>: vm::Execute<I, Message = (), Error = std::convert::Infallible> {
+    fn step(&mut self, instruction: I) -> vm::eyre::Result<()> { vm::Execute::execute(&mut self.r#type, &instruction, ())?; Ok(()) }
 }

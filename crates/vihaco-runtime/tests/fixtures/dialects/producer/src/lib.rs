@@ -60,6 +60,6 @@ impl rt::Execute<PrivateStop> for PrivateDevice {
 }
 
 impl<I> rt::Step<rt::field!(Machine::cpu), I> for Machine
-where Cpu: rt::Execute<I, Message = ()> {
-    fn step(&mut self, instruction: I) { assert!(rt::Execute::execute(&mut self.cpu, &instruction, ()).is_ok()); }
+where Cpu: rt::Execute<I, Message = (), Error = std::convert::Infallible> {
+    fn step(&mut self, instruction: I) -> rt::eyre::Result<()> { rt::Execute::execute(&mut self.cpu, &instruction, ())?; Ok(()) }
 }

@@ -651,7 +651,7 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
 
         impl #impl_generics #root::Dispatch for #name #type_generics #where_clause {
             type Instruction = #runtime;
-            fn dispatch(&mut self, instruction: Self::Instruction) {
+            fn dispatch(&mut self, instruction: Self::Instruction) -> #root::eyre::Result<()> {
                 match instruction { #(#arms),* }
             }
         }

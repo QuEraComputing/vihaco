@@ -12,5 +12,11 @@ pub trait Dispatch: Composite {
     type Instruction;
 
     /// Select and run the step for an instruction.
-    fn dispatch(&mut self, instruction: Self::Instruction);
+    ///
+    /// # Errors
+    ///
+    /// Returns the selected step's error unchanged. State changes and effects
+    /// already applied by the step are not rolled back; recovery or termination
+    /// is the caller's responsibility.
+    fn dispatch(&mut self, instruction: Self::Instruction) -> eyre::Result<()>;
 }
