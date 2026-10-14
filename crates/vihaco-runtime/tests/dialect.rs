@@ -317,11 +317,14 @@ mod parameter_names {
     #[instruction]
     pub struct __VihacoComponent;
     #[instruction]
+    pub struct __VihacoLoader;
+    #[instruction]
     pub struct ConstI64(pub i64);
 }
 execute!(
     parameter_names::C,
     parameter_names::__VihacoComponent,
+    parameter_names::__VihacoLoader,
     parameter_names::ConstI64
 );
 
@@ -374,9 +377,9 @@ mod converted_operands {
     #[derive(Clone, Debug, PartialEq)]
     pub struct Bits(pub u64);
 
-    #[derive(vihaco_runtime::Parse)]
+    #[derive(vihaco_runtime::Parse, Clone, Debug, PartialEq)]
     #[syntax_class(value)]
-    struct Literal(i64);
+    pub struct Literal(pub i64);
     impl From<Literal> for Bits {
         fn from(value: Literal) -> Self {
             Self(value.0 as u64)
@@ -392,12 +395,28 @@ mod converted_operands {
     pub struct Call(pub u32, pub u32);
 }
 
+impl<C: ?Sized> vihaco_runtime::Lower<C> for converted_operands::Constant<vihaco_runtime::Syntax> {
+    type Runtime = converted_operands::Constant;
+    fn lower(self, _: &mut C) -> eyre::Result<Self::Runtime> {
+        Ok(converted_operands::Constant(self.0.into()))
+    }
+}
+impl<C: ?Sized> vihaco_runtime::Lower<C> for converted_operands::Call<vihaco_runtime::Syntax> {
+    type Runtime = converted_operands::Call;
+    fn lower(self, _: &mut C) -> eyre::Result<Self::Runtime> {
+        Ok(converted_operands::Call(self.0, self.1.try_into()?))
+    }
+}
+
 #[test]
-fn typed_bindings_construct_runtime_fields_without_field_parse_impls() {
-    let runtime = converted_operands::Constant::parser()
+fn typed_bindings_retain_syntax_operands_until_explicit_lowering() {
+    use vihaco_runtime::{Lower, Syntax};
+    let source = converted_operands::Constant::<Syntax>::parser()
         .parse("constant -42")
         .into_result()
         .unwrap();
+    assert_eq!(source.0.0, -42);
+    let runtime = source.lower(&mut ()).unwrap();
     assert_eq!(
         runtime,
         converted_operands::Constant(converted_operands::Bits((-42_i64) as u64))
@@ -407,15 +426,18 @@ fn typed_bindings_construct_runtime_fields_without_field_parse_impls() {
         "constant"
     );
     assert_eq!(
-        converted_operands::Call::parser()
+        converted_operands::Call::<Syntax>::parser()
             .parse("call 2, 10")
             .into_result()
+            .unwrap()
+            .lower(&mut ())
             .unwrap(),
         converted_operands::Call(2, 10)
     );
-    assert!(
-        converted_operands::Call::parser()
-            .parse("call 2, 4294967296")
-            .has_errors()
-    );
+    let source = converted_operands::Call::<Syntax>::parser()
+        .parse("call 2, 4294967296")
+        .into_result()
+        .unwrap();
+    assert_eq!(source.1, 4294967296);
+    assert!(source.lower(&mut ()).is_err());
 }

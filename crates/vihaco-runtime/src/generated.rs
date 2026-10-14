@@ -23,7 +23,6 @@ pub trait HasInstructionSet {
     type Runtime;
 
     /// The instruction parsed from source syntax.
-    #[cfg(not(feature = "typed-declarations"))]
     type Syntax;
 }
 

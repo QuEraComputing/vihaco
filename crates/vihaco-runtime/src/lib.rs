@@ -12,11 +12,11 @@
 //! declaration modes require separate Cargo feature graphs.
 //!
 //! With `typed-declarations`, `#[dialect]` gives public runtime instruction
-//! structs direct parsers. Operand types retain their authored scope. Only
-//! immediate marked unit/tuple structs belong to a dialect. Composite parsers
-//! construct their flat runtime enums directly; there is no paired surface enum
-//! or instruction-resolution pass. SST producers supply resolved addresses and
-//! reference IDs.
+//! structs syntax parsers. Operand types retain their authored scope. Only
+//! immediate marked nongeneric unit/tuple structs belong to a dialect. Differing
+//! annotated operands generate a phase parameter defaulting to [`Runtime`].
+//! Composite syntax aggregates lower through instruction-owned [`Lower`]
+//! implementations; unchanged instructions receive identity lowering.
 //!
 //! ```
 //! # #[cfg(feature = "typed-declarations")]
@@ -47,9 +47,9 @@
 //! those authored derives. Named fields, generic or raw leaf names, conditional
 //! membership, and generated-name collisions are rejected. Gate the entire
 //! module with `cfg`/`cfg_attr`. Unannotated pattern bindings use their runtime
-//! field's parser. A binding such as `$0:u64` selects that parser type and uses
-//! `TryInto` to construct the runtime field, returning a parse error if conversion
-//! fails. Parser annotations retain ordinary Rust type scope.
+//! field's parser. A binding such as `$0:u64` retains that syntax operand type;
+//! differing runtime types require explicit lowering. Parser annotations retain
+//! ordinary Rust type scope.
 
 extern crate self as vihaco_runtime;
 
@@ -100,7 +100,7 @@ pub use chumsky;
 #[doc(hidden)]
 pub use eyre;
 pub use vihaco_abi::traits::{EffectSink, Reset};
-pub use vihaco_abi::{Effects, metadata};
+pub use vihaco_abi::{Effects, Lower, Runtime, Syntax, metadata};
 pub use vihaco_bytecode::{BytecodeSectionView, SstSectionView};
 pub use vihaco_module::loader;
 pub use vihaco_parser::{Parse, SurfaceInstruction};
@@ -131,7 +131,7 @@ pub use vihaco_runtime_derive::{Message, dispatch, machine, observe};
 ///
 /// With `typed-declarations`, named device declarations contribute every leaf
 /// from their declared dialects to a hidden flat runtime enum exposed through
-/// [`HasInstructionSet`]. Its direct parser uses
+/// [`HasInstructionSet`]. Its syntax parser uses
 /// `field::nested_field::dialect::instruction` prefixes and accepts device aliases.
 /// Implement [`Step`] for every destination/leaf pair. The generated [`Dispatch`]
 /// implementation checks complete coverage when the composite is compiled,
@@ -187,7 +187,7 @@ pub use vihaco_runtime_derive::component_macro as component;
 #[cfg(feature = "typed-declarations")]
 pub use vihaco_parser_derive::Parse;
 
-/// Declare runtime instructions and their direct parsers.
+/// Declare instructions with retained syntax operands and capability-based lowering.
 ///
 /// Available with `typed-declarations`. The framework dependency is discovered
 /// automatically, including renamed dependencies. To use a module reexporting
@@ -195,9 +195,12 @@ pub use vihaco_parser_derive::Parse;
 /// The path is resolved in the annotated module's parent scope; `self`, `super`,
 /// `crate`, and absolute paths are supported. Operand types retain their
 /// authored scope. Unannotated bindings use the corresponding field's parser.
-/// `$0:ParserType` selects another `Parse` type and converts with `TryInto` into
-/// the field. Failures become operand parse errors. Literal newtypes may implement
-/// `From` into encoded fields without introducing a surface instruction enum.
+/// `$0:SyntaxType` retains another `Parse` type. If it differs from the field,
+/// the generated instruction has a phase parameter defaulting to [`Runtime`],
+/// and its [`Syntax`] form requires an instruction-owned [`Lower`] implementation.
+/// Unchanged instructions remain nongeneric and receive identity lowering.
+/// Write authored lowering implementations outside the dialect module, beside
+/// its declaration or in a separate module in the same crate.
 ///
 /// ```
 /// use vihaco_runtime::dialect;
@@ -218,6 +221,30 @@ pub use vihaco_parser_derive::Parse;
 ///     assert_eq!(arithmetic::Add::parser().parse("add 2")
 ///         .into_result().unwrap().0, 2);
 /// }
+/// ```
+///
+/// Differing operand types are retained until explicit lowering, even when
+/// Rust already provides a conversion between them:
+///
+/// ```
+/// use vihaco_runtime::{dialect, Lower, Parse, Syntax, chumsky::Parser};
+/// #[dialect]
+/// # #[vihaco(crate = ::vihaco_runtime)]
+/// mod control {
+///     #[instruction]
+///     #[pattern = "'call $0:u64"]
+///     pub struct Call(pub u32);
+/// }
+/// impl<C: ?Sized> Lower<C> for control::Call<Syntax> {
+///     type Runtime = control::Call;
+///     fn lower(self, _: &mut C) -> vihaco_runtime::eyre::Result<Self::Runtime> {
+///         Ok(control::Call(self.0.try_into()?))
+///     }
+/// }
+/// let source = control::Call::<Syntax>::parser().parse("call 4294967296")
+///     .into_result().unwrap();
+/// assert_eq!(source.0, 4294967296);
+/// assert!(source.lower(&mut ()).is_err());
 /// ```
 #[cfg(feature = "typed-declarations")]
 pub use vihaco_runtime_derive::dialect;

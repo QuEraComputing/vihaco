@@ -8,9 +8,9 @@
 //! enabling the framework feature alone does not select CPU's typed declaration.
 //! Feature-off use retains the legacy instruction enums and `CPUMessage`.
 //!
-//! Typed instructions parse directly into executable values. Branch/call addresses
-//! and string/function/heap reference IDs must already be resolved by the SST
-//! producer. Constants accept readable literals and store encoded `Word` payloads.
+//! Typed instruction syntax retains readable literals until explicit lowering
+//! encodes them into runtime `Word` payloads. Branch/call addresses and
+//! string/function/heap reference IDs must already be resolved by the SST producer.
 //! `label @name` is consumed by the SST function parser as readability metadata;
 //! labels, `function_start`, and `function_end` have no runtime instruction leaves.
 //! Composite source uses `device::dialect::mnemonic`, for example
@@ -19,10 +19,11 @@
 //! ```
 //! # #[cfg(feature = "typed-declarations")]
 //! # {
-//! use vihaco::{Execute, Parse, chumsky::Parser as _, traits::StackMemory};
+//! use vihaco::{Execute, Lower, Parse, Syntax, chumsky::Parser as _, traits::StackMemory};
 //! use vihaco_cpu::{CPU, cpu, encode_i64, StepOutcome};
-//! let instruction = cpu::ConstI64::parser().parse("const_i64 -42")
+//! let instruction = cpu::ConstI64::<Syntax>::parser().parse("const_i64 -42")
 //!     .into_result().unwrap();
+//! let instruction = instruction.lower(&mut ()).unwrap();
 //! assert_eq!(instruction, cpu::ConstI64(encode_i64(-42)));
 //! let mut cpu = CPU::default();
 //! assert_eq!(cpu.execute(&instruction, ()).unwrap(), StepOutcome::Continue);

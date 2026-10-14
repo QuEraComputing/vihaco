@@ -31,6 +31,8 @@ impl vihaco::HasInstructionSet for TestComponent {
     type Runtime = TestInstruction;
     #[cfg(not(feature = "typed-declarations"))]
     type Syntax = LegacySyntax;
+    #[cfg(feature = "typed-declarations")]
+    type Syntax = TestInstruction;
 }
 
 impl Component for TestComponent {}

@@ -7,8 +7,7 @@ use vihaco_parser::Ident;
 
 /// Parsed SST module containing consumer instruction values.
 ///
-/// `I` is the consumer's instruction type (runtime instructions in the typed
-/// declaration mode), `Ty` is its source type
+/// `I` is the consumer's instruction syntax type, `Ty` is its source type
 /// syntax, and `H` is its section-header type.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParsedModule<I, Ty, H> {

@@ -5,9 +5,9 @@
 
 use crate::Word;
 
-#[derive(vihaco::Parse)]
+#[derive(vihaco::Parse, Clone, Debug, PartialEq)]
 #[syntax_class(value)]
-pub(crate) struct I32Literal(i32);
+pub struct I32Literal(i32);
 
 impl From<I32Literal> for Word {
     fn from(value: I32Literal) -> Self {
@@ -15,9 +15,9 @@ impl From<I32Literal> for Word {
     }
 }
 
-#[derive(vihaco::Parse)]
+#[derive(vihaco::Parse, Clone, Debug, PartialEq)]
 #[syntax_class(value)]
-pub(crate) struct I64Literal(i64);
+pub struct I64Literal(i64);
 
 impl From<I64Literal> for Word {
     fn from(value: I64Literal) -> Self {
@@ -25,9 +25,9 @@ impl From<I64Literal> for Word {
     }
 }
 
-#[derive(vihaco::Parse)]
+#[derive(vihaco::Parse, Clone, Debug, PartialEq)]
 #[syntax_class(value)]
-pub(crate) struct F32Literal(f32);
+pub struct F32Literal(f32);
 
 impl From<F32Literal> for Word {
     fn from(value: F32Literal) -> Self {
@@ -35,9 +35,9 @@ impl From<F32Literal> for Word {
     }
 }
 
-#[derive(vihaco::Parse)]
+#[derive(vihaco::Parse, Clone, Debug, PartialEq)]
 #[syntax_class(value)]
-pub(crate) struct F64Literal(f64);
+pub struct F64Literal(f64);
 
 impl From<F64Literal> for Word {
     fn from(value: F64Literal) -> Self {

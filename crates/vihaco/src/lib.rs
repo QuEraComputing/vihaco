@@ -46,6 +46,7 @@ pub use runtime::{
     Message as MessageMarker, Observe, expect_exactly_one_effect,
 };
 pub use traits::{FromBytes, FromText, GetProgramInfo, Reset};
+pub use vihaco_abi::{Lower, Runtime, Syntax};
 pub use vihaco_parser::Parse;
 pub use vihaco_parser::SurfaceInstruction;
 pub use vihaco_parser_derive::Parse;
@@ -60,7 +61,7 @@ pub use runtime::{Dispatch, Execute, Field, Step};
 #[cfg(feature = "typed-declarations")]
 pub use runtime::field;
 
-/// Declare runtime leaves with direct parsers under `typed-declarations`.
+/// Declare instruction leaves with phase-aware parsers under `typed-declarations`.
 /// See [`runtime::dialect`] for the `#[vihaco(crate = path)]` framework-root override.
 ///
 /// ```

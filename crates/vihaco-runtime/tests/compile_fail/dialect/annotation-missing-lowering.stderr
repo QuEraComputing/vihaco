@@ -1,0 +1,12 @@
+error[E0599]: no method named `lower` found for struct `Call<__VihacoCallPhase>` in the current scope
+  --> tests/compile_fail/dialect/annotation-missing-lowering.rs:12:40
+   |
+ 7 |     pub struct Call(pub u32);
+   |     --------------- method `lower` not found for this struct
+...
+12 |     let _ = invalid::Call::<Syntax>(7).lower(&mut ());
+   |                                        ^^^^^ method not found in `Call<Syntax>`
+   |
+   = help: items from traits can only be used if the trait is implemented and in scope
+   = note: the following trait defines an item `lower`, perhaps you need to implement it:
+           candidate #1: `vihaco_runtime::Lower`

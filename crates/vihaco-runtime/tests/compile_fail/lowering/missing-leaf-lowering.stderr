@@ -1,0 +1,30 @@
+error[E0599]: the method `lower` exists for enum `__vihaco_MachineInstruction<Syntax>`, but its trait bounds were not satisfied
+  --> tests/compile_fail/lowering/missing-leaf-lowering.rs:20:20
+   |
+ 7 |     pub struct Call(pub u32);
+   |     --------------- doesn't satisfy `<_ as Lower<_>>::Runtime = Call` or `Call<Syntax>: vihaco_runtime::Lower<_>`
+...
+14 | #[composite] struct Machine { #[device(1)] cpu: Cpu }
+   | ------------ method `lower` not found for this enum because it doesn't satisfy `_: Lower<_>`
+...
+20 |     let _ = source.lower(&mut ());
+   |                    ^^^^^ method cannot be called on `__vihaco_MachineInstruction<Syntax>` due to unsatisfied trait bounds
+   |
+note: the following trait bounds were not satisfied:
+      `<Call<Syntax> as vihaco_runtime::Lower<_>>::Runtime = Call`
+      `Call<Syntax>: vihaco_runtime::Lower<_>`
+  --> tests/compile_fail/lowering/missing-leaf-lowering.rs:14:1
+   |
+14 | #[composite] struct Machine { #[device(1)] cpu: Cpu }
+   | ^^^^^^^^^^^^
+   | |
+   | unsatisfied trait bound introduced here
+note: the trait `vihaco_runtime::Lower` must be implemented
+  --> $WORKSPACE/crates/vihaco-abi/src/lower.rs
+   |
+   | pub trait Lower<C: ?Sized>: Sized {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: items from traits can only be used if the trait is implemented and in scope
+   = note: the following trait defines an item `lower`, perhaps you need to implement it:
+           candidate #1: `vihaco_runtime::Lower`
+   = note: this error originates in the attribute macro `composite` (in Nightly builds, run with -Z macro-backtrace for more info)

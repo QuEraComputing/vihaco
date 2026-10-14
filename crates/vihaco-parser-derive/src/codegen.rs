@@ -18,7 +18,7 @@ use chumsky::{
 };
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
-use quote::{format_ident, quote, quote_spanned};
+use quote::{format_ident, quote};
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     fmt::{self, Display},
@@ -605,26 +605,8 @@ fn build_parser_syntax_parts(
                 binding,
                 constructor_position,
             }) => {
-                let parser = if let Some(parser_ty) = parser_ty {
-                    let span = parser_ty.span();
-                    quote_spanned! {span=>
-                        <#parser_ty as #parser_root::Parse>::parser()
-                            .try_map(|value, span| {
-                                // Keep the conversion generic: a From impl supplies TryInto
-                                // too, without triggering an infallible-conversion lint.
-                                fn __vihaco_convert_operand<Source, Target>(value: Source)
-                                    -> ::core::result::Result<Target,
-                                        <Source as ::core::convert::TryInto<Target>>::Error>
-                                where Source: ::core::convert::TryInto<Target> {
-                                    ::core::convert::TryInto::try_into(value)
-                                }
-                                __vihaco_convert_operand::<#parser_ty, #ty>(value)
-                                    .map_err(|_| #chumsky::error::Simple::new(None, span))
-                            })
-                    }
-                } else {
-                    quote!(<#ty as #parser_root::Parse>::parser())
-                };
+                let parser_ty = parser_ty.unwrap_or(ty);
+                let parser = quote!(<#parser_ty as #parser_root::Parse>::parser());
                 parts.push(ParserPart::Capture {
                     parser,
                     name,
@@ -1241,7 +1223,7 @@ pub fn dialect_parsers(root: TokenStream2, item: TokenStream2) -> Result<TokenSt
         .ok_or_else(|| Error::new(module.ident.span(), "expected inline dialect module"))?
         .1;
     let mut leaves = Vec::new();
-    for item in items.iter_mut() {
+    for (position, item) in items.iter_mut().enumerate() {
         if let syn::Item::Struct(instruction) = item {
             if let Some(index) = instruction
                 .attrs
@@ -1249,10 +1231,7 @@ pub fn dialect_parsers(root: TokenStream2, item: TokenStream2) -> Result<TokenSt
                 .position(|attr| attr.path().is_ident("__vihaco_runtime"))
             {
                 let runtime: Ident = instruction.attrs.remove(index).parse_args()?;
-                leaves.push((runtime, syn::parse2::<DeriveInput>(quote!(#instruction))?));
-                instruction.attrs.retain(|a| {
-                    !a.path().is_ident("syntax_class") && !a.path().is_ident("pattern")
-                });
+                leaves.push((position, runtime, instruction.clone()));
             }
         }
     }
@@ -1265,33 +1244,101 @@ pub fn dialect_parsers(root: TokenStream2, item: TokenStream2) -> Result<TokenSt
     let mut patterns = HashSet::new();
     // Validate every parser first so a collision cannot mask malformed syntax.
     let mut validated = Vec::new();
-    for (runtime, instruction) in leaves {
-        let data = match &instruction.data {
-            Data::Struct(data) => data,
-            _ => {
-                return Err(Error::new_spanned(
-                    &instruction,
-                    "expected instruction struct",
-                ))
-            }
-        };
-        let attrs = StructAttrs::from_attrs(&instruction.attrs)?;
+    for (position, runtime, mut declaration) in leaves {
+        let attrs = StructAttrs::from_attrs(&declaration.attrs)?;
         let pattern = attrs.pattern.as_ref().map(|p| p.0.clone());
+        let syntax_types = dialect_syntax_types(&declaration, &attrs)?;
+        let mut syntax = declaration.clone();
+        for (field, ty) in syntax.fields.iter_mut().zip(&syntax_types) {
+            field.ty = ty.clone();
+        }
+        let input: DeriveInput = syn::parse2(quote!(#syntax))?;
+        let data = match &input.data {
+            Data::Struct(data) => data,
+            _ => unreachable!("dialect leaf is a struct"),
+        };
         let (parser, mnemonic) = compile_struct(
             StructInfo {
                 data,
-                ident: &instruction.ident,
-                attrs: &instruction.attrs,
-                generics: &instruction.generics,
+                ident: &input.ident,
+                attrs: &input.attrs,
+                generics: &input.generics,
             },
             &paths,
         )?;
-        let parser = TokenStream2::from(parser);
-        validated.push((runtime, instruction, parser, mnemonic, pattern));
+        let differing: Vec<_> = declaration
+            .fields
+            .iter()
+            .zip(&syntax_types)
+            .enumerate()
+            .filter(|(_, (field, ty))| field.ty != **ty)
+            .map(|(index, (field, ty))| (index, field.ty.clone(), ty.clone()))
+            .collect();
+        let syntax_ty = if differing.is_empty() {
+            quote!(#runtime)
+        } else {
+            quote!(#runtime<#root::Syntax>)
+        };
+        let mut parser: syn::File = syn::parse2(TokenStream2::from(parser))?;
+        for item in &mut parser.items {
+            if let syn::Item::Impl(implementation) = item {
+                *implementation.self_ty = syn::parse2(syntax_ty.clone())?;
+            }
+        }
+        declaration
+            .attrs
+            .retain(|a| !a.path().is_ident("syntax_class") && !a.path().is_ident("pattern"));
+        let loader = fresh_generated_ident("__VihacoLoader", quote!(#root #declaration));
+        let support = if differing.is_empty() {
+            quote! {
+                impl<#loader: ?Sized> #root::Lower<#loader> for #runtime {
+                    type Runtime = Self;
+                    fn lower(self, _: &mut #loader) -> #root::eyre::Result<Self> {
+                        Ok(self)
+                    }
+                }
+            }
+        } else {
+            let types = format_ident!("__{}Types", runtime);
+            let params: Vec<_> = differing
+                .iter()
+                .map(|(index, _, _)| format_ident!("Param{index}"))
+                .collect();
+            let runtime_types: Vec<_> = differing.iter().map(|(_, ty, _)| ty).collect();
+            let source_types: Vec<_> = differing.iter().map(|(_, _, ty)| ty).collect();
+            // The phase selector must not capture an authored operand type.
+            let phase = fresh_generated_ident(
+                &format!("__Vihaco{runtime}Phase"),
+                quote!(#root #declaration),
+            );
+            declaration.generics = syn::parse_quote!(<#phase: #types + ::core::clone::Clone + ::core::fmt::Debug + ::core::cmp::PartialEq = #root::Runtime>);
+            for ((index, _, _), param) in differing.iter().zip(&params) {
+                declaration
+                    .fields
+                    .iter_mut()
+                    .nth(*index)
+                    .expect("validated field")
+                    .ty = syn::parse_quote!(<#phase as #types>::#param);
+            }
+            quote! {
+                #[doc(hidden)]
+                pub trait #types {
+                    #(type #params: ::core::clone::Clone + ::core::fmt::Debug + ::core::cmp::PartialEq;)*
+                }
+                impl #types for #root::Syntax {
+                    #(type #params = #source_types;)*
+                }
+                impl #types for #root::Runtime {
+                    #(type #params = #runtime_types;)*
+                }
+            }
+        };
+        items[position] = syn::Item::Struct(declaration);
+        validated.push((runtime, syntax_ty, parser, support, mnemonic, pattern));
     }
-    for (runtime, instruction, parser, mnemonic, pattern) in validated {
-        let (mnemonic, span) = mnemonic
-            .ok_or_else(|| Error::new_spanned(&instruction, "expected instruction mnemonic"))?;
+    for (runtime, syntax_ty, parser, support, mnemonic, pattern) in validated {
+        let (mnemonic, span) =
+            mnemonic.ok_or_else(|| Error::new(runtime.span(), "expected instruction mnemonic"))?;
         if let Some(pattern) = pattern {
             if !patterns.insert(pattern) {
                 return Err(Error::new(span, "duplicate instruction pattern"));
@@ -1305,7 +1352,9 @@ pub fn dialect_parsers(root: TokenStream2, item: TokenStream2) -> Result<TokenSt
         }
         emitted.push(quote! {
             #parser
+            #support
             impl #root::__private::InstructionSpec for #runtime {
+                type Syntax = #syntax_ty;
                 type Dialect = __VihacoDialect;
                 const MNEMONIC: &'static str = #mnemonic;
             }
@@ -1314,4 +1363,56 @@ pub fn dialect_parsers(root: TokenStream2, item: TokenStream2) -> Result<TokenSt
     let generated: syn::File = syn::parse2(quote!(#(#emitted)*))?;
     items.extend(generated.items);
     Ok(quote!(#module))
+}
+
+/// Resolve retained operand types using the same validated pattern grammar as parsing.
+fn dialect_syntax_types(instruction: &syn::ItemStruct, attrs: &StructAttrs) -> Result<Vec<Type>> {
+    let mut types: Vec<_> = instruction
+        .fields
+        .iter()
+        .map(|field| field.ty.clone())
+        .collect();
+    if let Some(PatternInfo(pattern, span)) = &attrs.pattern {
+        let validated = UnparsedPatternInfo {
+            pattern,
+            span: *span,
+            class: SyntaxClassAttr::Instruction { head: None },
+            target: PatternTarget::Struct {
+                ident: instruction.ident.clone(),
+            },
+            fields: instruction.fields.clone(),
+        }
+        .parse()
+        .map_err(|error| Error::new(*span, error.to_string()))?;
+        for atom in validated.pattern {
+            if let Binding(binding) = atom {
+                if let Some(ty) = binding.parser_ty {
+                    types[binding.constructor_position] = ty;
+                }
+            }
+        }
+    }
+    Ok(types)
+}
+
+/// Avoid capturing authored type names or framework paths with generated parameters.
+fn fresh_generated_ident(base: &str, tokens: TokenStream2) -> Ident {
+    fn collect(tokens: TokenStream2, names: &mut HashSet<String>) {
+        for token in tokens {
+            match token {
+                proc_macro2::TokenTree::Ident(ident) => {
+                    names.insert(ident.to_string());
+                }
+                proc_macro2::TokenTree::Group(group) => collect(group.stream(), names),
+                _ => {}
+            }
+        }
+    }
+    let mut names = HashSet::new();
+    collect(tokens, &mut names);
+    let mut candidate = base.to_owned();
+    while names.contains(&candidate) {
+        candidate.push('_');
+    }
+    Ident::new(&candidate, Span::call_site())
 }
