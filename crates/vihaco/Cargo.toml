@@ -26,7 +26,7 @@ vihaco-parser-derive = { workspace = true }
 vihaco-stdlib = { workspace = true }
 
 [features]
-typed-declarations = ["vihaco-runtime/typed-declarations"]
+typed-declarations = ["vihaco-runtime/typed-declarations", "vihaco-syntax/typed-declarations"]
 
 [dev-dependencies]
 trybuild = "1.0"

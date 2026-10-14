@@ -17,6 +17,7 @@ struct TestMessage;
 
 struct TestEffect;
 
+#[cfg(not(feature = "typed-declarations"))]
 #[derive(Debug, Clone, PartialEq, vihaco::Parse)]
 #[syntax_class(instruction, head = "legacy")]
 enum LegacySyntax {
@@ -28,6 +29,7 @@ struct TestComponent;
 
 impl vihaco::HasInstructionSet for TestComponent {
     type Runtime = TestInstruction;
+    #[cfg(not(feature = "typed-declarations"))]
     type Syntax = LegacySyntax;
 }
 

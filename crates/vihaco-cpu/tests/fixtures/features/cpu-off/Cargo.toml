@@ -1,0 +1,9 @@
+[package]
+name = "cpu-off"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+host = { workspace = true }
+vm = { workspace = true }

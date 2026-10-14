@@ -1,0 +1,8 @@
+[package]
+name = "cpu-activation"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+host = { workspace = true, features = ["typed-declarations"] }

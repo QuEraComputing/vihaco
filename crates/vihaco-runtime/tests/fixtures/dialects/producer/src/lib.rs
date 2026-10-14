@@ -3,8 +3,10 @@
 
 #[rt::dialect]
 pub mod arithmetic {
+    use std::primitive::i64 as Signed;
     /// Add an integer operand.
     #[instruction]
+    #[pattern = "'add $0:Signed"]
     pub struct Add(pub i64);
 
     #[instruction]

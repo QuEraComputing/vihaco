@@ -60,7 +60,7 @@ pub use runtime::{Dispatch, Execute, Field, Step};
 #[cfg(feature = "typed-declarations")]
 pub use runtime::field;
 
-/// Declare runtime leaves and paired surface parsers with `typed-declarations`.
+/// Declare runtime leaves with direct parsers under `typed-declarations`.
 /// See [`runtime::dialect`] for the `#[vihaco(crate = path)]` framework-root override.
 ///
 /// ```
@@ -73,7 +73,7 @@ pub use runtime::field;
 ///     #[instruction]
 ///     pub struct Add(pub i64);
 /// }
-/// assert_eq!(arithmetic::syntax::Add::parser().parse("add 2")
+/// assert_eq!(arithmetic::Add::parser().parse("add 2")
 ///     .into_result().unwrap().0, 2);
 /// # }
 /// ```

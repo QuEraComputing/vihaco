@@ -6,18 +6,21 @@
 //!
 //! A [`ParsedModule`] contains [`ParsedFunction`] values whose bodies are
 //! typed instruction vectors. Unknown or malformed instructions are parse
-//! errors. Consumers implement [`Resolve`] to turn the typed parsed module
-//! into the runtime module their machine loads.
+//! errors. With `typed-declarations`, bodies contain runtime instructions and
+//! readability labels emit no executable slots. Feature-off consumers retain
+//! the separate `Resolve` bridge.
 
 mod types;
 
 pub mod parse;
+#[cfg(not(feature = "typed-declarations"))]
 pub mod resolve;
 
 pub use types::{Param, ParsedFunction, ParsedModule};
 pub use vihaco_parser::SurfaceInstruction;
 
 pub use parse::{block_i64_flat, block_i64_pairs, skip};
+#[cfg(not(feature = "typed-declarations"))]
 pub use resolve::Resolve;
 
 #[cfg(test)]

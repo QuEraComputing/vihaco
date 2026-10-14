@@ -67,6 +67,13 @@ pub enum Type {
     HeapRef,
 }
 
+/// Parse type syntax directly into the runtime type vocabulary.
+impl<'src> vihaco_parser::Parse<'src> for Type {
+    fn parser() -> impl Parser<'src, &'src str, Self, ValueParseExtra<'src>> {
+        type_text_parser()
+    }
+}
+
 impl AsRef<Type> for Type {
     fn as_ref(&self) -> &Type {
         self
@@ -373,6 +380,7 @@ impl crate::traits::WriteBytes for Value {
 fn type_text_parser<'src>() -> impl Parser<'src, &'src str, Type, ValueParseExtra<'src>> + Clone {
     choice((
         just("undefined").to(Type::Undefined),
+        just("undef").to(Type::Undefined),
         just("string").to(Type::String),
         just("str").to(Type::String),
         just("bool").to(Type::Bool),
@@ -382,7 +390,9 @@ fn type_text_parser<'src>() -> impl Parser<'src, &'src str, Type, ValueParseExtr
         just("u64").to(Type::U64),
         just("f64").to(Type::F64),
         just("f32").to(Type::F32),
+        just("fn_ref").to(Type::FunctionRef),
         just("fn").to(Type::FunctionRef),
+        just("heap_ref").to(Type::HeapRef),
         just("heap").to(Type::HeapRef),
     ))
 }

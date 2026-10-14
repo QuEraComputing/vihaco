@@ -86,6 +86,17 @@ mod tests {
         assert!(u64::parser().parse("-1").into_result().is_err());
     }
     #[test]
+    fn integer_overflow_is_a_parse_error() {
+        assert!(i32::parser().parse("2147483648").has_errors());
+        assert!(i32::parser().parse("-2147483649").has_errors());
+        assert!(i64::parser().parse("9223372036854775808").has_errors());
+        assert!(u32::parser().parse("4294967296").has_errors());
+        assert!(u64::parser().parse("18446744073709551616").has_errors());
+        assert_eq!(parses::<i32>("-2147483648"), i32::MIN);
+        assert_eq!(parses::<u64>("18446744073709551615"), u64::MAX);
+    }
+
+    #[test]
     fn bool_true() {
         assert!(parses::<bool>("true"));
     }

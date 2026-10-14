@@ -3,26 +3,21 @@
 
 //! Parsed-syntax data shapes. See module docs in [`super`].
 
-use vihaco_parser::{Ident, SurfaceInstruction};
+use vihaco_parser::Ident;
 
-/// Parsed `.sst` module before resolution.
+/// Parsed SST module containing consumer instruction values.
 ///
-/// `I` is the consumer's surface instruction type, `Ty` is its source type
+/// `I` is the consumer's instruction type (runtime instructions in the typed
+/// declaration mode), `Ty` is its source type
 /// syntax, and `H` is its section-header type.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ParsedModule<I, Ty, H>
-where
-    I: SurfaceInstruction,
-{
+pub struct ParsedModule<I, Ty, H> {
     pub header: H,
     pub functions: Vec<ParsedFunction<I, Ty>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ParsedFunction<I, Ty>
-where
-    I: SurfaceInstruction,
-{
+pub struct ParsedFunction<I, Ty> {
     /// Function name with the leading `@` stripped (`@main` → `"main"`).
     pub name: Ident,
     /// Function parameters parsed from `name: type` declarations.

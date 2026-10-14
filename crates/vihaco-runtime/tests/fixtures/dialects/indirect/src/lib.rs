@@ -22,7 +22,7 @@ impl rt::Execute<local::Halt> for Cpu {
 #[test]
 fn indirect_feature_enables_complete_contract() {
     use rt::{Parse, chumsky::Parser};
-    assert!(local::syntax::Halt::parser().parse("halt").has_output());
+    assert!(local::Halt::parser().parse("halt").has_output());
     rt::__private::require_available::<Cpu, local::Halt>();
     assert_eq!(
         <producer::exported::Add as rt::__private::InstructionSpec>::MNEMONIC,

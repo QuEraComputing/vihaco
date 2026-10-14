@@ -107,7 +107,7 @@ pub fn component(attr: TokenStream, item: TokenStream) -> TokenStream {
         .into()
 }
 
-/// Declare public runtime instructions and their paired surface parsers.
+/// Declare public runtime instructions and their direct parsers.
 ///
 /// The framework root is discovered automatically from a dependency on `vihaco`
 /// or `vihaco-runtime`, including renamed dependencies. Apply

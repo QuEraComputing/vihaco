@@ -14,7 +14,7 @@
 //! generic associated constant is insufficient. Internal capability reporting
 //! forces validation for its concrete monomorphization at code generation.
 
-use crate::{Component, Execute, Field, Parse};
+use crate::{Component, Execute, Field};
 
 pub use vihaco_parser_derive::__dialect_parsers;
 pub use vihaco_runtime_derive::__inventory_collect;
@@ -39,10 +39,8 @@ pub trait RouteAt<const SLOT: usize> {
 
 pub use crate::capability::{InstructionCapability, capabilities};
 
-/// One actual runtime instruction and its paired source representation.
+/// One actual runtime instruction and its dialect identity.
 pub trait InstructionSpec {
-    type Surface: for<'src> Parse<'src>;
-
     type Dialect: DialectSpec;
     const MNEMONIC: &'static str;
 }

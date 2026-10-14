@@ -59,9 +59,35 @@ The `head` is a dialect namespace. The derive appends `.`, so
 `head = "memory"` combines with the pattern token `'load` to accept
 `memory.load`.
 
-Every bound field is parsed with that field type's
-`vihaco_parser::Parse::parser()`. Give domain-specific field syntax its
-own local enum or struct with `#[derive(Parse)]`.
+Unannotated bindings use the corresponding field type's
+`vihaco_parser::Parse::parser()`. An annotation selects a different parser type,
+then converts its value into the field with `TryInto`. Failed conversions return
+parse errors at the operand's span. No `Debug` or `Display` bound is required on
+the conversion error.
+
+```rust
+use chumsky::Parser as _;
+use vihaco_parser::Parse as _;
+
+#[derive(Debug, PartialEq, vihaco_parser_derive::Parse)]
+#[syntax_class(instruction, head = "cpu")]
+#[pattern = "'call $0 `,` $1:u64"]
+struct Call(u32, u32);
+
+assert_eq!(Call::parser().parse("cpu.call 2, 10").into_result(), Ok(Call(2, 10)));
+assert!(Call::parser().parse("cpu.call 2, 4294967296").has_errors());
+```
+
+Here `$0` uses `u32::parser()` directly, while `$1` uses `u64::parser()` and a
+checked conversion into `u32`. Binding indices identify fields even when a
+pattern changes capture order. Named bindings support annotations too, such as
+`$address:u64`. Type aliases, qualified paths, and nested generic arguments keep
+normal Rust scope. Parenthesize types needing whitespace outside delimiters.
+
+Give encoded literals a local newtype implementing `Parse` and `From` into the
+runtime field. Rust supplies `TryInto` through that `From` implementation. For
+example, an `I64Literal` can parse a signed integer and encode it into a CPU
+`Word`, preserving negative bit patterns without a separate resolution pass.
 
 ## Syntax classes
 

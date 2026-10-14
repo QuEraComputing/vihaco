@@ -69,7 +69,7 @@ macro_rules! impl_uint {
     ($($t:ty),+) => {
         $(impl<'src> Parse<'src> for $t {
             fn parser() -> impl Parser<'src, &'src str, Self, E<'src>> {
-                text::int(10).map(|s: &str| s.parse().unwrap())
+                text::int(10).try_map(|s: &str, span| s.parse().map_err(|_| Simple::new(None, span)))
             }
         })+
     };
@@ -84,7 +84,7 @@ macro_rules! impl_sint {
                     .or_not()
                     .then(text::int(10))
                     .to_slice()
-                    .map(|s: &str| s.parse().unwrap())
+                    .try_map(|s: &str, span| s.parse().map_err(|_| Simple::new(None, span)))
             }
         })+
     };
@@ -109,7 +109,7 @@ macro_rules! impl_float {
                     .then(just('.').then(text::digits(10)).or_not())
                     .then(exp.or_not())
                     .to_slice()
-                    .map(|s: &str| s.parse().unwrap())
+                    .try_map(|s: &str, span| s.parse().map_err(|_| Simple::new(None, span)))
             }
         })+
     };

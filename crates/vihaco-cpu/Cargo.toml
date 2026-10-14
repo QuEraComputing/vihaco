@@ -7,6 +7,9 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+typed-declarations = ["vihaco/typed-declarations"]
+
 [dependencies]
 chumsky = { workspace = true }
 codespan = "0.13.1"
@@ -15,3 +18,7 @@ log = "0.4.29"
 vihaco = { workspace = true }
 vihaco-parser = { workspace = true }
 vihaco-parser-derive = { workspace = true }
+
+[[example]]
+name = "typed_cpu"
+required-features = ["typed-declarations"]

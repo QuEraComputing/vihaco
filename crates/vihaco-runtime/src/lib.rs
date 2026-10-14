@@ -11,12 +11,12 @@
 //! fields. Feature-off execution retains the existing declarations. The two
 //! declaration modes require separate Cargo feature graphs.
 //!
-//! With `typed-declarations`, `#[dialect]` pairs public runtime structs with
-//! surface structs defined in the same module and reexported as `syntax::Name`.
-//! Both use the authored operand types;
-//! operands implement [`Parse`] through ordinary Rust. Only immediate marked
-//! unit/tuple structs belong to the dialect. Generated `syntax::Add` parses the
-//! local mnemonic; selection and target prefixes belong to instruction sets.
+//! With `typed-declarations`, `#[dialect]` gives public runtime instruction
+//! structs direct parsers. Operand types retain their authored scope. Only
+//! immediate marked unit/tuple structs belong to a dialect. Composite parsers
+//! construct their flat runtime enums directly; there is no paired surface enum
+//! or instruction-resolution pass. SST producers supply resolved addresses and
+//! reference IDs.
 //!
 //! ```
 //! # #[cfg(feature = "typed-declarations")]
@@ -34,10 +34,10 @@
 //!     pub struct Halt;
 //! }
 //!
-//! let source = arithmetic::syntax::Add::parser().parse("add -3")
+//! let source = arithmetic::Add::parser().parse("add -3")
 //!     .into_result().unwrap();
-//! assert_eq!(source, arithmetic::syntax::Add(-3));
-//! let runtime = arithmetic::Add(source.0);
+//! assert_eq!(source, arithmetic::Add(-3));
+//! let runtime = source;
 //! assert_eq!(runtime.0, -3);
 //! # }
 //! ```
@@ -46,7 +46,10 @@
 //! and field visibility, and supplies Clone/Debug/PartialEq without duplicating
 //! those authored derives. Named fields, generic or raw leaf names, conditional
 //! membership, and generated-name collisions are rejected. Gate the entire
-//! module with `cfg`/`cfg_attr`. The generated `syntax` module is reserved.
+//! module with `cfg`/`cfg_attr`. Unannotated pattern bindings use their runtime
+//! field's parser. A binding such as `$0:u64` selects that parser type and uses
+//! `TryInto` to construct the runtime field, returning a parse error if conversion
+//! fails. Parser annotations retain ordinary Rust type scope.
 
 extern crate self as vihaco_runtime;
 
@@ -127,8 +130,8 @@ pub use vihaco_runtime_derive::{Message, dispatch, machine, observe};
 /// Declare device fields, complete child capabilities, and loadable sections.
 ///
 /// With `typed-declarations`, named device declarations contribute every leaf
-/// from their declared dialects to a hidden flat runtime enum and paired syntax
-/// enum, exposed through [`HasInstructionSet`]. Syntax uses
+/// from their declared dialects to a hidden flat runtime enum exposed through
+/// [`HasInstructionSet`]. Its direct parser uses
 /// `field::nested_field::dialect::instruction` prefixes and accepts device aliases.
 /// Implement [`Step`] for every destination/leaf pair. The generated [`Dispatch`]
 /// implementation checks complete coverage when the composite is compiled,
@@ -184,14 +187,17 @@ pub use vihaco_runtime_derive::component_macro as component;
 #[cfg(feature = "typed-declarations")]
 pub use vihaco_parser_derive::Parse;
 
-/// Declare runtime instructions and their paired `syntax` types.
+/// Declare runtime instructions and their direct parsers.
 ///
 /// Available with `typed-declarations`. The framework dependency is discovered
 /// automatically, including renamed dependencies. To use a module reexporting
 /// the framework API, apply `#[vihaco(crate = path)]` to the dialect module.
 /// The path is resolved in the annotated module's parent scope; `self`, `super`,
 /// `crate`, and absolute paths are supported. Operand types retain their
-/// authored scope.
+/// authored scope. Unannotated bindings use the corresponding field's parser.
+/// `$0:ParserType` selects another `Parse` type and converts with `TryInto` into
+/// the field. Failures become operand parse errors. Literal newtypes may implement
+/// `From` into encoded fields without introducing a surface instruction enum.
 ///
 /// ```
 /// use vihaco_runtime::dialect;
@@ -209,7 +215,7 @@ pub use vihaco_parser_derive::Parse;
 ///
 /// fn main() {
 ///     use framework::{Parse, chumsky::Parser};
-///     assert_eq!(arithmetic::syntax::Add::parser().parse("add 2")
+///     assert_eq!(arithmetic::Add::parser().parse("add 2")
 ///         .into_result().unwrap().0, 2);
 /// }
 /// ```

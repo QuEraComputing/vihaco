@@ -1,29 +1,34 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-use crate::{Word, instruction::SurfaceValue};
+use crate::Word;
+#[cfg(not(feature = "typed-declarations"))]
+use crate::instruction::SurfaceValue;
 use vihaco::{
     frame::Frame,
     traits::{FrameMemory, StackFrame, StackMemory},
 };
+#[cfg(not(feature = "typed-declarations"))]
 use vihaco_parser::Ident;
 
 // Keep execution inside the state-owning module so CPU fields need no
 // crate-wide visibility. The component macro scopes implicit fields here.
 #[path = "component.rs"]
-mod component;
+pub(crate) mod component;
+#[cfg(not(feature = "typed-declarations"))]
 pub use component::CPUMessage;
 
+#[cfg(not(feature = "typed-declarations"))]
 vihaco::component! {
     #[derive(Default, Debug)]
     pub component CPU {
-        frames: Vec<Frame>,
+        pub(crate) frames: Vec<Frame>,
         heap: Heap,
-        stack: Vec<Word>,
-        span: (u32, u32, u32),
-        pending_pc: Option<u32>,
-        current_pc: u32,
-        return_values: Vec<Word>,
+        pub(crate) stack: Vec<Word>,
+        pub(crate) span: (u32, u32, u32),
+        pub(crate) pending_pc: Option<u32>,
+        pub(crate) current_pc: u32,
+        pub(crate) return_values: Vec<Word>,
     }
 
     type Type = vihaco::Type;
@@ -345,8 +350,11 @@ vihaco::component! {
     }
 }
 
+#[cfg(not(feature = "typed-declarations"))]
 pub use cpu::CPU;
+#[cfg(not(feature = "typed-declarations"))]
 pub use cpu::runtime::Instruction as RuntimeInstruction;
+#[cfg(not(feature = "typed-declarations"))]
 pub use cpu::syntax::Instruction as SurfaceInstruction;
 
 /// Append-only storage with a fixed capacity limit and a current length.
@@ -377,6 +385,19 @@ enum HeapSlot {
     Alive(HeapObject),
     Deallocated,
 }
+#[cfg(feature = "typed-declarations")]
+#[vihaco::component]
+#[instructions { crate::cpu }]
+#[derive(Default, Debug)]
+pub struct CPU {
+    pub(crate) frames: Vec<Frame>,
+    heap: Heap,
+    pub(crate) stack: Vec<Word>,
+    pub(crate) span: (u32, u32, u32),
+    pub(crate) pending_pc: Option<u32>,
+    pub(crate) current_pc: u32,
+    pub(crate) return_values: Vec<Word>,
+}
 
 #[derive(Debug, Clone, Default)]
 struct Heap {
@@ -386,7 +407,7 @@ struct Heap {
 
 impl Heap {
     /// Allocate a full object; spare Vec capacity does not permit appending.
-    fn alloc(&mut self, values: impl Into<Vec<Word>>) -> u32 {
+    pub(crate) fn alloc(&mut self, values: impl Into<Vec<Word>>) -> u32 {
         let values = values.into();
         let capacity = values.len();
         self.insert(HeapObject { values, capacity })
@@ -394,7 +415,7 @@ impl Heap {
 
     /// Allocate an empty object with an exact, fixed element limit.
     /// Returns an error if its storage cannot be allocated.
-    fn reserve(&mut self, capacity: usize) -> eyre::Result<u32> {
+    pub(crate) fn reserve(&mut self, capacity: usize) -> eyre::Result<u32> {
         let mut values = Vec::new();
         values.try_reserve_exact(capacity)?;
         Ok(self.insert(HeapObject { values, capacity }))
@@ -402,7 +423,7 @@ impl Heap {
 
     /// Append without reallocating or overwriting existing elements.
     /// Returns an error for invalid, deallocated, or full objects.
-    fn push(&mut self, id: u32, value: Word) -> eyre::Result<()> {
+    pub(crate) fn push(&mut self, id: u32, value: Word) -> eyre::Result<()> {
         let object = match self.slots.get_mut(id as usize) {
             Some(HeapSlot::Alive(object)) => object,
             Some(HeapSlot::Deallocated) => {
@@ -420,7 +441,7 @@ impl Heap {
         Ok(())
     }
 
-    fn insert(&mut self, object: HeapObject) -> u32 {
+    pub(crate) fn insert(&mut self, object: HeapObject) -> u32 {
         if let Some(id) = self.free_list.pop() {
             self.slots[id as usize] = HeapSlot::Alive(object);
             id
@@ -431,7 +452,7 @@ impl Heap {
         }
     }
 
-    fn dealloc(&mut self, id: u32) -> eyre::Result<()> {
+    pub(crate) fn dealloc(&mut self, id: u32) -> eyre::Result<()> {
         match self.slots.get_mut(id as usize) {
             Some(slot @ HeapSlot::Alive(_)) => {
                 *slot = HeapSlot::Deallocated;
@@ -462,7 +483,7 @@ impl Heap {
     }
 
     #[cfg(test)]
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.slots.is_empty()
     }
 }
@@ -599,24 +620,34 @@ impl CPU {
             .ok_or_else(|| eyre::eyre!("local address overflow"))
     }
 
-    fn push_heap_object(&mut self, values: impl Into<Vec<Word>>) -> u32 {
+    pub(crate) fn push_heap_object(&mut self, values: impl Into<Vec<Word>>) -> u32 {
         self.heap.alloc(values)
     }
 
-    fn heap_object(&self, id: u32) -> eyre::Result<&[Word]> {
+    pub(crate) fn heap_object(&self, id: u32) -> eyre::Result<&[Word]> {
         self.heap.get(id)
     }
 
-    fn dealloc_heap_object(&mut self, id: u32) -> eyre::Result<()> {
+    #[cfg(feature = "typed-declarations")]
+    pub(crate) fn reserve_heap_object(&mut self, capacity: usize) -> eyre::Result<u32> {
+        self.heap.reserve(capacity)
+    }
+
+    #[cfg(feature = "typed-declarations")]
+    pub(crate) fn append_heap_object(&mut self, id: u32, value: Word) -> eyre::Result<()> {
+        self.heap.push(id, value)
+    }
+
+    pub(crate) fn dealloc_heap_object(&mut self, id: u32) -> eyre::Result<()> {
         self.heap.dealloc(id)
     }
 
-    fn clear_heap(&mut self) {
+    pub(crate) fn clear_heap(&mut self) {
         self.heap.clear();
     }
 
     #[cfg(test)]
-    fn heap_is_empty(&self) -> bool {
+    pub(crate) fn heap_is_empty(&self) -> bool {
         self.heap.is_empty()
     }
 
