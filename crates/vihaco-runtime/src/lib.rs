@@ -166,8 +166,9 @@ pub use vihaco_runtime_derive::{Message, dispatch, machine, observe};
 /// # #[vihaco(crate = ::vihaco_runtime)]
 /// struct Machine { #[device(7, alias = "host")] cpu: Cpu }
 /// impl Step<field!(Machine::cpu), control::Halt> for Machine {
-///     fn step(&mut self, instruction: control::Halt) {
-///         self.cpu.execute(&instruction, ()).unwrap();
+///     fn step(&mut self, instruction: control::Halt) -> vihaco_runtime::eyre::Result<()> {
+///         self.cpu.execute(&instruction, ())?;
+///         Ok(())
 ///     }
 /// }
 /// # }

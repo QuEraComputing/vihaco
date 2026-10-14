@@ -15,5 +15,13 @@ where
     <Self as Field<F>>::Child: Execute<I>,
 {
     /// Perform a step for the selected destination and instruction.
-    fn step(&mut self, instruction: I);
+    ///
+    /// # Errors
+    ///
+    /// Returns failures from preparing runtime input, executing the instruction,
+    /// or handling its effects. Implementations can use `?` to convert compatible
+    /// execution errors into [`eyre::Report`], including `Infallible`, or to
+    /// propagate existing reports unchanged. Returning an error does not roll
+    /// back state changes or effects already applied.
+    fn step(&mut self, instruction: I) -> eyre::Result<()>;
 }

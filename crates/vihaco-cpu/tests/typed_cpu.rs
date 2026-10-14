@@ -44,7 +44,6 @@ pub use vihaco_cpu::{__vihaco_fields_CPU, __vihaco_inventory_CPU};
 struct Controller {
     #[device(7, alias = "host")]
     cpu: CPU,
-    last: Option<eyre::Result<StepOutcome>>,
 }
 
 #[composite]
@@ -53,9 +52,10 @@ struct Machine {
     controller: Controller,
     #[device(42)]
     spare: CPU,
-    last: Option<eyre::Result<StepOutcome>>,
 }
 
+// These dispatch fixtures have no driver loop to consume control-flow outcomes.
+// Assert those outcomes directly through Execute in the CPU behavior tests.
 macro_rules! steps {
     ($machine:ty, $route:ty, $($device:ident).+) => {
         ordinary_steps!(
@@ -86,22 +86,25 @@ macro_rules! steps {
             GeU32, GeU64, GeF32, GeF64
         );
         impl Step<$route, cpu::Call> for $machine {
-            fn step(&mut self, instruction: cpu::Call) {
-                self.last = Some(self.$($device).+.execute(&instruction, message::FunctionInfo {
+            fn step(&mut self, instruction: cpu::Call) -> eyre::Result<()> {
+                self.$($device).+.execute(&instruction, message::FunctionInfo {
                     arity: instruction.0, start_address: instruction.1, local_count: instruction.0,
-                }));
+                })?;
+                Ok(())
             }
         }
         impl Step<$route, cpu::IndirectCall> for $machine {
-            fn step(&mut self, instruction: cpu::IndirectCall) {
-                self.last = Some(self.$($device).+.execute(&instruction, message::FunctionInfo {
+            fn step(&mut self, instruction: cpu::IndirectCall) -> eyre::Result<()> {
+                self.$($device).+.execute(&instruction, message::FunctionInfo {
                     arity: 0, start_address: 0, local_count: 0,
-                }));
+                })?;
+                Ok(())
             }
         }
         impl Step<$route, cpu::Print> for $machine {
-            fn step(&mut self, instruction: cpu::Print) {
-                self.last = Some(self.$($device).+.execute(&instruction, message::Print("text".into())));
+            fn step(&mut self, instruction: cpu::Print) -> eyre::Result<()> {
+                self.$($device).+.execute(&instruction, message::Print("text".into()))?;
+                Ok(())
             }
         }
     };
@@ -114,8 +117,9 @@ macro_rules! ordinary_steps {
 macro_rules! ordinary_step {
     ($machine:ty, $route:ty, ($($device:ident).+), $instruction:ident) => {
         impl Step<$route, cpu::$instruction> for $machine {
-            fn step(&mut self, instruction: cpu::$instruction) {
-                self.last = Some(self.$($device).+.execute(&instruction, ()));
+            fn step(&mut self, instruction: cpu::$instruction) -> eyre::Result<()> {
+                self.$($device).+.execute(&instruction, ())?;
+                Ok(())
             }
         }
     };
@@ -128,20 +132,17 @@ fn machine() -> Machine {
     Machine {
         controller: Controller {
             cpu: CPU::default(),
-            last: None,
         },
         spare: CPU::default(),
-        last: None,
     }
 }
 
-fn step(machine: &mut Machine, source: &str) -> eyre::Result<StepOutcome> {
+fn step(machine: &mut Machine, source: &str) -> eyre::Result<()> {
     let instruction = <Machine as HasInstructionSet>::Syntax::parser()
         .parse(source)
         .into_result()
         .unwrap();
-    machine.dispatch(vihaco::Lower::lower(instruction, &mut NumericContext).unwrap());
-    machine.last.take().unwrap()
+    machine.dispatch(vihaco::Lower::lower(instruction, &mut NumericContext)?)
 }
 
 #[test]
@@ -153,19 +154,10 @@ fn direct_runtime_parser_dispatches_to_nested_aliased_and_repeated_cpu_fields() 
     step(&mut machine, "spare::cpu::const_f32 1.5").unwrap();
     assert_eq!(machine.controller.cpu.stack(), &[encode_i64(-35)]);
     assert_eq!(machine.spare.stack(), &[encode_f32(1.5)]);
-    assert_eq!(
-        step(&mut machine, "ctl::host::cpu::br 10").unwrap(),
-        StepOutcome::Continue
-    );
+    step(&mut machine, "ctl::host::cpu::br 10").unwrap();
     assert_eq!(machine.controller.cpu.take_pending_pc(), Some(10));
-    assert_eq!(
-        step(&mut machine, "spare::cpu::halt").unwrap(),
-        StepOutcome::Halt
-    );
-    assert_eq!(
-        step(&mut machine, "spare::cpu::breakpoint").unwrap(),
-        StepOutcome::Breakpoint
-    );
+    step(&mut machine, "spare::cpu::halt").unwrap();
+    step(&mut machine, "spare::cpu::breakpoint").unwrap();
 }
 
 #[test]
@@ -295,10 +287,11 @@ fn sst_labels_are_readability_metadata_and_do_not_occupy_runtime_slots() {
     ));
     let mut machine = machine();
     for instruction in parsed.body {
-        machine.dispatch(vihaco::Lower::lower(instruction, &mut NumericContext).unwrap());
+        machine
+            .dispatch(vihaco::Lower::lower(instruction, &mut NumericContext).unwrap())
+            .unwrap();
     }
     assert_eq!(machine.controller.cpu.take_pending_pc(), Some(1));
-    assert_eq!(machine.last.take().unwrap().unwrap(), StepOutcome::Halt);
     assert!(
         Function::parser()
             .parse("fn @main() { ctl::host::cpu::function_start }")
@@ -308,6 +301,21 @@ fn sst_labels_are_readability_metadata_and_do_not_occupy_runtime_slots() {
         Function::parser()
             .parse("fn @main() { ctl::host::cpu::function_end }")
             .has_errors()
+    );
+}
+
+#[test]
+fn control_instructions_return_their_outcomes() {
+    let mut cpu = CPU::default();
+    assert_eq!(
+        cpu.execute(&cpu::Branch(10), ()).unwrap(),
+        StepOutcome::Continue
+    );
+    assert_eq!(cpu.take_pending_pc(), Some(10));
+    assert_eq!(cpu.execute(&cpu::Halt, ()).unwrap(), StepOutcome::Halt);
+    assert_eq!(
+        cpu.execute(&cpu::Breakpoint, ()).unwrap(),
+        StepOutcome::Breakpoint
     );
 }
 
@@ -359,6 +367,25 @@ fn typed_messages_preserve_direct_indirect_calls_and_returns() {
         cpu.execute(&cpu::Return(0), ()).unwrap(),
         StepOutcome::Return
     );
+}
+
+#[test]
+fn dispatch_returns_cpu_errors_and_allows_subsequent_execution() {
+    let mut machine = machine();
+    for (halt, failing) in [
+        (
+            __vihaco_MachineInstruction::V_controller__cpu__cpu__Halt(cpu::Halt),
+            __vihaco_MachineInstruction::V_controller__cpu__cpu__AddI64(cpu::AddI64),
+        ),
+        (
+            __vihaco_MachineInstruction::V_spare__cpu__Halt(cpu::Halt),
+            __vihaco_MachineInstruction::V_spare__cpu__AddI64(cpu::AddI64),
+        ),
+    ] {
+        machine.dispatch(halt.clone()).unwrap();
+        assert!(machine.dispatch(failing).is_err());
+        machine.dispatch(halt).unwrap();
+    }
 }
 
 #[test]
@@ -928,15 +955,19 @@ fn @helper() {
     );
     let mut machine = machine();
     for instruction in &loader.image.module.code[..3] {
-        machine.dispatch(instruction.clone());
+        machine.dispatch(instruction.clone()).unwrap();
     }
     assert_eq!(
         machine.controller.cpu.stack(),
         &[0, 0, encode_function_ref(1)]
     );
-    machine.dispatch(loader.image.module.code[3].clone());
+    machine
+        .dispatch(loader.image.module.code[3].clone())
+        .unwrap();
     assert_eq!(machine.controller.cpu.take_pending_pc(), Some(6));
-    machine.dispatch(loader.image.module.code[5].clone());
+    machine
+        .dispatch(loader.image.module.code[5].clone())
+        .unwrap();
     assert_eq!(machine.controller.cpu.take_pending_pc(), Some(7));
 }
 
