@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Dialect validation and direct runtime instruction parsing.
+//! Nongeneric dialect validation and phase-aware instruction parsing.
 
 use std::collections::HashSet;
 
@@ -24,7 +24,7 @@ struct Dialect {
     leaves: Vec<ItemStruct>,
 }
 
-/// Validate an inline dialect declaration and generate direct runtime parsers.
+/// Validate an inline dialect declaration and generate instruction syntax parsers.
 pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStream> {
     if !options.is_empty() {
         return Err(syn::Error::new_spanned(

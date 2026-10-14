@@ -577,3 +577,27 @@ pub mod cpu {
     #[pattern = "'ge_f64"]
     pub struct GeF64;
 }
+
+// Literal encoding is instruction-owned lowering and needs no loader capabilities.
+macro_rules! lower_literal {
+    ($($instruction:ident => $convert:expr),* $(,)?) => {$(
+        impl<C: ?Sized> vihaco::Lower<C> for cpu::$instruction<vihaco::Syntax> {
+            type Runtime = cpu::$instruction;
+            fn lower(self, _: &mut C) -> eyre::Result<Self::Runtime> {
+                Ok(cpu::$instruction(($convert)(self.0)))
+            }
+        }
+    )*};
+}
+
+lower_literal! {
+    ConstI32 => crate::Word::from,
+    ConstI64 => crate::Word::from,
+    ConstF32 => crate::Word::from,
+    ConstF64 => crate::Word::from,
+    ConstU32 => crate::word::encode_u32,
+    ConstBool => crate::word::encode_bool,
+    ConstString => crate::word::encode_string_id,
+    ConstFunctionRef => crate::word::encode_function_ref,
+    ConstHeapRef => crate::word::encode_heap_ref,
+}

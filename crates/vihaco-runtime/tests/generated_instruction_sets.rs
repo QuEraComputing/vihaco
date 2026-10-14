@@ -39,6 +39,7 @@ impl<T, I> Execute<I> for Cpu<T> {
 // A narrower executable association does not limit aggregate availability.
 impl<T> HasInstructionSet for Cpu<T> {
     type Runtime = arithmetic::Halt;
+    type Syntax = arithmetic::Halt;
 }
 
 type Alias<T> = Cpu<T>;

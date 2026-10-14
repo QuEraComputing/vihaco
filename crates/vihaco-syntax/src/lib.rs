@@ -6,8 +6,9 @@
 //!
 //! A [`ParsedModule`] contains [`ParsedFunction`] values whose bodies are
 //! typed instruction vectors. Unknown or malformed instructions are parse
-//! errors. With `typed-declarations`, bodies contain runtime instructions and
-//! readability labels emit no executable slots. Feature-off consumers retain
+//! errors. With `typed-declarations`, bodies can contain the generated syntax
+//! aggregate, lowered with a program loader's capabilities before execution.
+//! Readability labels emit no executable slots. Feature-off consumers retain
 //! the separate `Resolve` bridge.
 
 mod types;

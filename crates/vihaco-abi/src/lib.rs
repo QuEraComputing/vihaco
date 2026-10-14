@@ -6,6 +6,7 @@ extern crate self as vihaco_abi;
 pub mod effect;
 pub mod frame;
 pub mod instruction_syntax;
+pub mod lower;
 pub mod metadata;
 pub mod program;
 #[doc(hidden)]
@@ -19,6 +20,7 @@ pub mod instruction {
 }
 
 pub use effect::Effects;
+pub use lower::{Lower, Runtime, Syntax};
 pub use program::{Type, Value};
 
 #[cfg(feature = "derive")]

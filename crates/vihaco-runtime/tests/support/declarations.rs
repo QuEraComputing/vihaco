@@ -6,8 +6,11 @@ use vihaco_runtime::__private::{
 };
 use vihaco_runtime::{Component, Effects, Execute};
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct A;
+#[derive(Clone, Debug, PartialEq)]
 pub struct B;
+#[derive(Clone, Debug, PartialEq)]
 pub struct Extra;
 pub struct Dialect;
 pub type RenamedDialect = Dialect;
@@ -35,14 +38,17 @@ impl<C: Execute<A> + Execute<B>> Coverage<C> for Dialect {}
 impl<C: Execute<Extra>> Coverage<C> for Foreign {}
 
 impl InstructionSpec for A {
+    type Syntax = Self;
     type Dialect = Dialect;
     const MNEMONIC: &'static str = "a";
 }
 impl InstructionSpec for B {
+    type Syntax = Self;
     type Dialect = Dialect;
     const MNEMONIC: &'static str = "b";
 }
 impl InstructionSpec for Extra {
+    type Syntax = Self;
     type Dialect = Foreign;
     const MNEMONIC: &'static str = "extra";
 }

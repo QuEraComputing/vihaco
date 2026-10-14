@@ -41,6 +41,8 @@ pub use crate::capability::{InstructionCapability, capabilities};
 
 /// One actual runtime instruction and its dialect identity.
 pub trait InstructionSpec {
+    /// Source representation selected by the instruction's generated types.
+    type Syntax: Clone + std::fmt::Debug + PartialEq;
     type Dialect: DialectSpec;
     const MNEMONIC: &'static str;
 }
