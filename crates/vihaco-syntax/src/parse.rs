@@ -15,7 +15,15 @@ use vihaco_parser::{Ident, Parse, QuotedString};
 use vihaco_bytecode::SstHeader;
 use vihaco_bytecode::SstSectionView;
 
+#[cfg(feature = "typed-declarations")]
+use crate::ParsedLabel;
 use crate::{Param, ParsedFunction, ParsedModule};
+
+#[cfg(feature = "typed-declarations")]
+enum BodyItem<I> {
+    Instruction(I),
+    Label(Ident),
+}
 
 type E<'src> = extra::Err<Simple<'src, char>>;
 
@@ -165,12 +173,25 @@ where
                 .then_ignore(text::whitespace().at_least(1))
                 .ignore_then(just('@'))
                 .ignore_then(Ident::parser())
-                .map(|_| None);
+                .map(BodyItem::Label);
             skip()
-                .ignore_then(label.or(I::parser().map(Some)))
+                .ignore_then(label.or(I::parser().map(BodyItem::Instruction)))
                 .repeated()
                 .collect::<Vec<_>>()
-                .map(|items| items.into_iter().flatten().collect::<Vec<_>>())
+                .map(|items| {
+                    let mut body = Vec::new();
+                    let mut labels = Vec::new();
+                    for item in items {
+                        match item {
+                            BodyItem::Instruction(instruction) => body.push(instruction),
+                            BodyItem::Label(name) => labels.push(ParsedLabel {
+                                name,
+                                instruction_index: body.len(),
+                            }),
+                        }
+                    }
+                    (body, labels)
+                })
                 .then_ignore(skip())
         };
 
@@ -183,11 +204,17 @@ where
             .then_ignore(just('{').padded())
             .then(body)
             .then_ignore(just('}').padded())
-            .map(|(((name, params), return_ty), body)| ParsedFunction {
-                name,
-                params,
-                return_ty,
-                body,
+            .map(|(((name, params), return_ty), body)| {
+                #[cfg(feature = "typed-declarations")]
+                let (body, labels) = body;
+                ParsedFunction {
+                    name,
+                    params,
+                    return_ty,
+                    body,
+                    #[cfg(feature = "typed-declarations")]
+                    labels,
+                }
             })
     }
 }

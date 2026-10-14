@@ -686,6 +686,7 @@ dependencies = [
  "codespan",
  "eyre",
  "log",
+ "trybuild",
  "vihaco",
  "vihaco-parser",
  "vihaco-parser-derive",

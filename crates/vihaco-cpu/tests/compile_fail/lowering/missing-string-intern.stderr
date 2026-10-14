@@ -1,0 +1,12 @@
+error[E0277]: the trait bound `(): StringIntern` is not satisfied
+ --> tests/compile_fail/lowering/missing-string-intern.rs:6:20
+  |
+6 |     let _ = source.lower(&mut ());
+  |                    ^^^^^ the trait `StringIntern` is not implemented for `()`
+  |
+help: the trait `StringIntern` is implemented for `ProgramImage<I, C, V, Ty, Info>`
+ --> src/lower.rs
+  |
+  | impl<I, C, V, Ty, Info> StringIntern for vihaco::ProgramImage<I, C, V, Ty, Info> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = note: required for `ConstString<Syntax>` to implement `vihaco::Lower<()>`

@@ -24,6 +24,18 @@ pub struct ParsedFunction<I, Ty> {
     /// Return type parsed with the consumer-provided `Ty` syntax.
     pub return_ty: Option<Ty>,
     pub body: Vec<I>,
+    /// Labels and their positions in the executable body, for loader preparation.
+    #[cfg(feature = "typed-declarations")]
+    pub labels: Vec<ParsedLabel>,
+}
+
+/// A function-local label that occupies no executable instruction slot.
+#[cfg(feature = "typed-declarations")]
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParsedLabel {
+    pub name: Ident,
+    /// Index of the next instruction in this function, possibly `body.len()`.
+    pub instruction_index: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]

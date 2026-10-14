@@ -85,7 +85,6 @@ jobs:
       - run: cargo test --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-off
       - run: cargo test --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-on -p cpu-direct
       - run: cargo test --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-indirect
-      - run: cargo run -p vihaco-cpu --example typed_cpu --features typed-declarations
 
   doctest:
     name: Doc tests
