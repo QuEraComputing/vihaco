@@ -1,14 +1,18 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+#[cfg(not(feature = "typed-declarations"))]
 use crate::RuntimeInstruction;
 use crate::StepOutcome;
 use crate::Word;
 use crate::data::CPU;
 use crate::word::*;
 use eyre::Result;
+#[cfg(not(feature = "typed-declarations"))]
 use vihaco::Effects;
-use vihaco::{dispatch, frame::Frame, traits::*};
+#[cfg(not(feature = "typed-declarations"))]
+use vihaco::dispatch;
+use vihaco::{frame::Frame, traits::*};
 
 impl Reset for CPU {
     fn reset(&mut self) {
@@ -22,6 +26,7 @@ impl Reset for CPU {
     }
 }
 
+#[cfg(not(feature = "typed-declarations"))]
 impl CPU {
     #[inline(always)]
     fn execute_generated(
@@ -213,6 +218,7 @@ impl CPU {
     }
 }
 
+#[cfg(not(feature = "typed-declarations"))]
 #[derive(Debug, Clone, PartialEq, vihaco::Message)]
 pub enum CPUMessage {
     None,
@@ -225,6 +231,7 @@ pub enum CPUMessage {
     Print(String),
 }
 
+#[cfg(not(feature = "typed-declarations"))]
 #[dispatch(instruction = RuntimeInstruction, message = CPUMessage, effect = StepOutcome)]
 impl CPU {
     fn execute(
@@ -237,17 +244,20 @@ impl CPU {
 }
 
 impl CPU {
-    fn op_span(&mut self, file: u32, start: u32, end: u32) -> eyre::Result<StepOutcome> {
+    #[cfg(not(feature = "typed-declarations"))]
+    pub fn op_span(&mut self, file: u32, start: u32, end: u32) -> eyre::Result<StepOutcome> {
         self.span = (file, start, end);
         Ok(StepOutcome::Continue)
     }
 
-    fn op_branch(&mut self, target: u32) -> eyre::Result<StepOutcome> {
+    #[cfg(not(feature = "typed-declarations"))]
+    pub fn op_branch(&mut self, target: u32) -> eyre::Result<StepOutcome> {
         self.set_pending_pc(target);
         Ok(StepOutcome::Continue)
     }
 
-    fn op_conditional_branch(
+    #[cfg(not(feature = "typed-declarations"))]
+    pub fn op_conditional_branch(
         &mut self,
         true_target: u32,
         false_target: u32,
@@ -265,7 +275,8 @@ impl CPU {
         }
     }
 
-    fn op_return(&mut self, keep: u32) -> eyre::Result<StepOutcome> {
+    #[cfg(not(feature = "typed-declarations"))]
+    pub fn op_return(&mut self, keep: u32) -> eyre::Result<StepOutcome> {
         let frame = *self.get_frame()?;
         let available = self
             .stack
@@ -314,7 +325,7 @@ impl CPU {
     }
 
     /// Shared frame setup for program entry and call instructions.
-    fn enter_function(
+    pub(crate) fn enter_function(
         &mut self,
         arity: u32,
         target: u32,
@@ -346,11 +357,18 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    fn op_call(&mut self, arity: u32, target: u32, local_count: u32) -> eyre::Result<StepOutcome> {
+    #[cfg(not(feature = "typed-declarations"))]
+    pub fn op_call(
+        &mut self,
+        arity: u32,
+        target: u32,
+        local_count: u32,
+    ) -> eyre::Result<StepOutcome> {
         self.enter_function(arity, target, local_count, None)
     }
 
-    fn op_indirect_call(
+    #[cfg(not(feature = "typed-declarations"))]
+    pub fn op_indirect_call(
         &mut self,
         arity: u32,
         target: u32,
@@ -366,6 +384,7 @@ impl CPU {
         self.enter_function(arity, target, local_count, Some(function as usize))
     }
 
+    #[cfg(not(feature = "typed-declarations"))]
     fn op_load(&mut self, addr: u32) -> eyre::Result<StepOutcome> {
         // addr should be local to frame.
         let value = self.get_local(addr as usize)?;
@@ -373,7 +392,8 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    fn op_store(&mut self, addr: u32) -> Result<StepOutcome> {
+    #[cfg(not(feature = "typed-declarations"))]
+    pub fn op_store(&mut self, addr: u32) -> Result<StepOutcome> {
         let address = self.local_address(addr as usize)?;
         let value: Word = self.stack_pop()?;
         *self
@@ -383,13 +403,15 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    fn op_dup(&mut self) -> Result<StepOutcome> {
+    #[cfg(not(feature = "typed-declarations"))]
+    pub fn op_dup(&mut self) -> Result<StepOutcome> {
         let v = *self.stack_top()?;
         self.stack.push(v);
         Ok(StepOutcome::Continue)
     }
 
-    fn op_heap_alloc(&mut self, n_elements: u32) -> Result<StepOutcome> {
+    #[cfg(not(feature = "typed-declarations"))]
+    pub fn op_heap_alloc(&mut self, n_elements: u32) -> Result<StepOutcome> {
         let n: usize = n_elements as usize;
         self.require_operands(n)?;
         let start = self.stack.len() - n;
@@ -399,7 +421,8 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    fn op_get_item(&mut self) -> Result<StepOutcome> {
+    #[cfg(not(feature = "typed-declarations"))]
+    pub fn op_get_item(&mut self) -> Result<StepOutcome> {
         let index = Self::heap_index(self.stack_pop()?)?;
         let heap_id = decode_heap_ref(self.stack_pop()?);
         let value = *self
@@ -410,12 +433,14 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    fn op_heap_dealloc(&mut self) -> Result<StepOutcome> {
+    #[cfg(not(feature = "typed-declarations"))]
+    pub fn op_heap_dealloc(&mut self) -> Result<StepOutcome> {
         let id = decode_heap_ref(self.stack_pop()?);
         self.dealloc_heap_object(id)?;
         Ok(StepOutcome::Continue)
     }
 
+    #[cfg(not(feature = "typed-declarations"))]
     fn op_heap_reserve(&mut self) -> Result<StepOutcome> {
         let capacity = decode_u64(self.stack_pop()?);
         let capacity = usize::try_from(capacity)
@@ -425,6 +450,7 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
+    #[cfg(not(feature = "typed-declarations"))]
     fn op_heap_push(&mut self) -> Result<StepOutcome> {
         self.require_operands(2)?;
         let value = self.stack_pop()?;
@@ -434,6 +460,7 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
+    #[cfg(not(feature = "typed-declarations"))]
     fn op_heap_len(&mut self) -> Result<StepOutcome> {
         let heap_id = decode_heap_ref(self.stack_pop()?);
         let len = u64::try_from(self.heap_object(heap_id)?.len())?;
@@ -441,12 +468,13 @@ impl CPU {
         Ok(StepOutcome::Continue)
     }
 
-    fn op_const(&mut self, v: Word) -> Result<StepOutcome> {
+    #[cfg(not(feature = "typed-declarations"))]
+    pub fn op_const(&mut self, v: Word) -> Result<StepOutcome> {
         self.stack.push(v);
         Ok(StepOutcome::Continue)
     }
 
-    fn heap_index(value: Word) -> Result<usize> {
+    pub(crate) fn heap_index(value: Word) -> Result<usize> {
         match decode_i64(value) {
             index if index >= 0 => usize::try_from(index)
                 .map_err(|_| eyre::eyre!("heap index {} does not fit in usize", index)),
@@ -458,7 +486,7 @@ impl CPU {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "typed-declarations")))]
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
@@ -509,6 +537,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "typed-declarations"))]
     fn op_return_stores_terminal_values_in_runtime_state() {
         let mut cpu = CPU::default();
         cpu.push_frame(Frame {
@@ -529,6 +558,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "typed-declarations"))]
     fn op_return_restores_callers_pc() {
         let mut cpu = CPU {
             current_pc: 10,
@@ -568,6 +598,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "typed-declarations"))]
     fn op_indirect_call_records_return_pc_after_call_site() {
         let mut cpu = CPU {
             current_pc: 10,
@@ -604,6 +635,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "typed-declarations"))]
     fn op_return_keeps_bottom_of_frame_when_callee_leaves_scratch() {
         let mut cpu = CPU::default();
         // Outer frame so Return takes the Continue branch.
@@ -637,6 +669,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "typed-declarations"))]
     fn op_heap_alloc_preserves_natural_push_order_and_returns_heap_ref() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_i64(10));
@@ -656,6 +689,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "typed-declarations"))]
     fn op_heap_alloc_supports_empty_heap_objects() {
         let mut cpu = CPU::default();
 
@@ -866,6 +900,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "typed-declarations"))]
     fn op_get_item_reads_heap_value() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_i64(10));
@@ -884,6 +919,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "typed-declarations"))]
     fn op_get_item_rejects_non_heap_refs() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_i64(7));
@@ -897,6 +933,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "typed-declarations"))]
     fn op_get_item_rejects_invalid_heap_ids() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_heap_ref(99));
@@ -910,6 +947,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "typed-declarations"))]
     fn op_get_item_rejects_out_of_bounds_indices() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_i64(10));
@@ -1031,6 +1069,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "typed-declarations"))]
     fn op_heap_dealloc_marks_slot_dead() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_i64(42));
@@ -1050,6 +1089,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "typed-declarations"))]
     fn op_heap_dealloc_slot_is_reused_on_next_alloc() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_i64(1));
@@ -1067,6 +1107,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "typed-declarations"))]
     fn op_heap_dealloc_rejects_double_free() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_i64(1));
@@ -1085,6 +1126,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "typed-declarations"))]
     fn op_heap_dealloc_rejects_invalid_id() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_heap_ref(99));
@@ -1156,7 +1198,7 @@ mod tests {
     }
 }
 
-fn canonical_bool(value: Word) -> Result<bool> {
+pub(crate) fn canonical_bool(value: Word) -> Result<bool> {
     match value {
         0 => Ok(false),
         1 => Ok(true),
@@ -1164,6 +1206,7 @@ fn canonical_bool(value: Word) -> Result<bool> {
     }
 }
 
+#[cfg(not(feature = "typed-declarations"))]
 macro_rules! int_wrapping {
     ($($name:ident {
         decode: $decode:ident,
@@ -1180,6 +1223,7 @@ macro_rules! int_wrapping {
     )+ };
 }
 
+#[cfg(not(feature = "typed-declarations"))]
 macro_rules! int_checked {
     ($($name:ident {
         decode: $decode:ident,
@@ -1198,6 +1242,7 @@ macro_rules! int_checked {
     )+ };
 }
 
+#[cfg(not(feature = "typed-declarations"))]
 macro_rules! float_binary {
     ($($name:ident {
         decode: $decode:ident,
@@ -1214,6 +1259,7 @@ macro_rules! float_binary {
     )+ };
 }
 
+#[cfg(not(feature = "typed-declarations"))]
 macro_rules! shift {
     ($($name:ident {
         decode: $decode:ident,
@@ -1231,6 +1277,7 @@ macro_rules! shift {
     )+ };
 }
 
+#[cfg(not(feature = "typed-declarations"))]
 macro_rules! rotate {
     ($($name:ident {
         decode: $decode:ident,
@@ -1247,6 +1294,7 @@ macro_rules! rotate {
     )+ };
 }
 
+#[cfg(not(feature = "typed-declarations"))]
 macro_rules! bitwise {
     ($($name:ident {
         decode: $decode:ident,
@@ -1263,6 +1311,7 @@ macro_rules! bitwise {
     )+ };
 }
 
+#[cfg(not(feature = "typed-declarations"))]
 macro_rules! compare {
     ($($name:ident {
         decode: $decode:ident,
@@ -1278,6 +1327,7 @@ macro_rules! compare {
     )+ };
 }
 
+#[cfg(not(feature = "typed-declarations"))]
 impl CPU {
     int_wrapping! {
         add_i32 { decode: decode_i32, encode: encode_i32, operation: wrapping_add };
@@ -1414,23 +1464,27 @@ impl CPU {
         ge_f64 { decode: decode_f64, operator: >= };
     }
 
+    #[cfg(not(feature = "typed-declarations"))]
     fn op_not(&mut self) -> Result<StepOutcome> {
         let value = !canonical_bool(self.stack_pop()?)?;
         self.stack_push(encode_bool(value));
         Ok(StepOutcome::Continue)
     }
+    #[cfg(not(feature = "typed-declarations"))]
     fn op_and(&mut self) -> Result<StepOutcome> {
         let rhs = canonical_bool(self.stack_pop()?)?;
         let lhs = canonical_bool(self.stack_pop()?)?;
         self.stack_push(encode_bool(lhs && rhs));
         Ok(StepOutcome::Continue)
     }
+    #[cfg(not(feature = "typed-declarations"))]
     fn op_or(&mut self) -> Result<StepOutcome> {
         let rhs = canonical_bool(self.stack_pop()?)?;
         let lhs = canonical_bool(self.stack_pop()?)?;
         self.stack_push(encode_bool(lhs || rhs));
         Ok(StepOutcome::Continue)
     }
+    #[cfg(not(feature = "typed-declarations"))]
     fn op_xor(&mut self) -> Result<StepOutcome> {
         let rhs = canonical_bool(self.stack_pop()?)?;
         let lhs = canonical_bool(self.stack_pop()?)?;

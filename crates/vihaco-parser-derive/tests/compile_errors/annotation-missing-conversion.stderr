@@ -1,0 +1,15 @@
+error[E0277]: the trait bound `u32: From<f64>` is not satisfied
+ --> tests/compile_errors/annotation-missing-conversion.rs:5:13
+  |
+5 | #[pattern = "'call $0:f64"]
+  |             ^^^^^^^^^^^^^^ the trait `From<f64>` is not implemented for `u32`
+  |
+  = help: `u32` implements trait `From<T>`:
+            From<Ipv4Addr>
+            From<bool>
+            From<char>
+            From<std::ascii::Char>
+            From<u16>
+            From<u8>
+  = note: required for `f64` to implement `Into<u32>`
+  = note: required for `u32` to implement `TryFrom<f64>`

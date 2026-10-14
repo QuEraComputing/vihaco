@@ -86,7 +86,6 @@ fn aliases_coverage_and_borrowed_associated_fields_keep_real_types() {
     assert_eq!(cpu.execute(&A, 3).unwrap(), 5);
     assert_eq!(cpu.execute(&B, ()).unwrap(), Effects::one(2));
     cpu.execute(&Extra, ()).unwrap(); // Execution is not dialect membership.
-    let _: Option<<A as vihaco_runtime::__private::InstructionSpec>::Surface> = Some(7u32);
 }
 
 #[test]

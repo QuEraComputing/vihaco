@@ -25,14 +25,14 @@ mod custom_root {
 
 #[test]
 fn facade_has_a_complete_parser_stack() {
-    let value: <arithmetic::Add as vm::__private::InstructionSpec>::Surface =
-        arithmetic::syntax::Add::parser()
+    let value: arithmetic::Add =
+        arithmetic::Add::parser()
             .parse("add 9")
             .into_result()
             .unwrap();
     assert_eq!(value.0, 9);
     assert!(
-        custom_root::syntax::Halt::parser()
+        custom_root::Halt::parser()
             .parse("halt")
             .has_output()
     );

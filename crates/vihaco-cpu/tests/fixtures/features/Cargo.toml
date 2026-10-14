@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = ["cpu-off", "cpu-on", "cpu-direct", "cpu-activation", "cpu-indirect", "cpu-mixed"]
+
+[workspace.dependencies]
+host = { package = "vihaco-cpu", path = "../../.." }
+vm = { package = "vihaco", path = "../../../../vihaco" }
+rt = { package = "vihaco-runtime", path = "../../../../vihaco-runtime" }

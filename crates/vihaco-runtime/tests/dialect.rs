@@ -55,32 +55,29 @@ macro_rules! execute {
 execute!(renamed::Add, renamed::Halt, renamed::Swap, renamed::Local);
 
 #[test]
-fn pairing_parses_values_and_retains_runtime_types() {
-    let surface: <renamed::Add as InstructionSpec>::Surface = renamed::syntax::Add::parser()
+fn parsing_produces_runtime_instructions() {
+    let runtime: renamed::Add = renamed::Add::parser()
         .parse("add -42")
         .into_result()
         .unwrap();
-    assert_eq!(surface, renamed::syntax::Add(-42));
+    assert_eq!(runtime, renamed::Add(-42));
     assert_eq!(
-        renamed::syntax::Swap::parser()
+        renamed::Swap::parser()
             .parse("swap -7, 3")
             .into_result()
             .unwrap(),
-        renamed::syntax::Swap(3, -7)
+        renamed::Swap(3, -7)
     );
     assert_eq!(
-        renamed::syntax::Halt::parser()
-            .parse("stop")
-            .into_result()
-            .unwrap(),
-        renamed::syntax::Halt
+        renamed::Halt::parser().parse("stop").into_result().unwrap(),
+        renamed::Halt
     );
     assert_eq!(
-        renamed::syntax::Local::parser()
+        renamed::Local::parser()
             .parse("local 5")
             .into_result()
             .unwrap(),
-        renamed::syntax::Local(5)
+        renamed::Local(5)
     );
     let runtime = renamed::Add(-42);
     assert_eq!(runtime.clone(), runtime);
@@ -179,7 +176,7 @@ mod scoped {
 
     #[instruction]
     pub struct Private(u32);
-    impl syntax::Private {
+    impl Private {
         pub fn value(&self) -> u32 {
             self.0
         }
@@ -228,42 +225,38 @@ mod disabled {
 #[test]
 fn declaration_scopes_roots_and_operand_names_parse_without_capture() {
     assert_eq!(
-        left::shared::syntax::Halt::parser()
+        left::shared::Halt::parser()
             .parse("halt")
             .into_result()
             .unwrap(),
-        left::shared::syntax::Halt
+        left::shared::Halt
     );
     assert_eq!(
-        right::shared::syntax::Halt::parser()
+        right::shared::Halt::parser()
             .parse("halt")
             .into_result()
             .unwrap(),
-        right::shared::syntax::Halt
+        right::shared::Halt
     );
     assert_eq!(
         <<r#type::Halt as InstructionSpec>::Dialect as DialectSpec>::LEAVES[0].dialect,
         "type"
     );
+    assert!(overridden::Halt::parser().parse("halt").has_output());
     assert!(
-        overridden::syntax::Halt::parser()
-            .parse("halt")
-            .has_output()
-    );
-    assert!(
-        nested_root::overridden::syntax::Halt::parser()
+        nested_root::overridden::Halt::parser()
             .parse("halt")
             .has_output()
     );
     assert_eq!(
-        scoped::syntax::Capture::parser()
+        scoped::Capture::parser()
             .parse("capture 1, -2, 3")
             .into_result()
             .unwrap(),
-        scoped::syntax::Capture(1, -2, 3)
+        scoped::Capture(1, -2, 3)
     );
     assert_eq!(
-        scoped::syntax::Qualified::parser()
+        scoped::Qualified::parser()
             .parse("qualified 7")
             .into_result()
             .unwrap()
@@ -271,14 +264,14 @@ fn declaration_scopes_roots_and_operand_names_parse_without_capture() {
         7
     );
     assert_eq!(
-        scoped::syntax::Relative::parser()
+        scoped::Relative::parser()
             .parse("relative 1, 2, 3, 4")
             .into_result()
             .unwrap(),
-        scoped::syntax::Relative(1, 2, 3, 4)
+        scoped::Relative(1, 2, 3, 4)
     );
     assert_eq!(
-        generic_operand::syntax::Wrapped::parser()
+        generic_operand::Wrapped::parser()
             .parse("wrapped 8")
             .into_result()
             .unwrap()
@@ -286,14 +279,14 @@ fn declaration_scopes_roots_and_operand_names_parse_without_capture() {
         Wrapper(8)
     );
     assert_eq!(
-        scoped::syntax::Empty::parser()
+        scoped::Empty::parser()
             .parse("empty")
             .into_result()
             .unwrap(),
-        scoped::syntax::Empty()
+        scoped::Empty()
     );
     assert_eq!(
-        scoped::syntax::Private::parser()
+        scoped::Private::parser()
             .parse("private 8")
             .into_result()
             .unwrap()
@@ -306,7 +299,7 @@ fn declaration_scopes_roots_and_operand_names_parse_without_capture() {
             #[instruction]
             pub struct Halt;
         }
-        assert!(local::syntax::Halt::parser().parse("halt").has_output());
+        assert!(local::Halt::parser().parse("halt").has_output());
     }
     local();
 }
@@ -335,7 +328,7 @@ execute!(
 #[test]
 fn coverage_parameters_do_not_capture_instruction_names() {
     require_coverage::<Cpu, <parameter_names::C as InstructionSpec>::Dialect>();
-    let value = parameter_names::syntax::ConstI64::parser()
+    let value = parameter_names::ConstI64::parser()
         .parse("consti64 -9")
         .into_result()
         .unwrap();
@@ -344,7 +337,7 @@ fn coverage_parameters_do_not_capture_instruction_names() {
 
 #[dialect]
 mod operand_identity {
-    #[instruction]
+    #[derive(Clone, Debug, PartialEq)]
     pub struct Value(pub u32);
     impl<'src> vihaco_runtime::Parse<'src> for Value {
         fn parser() -> impl vihaco_runtime::chumsky::Parser<
@@ -362,16 +355,67 @@ mod operand_identity {
 }
 
 #[test]
-fn syntax_reexports_preserve_runtime_operand_identity() {
-    let value: <operand_identity::Read as InstructionSpec>::Surface =
-        operand_identity::syntax::Read::parser()
-            .parse("read 4, 5")
-            .into_result()
-            .unwrap();
-    assert_eq!(
-        value,
-        operand_identity::syntax::Read(operand_identity::Value(4), 5)
-    );
-    let surface_operand = operand_identity::syntax::Value(4);
+fn direct_parsing_preserves_runtime_operand_identity() {
+    let value: operand_identity::Read = operand_identity::Read::parser()
+        .parse("read 4, 5")
+        .into_result()
+        .unwrap();
+    assert_eq!(value, operand_identity::Read(operand_identity::Value(4), 5));
+    let surface_operand = operand_identity::Value(4);
     assert_eq!(surface_operand.0, value.0.0);
+}
+
+#[dialect]
+mod converted_operands {
+    // Former generated surface names and namespaces remain ordinary Rust items.
+    pub mod syntax {}
+    pub struct __ConstantSurface;
+
+    #[derive(Clone, Debug, PartialEq)]
+    pub struct Bits(pub u64);
+
+    #[derive(vihaco_runtime::Parse)]
+    #[syntax_class(value)]
+    struct Literal(i64);
+    impl From<Literal> for Bits {
+        fn from(value: Literal) -> Self {
+            Self(value.0 as u64)
+        }
+    }
+
+    #[instruction]
+    #[pattern = "'constant $0:self::Literal"]
+    pub struct Constant(pub Bits);
+
+    #[instruction]
+    #[pattern = "'call $0 `,` $1:u64"]
+    pub struct Call(pub u32, pub u32);
+}
+
+#[test]
+fn typed_bindings_construct_runtime_fields_without_field_parse_impls() {
+    let runtime = converted_operands::Constant::parser()
+        .parse("constant -42")
+        .into_result()
+        .unwrap();
+    assert_eq!(
+        runtime,
+        converted_operands::Constant(converted_operands::Bits((-42_i64) as u64))
+    );
+    assert_eq!(
+        <converted_operands::Constant as InstructionSpec>::MNEMONIC,
+        "constant"
+    );
+    assert_eq!(
+        converted_operands::Call::parser()
+            .parse("call 2, 10")
+            .into_result()
+            .unwrap(),
+        converted_operands::Call(2, 10)
+    );
+    assert!(
+        converted_operands::Call::parser()
+            .parse("call 2, 4294967296")
+            .has_errors()
+    );
 }

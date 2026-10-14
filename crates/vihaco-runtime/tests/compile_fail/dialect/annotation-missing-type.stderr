@@ -1,0 +1,5 @@
+error: invalid pattern: found end of input expected ' ', '<', '(', '[', '{', or any
+ --> tests/compile_fail/dialect/annotation-missing-type.rs:6:17
+  |
+6 |     #[pattern = "'call $0:"]
+  |                 ^^^^^^^^^^^

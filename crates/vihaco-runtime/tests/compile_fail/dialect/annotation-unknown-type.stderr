@@ -1,0 +1,5 @@
+error[E0425]: cannot find type `Missing` in this scope
+ --> tests/compile_fail/dialect/annotation-unknown-type.rs:6:17
+  |
+6 |     #[pattern = "'call $0:Missing"]
+  |                 ^^^^^^^^^^^^^^^^^^ not found in this scope

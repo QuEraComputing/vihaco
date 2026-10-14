@@ -12,12 +12,13 @@ use crate::{
 use chumsky::{
     error::Rich,
     extra,
-    primitive::{choice, just},
+    primitive::{any, choice, just},
+    recursive::recursive,
     text, IterParser, Parser,
 };
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
-use quote::{format_ident, quote};
+use quote::{format_ident, quote, quote_spanned};
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     fmt::{self, Display},
@@ -37,8 +38,8 @@ struct ParserPaths {
 
 #[derive(PartialEq)]
 enum BindingRef<'p> {
-    Index(u32),
-    Field(&'p str),
+    Index(u32, Option<&'p str>),
+    Field(&'p str, Option<&'p str>),
 }
 
 #[derive(PartialEq)]
@@ -117,14 +118,52 @@ fn pattern_syntax_parser<'p>(
             s.parse::<u32>()
                 .map_err(|_| Rich::custom(span, "binding index must be a valid number"))
         })
-        .map(Index)
+        .map(|index| Index(index, None))
         .boxed();
 
-    let binding_field = ident.map(Field).boxed();
+    let binding_field = ident.map(|name| Field(name, None)).boxed();
 
+    // Delimited Rust types may contain spaces, commas, and nested type syntax.
+    // Parenthesize types needing whitespace outside delimiters, e.g. (dyn Trait).
+    let nested_type = recursive(|inner| {
+        choice((
+            just("->").ignored(),
+            inner.clone().delimited_by(just('<'), just('>')),
+            inner.clone().delimited_by(just('('), just(')')),
+            inner.clone().delimited_by(just('['), just(']')),
+            inner.delimited_by(just('{'), just('}')),
+            any()
+                .filter(|ch: &char| !"$`<>()[]{}".contains(*ch))
+                .ignored(),
+        ))
+        .repeated()
+        .collect::<()>()
+    });
+    let parser_type = choice((
+        nested_type.clone().delimited_by(just('<'), just('>')),
+        nested_type.clone().delimited_by(just('('), just(')')),
+        nested_type.clone().delimited_by(just('['), just(']')),
+        nested_type.delimited_by(just('{'), just('}')),
+        any()
+            .filter(|ch: &char| !ch.is_whitespace() && !"$`<>()[]{}".contains(*ch))
+            .ignored(),
+    ))
+    .repeated()
+    .at_least(1)
+    .to_slice();
+    let annotation = just(':')
+        .then_ignore(just(' ').repeated())
+        .ignore_then(parser_type)
+        .or_not();
     let binding = just('$')
         .ignore_then(choice((binding_field, binding_index)))
-        .map(Binding)
+        .then(annotation)
+        .map(|(binding, annotation)| {
+            Binding(match binding {
+                Index(index, _) => Index(index, annotation),
+                Field(name, _) => Field(name, annotation),
+            })
+        })
         .boxed();
 
     let symbol = choice((just(','), just('@'))).map(Symbol).boxed();
@@ -208,25 +247,25 @@ impl<'p> PatternAtoms<'p, BindingRef<'p>> {
     fn contains_any_field_binding(&self) -> bool {
         self.0
             .iter()
-            .any(|t| matches!(t, PatternAtom::Binding(Field(_))))
+            .any(|t| matches!(t, PatternAtom::Binding(Field(_, _))))
     }
 
     fn contains_any_index_binding(&self) -> bool {
         self.0
             .iter()
-            .any(|t| matches!(t, PatternAtom::Binding(Index(_))))
+            .any(|t| matches!(t, PatternAtom::Binding(Index(_, _))))
     }
 
     fn index_bindings(&self) -> impl Iterator<Item = u32> + '_ {
         self.0.iter().filter_map(|t| match t {
-            PatternAtom::Binding(Index(i)) => Some(*i),
+            PatternAtom::Binding(Index(i, _)) => Some(*i),
             _ => None,
         })
     }
 
     fn field_bindings(&self) -> impl Iterator<Item = &'p str> + '_ {
         self.0.iter().filter_map(|t| match t {
-            PatternAtom::Binding(Field(f)) => Some(*f),
+            PatternAtom::Binding(Field(f, _)) => Some(*f),
             _ => None,
         })
     }
@@ -285,6 +324,7 @@ impl<'p> UnparsedPatternInfo<'p> {
             pattern,
             target: self.target,
             fields: &self.fields,
+            span: self.span,
         };
 
         match &self.fields {
@@ -325,6 +365,16 @@ fn named_types(fields: &FieldsNamed) -> HashMap<&Ident, &Type> {
         .collect()
 }
 
+fn parse_binding_type(annotation: Option<&str>, span: Span) -> eyre::Result<Option<Type>> {
+    annotation
+        .map(|source| {
+            syn::LitStr::new(source, span)
+                .parse::<Type>()
+                .map_err(|error| eyre::eyre!("invalid binding parser type: {error}"))
+        })
+        .transpose()
+}
+
 fn validate_pattern_unnamed<'p, 'src>(
     parsed: ParsedPatternInfo<'p, 'src>,
     fields: &FieldsUnnamed,
@@ -362,7 +412,7 @@ fn validate_pattern_unnamed<'p, 'src>(
     let types = unnamed_types(fields);
 
     let resolved = parsed.pattern.resolve(|b| match b {
-        Index(index) => {
+        Index(index, annotation) => {
             let ty = *types
                 .get(index as usize)
                 .ok_or_else(|| eyre::eyre!("index {} is out of bounds", index))?;
@@ -370,12 +420,13 @@ fn validate_pattern_unnamed<'p, 'src>(
 
             Ok(ResolvedBinding {
                 ty: ty.clone(),
+                parser_ty: parse_binding_type(annotation, parsed.span)?,
                 name: None,
                 binding,
                 constructor_position: index as usize,
             })
         }
-        Field(_) => Err(eyre::eyre!("expected index binding for tuple fields")),
+        Field(_, _) => Err(eyre::eyre!("expected index binding for tuple fields")),
     })?;
 
     Ok(ValidatedPatternInfo {
@@ -422,7 +473,7 @@ fn validate_pattern_named<'p, 'src>(
     }
 
     let resolved = parsed.pattern.resolve(|b| match b {
-        Field(name) => {
+        Field(name, annotation) => {
             let (ident, ty) = types
                 .iter()
                 .find(|(ident, _)| ident.unraw() == name)
@@ -431,12 +482,13 @@ fn validate_pattern_named<'p, 'src>(
 
             Ok(ResolvedBinding {
                 ty: (*ty).clone(),
+                parser_ty: parse_binding_type(annotation, parsed.span)?,
                 name: Some((*ident).clone()),
                 binding,
                 constructor_position: 0,
             })
         }
-        Index(_) => Err(eyre::eyre!("expected field binding for named fields")),
+        Index(_, _) => Err(eyre::eyre!("expected field binding for named fields")),
     })?;
 
     Ok(ValidatedPatternInfo {
@@ -478,6 +530,7 @@ fn validate_pattern_unit<'p, 'src>(
 
 struct UnparsedPatternInfo<'p> {
     pattern: &'p str,
+    span: Span,
     class: SyntaxClassAttr,
     target: PatternTarget,
     fields: syn::Fields,
@@ -487,10 +540,12 @@ struct ParsedPatternInfo<'p, 'src> {
     pattern: PatternAtoms<'p, BindingRef<'p>>,
     target: PatternTarget,
     fields: &'src syn::Fields,
+    span: Span,
 }
 
 struct ResolvedBinding {
     ty: Type,
+    parser_ty: Option<Type>,
     name: Option<Ident>,
     binding: Ident,
     constructor_position: usize,
@@ -545,14 +600,33 @@ fn build_parser_syntax_parts(
             }
             Binding(ResolvedBinding {
                 ty,
+                parser_ty,
                 name,
                 binding,
                 constructor_position,
             }) => {
+                let parser = if let Some(parser_ty) = parser_ty {
+                    let span = parser_ty.span();
+                    quote_spanned! {span=>
+                        <#parser_ty as #parser_root::Parse>::parser()
+                            .try_map(|value, span| {
+                                // Keep the conversion generic: a From impl supplies TryInto
+                                // too, without triggering an infallible-conversion lint.
+                                fn __vihaco_convert_operand<Source, Target>(value: Source)
+                                    -> ::core::result::Result<Target,
+                                        <Source as ::core::convert::TryInto<Target>>::Error>
+                                where Source: ::core::convert::TryInto<Target> {
+                                    ::core::convert::TryInto::try_into(value)
+                                }
+                                __vihaco_convert_operand::<#parser_ty, #ty>(value)
+                                    .map_err(|_| #chumsky::error::Simple::new(None, span))
+                            })
+                    }
+                } else {
+                    quote!(<#ty as #parser_root::Parse>::parser())
+                };
                 parts.push(ParserPart::Capture {
-                    parser: quote! {
-                        <#ty as #parser_root::Parse>::parser()
-                    },
+                    parser,
                     name,
                     binding,
                     constructor_position,
@@ -810,6 +884,7 @@ fn compile_pattern_parser(
     if let Some(PatternInfo(pattern, span)) = info.pattern_info {
         let info = UnparsedPatternInfo {
             pattern: pattern.as_str(),
+            span,
             class: class.clone(),
             target: info.target,
             fields: info.fields.clone(),
@@ -1166,24 +1241,21 @@ pub fn dialect_parsers(root: TokenStream2, item: TokenStream2) -> Result<TokenSt
         .ok_or_else(|| Error::new(module.ident.span(), "expected inline dialect module"))?
         .1;
     let mut leaves = Vec::new();
-    let mut declarations = Vec::new();
-    for item in items.drain(..) {
-        if let syn::Item::Struct(mut surface) = item {
-            if let Some(index) = surface
+    for item in items.iter_mut() {
+        if let syn::Item::Struct(instruction) = item {
+            if let Some(index) = instruction
                 .attrs
                 .iter()
                 .position(|attr| attr.path().is_ident("__vihaco_runtime"))
             {
-                let runtime: Ident = surface.attrs.remove(index).parse_args()?;
-                leaves.push((runtime, syn::parse2::<DeriveInput>(quote!(#surface))?));
-            } else {
-                declarations.push(syn::Item::Struct(surface));
+                let runtime: Ident = instruction.attrs.remove(index).parse_args()?;
+                leaves.push((runtime, syn::parse2::<DeriveInput>(quote!(#instruction))?));
+                instruction.attrs.retain(|a| {
+                    !a.path().is_ident("syntax_class") && !a.path().is_ident("pattern")
+                });
             }
-        } else {
-            declarations.push(item);
         }
     }
-    *items = declarations;
     let paths = ParserPaths {
         parser_root: root.clone(),
         chumsky: syn::parse_quote!(#root::chumsky),
@@ -1193,28 +1265,33 @@ pub fn dialect_parsers(root: TokenStream2, item: TokenStream2) -> Result<TokenSt
     let mut patterns = HashSet::new();
     // Validate every parser first so a collision cannot mask malformed syntax.
     let mut validated = Vec::new();
-    for (runtime, surface) in leaves {
-        let data = match &surface.data {
+    for (runtime, instruction) in leaves {
+        let data = match &instruction.data {
             Data::Struct(data) => data,
-            _ => return Err(Error::new_spanned(&surface, "expected surface struct")),
+            _ => {
+                return Err(Error::new_spanned(
+                    &instruction,
+                    "expected instruction struct",
+                ))
+            }
         };
-        let attrs = StructAttrs::from_attrs(&surface.attrs)?;
+        let attrs = StructAttrs::from_attrs(&instruction.attrs)?;
         let pattern = attrs.pattern.as_ref().map(|p| p.0.clone());
         let (parser, mnemonic) = compile_struct(
             StructInfo {
                 data,
-                ident: &surface.ident,
-                attrs: &surface.attrs,
-                generics: &surface.generics,
+                ident: &instruction.ident,
+                attrs: &instruction.attrs,
+                generics: &instruction.generics,
             },
             &paths,
         )?;
         let parser = TokenStream2::from(parser);
-        validated.push((runtime, surface, parser, mnemonic, pattern));
+        validated.push((runtime, instruction, parser, mnemonic, pattern));
     }
-    for (runtime, mut surface, parser, mnemonic, pattern) in validated {
+    for (runtime, instruction, parser, mnemonic, pattern) in validated {
         let (mnemonic, span) = mnemonic
-            .ok_or_else(|| Error::new_spanned(&surface, "expected instruction mnemonic"))?;
+            .ok_or_else(|| Error::new_spanned(&instruction, "expected instruction mnemonic"))?;
         if let Some(pattern) = pattern {
             if !patterns.insert(pattern) {
                 return Err(Error::new(span, "duplicate instruction pattern"));
@@ -1226,14 +1303,9 @@ pub fn dialect_parsers(root: TokenStream2, item: TokenStream2) -> Result<TokenSt
                 format!("duplicate instruction name `{mnemonic}`"),
             ));
         }
-        surface
-            .attrs
-            .retain(|a| !a.path().is_ident("syntax_class") && !a.path().is_ident("pattern"));
         emitted.push(quote! {
-            #surface
             #parser
             impl #root::__private::InstructionSpec for #runtime {
-                type Surface = syntax::#runtime;
                 type Dialect = __VihacoDialect;
                 const MNEMONIC: &'static str = #mnemonic;
             }

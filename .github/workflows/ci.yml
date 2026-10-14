@@ -32,9 +32,9 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      # CPU and guide examples still use the feature-off component! API.
-      # The experimental API replaces that macro, so use a separate graph.
-      - run: cargo clippy --workspace --exclude vihaco-cpu --exclude vihaco-doctests --all-targets --features vihaco/typed-declarations -- -D warnings
+      # Legacy guide examples retain a separate feature-off graph.
+      # CPU opt-in forwards the framework feature and selects its typed implementation.
+      - run: cargo clippy --workspace --exclude vihaco-doctests --all-targets --features vihaco-cpu/typed-declarations -- -D warnings
 
   feature-checks:
     name: Feature checks (workspace)
@@ -61,6 +61,7 @@ jobs:
           cargo check -p vihaco --no-default-features
           cargo check -p vihaco-runtime --no-default-features --features typed-declarations
           cargo check -p vihaco-runtime-derive --no-default-features --features typed-declarations
+          cargo check -p vihaco-cpu --no-default-features --features typed-declarations
 
   test:
     name: Test (${{ matrix.os }})
@@ -80,7 +81,11 @@ jobs:
       # This also compiles the `docs/examples/*.rs` files (via the
       # `vihaco-doctests` crate) and runs the runnable ones.
       - run: cargo test --workspace --all-targets
-      - run: cargo test --workspace --exclude vihaco-cpu --exclude vihaco-doctests --all-targets --features vihaco/typed-declarations
+      - run: cargo test --workspace --exclude vihaco-doctests --all-targets --features vihaco-cpu/typed-declarations
+      - run: cargo test --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-off
+      - run: cargo test --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-on -p cpu-direct
+      - run: cargo test --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-indirect
+      - run: cargo run -p vihaco-cpu --example typed_cpu --features typed-declarations
 
   doctest:
     name: Doc tests
@@ -96,4 +101,4 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.99.0
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --doc
-      - run: cargo test --workspace --exclude vihaco-cpu --exclude vihaco-doctests --doc --features vihaco/typed-declarations
+      - run: cargo test --workspace --exclude vihaco-doctests --doc --features vihaco-cpu/typed-declarations

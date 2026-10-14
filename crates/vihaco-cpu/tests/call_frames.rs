@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+#![cfg(not(feature = "typed-declarations"))]
+
 use vihaco::{
     GeneratedComponent, expect_exactly_one_effect,
     traits::{FrameMemory, StackFrame, StackMemory},

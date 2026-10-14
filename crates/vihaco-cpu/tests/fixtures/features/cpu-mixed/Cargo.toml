@@ -1,0 +1,9 @@
+[package]
+name = "cpu-mixed"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+host = { workspace = true }
+rt = { workspace = true, features = ["typed-declarations"] }

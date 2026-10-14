@@ -64,27 +64,40 @@ impl counter::Counter {
 ## Experimental typed declarations
 
 The nondefault `typed-declarations` feature enables `#[dialect]`,
-`#[component]`, and typed `#[composite]`. Components declare whole dialects;
-composites preserve actual child types and describe all eligible child
-capabilities in field order. Ordinary state and loadable fields do not contribute
-parent capabilities. Field names and aliases are source metadata; device codes
-are optional metadata. Use `field!(Machine::controller::cpu)` to name a nested
-route in type position. Each route composes nominal field markers and preserves
-its complete destination identity. The first identifier names the root composite;
-supply its generic arguments when needed, such as
-`field!(Machine<T>::controller::cpu)`. Used routes are checked against that root
-through `CheckedRoute` before resolving to their unchanged marker type. Unused
-type aliases may defer validation. Child namespaces are inferred from their
-authored type paths. Alternate type spellings need matching companion namespace
-reexports. Opaque generic or associated child types do not expose descendant
-namespaces. Root type aliases and renamed composite imports are not discovered
-automatically. Typed composites do not generate instruction enums, parsers, or
-dispatch.
+`#[component]`, and typed `#[composite]`. Components declare complete dialects
+and implement `Execute<I>` for every instruction. Composites generate flat
+runtime instruction enums, direct parsers, and `Dispatch`; provide
+`Step<field!(Machine::destination), Instruction>` for every destination/leaf pair.
+Device codes are explicit u8 values, unique within each parent. Ordinary state
+and loadable subtrees do not contribute parent instructions.
 
-Cargo unifies this feature across all users of the same runtime package,
-including indirect dependencies. Existing `component!`, CPU, aggregate examples,
-and guide snippets require a separate feature-off graph. Old declarations need
-not compile in the experimental mode.
+Parsing produces runtime instructions directly, with no paired surface enum or
+separate `Resolve` pass. Composite source uses `device::nested_device::dialect::mnemonic`
+prefixes and accepts device aliases. Use `HasInstructionSet::Runtime` to access
+the aggregate type. Renamed child imports need matching generated inventory and
+field companion reexports; named generic children are supported, while bare
+generic or associated child types cannot supply an inferred inventory.
+
+For the shipped CPU, enable **`vihaco-cpu/typed-declarations`**, which forwards the
+framework feature and selects CPU's typed implementation. Its `cpu` module
+exposes runtime instruction structs with direct parsers. Constants accept
+readable literals; branch/call addresses and reference IDs arrive resolved from
+the SST producer. Pattern bindings infer their field parser by default;
+`$0:ParserType` overrides it and converts with `TryInto`. Encoded constants use
+literal newtypes where standard conversions cannot preserve their bits. `label @name` is readability metadata inside function bodies
+and emits no instruction. `function_start` and `function_end` are removed from
+the typed dialect. Instructions use `()` or the `message::FunctionInfo` and
+`message::Print` structs, returning `StepOutcome` through `eyre::Result`.
+
+```sh
+cargo run -p vihaco-cpu --example typed_cpu --features typed-declarations
+```
+
+Generated hierarchical bytecode codecs remain separate work. Cargo feature
+unification can activate the experimental contract indirectly. Enable CPU's
+local feature for every graph containing a typed CPU; enabling only a framework
+dependency's feature cannot activate CPU's local cfg in reverse. Legacy
+`component!` examples and guide snippets retain a separate feature-off graph.
 
 ## Workspace
 
@@ -135,18 +148,12 @@ No mise? A stable Rust 2024 toolchain is enough — `cargo test --workspace
 
 ## Documentation
 
-The nondefault `typed-declarations` feature enables experimental runtime
-contracts in `vihaco` or `vihaco-runtime`. It currently provides `Execute<I>`
-and internal support for upcoming declaration attributes. Capability reporting
-is under `__private`; it is not a user-facing API. On `vihaco-runtime`, the
-feature also enables `derive` and forwards it to the proc-macro crate.
-
-In this mode, `Component` and `Composite` no longer inherit `HasInstructionSet`:
-availability is independent of executable selection. Generic code needing
-runtime/syntax associations must state a `HasInstructionSet` bound explicitly.
-Cargo feature unification can activate this contract through another dependency.
-The default API stays current while the new declarations stabilize; the old
-implementation and gate will be removed after consumers migrate.
+The nondefault `typed-declarations` feature enables typed declarations and
+execution contracts in `vihaco` or `vihaco-runtime`, including derive support.
+In this mode, `Component` and `Composite` no longer inherit `HasInstructionSet`;
+generic code needing the runtime aggregate states that bound explicitly.
+Capability reporting remains under `__private`. The default API remains
+available while the typed declarations and direct parsing stabilize.
 
 Guides and the API reference are published to GitHub Pages:
 **<https://queracomputing.github.io/vihaco/>**. The guides walk through defining

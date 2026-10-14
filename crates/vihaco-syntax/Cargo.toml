@@ -7,6 +7,9 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+typed-declarations = []
+
 [dependencies]
 chumsky = { workspace = true }
 eyre = { workspace = true }
