@@ -1,0 +1,14 @@
+error[E0277]: the trait bound `(): FunctionLookup` is not satisfied
+ --> tests/compile_fail/lowering/missing-function-lookup.rs:6:20
+  |
+6 |     let _ = source.lower(&mut ());
+  |                    ^^^^^ the trait `FunctionLookup` is not implemented for `()`
+  |
+help: the trait `vihaco::Lower<C>` is conditionally implemented for `Call<Syntax>`
+ --> src/lower.rs
+  |
+  | impl<C: FunctionLookup + ?Sized> Lower<C> for cpu::Call<Syntax> {
+  | ^^^^^^^^--------------^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |         |
+  |         unsatisfied requirement introduced here: `(): FunctionLookup`
+  = note: required for `Call<Syntax>` to implement `vihaco::Lower<()>`

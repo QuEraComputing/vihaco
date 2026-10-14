@@ -19,3 +19,6 @@ log = "0.4.29"
 vihaco = { workspace = true }
 vihaco-parser = { workspace = true }
 vihaco-parser-derive = { workspace = true }
+
+[dev-dependencies]
+trybuild = "1.0"
