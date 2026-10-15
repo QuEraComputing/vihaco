@@ -57,6 +57,8 @@ mod generated;
 
 mod marker;
 
+mod member_of;
+
 mod no_message;
 
 mod observe;
@@ -118,6 +120,7 @@ pub use generated::{
     expect_exactly_one_effect,
 };
 pub use marker::Message;
+pub use member_of::MemberOf;
 pub use no_message::NoMessage;
 pub use observe::Observe;
 
