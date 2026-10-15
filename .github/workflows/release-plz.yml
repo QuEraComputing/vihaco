@@ -52,7 +52,7 @@ jobs:
         with:
           fetch-depth: 0   # full history is needed to release from the merge commit
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.0
       - uses: Swatinem/rust-cache@v2
       - name: Run release-plz
         uses: release-plz/action@v0.5.141
@@ -80,7 +80,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.0
       - uses: Swatinem/rust-cache@v2
       - name: Run release-plz
         uses: release-plz/action@v0.5.141

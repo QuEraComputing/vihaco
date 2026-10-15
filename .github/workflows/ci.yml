@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.0
         with:
           components: rustfmt
       - run: cargo fmt --all -- --check
@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.0
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.0
       - uses: Swatinem/rust-cache@v2
       # Check each feature-bearing package independently. Checking the whole
       # workspace in one Cargo invocation can re-enable a dependency's default
@@ -71,7 +71,10 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          # Compile-fail snapshots include standard-library source excerpts.
+          components: rust-src
       - uses: Swatinem/rust-cache@v2
       # `--all-targets` excludes doctests; the `doctest` job below covers those.
       # This also compiles the `docs/examples/*.rs` files (via the
@@ -90,7 +93,7 @@ jobs:
       RUSTFLAGS: ""
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.0
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --doc
       - run: cargo test --workspace --exclude vihaco-cpu --exclude vihaco-doctests --doc --features vihaco/typed-declarations

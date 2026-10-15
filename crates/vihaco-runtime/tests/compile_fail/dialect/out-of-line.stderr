@@ -1,11 +1,3 @@
-error[E0658]: file modules in proc macro input are unstable
- --> tests/compile_fail/dialect/out-of-line.rs:4:1
-  |
-4 | mod external;
-  | ^^^^^^^^^^^^^
-  |
-  = note: see issue #54727 <https://github.com/rust-lang/rust/issues/54727> for more information
-
 error: #[dialect] requires an inline module
  --> tests/compile_fail/dialect/out-of-line.rs:4:5
   |

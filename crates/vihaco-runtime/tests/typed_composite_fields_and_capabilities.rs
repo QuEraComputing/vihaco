@@ -211,7 +211,7 @@ fn typed_composite_fields_and_capabilities() {
         vec!["left", "Δ"],
         vec!["right"],
     ];
-    for (pair, target) in rows.chunks_exact(2).zip(expected) {
+    for (pair, target) in rows.as_chunks::<2>().0.iter().zip(expected) {
         assert_eq!(pair[0].target, target);
         assert_eq!(pair[1].target, target);
         assert_eq!(pair[0].dialect, "control");
