@@ -60,11 +60,15 @@ impl Execute<cpu::HeapDealloc> for CPU {
 }
 
 impl Execute<cpu::HeapReserve> for CPU {
-    type Message = ();
+    type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, _instruction: &cpu::HeapReserve, _: ()) -> eyre::Result<StepOutcome> {
+    fn execute(
+        &mut self,
+        _instruction: &cpu::HeapReserve,
+        _: NoMessage,
+    ) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
         let capacity = decode_u64(self.stack_pop()?);
         let capacity = usize::try_from(capacity)
@@ -76,11 +80,11 @@ impl Execute<cpu::HeapReserve> for CPU {
 }
 
 impl Execute<cpu::HeapPush> for CPU {
-    type Message = ();
+    type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, _instruction: &cpu::HeapPush, _: ()) -> eyre::Result<StepOutcome> {
+    fn execute(&mut self, _instruction: &cpu::HeapPush, _: NoMessage) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
         self.require_operands(2)?;
         let value = self.stack_pop()?;
@@ -92,11 +96,11 @@ impl Execute<cpu::HeapPush> for CPU {
 }
 
 impl Execute<cpu::HeapLen> for CPU {
-    type Message = ();
+    type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, _instruction: &cpu::HeapLen, _: ()) -> eyre::Result<StepOutcome> {
+    fn execute(&mut self, _instruction: &cpu::HeapLen, _: NoMessage) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
         let heap_id = decode_heap_ref(self.stack_pop()?);
         let len = u64::try_from(self.heap_object(heap_id)?.len())?;
@@ -113,7 +117,7 @@ mod tests {
     fn heap_reserve_rejects_unrepresentable_allocation_without_allocating() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_u64(u64::MAX));
-        assert!(cpu.execute(&cpu::HeapReserve, ()).is_err());
+        assert!(cpu.execute(&cpu::HeapReserve, NoMessage::new()).is_err());
         assert!(cpu.heap_is_empty());
     }
 }

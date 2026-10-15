@@ -395,7 +395,15 @@ fn dispatch_returns_cpu_errors_and_allows_subsequent_execution() {
 fn checked_execution_keeps_operand_boundaries_and_runtime_errors() {
     let mut cpu = CPU::default();
     assert!(cpu.execute(&cpu::AddI64, NoMessage::new()).is_err());
-    cpu.enter_function(0, 0, 2, None).unwrap();
+    cpu.execute(
+        &cpu::Call(0, 0),
+        message::FunctionInfo {
+            arity: 0,
+            start_address: 0,
+            local_count: 2,
+        },
+    )
+    .unwrap();
     assert!(cpu.execute(&cpu::Dup, NoMessage::new()).is_err());
     assert_eq!(cpu.stack(), &[0, 0]);
     cpu.stack_push(5_u64);
@@ -432,8 +440,15 @@ fn heap_and_boolean_execution_retain_checked_behavior() {
     cpu.stack_push(1_u64);
     cpu.execute(&cpu::GetItem, NoMessage::new()).unwrap();
     assert_eq!(cpu.stack_pop().unwrap(), 20);
+    let heap_ref = *cpu.stack_top().unwrap();
     cpu.execute(&cpu::HeapDealloc, NoMessage::new()).unwrap();
-    assert!(cpu.heap_object(0).is_err());
+    cpu.stack_mut().extend([heap_ref, 0]);
+    assert!(
+        cpu.execute(&cpu::GetItem, NoMessage::new())
+            .unwrap_err()
+            .to_string()
+            .contains("deallocated")
+    );
     cpu.stack_mut().extend([1, 0]);
     cpu.execute(&cpu::Or, NoMessage::new()).unwrap();
     cpu.execute(&cpu::ConditionalBranch(10, 20), NoMessage::new())
@@ -481,12 +496,12 @@ fn reserved_heap_instructions_parse_and_dispatch_through_nested_cpu() {
 fn heap_append_instructions_respect_frame_operand_boundaries() {
     let mut cpu = CPU::default();
     cpu.start_function(0, 0, 2, 0).unwrap();
-    assert!(cpu.execute(&cpu::HeapReserve, ()).is_err());
-    assert!(cpu.execute(&cpu::HeapLen, ()).is_err());
-    assert!(cpu.execute(&cpu::HeapPush, ()).is_err());
+    assert!(cpu.execute(&cpu::HeapReserve, NoMessage::new()).is_err());
+    assert!(cpu.execute(&cpu::HeapLen, NoMessage::new()).is_err());
+    assert!(cpu.execute(&cpu::HeapPush, NoMessage::new()).is_err());
     assert_eq!(cpu.stack(), &[0, 0]);
     cpu.stack_push(0_u64);
-    assert!(cpu.execute(&cpu::HeapPush, ()).is_err());
+    assert!(cpu.execute(&cpu::HeapPush, NoMessage::new()).is_err());
     assert_eq!(cpu.stack(), &[0, 0, 0]);
 }
 
@@ -494,34 +509,34 @@ fn heap_append_instructions_respect_frame_operand_boundaries() {
 fn heap_append_instructions_reject_invalid_and_deallocated_objects() {
     let mut cpu = CPU::default();
     cpu.stack_push(1_u64);
-    cpu.execute(&cpu::HeapReserve, ()).unwrap();
+    cpu.execute(&cpu::HeapReserve, NoMessage::new()).unwrap();
     let heap_ref = *cpu.stack_top().unwrap();
-    cpu.execute(&cpu::HeapDealloc, ()).unwrap();
+    cpu.execute(&cpu::HeapDealloc, NoMessage::new()).unwrap();
     for (reference, message) in [
         (heap_ref, "deallocated"),
         (vihaco_cpu::encode_heap_ref(42), "invalid heap object id"),
     ] {
         cpu.stack_push(reference);
         assert!(
-            cpu.execute(&cpu::HeapLen, ())
+            cpu.execute(&cpu::HeapLen, NoMessage::new())
                 .unwrap_err()
                 .to_string()
                 .contains(message)
         );
         cpu.stack_mut().extend([reference, 7]);
         assert!(
-            cpu.execute(&cpu::HeapPush, ())
+            cpu.execute(&cpu::HeapPush, NoMessage::new())
                 .unwrap_err()
                 .to_string()
                 .contains(message)
         );
     }
     cpu.stack_push(1_u64);
-    cpu.execute(&cpu::HeapReserve, ()).unwrap();
+    cpu.execute(&cpu::HeapReserve, NoMessage::new()).unwrap();
     assert_eq!(*cpu.stack_top().unwrap(), heap_ref);
     cpu.stack_push(7_u64);
-    cpu.execute(&cpu::HeapPush, ()).unwrap();
-    cpu.execute(&cpu::HeapLen, ()).unwrap();
+    cpu.execute(&cpu::HeapPush, NoMessage::new()).unwrap();
+    cpu.execute(&cpu::HeapLen, NoMessage::new()).unwrap();
     assert_eq!(cpu.stack(), &[1]);
 }
 
@@ -529,30 +544,30 @@ fn heap_append_instructions_reject_invalid_and_deallocated_objects() {
 fn heap_push_rejects_full_allocations_and_get_item_checks_current_length() {
     let mut cpu = CPU::default();
     cpu.stack_push(0_u64);
-    cpu.execute(&cpu::HeapReserve, ()).unwrap();
+    cpu.execute(&cpu::HeapReserve, NoMessage::new()).unwrap();
     cpu.stack_push(7_u64);
     assert!(
-        cpu.execute(&cpu::HeapPush, ())
+        cpu.execute(&cpu::HeapPush, NoMessage::new())
             .unwrap_err()
             .to_string()
             .contains("full")
     );
     cpu.stack_push(7_u64);
-    cpu.execute(&cpu::HeapAlloc(1), ()).unwrap();
+    cpu.execute(&cpu::HeapAlloc(1), NoMessage::new()).unwrap();
     cpu.stack_push(8_u64);
     assert!(
-        cpu.execute(&cpu::HeapPush, ())
+        cpu.execute(&cpu::HeapPush, NoMessage::new())
             .unwrap_err()
             .to_string()
             .contains("full")
     );
     cpu.stack_push(2_u64);
-    cpu.execute(&cpu::HeapReserve, ()).unwrap();
+    cpu.execute(&cpu::HeapReserve, NoMessage::new()).unwrap();
     cpu.stack_push(7_u64);
-    cpu.execute(&cpu::HeapPush, ()).unwrap();
+    cpu.execute(&cpu::HeapPush, NoMessage::new()).unwrap();
     cpu.stack_push(1_u64);
     assert!(
-        cpu.execute(&cpu::GetItem, ())
+        cpu.execute(&cpu::GetItem, NoMessage::new())
             .unwrap_err()
             .to_string()
             .contains("out of bounds")
@@ -752,7 +767,7 @@ fn arithmetic_shift_comparison_and_reset_semantics_are_preserved() {
     cpu.stack_push(7_u64);
     cpu.execute(&cpu::HeapAlloc(1), NoMessage::new()).unwrap();
     assert_eq!(cpu.stack_pop().unwrap(), encode_heap_ref(0));
-    cpu.set_pending_pc(99);
+    cpu.execute(&cpu::Branch(99), NoMessage::new()).unwrap();
     cpu.execute(&cpu::ConstU64(1), NoMessage::new()).unwrap();
     assert_eq!(cpu.take_pending_pc(), None);
     cpu.start_function(0, 10, 2, 0).unwrap();
@@ -761,7 +776,7 @@ fn arithmetic_shift_comparison_and_reset_semantics_are_preserved() {
     assert!(cpu.get_frame().is_err());
     assert_eq!(cpu.take_pending_pc(), None);
     cpu.stack_mut().extend([encode_heap_ref(0), 0]);
-    assert!(cpu.execute(&cpu::GetItem, ()).is_err());
+    assert!(cpu.execute(&cpu::GetItem, NoMessage::new()).is_err());
 }
 
 #[test]
