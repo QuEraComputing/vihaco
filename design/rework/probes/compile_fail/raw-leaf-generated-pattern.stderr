@@ -1,0 +1,13 @@
+error: invalid pattern: found '#' expected identifier, ' ', or end of input
+ --> tests/compile_fail/rework/raw-leaf-generated-pattern.rs:1:26
+  |
+1 | vihaco::dialect! { cpu { r#loop, } }
+  |                          ^^^^^^
+
+warning: type `loop` should have an upper camel case name
+ --> tests/compile_fail/rework/raw-leaf-generated-pattern.rs:1:26
+  |
+1 | vihaco::dialect! { cpu { r#loop, } }
+  |                          ^^^^^^ help: convert the identifier to upper camel case: `Loop`
+  |
+  = note: `#[warn(non_camel_case_types)]` (part of `#[warn(nonstandard_style)]`) on by default

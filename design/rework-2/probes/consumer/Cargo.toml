@@ -1,0 +1,12 @@
+[package]
+name = "proof-consumer"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+vm = { package = "proof-support", path = "../support", features = ["typed-declarations"] }
+external = { package = "proof-producer", path = "../producer" }
+chain = { package = "proof-middle", path = "../middle" }
+declarations = { package = "proof-macros", path = "../macros", features = ["typed-declarations"] }
+chumsky = "0.10"

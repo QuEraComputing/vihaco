@@ -1,0 +1,5 @@
+error: duplicate source symbol `child` for `child` and `child`
+ --> tests/compile_fail/rework/duplicate-field-helper.rs:5:5
+  |
+5 |     child: Missing,
+  |     ^^^^^

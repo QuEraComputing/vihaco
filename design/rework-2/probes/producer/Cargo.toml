@@ -1,0 +1,11 @@
+[package]
+name = "proof-producer"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+framework = { package = "proof-support", path = "../support", features = ["typed-declarations"] }
+declarations = { package = "proof-macros", path = "../macros", features = ["typed-declarations"] }
+vihaco-parser = { path = "../../../../crates/vihaco-parser" }
+chumsky = "0.10"

@@ -1,0 +1,11 @@
+[workspace]
+[package]
+name = "proof-root-facade"
+version = "0.0.0"
+edition = "2024"
+publish = false
+[lib]
+path = "../check.rs"
+[dependencies]
+framework = { package = "vihaco", path = "../../../../../crates/vihaco" }
+eyre = "0.6.12"

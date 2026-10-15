@@ -1,0 +1,11 @@
+[workspace]
+[package]
+name = "proof-root-direct"
+version = "0.0.0"
+edition = "2024"
+publish = false
+[lib]
+path = "../check.rs"
+[dependencies]
+framework = { package = "vihaco-runtime", path = "../../../../../crates/vihaco-runtime" }
+eyre = "0.6.12"

@@ -1,0 +1,10 @@
+error: duplicate logical instruction selector
+  --> tests/compile_fail/rework/duplicate-received-selector.rs:16:45
+   |
+16 |                         entry { selector: { fake::Add }, type_route: { fake::Add }, source_steps: {}, },
+   |                                             ^^^^^^^^^
+...
+24 | #[component]
+   | ------------ in this attribute macro expansion
+   |
+   = note: this error originates in the macro `fake::__private::__entries` which comes from the expansion of the attribute macro `component` (in Nightly builds, run with -Z macro-backtrace for more info)

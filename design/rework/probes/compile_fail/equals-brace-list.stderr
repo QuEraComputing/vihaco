@@ -1,0 +1,5 @@
+error: expected parentheses: #[instructions(...)]
+ --> tests/compile_fail/rework/equals-brace-list.rs:2:16
+  |
+2 | #[instructions = { cpu }]
+  |                ^

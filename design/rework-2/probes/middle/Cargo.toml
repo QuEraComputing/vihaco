@@ -1,0 +1,8 @@
+[package]
+name = "proof-middle"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+origin = { package = "proof-producer", path = "../producer" }

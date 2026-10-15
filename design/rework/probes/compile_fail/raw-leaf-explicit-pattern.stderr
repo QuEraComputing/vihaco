@@ -1,0 +1,16 @@
+error: proc-macro derive panicked
+ --> tests/compile_fail/rework/raw-leaf-explicit-pattern.rs:1:1
+  |
+1 | vihaco::dialect! { cpu { #[pattern = "'loop"] r#loop, } }
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: message: `"__vihaco_pattern_for_r#loop"` is not a valid identifier
+  = note: this error originates in the macro `vihaco::dialect` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: type `loop` should have an upper camel case name
+ --> tests/compile_fail/rework/raw-leaf-explicit-pattern.rs:1:47
+  |
+1 | vihaco::dialect! { cpu { #[pattern = "'loop"] r#loop, } }
+  |                                               ^^^^^^ help: convert the identifier to upper camel case: `Loop`
+  |
+  = note: `#[warn(non_camel_case_types)]` (part of `#[warn(nonstandard_style)]`) on by default

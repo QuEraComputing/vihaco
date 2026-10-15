@@ -1,0 +1,20 @@
+error[E0659]: `cpu` is ambiguous
+  --> tests/compile_fail/rework/two-renamed-roots.rs:24:59
+   |
+24 |     let _: Option<__vihaco_inventory_device::__selectors::cpu::Add> = None;
+   |                                                           ^^^ ambiguous name
+   |
+   = note: ambiguous because of multiple glob imports of a name in the same module
+note: `cpu` could refer to the module imported here
+  --> tests/compile_fail/rework/two-renamed-roots.rs:12:1
+   |
+12 | #[component]
+   | ^^^^^^^^^^^^
+   = help: consider adding an explicit import of `cpu` to disambiguate
+note: `cpu` could also refer to the module imported here
+  --> tests/compile_fail/rework/two-renamed-roots.rs:12:1
+   |
+12 | #[component]
+   | ^^^^^^^^^^^^
+   = help: consider adding an explicit import of `cpu` to disambiguate
+   = note: this error originates in the attribute macro `component` (in Nightly builds, run with -Z macro-backtrace for more info)

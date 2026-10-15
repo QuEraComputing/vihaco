@@ -1,0 +1,866 @@
+{
+  "version": "rust-analyzer 0.3.3065-standalone (03fcb77246 2026-09-27)",
+  "initialize": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "capabilities": {
+        "positionEncoding": "utf-16",
+        "textDocumentSync": {
+          "openClose": true,
+          "change": 2,
+          "save": {}
+        },
+        "completionProvider": {
+          "triggerCharacters": [
+            ":",
+            ".",
+            "'",
+            "("
+          ],
+          "resolveProvider": false,
+          "completionItem": {
+            "labelDetailsSupport": false
+          }
+        },
+        "hoverProvider": true,
+        "signatureHelpProvider": {
+          "triggerCharacters": [
+            "(",
+            ",",
+            "<"
+          ]
+        },
+        "declarationProvider": true,
+        "definitionProvider": true,
+        "typeDefinitionProvider": true,
+        "implementationProvider": true,
+        "referencesProvider": true,
+        "documentHighlightProvider": true,
+        "documentSymbolProvider": true,
+        "codeActionProvider": true,
+        "codeLensProvider": {
+          "resolveProvider": true
+        },
+        "workspaceSymbolProvider": true,
+        "documentFormattingProvider": true,
+        "documentRangeFormattingProvider": false,
+        "documentOnTypeFormattingProvider": {
+          "firstTriggerCharacter": ".",
+          "moreTriggerCharacter": [
+            "=",
+            "<",
+            ">",
+            "{",
+            "(",
+            "|",
+            "+"
+          ]
+        },
+        "renameProvider": {
+          "prepareProvider": true
+        },
+        "foldingRangeProvider": true,
+        "selectionRangeProvider": true,
+        "callHierarchyProvider": true,
+        "semanticTokensProvider": {
+          "legend": {
+            "tokenTypes": [
+              "comment",
+              "decorator",
+              "enumMember",
+              "enum",
+              "function",
+              "interface",
+              "keyword",
+              "macro",
+              "method",
+              "namespace",
+              "number",
+              "operator",
+              "parameter",
+              "property",
+              "string",
+              "struct",
+              "typeParameter",
+              "variable",
+              "type",
+              "label",
+              "angle",
+              "arithmetic",
+              "attributeBracket",
+              "attribute",
+              "bitwise",
+              "boolean",
+              "brace",
+              "bracket",
+              "builtinAttribute",
+              "builtinType",
+              "character",
+              "colon",
+              "comma",
+              "comparison",
+              "constParameter",
+              "const",
+              "deriveHelper",
+              "derive",
+              "dot",
+              "escapeSequence",
+              "formatSpecifier",
+              "generic",
+              "invalidEscapeSequence",
+              "lifetime",
+              "logical",
+              "macroBang",
+              "negation",
+              "parenthesis",
+              "procMacro",
+              "punctuation",
+              "selfKeyword",
+              "selfTypeKeyword",
+              "semicolon",
+              "static",
+              "toolModule",
+              "typeAlias",
+              "union",
+              "unresolvedReference"
+            ],
+            "tokenModifiers": [
+              "async",
+              "documentation",
+              "declaration",
+              "static",
+              "defaultLibrary",
+              "deprecated",
+              "associated",
+              "attribute",
+              "callable",
+              "constant",
+              "consuming",
+              "controlFlow",
+              "crateRoot",
+              "injected",
+              "intraDocLink",
+              "library",
+              "macro",
+              "mutable",
+              "procMacro",
+              "public",
+              "reference",
+              "trait",
+              "unsafe"
+            ]
+          },
+          "range": true,
+          "full": {
+            "delta": true
+          }
+        },
+        "inlayHintProvider": {
+          "resolveProvider": false
+        },
+        "diagnosticProvider": {
+          "identifier": "rust-analyzer",
+          "interFileDependencies": true,
+          "workspaceDiagnostics": false
+        },
+        "workspace": {
+          "workspaceFolders": {
+            "supported": true,
+            "changeNotifications": true
+          },
+          "fileOperations": {
+            "willRename": {
+              "filters": [
+                {
+                  "scheme": "file",
+                  "pattern": {
+                    "glob": "**/*.rs",
+                    "matches": "file"
+                  }
+                },
+                {
+                  "scheme": "file",
+                  "pattern": {
+                    "glob": "**",
+                    "matches": "folder"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "experimental": {
+          "externalDocs": true,
+          "hoverRange": true,
+          "joinLines": true,
+          "matchingBrace": true,
+          "moveItem": true,
+          "onEnter": true,
+          "openCargoToml": true,
+          "parentModule": true,
+          "childModules": true,
+          "runnables": {
+            "kinds": [
+              "cargo"
+            ]
+          },
+          "ssr": true,
+          "workspaceSymbolScopeKindFiltering": true
+        }
+      },
+      "serverInfo": {
+        "name": "rust-analyzer",
+        "version": "0.3.3065-standalone (03fcb77246 2026-09-27)"
+      }
+    }
+  },
+  "operations": [
+    {
+      "path": "crates/vihaco-cpu/src/data.rs",
+      "label": "dialect",
+      "position": {
+        "line": 563,
+        "character": 24
+      },
+      "hover": {
+        "contents": {
+          "kind": "plaintext",
+          "value": "vihaco_cpu::typed\n\npub mod cpu\n\n\nComplete executable CPU dialect. Resolve symbolic operands explicitly before execution.\n\n\nvihaco_cpu::typed::cpu\n\npub struct __VihacoDialect"
+        },
+        "range": {
+          "start": {
+            "line": 563,
+            "character": 24
+          },
+          "end": {
+            "line": 563,
+            "character": 27
+          }
+        }
+      },
+      "definition": [
+        {
+          "uri": "file:///Users/rpatterson/github/vm/vihaco/crates/vihaco-cpu/src/typed.rs",
+          "range": {
+            "start": {
+              "line": 483,
+              "character": 8
+            },
+            "end": {
+              "line": 483,
+              "character": 11
+            }
+          }
+        },
+        {
+          "uri": "file:///Users/rpatterson/github/vm/vihaco/crates/vihaco-runtime-derive/src/lib.rs",
+          "range": {
+            "start": {
+              "line": 106,
+              "character": 7
+            },
+            "end": {
+              "line": 106,
+              "character": 14
+            }
+          }
+        },
+        {
+          "uri": "file:///Users/rpatterson/github/vm/vihaco/crates/vihaco-cpu/src/typed.rs",
+          "range": {
+            "start": {
+              "line": 482,
+              "character": 2
+            },
+            "end": {
+              "line": 482,
+              "character": 17
+            }
+          }
+        }
+      ],
+      "completion": {
+        "count": 18,
+        "labels": [
+          "CPU",
+          "CPUMessage",
+          "RuntimeInstruction",
+          "StepOutcome",
+          "SurfaceInstruction",
+          "SurfaceType",
+          "SurfaceValue",
+          "Word",
+          "component::",
+          "cpu::",
+          "data::",
+          "display::",
+          "instruction::",
+          "operands::",
+          "outcome::",
+          "tests::",
+          "typed::",
+          "word::"
+        ]
+      }
+    },
+    {
+      "path": "crates/vihaco-cpu/examples/typed_cpu.rs",
+      "label": "runtime leaf",
+      "position": {
+        "line": 41,
+        "character": 13
+      },
+      "hover": {
+        "contents": {
+          "kind": "plaintext",
+          "value": "vihaco_cpu::typed::cpu\n\npub struct AddI64"
+        },
+        "range": {
+          "start": {
+            "line": 41,
+            "character": 13
+          },
+          "end": {
+            "line": 41,
+            "character": 19
+          }
+        }
+      },
+      "definition": [
+        {
+          "uri": "file:///Users/rpatterson/github/vm/vihaco/crates/vihaco-cpu/src/typed.rs",
+          "range": {
+            "start": {
+              "line": 609,
+              "character": 15
+            },
+            "end": {
+              "line": 609,
+              "character": 21
+            }
+          }
+        }
+      ],
+      "completion": {
+        "count": 0,
+        "labels": []
+      }
+    },
+    {
+      "path": "crates/vihaco-cpu/examples/typed_cpu.rs",
+      "label": "operand",
+      "position": {
+        "line": 56,
+        "character": 60
+      },
+      "hover": {
+        "contents": {
+          "kind": "plaintext",
+          "value": "vihaco_cpu::operands\n\npub enum Constant {\n    Source( /* \u2026 */ ),\n    Encoded( /* \u2026 */ ),\n}\n\n\nA source literal/reference or the resolved eight-byte stack word."
+        },
+        "range": {
+          "start": {
+            "line": 56,
+            "character": 60
+          },
+          "end": {
+            "line": 56,
+            "character": 68
+          }
+        }
+      },
+      "definition": [
+        {
+          "uri": "file:///Users/rpatterson/github/vm/vihaco/crates/vihaco-cpu/src/operands.rs",
+          "range": {
+            "start": {
+              "line": 44,
+              "character": 9
+            },
+            "end": {
+              "line": 44,
+              "character": 17
+            }
+          }
+        }
+      ],
+      "completion": {
+        "count": 154,
+        "labels": [
+          "self::",
+          "crate::",
+          "Constant::Source",
+          "Constant::Encoded",
+          "value",
+          "source",
+          "context",
+          "Self",
+          "CPU",
+          "CPUMessage",
+          "Constant",
+          "Controller",
+          "Execute",
+          "FromBytes",
+          "Machine",
+          "MachineAlias",
+          "Parse",
+          "Parser",
+          "Program",
+          "Push",
+          "Resolution",
+          "StackMemory",
+          "StepOutcome",
+          "Target",
+          "WriteBytes",
+          "__ProgramSurface",
+          "cpu::",
+          "main",
+          "parsed_payloads_and_encoding_are_concrete",
+          "selected_cpu_parses_resolves_encodes_and_executes",
+          "syntax::",
+          "core::",
+          "std::",
+          "chumsky::",
+          "eyre::",
+          "vihaco_parser::",
+          "vihaco_parser_derive::",
+          "codespan::",
+          "log::",
+          "vihaco::",
+          "vihaco_cpu::",
+          "char",
+          "bool",
+          "str",
+          "isize",
+          "i8",
+          "i16",
+          "i32",
+          "i64",
+          "i128",
+          "usize",
+          "u8",
+          "u16",
+          "u32",
+          "u64",
+          "u128",
+          "f16",
+          "f32",
+          "f64",
+          "f128",
+          "AsMut",
+          "AsRef",
+          "AsyncFn",
+          "AsyncFnMut",
+          "AsyncFnOnce",
+          "Box",
+          "Clone",
+          "Copy",
+          "Default",
+          "DoubleEndedIterator",
+          "Drop",
+          "Eq(alias ==, !=)",
+          "Err",
+          "ExactSizeIterator",
+          "Extend",
+          "Fn",
+          "FnMut",
+          "FnOnce",
+          "From",
+          "FromIterator",
+          "Future",
+          "Into",
+          "IntoFuture",
+          "IntoIterator",
+          "Iterator",
+          "None",
+          "Ok",
+          "Option",
+          "Ord(alias <, >, <=, >=)",
+          "PartialEq(alias ==, !=)",
+          "PartialOrd(alias >, <, <=, >=)",
+          "Result",
+          "Some",
+          "String",
+          "ToOwned",
+          "ToString",
+          "TryFrom",
+          "TryInto",
+          "Vec(alias list, vector)",
+          "align_of",
+          "align_of_val",
+          "assert!",
+          "assert_eq!",
+          "assert_ne!",
+          "cfg!",
+          "cfg_select!",
+          "column!",
+          "compile_error!",
+          "concat!",
+          "dbg!",
+          "debug_assert!",
+          "debug_assert_eq!",
+          "debug_assert_ne!",
+          "drop",
+          "env!",
+          "eprint!",
+          "eprintln!",
+          "file!",
+          "format!",
+          "format_args!",
+          "include!",
+          "include_bytes!",
+          "include_str!",
+          "is_x86_feature_detected!",
+          "line!",
+          "matches!",
+          "module_path!",
+          "option_env!",
+          "panic!",
+          "print!",
+          "println!",
+          "size_of",
+          "size_of_val",
+          "stringify!",
+          "thread_local!",
+          "todo!",
+          "try!",
+          "unimplemented!",
+          "unreachable!",
+          "vec!",
+          "write!",
+          "writeln!",
+          "unsafe",
+          "const",
+          "match",
+          "while",
+          "while let",
+          "loop",
+          "if",
+          "if let",
+          "for",
+          "true",
+          "false",
+          "return"
+        ]
+      }
+    },
+    {
+      "path": "crates/vihaco-cpu/examples/typed_cpu.rs",
+      "label": "target field",
+      "position": {
+        "line": 36,
+        "character": 25
+      },
+      "hover": {
+        "contents": {
+          "kind": "plaintext",
+          "value": "typed_cpu::Controller\n\npub const __vihaco_field_cpu: usize = 42 (0x2A)\n\n\nvihaco_runtime\n\npub mod __private\n\n\nGenerated declaration contracts. Manual implementations are unsupported. Cross-crate contracts emitted by the typed declaration macros.\n\nThese traits are visible for generated code, not a manual producer API. Their contracts may change with the owning macros; user implementations are unsupported. Actual types carry identity; static descriptions carry ordered source names. Coverage is checked under the declaration's original generic bounds.\n\nOwning macros must force validate in a declaration-level const when the description is fixed, and at concrete instruction-set association. An unused generic associated constant is insufficient. Internal capability reporting forces validation for its concrete monomorphization at code generation.\n\n\nvihaco_runtime::__private\n\npub trait Field<const CODE: usize>\n\n\nOne eligible field's actual type and source spellings.\n\nKeys are explicit u8 device codes, unique within the parent type. The composite macro emits an impl using the code as a literal usize and a hidden __vihaco_field_<name> associated constant containing that same code. Field order never assigns or changes these keys. The child is the exact authored field type in the parent declaration scope. Imported aliases and associated/generic types retain ordinary Rust identity. Ordinary state and loadable section fields have no relation: a section stops parent target traversal and capability lifting, while its loader still runs. Target lookup reads that constant from the actual parent type, including through aliases; target declarations use field names rather than codes.\n\n\nvihaco_runtime::__private::Field\n\npub type Child\n\n\nas\n\n\nCast between types, rename an import, or qualify paths to associated items.\n\nType castingas is most commonly used to turn primitive types into other primitive types, but it has other uses that include turning pointers into addresses, addresses into pointers, and pointers into other pointers.\n\nlet thing1: u8 = 89.0 as u8;\nassert_eq!('B' as u32, 66);\nassert_eq!(thing1 as char, 'Y');\nlet thing2: f32 = thing1 as f32 + 10.5;\nassert_eq!(true as u8 + thing2 as u8, 100);\n\nIn general, any cast that can be performed via ascribing the type can also be done using as, so instead of writing let x: u32 = 123, you can write let x = 123 as u32 (note: let x: u32 = 123 would be best in that situation). The same is not true in the other direction, however; explicitly using as allows a few more coercions that aren't allowed implicitly, such as changing the type of a raw pointer or turning closures into raw pointers.\n\nas can be seen as the primitive for From and Into: as only works  with primitives (u8, bool, str, pointers, ...) whereas From and Into  also works with types like String or Vec.\n\nas can also be used with the _ placeholder when the destination type can be inferred. Note that this can cause inference breakage and usually such code should use an explicit type for both clarity and stability. This is most useful when converting pointers using as *const _ or as *mut _ though the cast method is recommended over as *const _ and it is the same for as *mut _: those methods make the intent clearer.\n\nRenaming importsas is also used to rename imports in use and extern crate statements:\n\n# #[allow(unused_imports)]\nuse std::{mem as memory, net as network};\n// Now you can use the names `memory` and `network` to refer to `std::mem` and `std::net`.\n\nQualifying pathsYou'll also find with From and Into, and indeed all traits, that as is used for the fully qualified path, a means of disambiguating associated items, i.e. functions, constants, and types.  For example, if you have a type which implements two traits with identical method names (e.g. Into::<u32>::into and Into::<u64>::into), you can clarify which method you'll use with <MyThing as Into<u32>>::into(my_thing)[^as-use-from].  This is quite verbose, but fortunately, Rust's type inference usually saves you from needing this, although it is occasionally necessary, especially with methods that return a generic type like Into::into or methods that don't take self.  It's more common to use in macros where it can provide necessary hygiene.\n\n[^as-use-from]: You should probably never use this syntax with Into and instead write T::from(my_thing).  It just happens that there aren't any great examples for this syntax in the standard library.  Also, at time of writing, the compiler tends to suggest fully-qualified paths to fix ambiguous Into::into calls, so the example should hopefully be familiar.\n\nFurther readingFor more information on what as is capable of, see the Reference on type cast expressions, renaming imported entities, renaming extern crates and qualified paths."
+        },
+        "range": {
+          "start": {
+            "line": 36,
+            "character": 25
+          },
+          "end": {
+            "line": 36,
+            "character": 28
+          }
+        }
+      },
+      "definition": [
+        {
+          "uri": "file:///Users/rpatterson/github/vm/vihaco/crates/vihaco-cpu/examples/typed_cpu.rs",
+          "range": {
+            "start": {
+              "line": 20,
+              "character": 4
+            },
+            "end": {
+              "line": 20,
+              "character": 7
+            }
+          }
+        },
+        {
+          "uri": "file:///Users/rpatterson/github/vm/vihaco/crates/vihaco-runtime/src/declarations.rs",
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 0
+            },
+            "end": {
+              "line": 267,
+              "character": 0
+            }
+          }
+        },
+        {
+          "uri": "file:///Users/rpatterson/github/vm/vihaco/crates/vihaco-runtime/src/declarations.rs",
+          "range": {
+            "start": {
+              "line": 78,
+              "character": 10
+            },
+            "end": {
+              "line": 78,
+              "character": 15
+            }
+          }
+        },
+        {
+          "uri": "file:///Users/rpatterson/github/vm/vihaco/crates/vihaco-runtime/src/declarations.rs",
+          "range": {
+            "start": {
+              "line": 79,
+              "character": 9
+            },
+            "end": {
+              "line": 79,
+              "character": 14
+            }
+          }
+        }
+      ],
+      "completion": {
+        "count": 0,
+        "labels": []
+      }
+    },
+    {
+      "path": "crates/vihaco-cpu/examples/typed_cpu.rs",
+      "label": "paired leaf",
+      "position": {
+        "line": 133,
+        "character": 43
+      },
+      "hover": {
+        "contents": {
+          "kind": "plaintext",
+          "value": "vihaco_cpu::typed::cpu\n\npub struct __ConstI64Surface(pub Constant)"
+        },
+        "range": {
+          "start": {
+            "line": 133,
+            "character": 43
+          },
+          "end": {
+            "line": 133,
+            "character": 51
+          }
+        }
+      },
+      "definition": [
+        {
+          "uri": "file:///Users/rpatterson/github/vm/vihaco/crates/vihaco-cpu/src/typed.rs",
+          "range": {
+            "start": {
+              "line": 576,
+              "character": 15
+            },
+            "end": {
+              "line": 576,
+              "character": 23
+            }
+          }
+        }
+      ],
+      "completion": {
+        "count": 0,
+        "labels": []
+      }
+    },
+    {
+      "label": "runtime import completion",
+      "path": "crates/vihaco-cpu/examples/typed_cpu.rs",
+      "position": {
+        "line": 160,
+        "character": 9
+      },
+      "hover": null,
+      "definition": null,
+      "completion": {
+        "count": 143,
+        "labels": [
+          "AddF32",
+          "AddF64",
+          "AddI32",
+          "AddI64",
+          "AddU32",
+          "AddU64",
+          "And",
+          "BitAndI32",
+          "BitAndI64",
+          "BitAndU32",
+          "BitAndU64",
+          "BitOrI32",
+          "BitOrI64",
+          "BitOrU32",
+          "BitOrU64",
+          "BitXorI32",
+          "BitXorI64",
+          "BitXorU32",
+          "BitXorU64",
+          "Branch",
+          "Breakpoint",
+          "Call",
+          "ConditionalBranch",
+          "ConstBool",
+          "ConstF32",
+          "ConstF64",
+          "ConstFunctionRef",
+          "ConstHeapRef",
+          "ConstI32",
+          "ConstI64",
+          "ConstString",
+          "ConstU32",
+          "ConstU64",
+          "DivF32",
+          "DivF64",
+          "DivI32",
+          "DivI64",
+          "DivU32",
+          "DivU64",
+          "Dup",
+          "EqF32",
+          "EqF64",
+          "EqI32",
+          "EqI64",
+          "EqU32",
+          "EqU64",
+          "FunctionEnd",
+          "FunctionStart",
+          "GeF32",
+          "GeF64",
+          "GeI32",
+          "GeI64",
+          "GeU32",
+          "GeU64",
+          "GetItem",
+          "GtF32",
+          "GtF64",
+          "GtI32",
+          "GtI64",
+          "GtU32",
+          "GtU64",
+          "Halt",
+          "HeapAlloc",
+          "HeapDealloc",
+          "IndirectCall",
+          "Label",
+          "LeF32",
+          "LeF64",
+          "LeI32",
+          "LeI64",
+          "LeU32",
+          "LeU64",
+          "LoadBool",
+          "LoadF32",
+          "LoadF64",
+          "LoadI32",
+          "LoadI64",
+          "LoadU32",
+          "LoadU64",
+          "LtF32",
+          "LtF64",
+          "LtI32",
+          "LtI64",
+          "LtU32",
+          "LtU64",
+          "MulF32",
+          "MulF64",
+          "MulI32",
+          "MulI64",
+          "MulU32",
+          "MulU64",
+          "NeF32",
+          "NeF64",
+          "NeI32",
+          "NeI64",
+          "NeU32",
+          "NeU64",
+          "NegF32",
+          "NegF64",
+          "NegI32",
+          "NegI64",
+          "Not",
+          "Or",
+          "Print",
+          "RemF32",
+          "RemF64",
+          "RemI32",
+          "RemI64",
+          "RemU32",
+          "RemU64",
+          "Return",
+          "RolI32",
+          "RolI64",
+          "RolU32",
+          "RolU64",
+          "RorI32",
+          "RorI64",
+          "RorU32",
+          "RorU64",
+          "ShlI32",
+          "ShlI64",
+          "ShlU32",
+          "ShlU64",
+          "ShrI32",
+          "ShrI64",
+          "ShrU32",
+          "ShrU64",
+          "Span",
+          "StoreBool",
+          "StoreF32",
+          "StoreF64",
+          "StoreI32",
+          "StoreI64",
+          "StoreU32",
+          "StoreU64",
+          "SubF32",
+          "SubF64",
+          "SubI32",
+          "SubI64",
+          "SubU32",
+          "SubU64",
+          "Xor",
+          "syntax"
+        ]
+      }
+    },
+    {
+      "label": "paired import completion",
+      "path": "crates/vihaco-cpu/examples/typed_cpu.rs",
+      "position": {
+        "line": 160,
+        "character": 17
+      },
+      "hover": null,
+      "definition": null,
+      "completion": {
+        "count": 0,
+        "labels": []
+      }
+    }
+  ],
+  "statuses": [
+    {
+      "jsonrpc": "2.0",
+      "method": "experimental/serverStatus",
+      "params": {
+        "health": "ok",
+        "quiescent": false,
+        "message": null
+      }
+    },
+    {
+      "jsonrpc": "2.0",
+      "method": "experimental/serverStatus",
+      "params": {
+        "health": "ok",
+        "quiescent": true,
+        "message": null
+      }
+    }
+  ]
+}

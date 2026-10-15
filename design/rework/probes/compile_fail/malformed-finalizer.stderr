@@ -1,0 +1,5 @@
+error: unexpected end of input, expected `component`
+ --> tests/compile_fail/rework/malformed-finalizer.rs:1:53
+  |
+1 | vihaco::__component_inventory_finalize! { context: {}, collected: {}, }
+  |                                                     ^

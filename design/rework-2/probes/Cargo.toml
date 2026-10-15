@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = ["support", "macros", "producer", "middle", "consumer"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+proof-support = { path = "support" }
+proof-macros = { path = "macros" }
+proof-producer = { path = "producer" }
+proof-middle = { path = "middle" }

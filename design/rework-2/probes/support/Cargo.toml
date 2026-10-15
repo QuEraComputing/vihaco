@@ -1,0 +1,16 @@
+[package]
+name = "proof-support"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+typed-declarations = []
+
+[dependencies]
+vihaco-runtime = { path = "../../../../crates/vihaco-runtime", default-features = false }
+vihaco-parser = { path = "../../../../crates/vihaco-parser" }
+vihaco-parser-derive = { path = "../../../../crates/vihaco-parser-derive" }
+chumsky = "0.10"
+eyre = "0.6.12"

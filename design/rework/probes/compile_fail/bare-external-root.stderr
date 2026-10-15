@@ -1,0 +1,5 @@
+error[E0433]: cannot find `vihaco_inventory_producer_fixture` in `super`
+  --> tests/compile_fail/rework/bare-external-root.rs:11:18
+   |
+11 | #[instructions { vihaco_inventory_producer_fixture::nested::arith::* }]
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ could not find `vihaco_inventory_producer_fixture` in the crate root

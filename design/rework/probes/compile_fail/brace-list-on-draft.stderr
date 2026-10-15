@@ -1,0 +1,5 @@
+error: expected a dialect path followed by `::*`, `::{...}`, or `::Instruction`
+ --> tests/compile_fail/rework/brace-list-on-draft.rs:4:18
+  |
+4 | #[instructions { cpu }]
+  |                  ^^^

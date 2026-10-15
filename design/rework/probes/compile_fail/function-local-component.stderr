@@ -1,0 +1,10 @@
+error[E0425]: cannot find type `Local` in this scope
+ --> tests/compile_fail/rework/function-local-component.rs:6:12
+  |
+4 |     #[component]
+  |     ------------ in this attribute macro expansion
+5 |     #[instructions { cpu::* }]
+6 |     struct Local;
+  |            ^^^^^ not found in this scope
+  |
+  = note: this error originates in the macro `__vihaco_collect_Local_0` which comes from the expansion of the attribute macro `component` (in Nightly builds, run with -Z macro-backtrace for more info)

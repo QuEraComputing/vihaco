@@ -1,0 +1,18 @@
+[workspace]
+[package]
+name = "proof-validation"
+version = "0.0.0"
+edition = "2024"
+publish = false
+[dependencies]
+vm = { package = "proof-support", path = "../support" }
+consumer = { package = "proof-consumer", path = "../consumer" }
+[[bin]]
+name = "unused"
+path = "../cases/unused-invalid-const.rs"
+[[bin]]
+name = "report"
+path = "../cases/invalid-generic-report.rs"
+[[bin]]
+name = "forced"
+path = "../cases/force-invalid-generic-const.rs"

@@ -371,3 +371,36 @@ of its parser consumers and doctest. Deferring those changes would leave typed
 CPU tests broken because parsing now retains syntax values. The standalone
 typed CPU example has been removed, along with its Cargo target and README
 command. Typed declarations remain opt-in for the runtime and CPU crates.
+
+## CPU symbolic lowering
+
+CPU authored lowering implementations live in `vihaco-cpu/src/lower.rs`, outside
+the dialect definitions. `operand::Target` retains either a resolved `u32` or
+an `@name` symbol. `operand::StringOperand` retains a string index or decoded
+quoted literal. Numeric source forms and runtime instruction payloads remain
+available.
+
+| Instruction | Symbolic syntax | Required capability |
+| --- | --- | --- |
+| Branch | `br @label` | `LabelLookup` |
+| Conditional branch | `cond_br @yes, @no` | `LabelLookup` |
+| Call | `call 2, @function` | `FunctionLookup::function_address` |
+| Function reference | `const_fn_ref @function` | `FunctionLookup::function_index` |
+| String constant | `const_string "text"` | `StringIntern` |
+
+Calls lower to executable addresses; function-reference constants lower to table
+indices. The values can differ. Scalar literal encoding and numeric heap
+references need no lookup capabilities. Other unchanged instructions retain
+generated identity lowering.
+
+`ProgramImage` implements `StringIntern` against its section-local string table,
+reusing existing equal contents and checking that new indices fit `u32` before
+insertion. A consumer loader may delegate to it or provide its own interner.
+
+With typed declarations, `ParsedFunction::labels` retains each label's name and
+the index of the next instruction in the function. Labels still occupy no
+executable slot. A loader prepares the whole function table before lowering,
+then computes each function's label addresses from its section base and the
+retained instruction positions. Label scope selection belongs to the loader's
+`LabelLookup` implementation. Numeric operands bypass capability method calls,
+but the same compile-time bounds apply to their instruction types.

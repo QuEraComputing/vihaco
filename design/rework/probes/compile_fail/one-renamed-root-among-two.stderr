@@ -1,0 +1,38 @@
+error[E0425]: cannot find type `Halt` in module `__vihaco_inventory_device::__selectors::cpu`
+  --> tests/compile_fail/rework/one-renamed-root-among-two.rs:24:64
+   |
+24 |     let _: Option<__vihaco_inventory_device::__selectors::cpu::Halt> = None;
+   |                                                                ^^^^ not found in `__vihaco_inventory_device::__selectors::cpu`
+   |
+help: consider importing one of these structs
+   |
+ 1 + use crate::__vihaco_inventory_device::__types::runtime::provider_1::cpu::Halt;
+   |
+ 1 + use crate::__vihaco_inventory_device::__types::surface::provider_1::cpu::Halt;
+   |
+help: if you import `Halt`, refer to it directly
+   |
+24 -     let _: Option<__vihaco_inventory_device::__selectors::cpu::Halt> = None;
+24 +     let _: Option<Halt> = None;
+   |
+
+error[E0659]: `cpu` is ambiguous
+  --> tests/compile_fail/rework/one-renamed-root-among-two.rs:24:59
+   |
+24 |     let _: Option<__vihaco_inventory_device::__selectors::cpu::Halt> = None;
+   |                                                           ^^^ ambiguous name
+   |
+   = note: ambiguous because of multiple glob imports of a name in the same module
+note: `cpu` could refer to the module imported here
+  --> tests/compile_fail/rework/one-renamed-root-among-two.rs:12:1
+   |
+12 | #[component]
+   | ^^^^^^^^^^^^
+   = help: consider adding an explicit import of `cpu` to disambiguate
+note: `cpu` could also refer to the module imported here
+  --> tests/compile_fail/rework/one-renamed-root-among-two.rs:12:1
+   |
+12 | #[component]
+   | ^^^^^^^^^^^^
+   = help: consider adding an explicit import of `cpu` to disambiguate
+   = note: this error originates in the attribute macro `component` (in Nightly builds, run with -Z macro-backtrace for more info)

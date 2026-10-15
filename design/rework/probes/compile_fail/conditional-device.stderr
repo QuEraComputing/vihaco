@@ -1,0 +1,15 @@
+error[E0433]: cannot find `__vihaco_inventory_missing` in `super`
+ --> tests/compile_fail/rework/conditional-device.rs:1:1
+  |
+1 | #[vihaco::composite]
+  | ^^^^^^^^^^^^^^^^^^^^ could not find `__vihaco_inventory_missing` in the crate root
+  |
+  = note: this error originates in the attribute macro `vihaco::composite` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0432]: unresolved import `super`
+ --> tests/compile_fail/rework/conditional-device.rs:1:1
+  |
+1 | #[vihaco::composite]
+  | ^^^^^^^^^^^^^^^^^^^^ could not find `__vihaco_inventory_missing` in the crate root
+  |
+  = note: this error originates in the attribute macro `vihaco::composite` (in Nightly builds, run with -Z macro-backtrace for more info)

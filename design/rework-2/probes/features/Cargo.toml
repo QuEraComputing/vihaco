@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+[package]
+name = "proof-feature-gate"
+version = "0.0.0"
+edition = "2024"
+publish = false
+[features]
+default = []
+runtime-only = ["vm/typed-declarations"]
+macros-only = ["declarations/typed-declarations"]
+typed-declarations = ["runtime-only", "macros-only"]
+indirect = ["dep:external"]
+[dependencies]
+vm = { package = "proof-support", path = "../support" }
+declarations = { package = "proof-macros", path = "../macros" }
+external = { package = "proof-producer", path = "../producer", optional = true }
+vihaco-parser = { path = "../../../../crates/vihaco-parser" }
+chumsky = "0.10"
+[[bin]]
+name = "baseline"
+path = "baseline.rs"
+[[bin]]
+name = "declarations"
+path = "declarations.rs"

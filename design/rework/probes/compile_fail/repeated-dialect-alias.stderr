@@ -1,0 +1,10 @@
+error: duplicate logical instruction selector
+  --> tests/compile_fail/rework/repeated-dialect-alias.rs:4:50
+   |
+ 4 |     dialect! { #[vihaco(inventory_id = alias_a)] cpu { Add, } }
+   |                                                  ^^^^^^^^^
+...
+12 | #[component]
+   | ------------ in this attribute macro expansion
+   |
+   = note: this error originates in the macro `b::__private::__entries` which comes from the expansion of the attribute macro `component` (in Nightly builds, run with -Z macro-backtrace for more info)
