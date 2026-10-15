@@ -64,6 +64,7 @@ macro_rules! steps {
             LoadI32, LoadI64, LoadU32, LoadU64, LoadF32, LoadF64,
             LoadBool, StoreI32, StoreI64, StoreU32, StoreU64, StoreF32,
             StoreF64, StoreBool, Dup, HeapAlloc, GetItem, HeapDealloc,
+            HeapReserve, HeapPush, HeapLen,
             ConstI32, ConstI64, ConstU32, ConstU64, ConstF32, ConstF64,
             ConstBool, ConstString, ConstFunctionRef, ConstHeapRef, AddI32, AddF32,
             AddI64, AddU32, AddU64, AddF64, SubI32, SubI64,
