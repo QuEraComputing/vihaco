@@ -29,7 +29,7 @@ use crate::{Execute, Field, NoMessage};
 /// use vihaco_runtime::{BuildMessage, Execute, Field};
 ///
 /// fn prepare<C, F, I>(
-///     composite: &C,
+///     composite: &mut C,
 ///     instruction: &I,
 /// ) -> vihaco_runtime::eyre::Result<<C::Child as Execute<I>>::Message>
 /// where
@@ -46,12 +46,15 @@ where
 {
     /// Resolve and validate the input needed to execute `instruction`.
     ///
+    /// The builder may mutate the composite, for example by consuming stack
+    /// operands. Mutations made before an error are retained.
+    ///
     /// # Errors
     ///
     /// Returns message-preparation failures, such as invalid program references
     /// or missing runtime inputs. Callers can propagate the original report
     /// through [`crate::Step`] before invoking the child.
-    fn build_message(&self, instruction: &I) -> eyre::Result<M>;
+    fn build_message(&mut self, instruction: &I) -> eyre::Result<M>;
 }
 
 impl<C, F, I> BuildMessage<F, I, NoMessage> for C
@@ -59,7 +62,7 @@ where
     C: Field<F>,
     C::Child: Execute<I, Message = NoMessage>,
 {
-    fn build_message(&self, _: &I) -> eyre::Result<NoMessage> {
+    fn build_message(&mut self, _: &I) -> eyre::Result<NoMessage> {
         Ok(NoMessage::new())
     }
 }
