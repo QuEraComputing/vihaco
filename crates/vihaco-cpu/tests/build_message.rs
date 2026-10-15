@@ -19,10 +19,11 @@ struct Machine {
     functions: Vec<message::FunctionInfo>,
     strings: Vec<String>,
     outcomes: Vec<StepOutcome>,
+    print_messages_built: usize,
 }
 
 impl BuildMessage<field!(Machine::cpu), cpu::Call, message::FunctionInfo> for Machine {
-    fn build_message(&self, instruction: &cpu::Call) -> eyre::Result<message::FunctionInfo> {
+    fn build_message(&mut self, instruction: &cpu::Call) -> eyre::Result<message::FunctionInfo> {
         let function = self
             .functions
             .iter()
@@ -34,7 +35,7 @@ impl BuildMessage<field!(Machine::cpu), cpu::Call, message::FunctionInfo> for Ma
 }
 
 impl BuildMessage<field!(Machine::cpu), cpu::IndirectCall, message::FunctionInfo> for Machine {
-    fn build_message(&self, _: &cpu::IndirectCall) -> eyre::Result<message::FunctionInfo> {
+    fn build_message(&mut self, _: &cpu::IndirectCall) -> eyre::Result<message::FunctionInfo> {
         let index = decode_function_ref(*self.cpu.stack_top()?);
         self.functions
             .get(index as usize)
@@ -44,13 +45,15 @@ impl BuildMessage<field!(Machine::cpu), cpu::IndirectCall, message::FunctionInfo
 }
 
 impl BuildMessage<field!(Machine::cpu), cpu::Print, message::Print> for Machine {
-    fn build_message(&self, _: &cpu::Print) -> eyre::Result<message::Print> {
+    fn build_message(&mut self, _: &cpu::Print) -> eyre::Result<message::Print> {
         let index = decode_string_id(*self.cpu.stack_top()?);
         let text = self
             .strings
             .get(index as usize)
             .ok_or_else(|| eyre::eyre!("unknown string reference"))?;
-        Ok(message::Print(text.clone()))
+        let message = message::Print(text.clone());
+        self.print_messages_built += 1;
+        Ok(message)
     }
 }
 
@@ -124,12 +127,14 @@ fn print_builder_resolves_text_without_consuming_the_operand() -> eyre::Result<(
     let mut machine = machine();
     machine.cpu.stack_push(encode_string_id(0));
     let message = <Machine as BuildMessage<field!(Machine::cpu), cpu::Print>>::build_message(
-        &machine,
+        &mut machine,
         &cpu::Print,
     )?;
     assert_eq!(message.0, "hello");
+    assert_eq!(machine.print_messages_built, 1);
     assert_eq!(*machine.cpu.stack_top()?, encode_string_id(0));
     step(&mut machine, cpu::Print)?;
+    assert_eq!(machine.print_messages_built, 2);
     assert!(machine.cpu.stack_top().is_err());
     Ok(())
 }
