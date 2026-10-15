@@ -57,7 +57,12 @@ mod generated;
 
 mod marker;
 
+mod no_message;
+
 mod observe;
+
+#[cfg(feature = "typed-declarations")]
+mod build_message;
 
 #[cfg(feature = "typed-declarations")]
 mod capability;
@@ -79,6 +84,9 @@ mod step;
 #[doc(hidden)]
 #[path = "declarations.rs"]
 pub mod __private;
+
+#[cfg(feature = "typed-declarations")]
+pub use build_message::BuildMessage;
 
 #[cfg(feature = "typed-declarations")]
 pub use dispatch::Dispatch;
@@ -110,6 +118,7 @@ pub use generated::{
     expect_exactly_one_effect,
 };
 pub use marker::Message;
+pub use no_message::NoMessage;
 pub use observe::Observe;
 
 // `#[derive(Message)]` emits `#root::runtime::Message`; keep a `runtime` segment
@@ -146,7 +155,7 @@ pub use vihaco_runtime_derive::{Message, dispatch, machine, observe};
 /// ```
 /// # #[cfg(feature = "typed-declarations")]
 /// # mod example {
-/// use vihaco_runtime::{Execute, Step, field, component, composite, dialect};
+/// use vihaco_runtime::{Execute, NoMessage, Step, field, component, composite, dialect};
 /// #[dialect]
 /// # #[vihaco(crate = ::vihaco_runtime)]
 /// mod control { #[instruction] pub struct Halt; }
@@ -155,10 +164,10 @@ pub use vihaco_runtime_derive::{Message, dispatch, machine, observe};
 /// #[instructions { control }]
 /// struct Cpu;
 /// impl Execute<control::Halt> for Cpu {
-///     type Message = ();
+///     type Message = NoMessage;
 ///     type Effect = ();
 ///     type Error = std::convert::Infallible;
-///     fn execute(&mut self, _: &control::Halt, _: ()) -> Result<(), Self::Error> {
+///     fn execute(&mut self, _: &control::Halt, _: NoMessage) -> Result<(), Self::Error> {
 ///         Ok(())
 ///     }
 /// }
@@ -167,7 +176,7 @@ pub use vihaco_runtime_derive::{Message, dispatch, machine, observe};
 /// struct Machine { #[device(7, alias = "host")] cpu: Cpu }
 /// impl Step<field!(Machine::cpu), control::Halt> for Machine {
 ///     fn step(&mut self, instruction: control::Halt) -> vihaco_runtime::eyre::Result<()> {
-///         self.cpu.execute(&instruction, ())?;
+///         self.cpu.execute(&instruction, NoMessage::new())?;
 ///         Ok(())
 ///     }
 /// }
@@ -263,7 +272,7 @@ pub use vihaco_runtime_derive::dialect;
 /// selects an explicit framework root in the struct's authored scope.
 ///
 /// ```
-/// use vihaco_runtime::{component, dialect, Execute};
+/// use vihaco_runtime::{component, dialect, Execute, NoMessage};
 /// #[dialect]
 /// # #[vihaco(crate = ::vihaco_runtime)]
 /// mod control {
@@ -275,10 +284,10 @@ pub use vihaco_runtime_derive::dialect;
 /// #[instructions { control }]
 /// struct Cpu<T = u8>(T);
 /// impl<T> Execute<control::Halt> for Cpu<T> {
-///     type Message = ();
+///     type Message = NoMessage;
 ///     type Effect = ();
 ///     type Error = std::convert::Infallible;
-///     fn execute(&mut self, _: &control::Halt, _: ()) -> Result<(), Self::Error> {
+///     fn execute(&mut self, _: &control::Halt, _: NoMessage) -> Result<(), Self::Error> {
 ///         Ok(())
 ///     }
 /// }

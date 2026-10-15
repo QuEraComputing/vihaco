@@ -24,14 +24,14 @@
 //! ```
 //! # #[cfg(feature = "typed-declarations")]
 //! # {
-//! use vihaco::{Execute, Lower, Parse, Syntax, chumsky::Parser as _, traits::StackMemory};
+//! use vihaco::{Execute, NoMessage, Lower, Parse, Syntax, chumsky::Parser as _, traits::StackMemory};
 //! use vihaco_cpu::{CPU, cpu, encode_i64, StepOutcome};
 //! let instruction = cpu::ConstI64::<Syntax>::parser().parse("const_i64 -42")
 //!     .into_result().unwrap();
 //! let instruction = instruction.lower(&mut ()).unwrap();
 //! assert_eq!(instruction, cpu::ConstI64(encode_i64(-42)));
 //! let mut cpu = CPU::default();
-//! assert_eq!(cpu.execute(&instruction, ()).unwrap(), StepOutcome::Continue);
+//! assert_eq!(cpu.execute(&instruction, NoMessage::new()).unwrap(), StepOutcome::Continue);
 //! assert_eq!(cpu.stack(), &[encode_i64(-42)]);
 //! # }
 //! ```
