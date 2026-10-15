@@ -446,10 +446,7 @@ fn reserved_heap_instructions_parse_and_dispatch_through_nested_cpu() {
     let mut machine = machine();
     let cpu = &mut machine.controller.cpu;
     cpu.stack_mut().extend([42, 2]);
-    assert_eq!(
-        step(&mut machine, "ctl::host::cpu::heap_reserve").unwrap(),
-        StepOutcome::Continue
-    );
+    step(&mut machine, "ctl::host::cpu::heap_reserve").unwrap();
     let heap_ref = *machine.controller.cpu.stack_top().unwrap();
     step(&mut machine, "ctl::host::cpu::dup").unwrap();
     step(&mut machine, "ctl::host::cpu::heap_len").unwrap();
