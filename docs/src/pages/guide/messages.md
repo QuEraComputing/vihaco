@@ -48,6 +48,22 @@ That keeps responsibilities clean:
 - `Message` is the resolved input to execute that request
 - `Effect` is the value returned after execution
 
+## Instructions Without Runtime Input
+
+Use `NoMessage` when an instruction needs no runtime-supplied input. It is a
+named type distinct from `()`, available from both `vihaco` and `vihaco-runtime`.
+Construct it with `NoMessage::new()` or `NoMessage::default()`.
+
+```rust
+use vihaco::NoMessage;
+
+let input = NoMessage::new();
+assert_eq!(input, NoMessage::default());
+```
+
+Typed CPU instructions that require no runtime input use `Message = NoMessage`.
+Their encoded operands and returned effects are independent of that choice.
+
 ## A Small Message Type
 
 Message types are usually plain Rust types annotated with `#[derive(Message)]`.

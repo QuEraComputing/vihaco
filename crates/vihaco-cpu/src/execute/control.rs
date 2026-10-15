@@ -4,15 +4,15 @@
 use crate::data::component::canonical_bool;
 use crate::word::decode_function_ref;
 use crate::{CPU, StepOutcome, Word, cpu};
-use vihaco::Execute;
 use vihaco::traits::{StackFrame, StackMemory};
+use vihaco::{Execute, NoMessage};
 
 impl Execute<cpu::Span> for CPU {
-    type Message = ();
+    type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, instruction: &cpu::Span, _: ()) -> eyre::Result<StepOutcome> {
+    fn execute(&mut self, instruction: &cpu::Span, _: NoMessage) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
         let (file, start, end) = (instruction.0, instruction.1, instruction.2);
         self.span = (file, start, end);
@@ -21,22 +21,26 @@ impl Execute<cpu::Span> for CPU {
 }
 
 impl Execute<cpu::Breakpoint> for CPU {
-    type Message = ();
+    type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, _instruction: &cpu::Breakpoint, _: ()) -> eyre::Result<StepOutcome> {
+    fn execute(
+        &mut self,
+        _instruction: &cpu::Breakpoint,
+        _: NoMessage,
+    ) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
         Ok(StepOutcome::Breakpoint)
     }
 }
 
 impl Execute<cpu::Branch> for CPU {
-    type Message = ();
+    type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, instruction: &cpu::Branch, _: ()) -> eyre::Result<StepOutcome> {
+    fn execute(&mut self, instruction: &cpu::Branch, _: NoMessage) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
         let target = instruction.0;
         self.set_pending_pc(target);
@@ -45,14 +49,14 @@ impl Execute<cpu::Branch> for CPU {
 }
 
 impl Execute<cpu::ConditionalBranch> for CPU {
-    type Message = ();
+    type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
     fn execute(
         &mut self,
         instruction: &cpu::ConditionalBranch,
-        _: (),
+        _: NoMessage,
     ) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
         let (true_target, false_target) = (instruction.0, instruction.1);
@@ -71,11 +75,11 @@ impl Execute<cpu::ConditionalBranch> for CPU {
 }
 
 impl Execute<cpu::Return> for CPU {
-    type Message = ();
+    type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, instruction: &cpu::Return, _: ()) -> eyre::Result<StepOutcome> {
+    fn execute(&mut self, instruction: &cpu::Return, _: NoMessage) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
         let keep = instruction.0;
         let frame = *self.get_frame()?;
@@ -147,11 +151,11 @@ impl Execute<cpu::Call> for CPU {
 }
 
 impl Execute<cpu::Halt> for CPU {
-    type Message = ();
+    type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, _instruction: &cpu::Halt, _: ()) -> eyre::Result<StepOutcome> {
+    fn execute(&mut self, _instruction: &cpu::Halt, _: NoMessage) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
         Ok(StepOutcome::Halt)
     }
@@ -175,11 +179,11 @@ impl Execute<cpu::Print> for CPU {
 }
 
 impl Execute<cpu::Dup> for CPU {
-    type Message = ();
+    type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, _instruction: &cpu::Dup, _: ()) -> eyre::Result<StepOutcome> {
+    fn execute(&mut self, _instruction: &cpu::Dup, _: NoMessage) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
 
         let v = *self.stack_top()?;
