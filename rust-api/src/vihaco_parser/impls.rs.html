@@ -69,7 +69,7 @@
 <a href=#69 id=69 data-nosnippet>69</a>    ($(<span class="macro-nonterminal">$t</span>:ty),+) =&gt; {
 <a href=#70 id=70 data-nosnippet>70</a>        $(<span class="kw">impl</span>&lt;<span class="lifetime">'src</span>&gt; Parse&lt;<span class="lifetime">'src</span>&gt; <span class="kw">for </span><span class="macro-nonterminal">$t </span>{
 <a href=#71 id=71 data-nosnippet>71</a>            <span class="kw">fn </span>parser() -&gt; <span class="kw">impl </span>Parser&lt;<span class="lifetime">'src</span>, <span class="kw-2">&amp;</span><span class="lifetime">'src </span>str, <span class="self">Self</span>, E&lt;<span class="lifetime">'src</span>&gt;&gt; {
-<a href=#72 id=72 data-nosnippet>72</a>                text::int(<span class="number">10</span>).map(|s: <span class="kw-2">&amp;</span>str| s.parse().unwrap())
+<a href=#72 id=72 data-nosnippet>72</a>                text::int(<span class="number">10</span>).try_map(|s: <span class="kw-2">&amp;</span>str, span| s.parse().map_err(|<span class="kw">_</span>| Simple::new(<span class="prelude-val">None</span>, span)))
 <a href=#73 id=73 data-nosnippet>73</a>            }
 <a href=#74 id=74 data-nosnippet>74</a>        })+
 <a href=#75 id=75 data-nosnippet>75</a>    };
@@ -84,7 +84,7 @@
 <a href=#84 id=84 data-nosnippet>84</a>                    .or_not()
 <a href=#85 id=85 data-nosnippet>85</a>                    .then(text::int(<span class="number">10</span>))
 <a href=#86 id=86 data-nosnippet>86</a>                    .to_slice()
-<a href=#87 id=87 data-nosnippet>87</a>                    .map(|s: <span class="kw-2">&amp;</span>str| s.parse().unwrap())
+<a href=#87 id=87 data-nosnippet>87</a>                    .try_map(|s: <span class="kw-2">&amp;</span>str, span| s.parse().map_err(|<span class="kw">_</span>| Simple::new(<span class="prelude-val">None</span>, span)))
 <a href=#88 id=88 data-nosnippet>88</a>            }
 <a href=#89 id=89 data-nosnippet>89</a>        })+
 <a href=#90 id=90 data-nosnippet>90</a>    };
@@ -109,7 +109,7 @@
 <a href=#109 id=109 data-nosnippet>109</a>                    .then(just(<span class="string">'.'</span>).then(text::digits(<span class="number">10</span>)).or_not())
 <a href=#110 id=110 data-nosnippet>110</a>                    .then(exp.or_not())
 <a href=#111 id=111 data-nosnippet>111</a>                    .to_slice()
-<a href=#112 id=112 data-nosnippet>112</a>                    .map(|s: <span class="kw-2">&amp;</span>str| s.parse().unwrap())
+<a href=#112 id=112 data-nosnippet>112</a>                    .try_map(|s: <span class="kw-2">&amp;</span>str, span| s.parse().map_err(|<span class="kw">_</span>| Simple::new(<span class="prelude-val">None</span>, span)))
 <a href=#113 id=113 data-nosnippet>113</a>            }
 <a href=#114 id=114 data-nosnippet>114</a>        })+
 <a href=#115 id=115 data-nosnippet>115</a>    };
