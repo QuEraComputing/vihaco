@@ -75,8 +75,9 @@ struct Child {
     cpu: Cpu,
 }
 impl<I> Step<field!(Child::cpu), I> for Child {
-    fn step(&mut self, instruction: I) {
-        self.cpu.execute(&instruction, ()).unwrap();
+    fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
+        self.cpu.execute(&instruction, ())?;
+        Ok(())
     }
 }
 
@@ -90,15 +91,17 @@ struct Machine {
     executed: usize,
 }
 impl<I> Step<field!(Machine::child::cpu), I> for Machine {
-    fn step(&mut self, instruction: I) {
-        self.child.cpu.execute(&instruction, ()).unwrap();
+    fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
+        self.child.cpu.execute(&instruction, ())?;
         self.executed += 1;
+        Ok(())
     }
 }
 impl<I> Step<field!(Machine::spare), I> for Machine {
-    fn step(&mut self, instruction: I) {
-        self.spare.execute(&instruction, ()).unwrap();
+    fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
+        self.spare.execute(&instruction, ())?;
         self.executed += 10;
+        Ok(())
     }
 }
 
@@ -185,7 +188,7 @@ fn section_loader_capabilities_enable_generated_composite_lowering() {
         ]
     );
     for instruction in std::mem::take(&mut machine.loader.code) {
-        machine.dispatch(instruction);
+        machine.dispatch(instruction).unwrap();
     }
     assert_eq!(machine.executed, 22);
 }
