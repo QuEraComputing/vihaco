@@ -276,7 +276,49 @@ caller. With no caller, results are available through <code>CPU::return_values()
 The composite continues to own program-counter routing and instruction execution.</p>
 <h2 id="what-comes-next">What Comes Next</h2>
 <p>Once you have one or more components, the next step is to understand how observer types consume the returned effects.</p>
-<p>Continue with <a href="/vihaco/guide/observers">Observing Effects With <code>#[observe]</code></a>.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/guide/messages" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Using Messages</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/guide/observers" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Observing Effects</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#the-core-pieces" data-toc-link="#the-core-pieces">The Core Pieces</a></li><li><a href="#defining-dispatch" data-toc-link="#defining-dispatch">Defining #[dispatch(...)]</a></li><li><a href="#when-to-use-message--" data-toc-link="#when-to-use-message--">When To Use message = ()</a></li><li><a href="#execution-surface" data-toc-link="#execution-surface">Execution Surface</a></li><li><a href="#component-instruction-types" data-toc-link="#component-instruction-types">Component Instruction Types</a></li><li><a href="#design-guidance" data-toc-link="#design-guidance">Design Guidance</a></li><li><a href="#returning-a-custom-effect" data-toc-link="#returning-a-custom-effect">Returning A Custom Effect</a></li><li><a href="#cpu-function-frames" data-toc-link="#cpu-function-frames">CPU Function Frames</a></li><li><a href="#what-comes-next" data-toc-link="#what-comes-next">What Comes Next</a></li> </ol> </details> </div> </main> <script>
+<p>Continue with <a href="/vihaco/guide/observers">Observing Effects With <code>#[observe]</code></a>.</p>
+<h2 id="experimental-typed-declarations">Experimental typed declarations</h2>
+<p>Enable the nondefault <code>typed-declarations</code> Cargo feature to use <code>#[component]</code>
+with whole dialect modules. Both APIs use the crate-root name <code>component</code>:
+without the feature, <code>vihaco::component!</code> is the existing function-like macro;
+with the feature, <code>#[vihaco::component]</code> is the typed declaration attribute.
+The legacy macro is unavailable when the feature is enabled. The aggregate
+examples above and the current CPU component use the feature-off API; typed
+components are checked in a separate feature-enabled dependency graph.</p>
+<p>A typed component declares complete dialect support and implements <code>Execute&#x3C;I></code>
+for every instruction in each listed dialect. Adding an instruction to a dialect
+requires adding its execution implementation to each component that declares it.
+The component needs no aggregate instruction enum or executable instruction set.
+Each <code>Execute</code> implementation chooses its own message, effect, and error types.</p>
+<p>The following example requires <code>vihaco = { version = "0.5", features = ["typed-declarations"] }</code>:</p>
+<pre><code class="language-rust,ignore">use vihaco::{component, dialect, Execute};
+
+#[dialect]
+mod control {
+    #[instruction]
+    pub struct Halt;
+}
+
+#[component]
+#[instructions { control }]
+struct Cpu&#x3C;T = u8>(T);
+
+impl&#x3C;T> Execute&#x3C;control::Halt> for Cpu&#x3C;T> {
+    type Message = ();
+    type Effect = ();
+    type Error = std::convert::Infallible;
+
+    fn execute(&#x26;mut self, _: &#x26;control::Halt, _: ()) -> Result&#x3C;(), Self::Error> {
+        Ok(())
+    }
+}
+</code></pre>
+<p>The macro preserves ordinary structs, generics, defaults, and bounds. Module
+aliases are accepted, but listing the same dialect twice through aliases fails.
+Dialect order and instruction order are preserved in the complete description.
+Distinct dialects with the same source head are allowed when their instruction
+mnemonics are disjoint; canonical overlaps fail at the component declaration,
+including unused generic declarations.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/guide/messages" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Using Messages</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/guide/observers" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Observing Effects</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#the-core-pieces" data-toc-link="#the-core-pieces">The Core Pieces</a></li><li><a href="#defining-dispatch" data-toc-link="#defining-dispatch">Defining #[dispatch(...)]</a></li><li><a href="#when-to-use-message--" data-toc-link="#when-to-use-message--">When To Use message = ()</a></li><li><a href="#execution-surface" data-toc-link="#execution-surface">Execution Surface</a></li><li><a href="#component-instruction-types" data-toc-link="#component-instruction-types">Component Instruction Types</a></li><li><a href="#design-guidance" data-toc-link="#design-guidance">Design Guidance</a></li><li><a href="#returning-a-custom-effect" data-toc-link="#returning-a-custom-effect">Returning A Custom Effect</a></li><li><a href="#cpu-function-frames" data-toc-link="#cpu-function-frames">CPU Function Frames</a></li><li><a href="#what-comes-next" data-toc-link="#what-comes-next">What Comes Next</a></li><li><a href="#experimental-typed-declarations" data-toc-link="#experimental-typed-declarations">Experimental typed declarations</a></li> </ol> </details> </div> </main> <script>
         // Scroll-spy: mark the TOC link for the section currently in view.
         (() => {
           const links = Array.from(document.querySelectorAll(".page-toc [data-toc-link]"));
@@ -428,7 +470,7 @@ The composite continues to own program-counter routing and instruction execution
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-10-15</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-10-16</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {
