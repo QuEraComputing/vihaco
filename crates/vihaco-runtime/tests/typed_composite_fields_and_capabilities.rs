@@ -47,6 +47,7 @@ impl<const N: usize> Execute<control::Extra> for Cpu<'_, N> {
 // Executable selection is deliberately narrower than complete capabilities.
 impl<const N: usize> HasInstructionSet for Cpu<'_, N> {
     type Runtime = control::Halt;
+    type Syntax = control::Halt;
 }
 use Cpu as Imported;
 

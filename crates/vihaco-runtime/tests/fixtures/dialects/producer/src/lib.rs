@@ -14,6 +14,13 @@ pub mod arithmetic {
 }
 pub use arithmetic as exported;
 
+impl<C: ?Sized> rt::Lower<C> for arithmetic::Add<rt::Syntax> {
+    type Runtime = arithmetic::Add;
+    fn lower(self, _: &mut C) -> rt::eyre::Result<Self::Runtime> {
+        Ok(arithmetic::Add(self.0))
+    }
+}
+
 #[rt::component]
 #[instructions { crate::arithmetic }]
 pub struct Cpu;

@@ -80,18 +80,27 @@ generic or associated child types cannot supply an inferred inventory.
 
 For the shipped CPU, enable **`vihaco-cpu/typed-declarations`**, which forwards the
 framework feature and selects CPU's typed implementation. Its `cpu` module
-exposes runtime instruction structs with direct parsers. Constants accept
-readable literals; branch/call addresses and reference IDs arrive resolved from
-the SST producer. Pattern bindings infer their field parser by default;
-`$0:ParserType` overrides it and converts with `TryInto`. Encoded constants use
-literal newtypes where standard conversions cannot preserve their bits. `label @name` is readability metadata inside function bodies
-and emits no instruction. `function_start` and `function_end` are removed from
+exposes instruction structs whose phase defaults to runtime. Constants parse
+readable syntax literals and lower them into runtime words. Branches and calls
+accept numeric addresses or `@name` targets; function-reference constants accept
+indices or function symbols. String constants accept indices or quoted literals.
+Pattern bindings infer
+their field parser by default; `$0:SyntaxType` retains the annotated syntax type
+and requires explicit lowering when it differs from the runtime field. Encoded
+constants use literal newtypes to preserve their bits. `label @name` records its
+position in the parsed function's label metadata and emits no instruction.
+`function_start` and `function_end` are removed from
 the typed dialect. Instructions use `()` or the `message::FunctionInfo` and
 `message::Print` structs, returning `StepOutcome` through `eyre::Result`.
 
-```sh
-cargo run -p vihaco-cpu --example typed_cpu --features typed-declarations
-```
+CPU lowering lives outside the dialect definitions in `vihaco_cpu::lower`.
+Loaders implement `LabelLookup` for function-local labels and `FunctionLookup`
+for section function addresses and indices. `StringIntern` supplies string-table
+indices; `ProgramImage` implements it with deduplication of decoded contents.
+Prepare functions and label positions before calling
+`LoadOwnSstSection::lower_instructions` so forward references resolve. The
+generated composite aggregate enforces these capabilities even for programs
+using only numeric operands. Heap-reference constants continue to accept numeric IDs.
 
 Generated hierarchical bytecode codecs remain separate work. Cargo feature
 unification can activate the experimental contract indirectly. Enable CPU's

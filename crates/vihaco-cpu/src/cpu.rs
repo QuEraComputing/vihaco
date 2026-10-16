@@ -1,13 +1,14 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! CPU runtime instruction dialect. SST operands are already resolved.
+//! CPU instruction dialect. Syntax operands are lowered by the program loader.
 
 #[vihaco::dialect]
 pub mod cpu {
     use crate::{
         Word,
         literal::{F32Literal, F64Literal, I32Literal, I64Literal},
+        operand::{StringOperand, Target},
     };
     #[instruction]
     #[pattern = "'span $0 $1 $2"]
@@ -18,11 +19,11 @@ pub mod cpu {
     pub struct Breakpoint;
 
     #[instruction]
-    #[pattern = "'br $0"]
+    #[pattern = "'br $0:Target"]
     pub struct Branch(pub u32);
 
     #[instruction]
-    #[pattern = "'cond_br $0 `,` $1"]
+    #[pattern = "'cond_br $0:Target `,` $1:Target"]
     pub struct ConditionalBranch(pub u32, pub u32);
 
     #[instruction]
@@ -34,7 +35,7 @@ pub mod cpu {
     pub struct IndirectCall;
 
     #[instruction]
-    #[pattern = "'call $0 `,` $1"]
+    #[pattern = "'call $0 `,` $1:Target"]
     pub struct Call(pub u32, pub u32);
 
     #[instruction]
@@ -158,11 +159,11 @@ pub mod cpu {
     pub struct ConstBool(pub Word);
 
     #[instruction]
-    #[pattern = "'const_string $0:u32"]
+    #[pattern = "'const_string $0:StringOperand"]
     pub struct ConstString(pub Word);
 
     #[instruction]
-    #[pattern = "'const_fn_ref $0:u32"]
+    #[pattern = "'const_fn_ref $0:Target"]
     pub struct ConstFunctionRef(pub Word);
 
     #[instruction]

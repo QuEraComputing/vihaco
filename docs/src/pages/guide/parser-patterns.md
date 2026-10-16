@@ -60,10 +60,11 @@ The `head` is a dialect namespace. The derive appends `.`, so
 `memory.load`.
 
 Unannotated bindings use the corresponding field type's
-`vihaco_parser::Parse::parser()`. An annotation selects a different parser type,
-then converts its value into the field with `TryInto`. Failed conversions return
-parse errors at the operand's span. No `Debug` or `Display` bound is required on
-the conversion error.
+`vihaco_parser::Parse::parser()`. An annotation selects the retained operand
+type. A standalone `Parse` derive requires that type to match the field; it
+performs no implicit conversion. Typed dialects generate a syntax phase when
+the annotated type differs from the runtime field type, and instruction-owned
+`Lower` implementations convert those values using loader capabilities.
 
 ```rust
 use chumsky::Parser as _;
@@ -72,22 +73,24 @@ use vihaco_parser::Parse as _;
 #[derive(Debug, PartialEq, vihaco_parser_derive::Parse)]
 #[syntax_class(instruction, head = "cpu")]
 #[pattern = "'call $0 `,` $1:u64"]
-struct Call(u32, u32);
+struct Call(u32, u64);
 
 assert_eq!(Call::parser().parse("cpu.call 2, 10").into_result(), Ok(Call(2, 10)));
-assert!(Call::parser().parse("cpu.call 2, 4294967296").has_errors());
+assert_eq!(Call::parser().parse("cpu.call 2, 4294967296").into_result(), Ok(Call(2, 4294967296)));
 ```
 
-Here `$0` uses `u32::parser()` directly, while `$1` uses `u64::parser()` and a
-checked conversion into `u32`. Binding indices identify fields even when a
+Here `$0` uses `u32::parser()` directly, while `$1` retains the output of
+`u64::parser()`. Binding indices identify fields even when a
 pattern changes capture order. Named bindings support annotations too, such as
 `$address:u64`. Type aliases, qualified paths, and nested generic arguments keep
 normal Rust scope. Parenthesize types needing whitespace outside delimiters.
 
-Give encoded literals a local newtype implementing `Parse` and `From` into the
-runtime field. Rust supplies `TryInto` through that `From` implementation. For
-example, an `I64Literal` can parse a signed integer and encode it into a CPU
-`Word`, preserving negative bit patterns without a separate resolution pass.
+For typed dialects, give encoded literals a local newtype implementing `Parse`.
+The syntax instruction retains that newtype; its `Lower` implementation encodes
+the runtime field. For example, an `I64Literal` can retain a signed integer until
+lowering encodes it into a CPU `Word`, preserving negative bit patterns. Such
+local conversions can implement lowering for any context without capability
+bounds.
 
 ## Syntax classes
 

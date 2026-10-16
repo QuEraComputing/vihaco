@@ -6,8 +6,10 @@
 //!
 //! A [`ParsedModule`] contains [`ParsedFunction`] values whose bodies are
 //! typed instruction vectors. Unknown or malformed instructions are parse
-//! errors. With `typed-declarations`, bodies contain runtime instructions and
-//! readability labels emit no executable slots. Feature-off consumers retain
+//! errors. With `typed-declarations`, bodies can contain the generated syntax
+//! aggregate, lowered with a program loader's capabilities before execution.
+//! Labels retain their instruction positions without emitting executable slots.
+//! Feature-off consumers retain
 //! the separate `Resolve` bridge.
 
 mod types;
@@ -16,6 +18,8 @@ pub mod parse;
 #[cfg(not(feature = "typed-declarations"))]
 pub mod resolve;
 
+#[cfg(feature = "typed-declarations")]
+pub use types::ParsedLabel;
 pub use types::{Param, ParsedFunction, ParsedModule};
 pub use vihaco_parser::SurfaceInstruction;
 
@@ -55,6 +59,23 @@ mod tests {
         assert_eq!(f.name.as_str(), "main");
         assert!(f.params.is_empty());
         assert!(f.body.is_empty());
+    }
+
+    #[cfg(feature = "typed-declarations")]
+    #[test]
+    fn retains_label_positions_without_executable_slots() {
+        let f = ParsedFunction::<StubInst, StubType>::parser()
+            .parse("fn @main() { label @entry label @alias stub.halt label @exit }")
+            .into_result()
+            .unwrap();
+        assert_eq!(f.body, [StubInst::Halt]);
+        assert_eq!(
+            f.labels
+                .iter()
+                .map(|label| (label.name.as_str(), label.instruction_index))
+                .collect::<Vec<_>>(),
+            [("entry", 0), ("alias", 0), ("exit", 1)],
+        );
     }
 
     #[test]

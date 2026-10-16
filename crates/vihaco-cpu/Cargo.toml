@@ -8,6 +8,7 @@ repository.workspace = true
 authors.workspace = true
 
 [features]
+default = []
 typed-declarations = ["vihaco/typed-declarations"]
 
 [dependencies]
@@ -19,6 +20,5 @@ vihaco = { workspace = true }
 vihaco-parser = { workspace = true }
 vihaco-parser-derive = { workspace = true }
 
-[[example]]
-name = "typed_cpu"
-required-features = ["typed-declarations"]
+[dev-dependencies]
+trybuild = "1.0"

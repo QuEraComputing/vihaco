@@ -533,10 +533,11 @@ fn emit(collection: Collection) -> Result<TokenStream> {
     })
 }
 
-/// Generate a flat runtime enum, its qualified parser, and eager Step dispatch.
+/// Generate a phase-aware flat enum, lowering, qualified parsing, and runtime Step dispatch.
 fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenStream> {
     let name = &item.ident;
     let runtime = format_ident!("__vihaco_{}Instruction", name.unraw());
+    let phase = format_ident!("__vihaco_{}InstructionPhase", name.unraw());
     let provider = module_ident(name);
     let (impl_generics, type_generics, where_clause) = item.generics.split_for_impl();
     let variants: Vec<_> = entries.iter().map(|entry| variant(&entry.record)).collect();
@@ -548,6 +549,9 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
             syn::parse_quote!(<#provider::Provider as #root::__private::LeafAt<#slot>>::Instruction)
         })
         .collect();
+    let authored = quote!(#root #item #(#types)*);
+    let phase_parameter = fresh_aggregate_ident("__VihacoPhase", authored.clone());
+    let context_parameter = fresh_aggregate_ident("__VihacoLoader", authored);
     let mut arms = Vec::new();
     for ((entry, variant), ty) in entries.iter().zip(&variants).zip(&types) {
         let field = entry.field.as_ref().ok_or_else(|| {
@@ -555,50 +559,125 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
         })?;
         arms.push(quote!(#runtime::#variant(instruction) => <Self as #root::Step<#field, #ty>>::step(self, instruction)));
     }
-    let parsers = entries.iter().zip(&variants).zip(&types).map(|((entry, variant), ty)| {
-        let mut prefix = quote!(#root::chumsky::primitive::empty());
-        for segment in &entry.record.segments {
-            let source = &segment.source;
-            let branches = source.iter().map(|source| quote!(#root::chumsky::primitive::just(#source).then_ignore(#root::chumsky::primitive::just("::"))));
-            prefix = quote!(#prefix.ignore_then(#root::chumsky::primitive::choice(vec![#(#branches),*])));
-        }
-        let dialect = LitStr::new(&entry.record.dialect.unraw().to_string(), entry.record.dialect.span());
-        quote!(#prefix.ignore_then(#root::chumsky::primitive::just(#dialect))
-            .then_ignore(#root::chumsky::primitive::just("::"))
-            .ignore_then(<#ty as #root::Parse<'src>>::parser()).map(Self::#variant).boxed())
-    }).collect::<Vec<_>>();
-    let parser = if parsers.is_empty() {
-        quote!(#root::chumsky::primitive::empty().try_map(|_, span| -> ::core::result::Result<Self, #root::chumsky::error::Simple<'src, char>> {
-            Err(#root::chumsky::error::Simple::new(None, span))
-        }))
+    let members: Vec<_> = (0..entries.len())
+        .map(|i| format_ident!("Instruction{i}"))
+        .collect();
+    let syntax_types: Vec<_> = types
+        .iter()
+        .map(|ty| quote!(<#ty as #root::__private::InstructionSpec>::Syntax))
+        .collect();
+    let (declaration, syntax, parser_impl, lowering) = if entries.is_empty() {
+        (
+            quote!(pub enum #runtime {}),
+            quote!(#runtime),
+            quote! {
+                impl<'src> #root::Parse<'src> for #runtime {
+                    fn parser() -> impl #root::chumsky::Parser<'src, &'src str, Self,
+                        #root::chumsky::extra::Err<#root::chumsky::error::Simple<'src, char>>> {
+                        use #root::chumsky::Parser as _;
+                        #root::chumsky::primitive::empty().try_map(|_, span| -> ::core::result::Result<Self, #root::chumsky::error::Simple<'src, char>> {
+                            Err(#root::chumsky::error::Simple::new(None, span))
+                        })
+                    }
+                }
+            },
+            quote! {
+                impl<#context_parameter: ?Sized> #root::Lower<#context_parameter> for #runtime {
+                    type Runtime = Self;
+                    fn lower(self, _: &mut #context_parameter) -> #root::eyre::Result<Self> { match self {} }
+                }
+            },
+        )
     } else {
-        quote!(#root::chumsky::primitive::choice(vec![#(#parsers),*]))
+        let parsers = entries.iter().zip(&variants).zip(&members).map(|((entry, variant), member)| {
+            let mut prefix = quote!(#root::chumsky::primitive::empty());
+            for segment in &entry.record.segments {
+                let source = &segment.source;
+                let branches = source.iter().map(|source| quote!(#root::chumsky::primitive::just(#source).then_ignore(#root::chumsky::primitive::just("::"))));
+                prefix = quote!(#prefix.ignore_then(#root::chumsky::primitive::choice(vec![#(#branches),*])));
+            }
+            let dialect = LitStr::new(&entry.record.dialect.unraw().to_string(), entry.record.dialect.span());
+            quote!(#prefix.ignore_then(#root::chumsky::primitive::just(#dialect))
+                .then_ignore(#root::chumsky::primitive::just("::"))
+                .ignore_then(<#phase_parameter::#member as #root::Parse<'src>>::parser()).map(Self::#variant).boxed())
+        }).collect::<Vec<_>>();
+        let lower_arms = variants.iter().zip(&syntax_types).map(|(variant, ty)| quote! {
+            Self::#variant(instruction) => Ok(#runtime::#variant(<#ty as #root::Lower<#context_parameter>>::lower(instruction, context)?))
+        });
+        (
+            quote! {
+                pub enum #runtime<#phase_parameter: #phase = #root::Runtime> { #(#variants(#phase_parameter::#members)),* }
+                #[doc(hidden)]
+                #[allow(non_camel_case_types)]
+                pub trait #phase: ::core::clone::Clone + ::core::fmt::Debug + ::core::cmp::PartialEq {
+                    #(type #members: ::core::clone::Clone + ::core::fmt::Debug + ::core::cmp::PartialEq;)*
+                }
+                impl #phase for #root::Syntax { #(type #members = #syntax_types;)* }
+                impl #phase for #root::Runtime { #(type #members = #types;)* }
+            },
+            quote!(#runtime<#root::Syntax>),
+            quote! {
+                impl<'src, #phase_parameter: #phase + 'src> #root::Parse<'src> for #runtime<#phase_parameter>
+                where #(#phase_parameter::#members: #root::Parse<'src> + 'src),* {
+                    fn parser() -> impl #root::chumsky::Parser<'src, &'src str, Self,
+                        #root::chumsky::extra::Err<#root::chumsky::error::Simple<'src, char>>> {
+                        use #root::chumsky::Parser as _;
+                        #root::chumsky::primitive::choice(vec![#(#parsers),*])
+                    }
+                }
+            },
+            quote! {
+                impl<#context_parameter: ?Sized> #root::Lower<#context_parameter> for #runtime<#root::Syntax>
+                where #(#syntax_types: #root::Lower<#context_parameter, Runtime = #types>),* {
+                    type Runtime = #runtime;
+                    fn lower(self, context: &mut #context_parameter) -> #root::eyre::Result<Self::Runtime> {
+                        match self { #(#lower_arms),* }
+                    }
+                }
+            },
+        )
     };
     Ok(quote! {
         #[doc(hidden)] #[allow(non_camel_case_types, clippy::enum_variant_names)] #[derive(Clone, Debug, PartialEq)]
-        pub enum #runtime { #(#variants(#types)),* }
+        #declaration
 
         impl #impl_generics #root::HasInstructionSet for #name #type_generics #where_clause {
             type Runtime = #runtime;
+            type Syntax = #syntax;
         }
-
-
-
-        impl<'src> #root::Parse<'src> for #runtime {
-            fn parser() -> impl #root::chumsky::Parser<'src, &'src str, Self, #root::chumsky::extra::Err<#root::chumsky::error::Simple<'src, char>>> {
-                use #root::chumsky::Parser as _;
-                #parser
-            }
-        }
+        #parser_impl
+        #lowering
+        impl #root::SurfaceInstruction for #syntax {}
 
         impl #impl_generics #root::Dispatch for #name #type_generics #where_clause {
             type Instruction = #runtime;
-
             fn dispatch(&mut self, instruction: Self::Instruction) {
                 match instruction { #(#arms),* }
             }
         }
     })
+}
+
+/// Keep generated aggregate parameters distinct from authored framework paths.
+fn fresh_aggregate_ident(base: &str, tokens: TokenStream) -> Ident {
+    fn collect(tokens: TokenStream, names: &mut std::collections::HashSet<String>) {
+        for token in tokens {
+            match token {
+                proc_macro2::TokenTree::Ident(ident) => {
+                    names.insert(ident.to_string());
+                }
+                proc_macro2::TokenTree::Group(group) => collect(group.stream(), names),
+                _ => {}
+            }
+        }
+    }
+    let mut names = std::collections::HashSet::new();
+    collect(tokens, &mut names);
+    let mut candidate = base.to_owned();
+    while names.contains(&candidate) {
+        candidate.push('_');
+    }
+    Ident::new(&candidate, proc_macro2::Span::call_site())
 }
 
 #[cfg(test)]

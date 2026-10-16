@@ -26,6 +26,25 @@ pub trait LoadOwnBytecodeSection<C> {
 /// make its own section behavior explicit, even when that behavior is a no-op.
 pub trait LoadOwnSstSection<C> {
     fn load_own_sst_section<'bc>(&mut self, section: SstSectionView<'bc, C>) -> eyre::Result<()>;
+
+    /// Lower a section's parsed instructions after preparing loader capabilities.
+    ///
+    /// Call this from `load_own_sst_section` before storing executable code.
+    /// For a generated composite syntax aggregate, the single `Lower<Self>`
+    /// bound requires every included instruction's loader capabilities. An
+    /// error returns no partial instruction vector.
+    fn lower_instructions<I>(
+        &mut self,
+        instructions: impl IntoIterator<Item = I>,
+    ) -> eyre::Result<Vec<I::Runtime>>
+    where
+        I: vihaco_abi::Lower<Self>,
+    {
+        instructions
+            .into_iter()
+            .map(|instruction| instruction.lower(self))
+            .collect()
+    }
 }
 
 /// Allow a machine to load a bytecode section completely.

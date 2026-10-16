@@ -1,0 +1,25 @@
+error[E0277]: the trait bound `Loader: Lookup` is not satisfied
+  --> tests/compile_fail/lowering/missing-capability.rs:34:20
+   |
+34 |     let _ = Loader.lower_instructions([source]);
+   |                    ^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Lookup` is not implemented for `Loader`
+  --> tests/compile_fail/lowering/missing-capability.rs:25:1
+   |
+25 | struct Loader;
+   | ^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> tests/compile_fail/lowering/missing-capability.rs:3:1
+   |
+ 3 | trait Lookup { fn lookup(&self, value: u64) -> u32; }
+   | ^^^^^^^^^^^^
+note: required for `Call<Syntax>` to implement `vihaco_runtime::Lower<Loader>`
+  --> tests/compile_fail/lowering/missing-capability.rs:10:26
+   |
+10 | impl<C: Lookup + ?Sized> Lower<C> for control::Call<Syntax> {
+   |         ------           ^^^^^^^^     ^^^^^^^^^^^^^^^^^^^^^
+   |         |
+   |         unsatisfied trait bound introduced here
+   = note: 1 redundant requirement hidden
+   = note: required for `__vihaco_MachineInstruction<Syntax>` to implement `vihaco_runtime::Lower<Loader>`
