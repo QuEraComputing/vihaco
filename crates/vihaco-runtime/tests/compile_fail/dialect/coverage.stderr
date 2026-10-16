@@ -1,0 +1,24 @@
+error[E0277]: the trait bound `Cpu: Execute<B>` is not satisfied
+  --> tests/compile_fail/dialect/coverage.rs:11:65
+   |
+11 | ...re_coverage::<Cpu, <invalid::A as vihaco_runtime::__private::InstructionSpec>::Dialect>(); }
+   |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Execute<B>` is not implemented for `Cpu`
+      but trait `Execute<A>` is implemented for it
+  --> tests/compile_fail/dialect/coverage.rs:7:1
+   |
+ 7 | impl vihaco_runtime::Execute<invalid::A> for Cpu {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for that trait implementation, expected `A`, found `B`
+note: required for `__VihacoDialect` to implement `vihaco_runtime::__private::Coverage<Cpu>`
+  --> tests/compile_fail/dialect/coverage.rs:3:1
+   |
+ 3 | #[dialect]
+   | ^^^^^^^^^^
+note: required by a bound in `vihaco_runtime::__private::require_coverage`
+  --> src/declarations.rs
+   |
+   | pub fn require_coverage<C: Component, D: Coverage<C>>() {}
+   |                                          ^^^^^^^^^^^ required by this bound in `require_coverage`
+   = note: this error originates in the attribute macro `dialect` (in Nightly builds, run with -Z macro-backtrace for more info)

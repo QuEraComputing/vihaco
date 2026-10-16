@@ -1,0 +1,22 @@
+error[E0277]: the trait bound `Actual: vihaco_runtime::Field<leaf>` is not satisfied
+  --> tests/compile_fail/composites/checked-route-used.rs:12:27
+   |
+12 | fn main() { let _: Option<Route> = None; }
+   |                           ^^^^^ unsatisfied trait bound
+   |
+help: the trait `Field<leaf>` is not implemented for `Actual`
+      but trait `Field<other>` is implemented for it
+  --> tests/compile_fail/composites/checked-route-used.rs:7:1
+   |
+ 7 | #[composite] struct Actual { #[device] other: Leaf }
+   | ^^^^^^^^^^^^
+   = help: for that trait implementation, expected `other`, found `leaf`
+   = note: required for `Machine` to implement `vihaco_runtime::Field<vihaco_runtime::__private::FieldPath<child, leaf>>`
+note: required by a bound in `vihaco_runtime::__private::CheckedRoute::Marker`
+  --> src/declarations.rs
+   |
+   | pub trait CheckedRoute<Route>: Field<Route> {
+   |                                ^^^^^^^^^^^^ required by this bound in `CheckedRoute::Marker`
+   |     type Marker;
+   |          ------ required by a bound in this associated type
+   = note: this error originates in the attribute macro `composite` (in Nightly builds, run with -Z macro-backtrace for more info)

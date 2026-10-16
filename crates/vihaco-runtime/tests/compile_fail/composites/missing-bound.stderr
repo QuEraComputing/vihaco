@@ -1,0 +1,11 @@
+error[E0277]: the trait bound `T: vihaco_runtime::__private::Capabilities` is not satisfied
+ --> tests/compile_fail/composites/missing-bound.rs:6:1
+  |
+6 | #[composite]
+  | ^^^^^^^^^^^^ the trait `vihaco_runtime::__private::Capabilities` is not implemented for `T`
+  |
+  = note: this error originates in the attribute macro `composite` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider restricting type parameter `T` with trait `Capabilities`
+  |
+8 | struct Parent<T: vihaco_runtime::__private::Capabilities> {
+  |                +++++++++++++++++++++++++++++++++++++++++

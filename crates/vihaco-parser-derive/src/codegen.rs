@@ -28,6 +28,13 @@ use syn::{
     FieldsUnnamed, Generics, Ident, Lifetime, Result, Type,
 };
 
+/// Paths used by emitted code in the consuming crate. Standalone derives use
+/// direct dependencies; dialect parsers use the framework's reexports.
+struct ParserPaths {
+    parser_root: syn::Path,
+    chumsky: syn::Path,
+}
+
 #[derive(PartialEq)]
 enum BindingRef<'p> {
     Index(u32),
@@ -465,7 +472,7 @@ fn validate_pattern_unit<'p, 'src>(
     Ok(ValidatedPatternInfo {
         pattern: resolved,
         target: parsed.target,
-        constructor: ConstructorType::Unnamed,
+        constructor: ConstructorType::Unit,
     })
 }
 
@@ -490,6 +497,7 @@ struct ResolvedBinding {
 }
 
 enum ConstructorType {
+    Unit,
     Named,
     Unnamed,
 }
@@ -516,7 +524,12 @@ enum ParserPart {
 
 fn build_parser_syntax_parts(
     pattern: PatternAtoms<ResolvedBinding>,
+    paths: &ParserPaths,
 ) -> eyre::Result<Vec<ParserPart>> {
+    let ParserPaths {
+        parser_root,
+        chumsky,
+    } = paths;
     let mut parts = vec![];
 
     for atom in pattern {
@@ -524,7 +537,7 @@ fn build_parser_syntax_parts(
             Token(token) => {
                 parts.push(ParserPart::Ignore {
                     parser: quote! {
-                        ::chumsky::primitive::just(#token).ignored()
+                        #chumsky::primitive::just(#token).ignored()
                     },
                     suppresses_leading_whitespace: false,
                     suppresses_trailing_whitespace: false,
@@ -538,7 +551,7 @@ fn build_parser_syntax_parts(
             }) => {
                 parts.push(ParserPart::Capture {
                     parser: quote! {
-                        <#ty as ::vihaco_parser::Parse>::parser()
+                        <#ty as #parser_root::Parse>::parser()
                     },
                     name,
                     binding,
@@ -551,7 +564,7 @@ fn build_parser_syntax_parts(
                 let literal = literal.to_string();
                 parts.push(ParserPart::Ignore {
                     parser: quote! {
-                        ::chumsky::primitive::just(#literal).ignored()
+                        #chumsky::primitive::just(#literal).ignored()
                     },
                     suppresses_leading_whitespace,
                     suppresses_trailing_whitespace,
@@ -564,8 +577,9 @@ fn build_parser_syntax_parts(
 }
 
 impl<'p> ValidatedPatternInfo<'p> {
-    fn emit(self) -> eyre::Result<(Ident, TokenStream2)> {
-        let parts = build_parser_syntax_parts(self.pattern)?;
+    fn emit(self, paths: &ParserPaths) -> eyre::Result<(Ident, TokenStream2)> {
+        let chumsky = &paths.chumsky;
+        let parts = build_parser_syntax_parts(self.pattern, paths)?;
 
         let mut chain = None::<TokenStream2>;
         let mut pattern = None::<TokenStream2>;
@@ -573,7 +587,7 @@ impl<'p> ValidatedPatternInfo<'p> {
         let mut previous_suppresses_trailing_whitespace = false;
         let mut constructor_fields = Vec::<(usize, Option<Ident>, Ident)>::new();
 
-        let ws = quote! { .then_ignore(::chumsky::primitive::just(' ').repeated().at_least(1)) };
+        let ws = quote! { .then_ignore(#chumsky::primitive::just(' ').repeated().at_least(1)) };
 
         for part in parts {
             match part {
@@ -648,10 +662,15 @@ impl<'p> ValidatedPatternInfo<'p> {
         };
 
         let map = if bindings.is_empty() {
-            quote! { .map(|_| #constructor) }
+            match self.constructor {
+                ConstructorType::Unit => quote! { .map(|_| #constructor) },
+                ConstructorType::Unnamed => quote! { .map(|_| #constructor()) },
+                ConstructorType::Named => quote! { .map(|_| #constructor {}) },
+            }
         } else {
             let pattern = pattern.expect("capture pattern exists when bindings exist");
             match self.constructor {
+                ConstructorType::Unit => unreachable!("unit constructors have no bindings"),
                 ConstructorType::Named => {
                     let fields = constructor_fields.iter().map(|(_, name, binding)| {
                         let name = name
@@ -779,6 +798,7 @@ fn compile_pattern_parser(
     info: PatternCompilationInfo,
     decl_span: Span,
     variant_span: Span,
+    paths: &ParserPaths,
 ) -> Result<(Ident, TokenStream2, Option<InstructionWithSpan>)> {
     let Some(ref class) = info.class else {
         return Err(Error::new(
@@ -803,17 +823,21 @@ fn compile_pattern_parser(
             .contains_token()
             .map(|token| (token.to_owned(), span));
         let (ident, parser) = validated
-            .emit()
+            .emit(paths)
             .map_err(|err| Error::new(span, err.to_string()))?;
         Ok((ident, parser, instruction_token))
     } else {
         let new_info = generate_pattern(info, variant_span)
             .map_err(|err| Error::new(variant_span, err.to_string()))?;
-        compile_pattern_parser(new_info, decl_span, variant_span)
+        compile_pattern_parser(new_info, decl_span, variant_span, paths)
     }
 }
 
-fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
+fn expand_enum(input: EnumInfo, paths: &ParserPaths) -> Result<TokenStream> {
+    let ParserPaths {
+        parser_root,
+        chumsky,
+    } = paths;
     let enum_ident = &input.ident;
     let enum_attrs = EnumAttrs::from_attrs(input.attrs)?;
     if enum_attrs.syntax_class.is_none() {
@@ -859,8 +883,12 @@ fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
             class: enum_attrs.syntax_class.clone(),
         };
 
-        let ident_and_parser =
-            compile_pattern_parser(pattern_compilation_info, enum_ident.span(), variant.span())?;
+        let ident_and_parser = compile_pattern_parser(
+            pattern_compilation_info,
+            enum_ident.span(),
+            variant.span(),
+            paths,
+        )?;
 
         if let Some((token, span)) = &ident_and_parser.2 {
             if !instruction_names.insert(token.clone()) {
@@ -898,7 +926,7 @@ fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
         let only = &variant_data[0].0;
         quote! { #only }
     } else if variant_data.len() <= 26 {
-        quote! { ::chumsky::primitive::choice((#(#var_names),*)) }
+        quote! { #chumsky::primitive::choice((#(#var_names),*)) }
     } else {
         let chunks: Vec<TokenStream2> = var_names
             .chunks(26)
@@ -907,25 +935,25 @@ fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
                     quote! { #only }
                 } else {
                     let parts = chunk.iter();
-                    quote! { ::chumsky::primitive::choice((#(#parts),*)) }
+                    quote! { #chumsky::primitive::choice((#(#parts),*)) }
                 }
             })
             .collect();
-        quote! { ::chumsky::primitive::choice((#(#chunks),*)) }
+        quote! { #chumsky::primitive::choice((#(#chunks),*)) }
     };
 
     let parser = match &enum_attrs.syntax_class {
         Some(SyntaxClassAttr::Instruction { head: Some(head) }) => {
             let head = format!("{head}.");
             quote! {
-                ::chumsky::primitive::just(#head)
+                #chumsky::primitive::just(#head)
                 .ignore_then(#or_chain)
             }
         }
         Some(SyntaxClassAttr::Metadata { head }) => {
             let head = format!("{head} ");
             quote! {
-                ::chumsky::primitive::just(#head)
+                #chumsky::primitive::just(#head)
                     .ignore_then(#or_chain)
             }
         }
@@ -938,21 +966,21 @@ fn expand_enum(input: EnumInfo) -> Result<TokenStream> {
     ) {
         let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
         quote! {
-            impl #impl_generics ::vihaco_parser::SurfaceInstruction for #enum_ident #ty_generics #where_clause {}
+            impl #impl_generics #parser_root::SurfaceInstruction for #enum_ident #ty_generics #where_clause {}
         }
     } else {
         quote! {}
     };
 
     let output = quote! {
-        impl #impl_generics ::vihaco_parser::Parse<#src_lifetime> for #enum_ident #ty_generics #where_clause {
-            fn parser() -> impl ::chumsky::Parser<
+        impl #impl_generics #parser_root::Parse<#src_lifetime> for #enum_ident #ty_generics #where_clause {
+            fn parser() -> impl #chumsky::Parser<
                 #src_lifetime,
                 &#src_lifetime str,
                 Self,
-                ::chumsky::extra::Err<::chumsky::error::Simple<#src_lifetime, char>>,
+                #chumsky::extra::Err<#chumsky::error::Simple<#src_lifetime, char>>,
             > {
-                use ::chumsky::Parser as _;
+                use #chumsky::Parser as _;
                 #(#variant_bindings)*
                 #parser
             }
@@ -974,7 +1002,18 @@ struct ExpansionInfo<'src, T> {
 type EnumInfo<'src> = ExpansionInfo<'src, syn::DataEnum>;
 type StructInfo<'src> = ExpansionInfo<'src, syn::DataStruct>;
 
-fn expand_struct(input: StructInfo) -> Result<TokenStream> {
+fn expand_struct(input: StructInfo, paths: &ParserPaths) -> Result<TokenStream> {
+    compile_struct(input, paths).map(|(parser, _)| parser)
+}
+
+fn compile_struct(
+    input: StructInfo,
+    paths: &ParserPaths,
+) -> Result<(TokenStream, Option<InstructionWithSpan>)> {
+    let ParserPaths {
+        parser_root,
+        chumsky,
+    } = paths;
     let struct_ident = input.ident;
     let struct_attrs = StructAttrs::from_attrs(input.attrs)?;
     if struct_attrs.syntax_class.is_none() {
@@ -1006,7 +1045,8 @@ fn expand_struct(input: StructInfo) -> Result<TokenStream> {
     };
 
     let span = struct_ident.span();
-    let (ident, parser_binding, _) = compile_pattern_parser(pattern_compilation_info, span, span)?;
+    let (ident, parser_binding, mnemonic) =
+        compile_pattern_parser(pattern_compilation_info, span, span, paths)?;
 
     let parser_generics = generics_with_lifetime(input.generics, &src_lifetime);
     let (impl_generics, _, where_clause) = parser_generics.split_for_impl();
@@ -1016,14 +1056,14 @@ fn expand_struct(input: StructInfo) -> Result<TokenStream> {
         Some(SyntaxClassAttr::Instruction { head: Some(head) }) => {
             let head = format!("{head}.");
             quote! {
-                ::chumsky::primitive::just(#head)
+                #chumsky::primitive::just(#head)
                 .ignore_then(#ident)
             }
         }
         Some(SyntaxClassAttr::Metadata { head }) => {
             let head = format!("{head} ");
             quote! {
-                ::chumsky::primitive::just(#head)
+                #chumsky::primitive::just(#head)
                     .ignore_then(#ident)
             }
         }
@@ -1031,37 +1071,53 @@ fn expand_struct(input: StructInfo) -> Result<TokenStream> {
     };
 
     let output = quote! {
-        impl #impl_generics ::vihaco_parser::Parse<#src_lifetime> for #struct_ident #ty_generics #where_clause {
-            fn parser() -> impl ::chumsky::Parser<
+        impl #impl_generics #parser_root::Parse<#src_lifetime> for #struct_ident #ty_generics #where_clause {
+            fn parser() -> impl #chumsky::Parser<
                 #src_lifetime,
                 &#src_lifetime str,
                 Self,
-                ::chumsky::extra::Err<::chumsky::error::Simple<#src_lifetime, char>>,
+                #chumsky::extra::Err<#chumsky::error::Simple<#src_lifetime, char>>,
             > {
-                use ::chumsky::Parser as _;
+                use #chumsky::Parser as _;
                 #parser_binding
                 #parser
             }
         }
     };
 
-    Ok(output.into())
+    Ok((output.into(), mnemonic))
 }
 
 pub fn expand(input: DeriveInput) -> Result<TokenStream> {
+    expand_rooted(
+        input,
+        &ParserPaths {
+            parser_root: syn::parse_quote!(::vihaco_parser),
+            chumsky: syn::parse_quote!(::chumsky),
+        },
+    )
+}
+
+fn expand_rooted(input: DeriveInput, paths: &ParserPaths) -> Result<TokenStream> {
     match &input.data {
-        Data::Enum(e) => expand_enum(EnumInfo {
-            data: e,
-            ident: &input.ident,
-            attrs: &input.attrs,
-            generics: &input.generics,
-        }),
-        Data::Struct(s) => expand_struct(StructInfo {
-            data: s,
-            ident: &input.ident,
-            attrs: &input.attrs,
-            generics: &input.generics,
-        }),
+        Data::Enum(e) => expand_enum(
+            EnumInfo {
+                data: e,
+                ident: &input.ident,
+                attrs: &input.attrs,
+                generics: &input.generics,
+            },
+            paths,
+        ),
+        Data::Struct(s) => expand_struct(
+            StructInfo {
+                data: s,
+                ident: &input.ident,
+                attrs: &input.attrs,
+                generics: &input.generics,
+            },
+            paths,
+        ),
         _ => Err(Error::new_spanned(
             &input,
             "#[derive(Parse)] is not supported on unions",
@@ -1097,4 +1153,93 @@ fn fresh_lifetime(generics: &syn::Generics, base: &str) -> Lifetime {
     }
 
     unreachable!("unbounded fresh lifetime search")
+}
+
+// Internal emitter hook: the dialect owns declarations; the parser owns pattern
+// validation, including the mnemonic used by the typed association.
+pub fn dialect_parsers(root: TokenStream2, item: TokenStream2) -> Result<TokenStream2> {
+    let root: syn::Path = syn::parse2(root)?;
+    let mut module: syn::ItemMod = syn::parse2(item)?;
+    let items = &mut module
+        .content
+        .as_mut()
+        .ok_or_else(|| Error::new(module.ident.span(), "expected inline dialect module"))?
+        .1;
+    let mut leaves = Vec::new();
+    let mut declarations = Vec::new();
+    for item in items.drain(..) {
+        if let syn::Item::Struct(mut surface) = item {
+            if let Some(index) = surface
+                .attrs
+                .iter()
+                .position(|attr| attr.path().is_ident("__vihaco_runtime"))
+            {
+                let runtime: Ident = surface.attrs.remove(index).parse_args()?;
+                leaves.push((runtime, syn::parse2::<DeriveInput>(quote!(#surface))?));
+            } else {
+                declarations.push(syn::Item::Struct(surface));
+            }
+        } else {
+            declarations.push(item);
+        }
+    }
+    *items = declarations;
+    let paths = ParserPaths {
+        parser_root: root.clone(),
+        chumsky: syn::parse_quote!(#root::chumsky),
+    };
+    let mut emitted = Vec::new();
+    let mut mnemonics = HashSet::new();
+    let mut patterns = HashSet::new();
+    // Validate every parser first so a collision cannot mask malformed syntax.
+    let mut validated = Vec::new();
+    for (runtime, surface) in leaves {
+        let data = match &surface.data {
+            Data::Struct(data) => data,
+            _ => return Err(Error::new_spanned(&surface, "expected surface struct")),
+        };
+        let attrs = StructAttrs::from_attrs(&surface.attrs)?;
+        let pattern = attrs.pattern.as_ref().map(|p| p.0.clone());
+        let (parser, mnemonic) = compile_struct(
+            StructInfo {
+                data,
+                ident: &surface.ident,
+                attrs: &surface.attrs,
+                generics: &surface.generics,
+            },
+            &paths,
+        )?;
+        let parser = TokenStream2::from(parser);
+        validated.push((runtime, surface, parser, mnemonic, pattern));
+    }
+    for (runtime, mut surface, parser, mnemonic, pattern) in validated {
+        let (mnemonic, span) = mnemonic
+            .ok_or_else(|| Error::new_spanned(&surface, "expected instruction mnemonic"))?;
+        if let Some(pattern) = pattern {
+            if !patterns.insert(pattern) {
+                return Err(Error::new(span, "duplicate instruction pattern"));
+            }
+        }
+        if !mnemonics.insert(mnemonic.clone()) {
+            return Err(Error::new(
+                span,
+                format!("duplicate instruction name `{mnemonic}`"),
+            ));
+        }
+        surface
+            .attrs
+            .retain(|a| !a.path().is_ident("syntax_class") && !a.path().is_ident("pattern"));
+        emitted.push(quote! {
+            #surface
+            #parser
+            impl #root::__private::InstructionSpec for #runtime {
+                type Surface = syntax::#runtime;
+                type Dialect = __VihacoDialect;
+                const MNEMONIC: &'static str = #mnemonic;
+            }
+        });
+    }
+    let generated: syn::File = syn::parse2(quote!(#(#emitted)*))?;
+    items.extend(generated.items);
+    Ok(quote!(#module))
 }

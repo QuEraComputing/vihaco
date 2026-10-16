@@ -1,0 +1,5 @@
+error: instructions require unit or tuple structs
+ --> tests/compile_fail/dialect/named.rs:4:46
+  |
+4 | mod invalid { #[instruction] pub struct Halt { x: u32 } }
+  |                                              ^^^^^^^^^^

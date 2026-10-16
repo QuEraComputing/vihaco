@@ -1,0 +1,10 @@
+error[E0428]: the name `__vihaco_fields_Parent` is defined multiple times
+ --> tests/compile_fail/composites/marker-module-collision.rs:6:1
+  |
+5 | mod __vihaco_fields_Parent {}
+  | -------------------------- previous definition of the module `__vihaco_fields_Parent` here
+6 | #[composite]
+  | ^^^^^^^^^^^^ `__vihaco_fields_Parent` redefined here
+  |
+  = note: `__vihaco_fields_Parent` must be defined only once in the type namespace of this module
+  = note: this error originates in the attribute macro `composite` (in Nightly builds, run with -Z macro-backtrace for more info)

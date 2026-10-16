@@ -11,6 +11,7 @@ use syn::spanned::Spanned;
 use syn::{Data, DeriveInput, Fields, GenericParam, Lifetime, LitStr, Token};
 
 use crate::common::resolve_root;
+use crate::composite_loader::SectionLoadField;
 
 struct DeviceArgs {
     code: u8,
@@ -34,12 +35,6 @@ impl Parse for SectionLoadArgs {
         };
         Ok(SectionLoadArgs { section_name })
     }
-}
-
-struct SectionLoadField {
-    field: syn::Ident,
-    ty: syn::Type,
-    section_name: String,
 }
 
 impl Parse for DeviceArgs {
@@ -99,17 +94,6 @@ fn validate_loadable_name(name: &str, span: proc_macro2::Span) -> syn::Result<()
         ));
     }
     Ok(())
-}
-
-fn method_where_clause(predicates: &[TokenStream2]) -> TokenStream2 {
-    if predicates.is_empty() {
-        quote! {}
-    } else {
-        quote! {
-            where
-                #( #predicates ),*
-        }
-    }
 }
 
 fn stream_contains_ident(stream: TokenStream2, ident: &syn::Ident) -> bool {
@@ -394,201 +378,7 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
         quote! { #root::chumsky::primitive::choice((#(#syntax_parser_alternatives),*)) }
     };
 
-    let bc_lifetime = Lifetime::new("'__vihaco_bc", proc_macro2::Span::call_site());
-    let loadable_context_param = format_ident!("__VihacoContext");
-    let mut loadable_predicates = Vec::<TokenStream2>::new();
-    loadable_predicates.push(
-        quote! { #ident #ty_generics: #root::loader::LoadOwnBytecodeSection<#loadable_context_param> },
-    );
-    for loadable in &loadables {
-        let ty = &loadable.ty;
-        loadable_predicates
-            .push(quote! { #ty: #root::loader::LoadBytecodeSection<#loadable_context_param> });
-    }
-    let loadable_method_where = method_where_clause(&loadable_predicates);
-
-    let mut loadable_impl_generics = generics.clone();
-    loadable_impl_generics
-        .params
-        .push(syn::parse_quote!(#loadable_context_param));
-    if !loadable_predicates.is_empty() {
-        let where_clause = loadable_impl_generics.make_where_clause();
-        for predicate in &loadable_predicates {
-            where_clause
-                .predicates
-                .push(syn::parse2(predicate.clone())?);
-        }
-    }
-    let (loadable_impl_generics, _, loadable_where_clause) =
-        loadable_impl_generics.split_for_impl();
-
-    let loadable_names: Vec<_> = loadables
-        .iter()
-        .map(|loadable| loadable.section_name.clone())
-        .collect();
-    let child_loads: Vec<_> = loadables
-        .iter()
-        .map(|loadable| {
-            let field = &loadable.field;
-            let ty = &loadable.ty;
-            let name = &loadable.section_name;
-            quote! {
-                if let ::std::option::Option::Some(__vihaco_child) = section.child(#name) {
-                    <#ty as #root::loader::LoadBytecodeSection<#loadable_context_param>>::load_bytecode_section(
-                        &mut self.#field,
-                        __vihaco_child,
-                    )?;
-                }
-            }
-        })
-        .collect();
-
-    let loadable_impl = quote! {
-        impl #impl_generics #ident #ty_generics #where_clause {
-            pub fn load_generated_bytecode_sections<#bc_lifetime, #loadable_context_param>(
-                &mut self,
-                section: #root::BytecodeSectionView<#bc_lifetime, #loadable_context_param>,
-            ) -> ::eyre::Result<()>
-            #loadable_method_where
-            {
-                #root::loader::LoadOwnBytecodeSection::<#loadable_context_param>::load_own_bytecode_section(
-                    self,
-                    section.clone(),
-                )?;
-
-                let __vihaco_expected_children: &[&str] = &[#(#loadable_names),*];
-
-                for __vihaco_child in section.children() {
-                    let __vihaco_child_name = __vihaco_child.local_name().ok_or_else(|| {
-                        ::eyre::eyre!(
-                            "section `{}` yielded a root section as a child",
-                            section.display_path(),
-                        )
-                    })?;
-                    if !__vihaco_expected_children
-                        .iter()
-                        .any(|__vihaco_expected| *__vihaco_expected == __vihaco_child_name)
-                    {
-                        return Err(::eyre::eyre!(
-                            "section `{}` has unexpected child section `{}`",
-                            section.display_path(),
-                            __vihaco_child.display_path(),
-                        ));
-                    }
-                }
-
-                #( #child_loads )*
-                Ok(())
-            }
-        }
-
-        impl #loadable_impl_generics #root::loader::LoadBytecodeSection<#loadable_context_param>
-            for #ident #ty_generics
-            #loadable_where_clause
-        {
-            fn load_bytecode_section<#bc_lifetime>(
-                &mut self,
-                section: #root::BytecodeSectionView<#bc_lifetime, #loadable_context_param>,
-            ) -> ::eyre::Result<()> {
-                self.load_generated_bytecode_sections(section)
-            }
-        }
-    };
-
-    let mut text_loadable_predicates = Vec::<TokenStream2>::new();
-    text_loadable_predicates.push(
-        quote! { #ident #ty_generics: #root::loader::LoadOwnSstSection<#loadable_context_param> },
-    );
-    for loadable in &loadables {
-        let ty = &loadable.ty;
-        text_loadable_predicates
-            .push(quote! { #ty: #root::loader::LoadSstSection<#loadable_context_param> });
-    }
-    let text_loadable_method_where = method_where_clause(&text_loadable_predicates);
-
-    let mut text_loadable_impl_generics = generics.clone();
-    text_loadable_impl_generics
-        .params
-        .push(syn::parse_quote!(#loadable_context_param));
-    if !text_loadable_predicates.is_empty() {
-        let where_clause = text_loadable_impl_generics.make_where_clause();
-        for predicate in &text_loadable_predicates {
-            where_clause
-                .predicates
-                .push(syn::parse2(predicate.clone())?);
-        }
-    }
-    let (text_loadable_impl_generics, _, text_loadable_where_clause) =
-        text_loadable_impl_generics.split_for_impl();
-
-    let text_child_loads: Vec<_> = loadables
-        .iter()
-        .map(|loadable| {
-            let field = &loadable.field;
-            let ty = &loadable.ty;
-            let name = &loadable.section_name;
-            quote! {
-                if let ::std::option::Option::Some(__vihaco_child) = section.child(#name) {
-                    <#ty as #root::loader::LoadSstSection<#loadable_context_param>>::load_sst_section(
-                        &mut self.#field,
-                        __vihaco_child,
-                    )?;
-                }
-            }
-        })
-        .collect();
-
-    let text_loadable_impl = quote! {
-        impl #impl_generics #ident #ty_generics #where_clause {
-            pub fn load_generated_sst_sections<#bc_lifetime, #loadable_context_param>(
-                &mut self,
-                section: #root::SstSectionView<#bc_lifetime, #loadable_context_param>,
-            ) -> ::eyre::Result<()>
-            #text_loadable_method_where
-            {
-                #root::loader::LoadOwnSstSection::<#loadable_context_param>::load_own_sst_section(
-                    self,
-                    section.clone(),
-                )?;
-
-                let __vihaco_expected_children: &[&str] = &[#(#loadable_names),*];
-
-                for __vihaco_child in section.children() {
-                    let __vihaco_child_name = __vihaco_child.local_name().ok_or_else(|| {
-                        ::eyre::eyre!(
-                            "section `{}` yielded a root section as a child",
-                            section.display_path(),
-                        )
-                    })?;
-                    if !__vihaco_expected_children
-                        .iter()
-                        .any(|__vihaco_expected| *__vihaco_expected == __vihaco_child_name)
-                    {
-                        return Err(::eyre::eyre!(
-                            "section `{}` has unexpected child section `{}`",
-                            section.display_path(),
-                            __vihaco_child.display_path(),
-                        ));
-                    }
-                }
-
-                #( #text_child_loads )*
-                Ok(())
-            }
-        }
-
-        impl #text_loadable_impl_generics #root::loader::LoadSstSection<#loadable_context_param>
-            for #ident #ty_generics
-            #text_loadable_where_clause
-        {
-            fn load_sst_section<#bc_lifetime>(
-                &mut self,
-                section: #root::SstSectionView<#bc_lifetime, #loadable_context_param>,
-            ) -> ::eyre::Result<()> {
-                self.load_generated_sst_sections(section)
-            }
-        }
-    };
+    let loaders = crate::composite_loader::emit(&ident, &generics, &root, &loadables, &[])?;
 
     Ok(quote! {
         #[doc(hidden)]
@@ -643,7 +433,6 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
             type Syntax = #module_ident::syntax::Instruction;
         }
 
-        #loadable_impl
-        #text_loadable_impl
+        #loaders
     })
 }

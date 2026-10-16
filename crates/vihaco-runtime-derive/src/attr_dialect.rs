@@ -1,0 +1,512 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
+//! Dialect validation and emission of paired runtime/surface instructions.
+//!
+//! Surface structs are defined beside the authored runtime structs so their
+//! operand types resolve in the same Rust scope. Defining them inside `syntax`
+//! would change the meaning of relative paths such as `self::Operand` and
+//! `super::Operand`. Imports from the parent module would not preserve every
+//! path, and same-named surface types could shadow runtime instruction operands.
+//!
+//! The public `syntax` module therefore reexports the surface types under their
+//! instruction names, including unit/tuple constructors. Hidden `__NameSurface`
+//! definitions provide the original operand scope while callers use
+//! `dialect::syntax::Name`. Reexports preserve type identity, so InstructionSpec
+//! can associate that public path without conversions or operand-path rewriting.
+//! Inline documentation exposes the public names in rustdoc; validation rejects
+//! authored collisions with the namespace and hidden definition names.
+
+use std::collections::HashSet;
+
+use proc_macro2::TokenStream;
+use quote::{format_ident, quote};
+use syn::{
+    Attribute, Fields, Item, ItemMod, ItemStruct, Meta, Path, Result, Token, Visibility,
+    ext::IdentExt,
+    parse_quote,
+    punctuated::Punctuated,
+    visit::{self, Visit},
+};
+
+use crate::common::{resolve_root, strip_attrs};
+
+struct Dialect {
+    module: ItemMod,
+    parent_root: Path,
+    root: Path,
+    leaves: Vec<ItemStruct>,
+}
+
+pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStream> {
+    if !options.is_empty() {
+        return Err(syn::Error::new_spanned(
+            options,
+            "#[dialect] takes no arguments",
+        ));
+    }
+    let module = syn::parse2(item)?;
+    let declaration = validate(module)?;
+    emit(declaration)
+}
+
+fn validate(mut module: ItemMod) -> Result<Dialect> {
+    let parent_root = resolve_root(&module.attrs)?;
+    let root = resolve_dialect_root(parent_root.clone());
+    strip_attrs(&mut module.attrs, &["vihaco"]);
+    reject_helpers(&module.attrs)?;
+    let (_, items) = module.content.as_mut().ok_or_else(|| {
+        syn::Error::new(module.ident.span(), "#[dialect] requires an inline module")
+    })?;
+    let mut names = HashSet::new();
+    for item in items.iter() {
+        collect_names(item, &mut names);
+    }
+    if names.contains("__VihacoDialect") {
+        return Err(syn::Error::new(
+            module.ident.span(),
+            "reserved dialect identity name `__VihacoDialect`",
+        ));
+    }
+    if names.contains("syntax") {
+        return Err(syn::Error::new(
+            module.ident.span(),
+            "generated syntax module collides with an authored item",
+        ));
+    }
+    let leaves = collect_instruction_leaves(items, &names)?;
+    if leaves.is_empty() {
+        return Err(syn::Error::new(
+            module.ident.span(),
+            "#[dialect] requires at least one #[instruction] struct",
+        ));
+    }
+    Ok(Dialect {
+        module,
+        parent_root,
+        root,
+        leaves,
+    })
+}
+
+fn resolve_dialect_root(mut root: Path) -> Path {
+    // The root helper is authored on the module in its parent scope. All
+    // generated references live one module deeper; operand paths stay untouched.
+    if root.leading_colon.is_none() {
+        if root.segments[0].ident == "self" {
+            root.segments[0].ident = syn::Ident::new("super", root.segments[0].ident.span());
+        } else if root.segments[0].ident != "crate" {
+            root.segments.insert(
+                0,
+                syn::PathSegment {
+                    ident: syn::Ident::new("super", proc_macro2::Span::call_site()),
+                    arguments: syn::PathArguments::None,
+                },
+            );
+        }
+    }
+    root
+}
+
+fn collect_instruction_leaves(
+    items: &mut [Item],
+    names: &HashSet<String>,
+) -> Result<Vec<ItemStruct>> {
+    let mut leaves = Vec::new();
+    let mut leaf_names = HashSet::new();
+    for item in items {
+        if let Item::Struct(leaf) = item
+            && has_instruction_marker(&leaf.attrs)?
+        {
+            leaves.push(validate_instruction(leaf, names, &mut leaf_names)?);
+        } else {
+            check_item(item, HelperValidationMode::UnmarkedItem)?;
+        }
+    }
+    Ok(leaves)
+}
+
+fn has_instruction_marker(attrs: &[Attribute]) -> Result<bool> {
+    let mut markers = attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident("instruction"));
+    let Some(marker) = markers.next() else {
+        return Ok(false);
+    };
+    if let Some(repeated) = markers.next() {
+        return Err(syn::Error::new_spanned(
+            repeated,
+            "repeated #[instruction] marker",
+        ));
+    }
+    if !matches!(marker.meta, Meta::Path(_)) {
+        return Err(syn::Error::new_spanned(
+            marker,
+            "#[instruction] takes no arguments",
+        ));
+    }
+    Ok(true)
+}
+
+fn validate_instruction(
+    leaf: &mut ItemStruct,
+    names: &HashSet<String>,
+    leaf_names: &mut HashSet<String>,
+) -> Result<ItemStruct> {
+    validate_instruction_shape(leaf)?;
+    let name = leaf.ident.to_string();
+    if name.starts_with("r#") {
+        return Err(syn::Error::new(
+            leaf.ident.span(),
+            "raw instruction names are unsupported",
+        ));
+    }
+    if !leaf_names.insert(name.clone()) {
+        return Err(syn::Error::new(
+            leaf.ident.span(),
+            "duplicate instruction name",
+        ));
+    }
+    if names.contains(&surface_ident(&leaf.ident).to_string()) {
+        return Err(syn::Error::new(
+            leaf.ident.span(),
+            "generated surface name collides with an authored item",
+        ));
+    }
+    validate_instruction_attrs(&leaf.attrs)?;
+    strip_attrs(&mut leaf.attrs, &["instruction"]);
+    // Inspect fields and remaining attrs, excluding the owned pattern.
+    let mut checked = leaf.clone();
+    strip_attrs(&mut checked.attrs, &["pattern"]);
+    check_item(&Item::Struct(checked), HelperValidationMode::Instruction)?;
+    add_derives(leaf)?;
+    let paired = leaf.clone();
+    strip_attrs(&mut leaf.attrs, &["pattern"]);
+    Ok(paired)
+}
+
+fn validate_instruction_shape(leaf: &ItemStruct) -> Result<()> {
+    if !matches!(leaf.vis, Visibility::Public(_)) {
+        return Err(syn::Error::new(
+            leaf.ident.span(),
+            "instruction structs require unrestricted pub visibility",
+        ));
+    }
+    if !leaf.generics.params.is_empty() || leaf.generics.where_clause.is_some() {
+        return Err(syn::Error::new_spanned(
+            &leaf.generics,
+            "generic instruction structs are unsupported",
+        ));
+    }
+    if matches!(leaf.fields, Fields::Named(_)) {
+        return Err(syn::Error::new_spanned(
+            &leaf.fields,
+            "instructions require unit or tuple structs",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_instruction_attrs(attrs: &[Attribute]) -> Result<()> {
+    let mut pattern_seen = false;
+    for attr in attrs {
+        if attr.path().is_ident("cfg") || attr.path().is_ident("cfg_attr") {
+            return Err(syn::Error::new_spanned(
+                attr,
+                "conditional instruction membership is unsupported; gate the whole dialect",
+            ));
+        }
+        if attr.path().is_ident("pattern") {
+            if pattern_seen {
+                return Err(syn::Error::new_spanned(
+                    attr,
+                    "repeated #[pattern] attribute",
+                ));
+            }
+            pattern_seen = true;
+        } else if attr.path().is_ident("syntax_class") || attr.path().is_ident("vihaco") {
+            return Err(syn::Error::new_spanned(
+                attr,
+                "unsupported instruction helper placement",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn add_derives(leaf: &mut ItemStruct) -> Result<()> {
+    let mut derives = HashSet::new();
+    for attr in &leaf.attrs {
+        if attr.path().is_ident("derive") {
+            for path in attr.parse_args_with(Punctuated::<Path, Token![,]>::parse_terminated)? {
+                if let Some(segment) = path.segments.last() {
+                    derives.insert(segment.ident.to_string());
+                }
+            }
+        }
+    }
+    let missing: Vec<Path> = ["Clone", "Debug", "PartialEq"]
+        .into_iter()
+        .filter(|name| !derives.contains(*name))
+        .map(syn::parse_str)
+        .collect::<Result<_>>()?;
+    if !missing.is_empty() {
+        leaf.attrs.push(parse_quote!(#[derive(#(#missing),*)]));
+    }
+    Ok(())
+}
+
+fn reject_helpers(attrs: &[Attribute]) -> Result<()> {
+    for attr in attrs {
+        if ["instruction", "pattern", "syntax_class"]
+            .iter()
+            .any(|name| attr.path().is_ident(name))
+        {
+            return Err(syn::Error::new_spanned(
+                attr,
+                "instruction helpers are only supported on immediate marked structs",
+            ));
+        }
+    }
+    Ok(())
+}
+
+enum HelperValidationMode {
+    Instruction,
+    UnmarkedItem,
+}
+
+fn check_item(item: &Item, mode: HelperValidationMode) -> Result<()> {
+    struct HelperValidator {
+        error: Option<syn::Error>,
+        mode: HelperValidationMode,
+    }
+    impl<'ast> Visit<'ast> for HelperValidator {
+        fn visit_attribute(&mut self, attr: &'ast Attribute) {
+            if self.error.is_some() {
+                return;
+            }
+            let owned = |path: &Path| {
+                path.is_ident("instruction")
+                    || (matches!(self.mode, HelperValidationMode::Instruction)
+                        && (path.is_ident("pattern") || path.is_ident("syntax_class")))
+            };
+            if owned(attr.path()) {
+                self.error = Some(syn::Error::new_spanned(
+                    attr,
+                    "instruction helpers are only supported on immediate marked structs",
+                ));
+            } else if attr.path().is_ident("cfg_attr") {
+                // Conditional markers cannot be consumed. Unmarked parser
+                // helpers belong to their own derive and remain untouched.
+                if let Ok(args) =
+                    attr.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
+                    && args.iter().skip(1).any(|meta| owned(meta.path()))
+                {
+                    self.error = Some(syn::Error::new_spanned(
+                        attr,
+                        "conditional instruction helpers are unsupported",
+                    ));
+                }
+            }
+            visit::visit_attribute(self, attr);
+        }
+    }
+    let mut visitor = HelperValidator { error: None, mode };
+    visitor.visit_item(item);
+    match visitor.error {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
+}
+
+fn collect_names(item: &Item, names: &mut HashSet<String>) {
+    let ident = match item {
+        Item::Struct(i) => Some(&i.ident),
+        Item::Enum(i) => Some(&i.ident),
+        Item::Union(i) => Some(&i.ident),
+        Item::Type(i) => Some(&i.ident),
+        Item::Mod(i) => Some(&i.ident),
+        Item::Trait(i) => Some(&i.ident),
+        Item::Const(i) => Some(&i.ident),
+        Item::Static(i) => Some(&i.ident),
+        Item::Fn(i) => Some(&i.sig.ident),
+        Item::ExternCrate(i) => Some(i.rename.as_ref().map_or(&i.ident, |(_, name)| name)),
+        _ => None,
+    };
+    if let Some(ident) = ident {
+        names.insert(ident.unraw().to_string());
+    }
+    fn imports(tree: &syn::UseTree, names: &mut HashSet<String>) {
+        match tree {
+            syn::UseTree::Name(i) => {
+                names.insert(i.ident.unraw().to_string());
+            }
+            syn::UseTree::Rename(i) => {
+                names.insert(i.rename.unraw().to_string());
+            }
+            syn::UseTree::Path(i) => imports(&i.tree, names),
+            syn::UseTree::Group(i) => {
+                for item in &i.items {
+                    imports(item, names);
+                }
+            }
+            syn::UseTree::Glob(_) => {}
+        }
+    }
+    if let Item::Use(item) = item {
+        imports(&item.tree, names);
+    }
+}
+
+fn surface_ident(runtime: &syn::Ident) -> syn::Ident {
+    format_ident!("__{}Surface", runtime)
+}
+
+fn emit(dialect: Dialect) -> Result<TokenStream> {
+    let Dialect {
+        mut module,
+        parent_root,
+        root,
+        leaves,
+    } = dialect;
+    let head = module.ident.unraw().to_string();
+    let mut surfaces = Vec::new();
+    let mut runtime_names = Vec::new();
+    let mut reexports = Vec::new();
+    for leaf in &leaves {
+        let runtime = &leaf.ident;
+        runtime_names.push(runtime);
+        let mut surface = leaf.clone();
+        surface.ident = surface_ident(runtime);
+        let name = &surface.ident;
+        // Only the public access path gains a module level. The actual struct
+        // and its parser remain in the runtime leaf's authored operand scope.
+        reexports.push(quote! {
+            #[doc(inline)]
+            pub use super::#name as #runtime;
+        });
+        surface.attrs.retain(|attr| {
+            [
+                "doc",
+                "allow",
+                "warn",
+                "deny",
+                "forbid",
+                "deprecated",
+                "must_use",
+                "pattern",
+            ]
+            .iter()
+            .any(|name| attr.path().is_ident(name))
+        });
+        surface.attrs.push(parse_quote!(#[doc(hidden)]));
+        surface
+            .attrs
+            .push(parse_quote!(#[derive(Clone, Debug, PartialEq)]));
+        surface
+            .attrs
+            .push(parse_quote!(#[syntax_class(instruction)]));
+        if !surface
+            .attrs
+            .iter()
+            .any(|attr| attr.path().is_ident("pattern"))
+        {
+            let mut pattern = format!("'{}", runtime.to_string().to_lowercase());
+            if !leaf.fields.is_empty() {
+                pattern.push(' ');
+                pattern.push_str(
+                    &(0..leaf.fields.len())
+                        .map(|i| format!("${i}"))
+                        .collect::<Vec<_>>()
+                        .join(" `,` "),
+                );
+            }
+            let pattern = syn::LitStr::new(&pattern, runtime.span());
+            surface.attrs.push(parse_quote!(#[pattern = #pattern]));
+        }
+        surface
+            .attrs
+            .push(parse_quote!(#[__vihaco_runtime(#runtime)]));
+        surfaces.push(quote!(#surface));
+    }
+    // A coverage parameter must not shadow an authored instruction type.
+    let mut component = format_ident!("__VihacoComponent");
+    let mut suffix = 0usize;
+    while runtime_names.iter().any(|name| **name == component) {
+        component = format_ident!("__VihacoComponent{suffix}");
+        suffix += 1;
+    }
+    let declarations = quote! {
+        pub mod syntax {
+            #(#reexports)*
+        }
+        #[doc(hidden)]
+        pub struct __VihacoDialect;
+        impl #root::__private::DialectSpec for __VihacoDialect {
+            const LEAVES: &'static [#root::__private::Leaf] = &[
+                #(#root::__private::Leaf {
+                    dialect: #head,
+                    mnemonic: <#runtime_names as #root::__private::InstructionSpec>::MNEMONIC,
+                }),*
+            ];
+        }
+        impl<#component: #root::Component> #root::__private::Coverage<#component> for __VihacoDialect
+        where #(#component: #root::Execute<#runtime_names>),* {}
+    };
+    // Ordinary items remain visible to expansion formatters. The internal
+    // module attribute consumes surface markers and emits their parsers without
+    // hiding the declarations inside an opaque function-like macro body.
+    module.attrs.push(parse_quote!(
+        #[#parent_root::__private::__dialect_parsers(#root)]
+    ));
+    let generated = quote!(#declarations #(#surfaces)*);
+    // Append ordinary items to the authored module, retaining item order/scope.
+    let generated: syn::File = syn::parse2(generated)?;
+    module
+        .content
+        .as_mut()
+        .expect("validated inline module")
+        .1
+        .extend(generated.items);
+    Ok(quote!(#module))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expansion_exposes_declarations_to_rust_formatters() {
+        let expanded = expand(
+            TokenStream::new(),
+            quote! {
+                #[vihaco(crate = crate)]
+                mod control {
+                    #[instruction]
+                    pub struct Halt;
+                }
+            },
+        )
+        .unwrap();
+        let file: syn::File = syn::parse2(expanded).unwrap();
+        let formatted = prettyplease::unparse(&file);
+        assert!(
+            formatted.contains("\n    pub mod syntax {\n"),
+            "{formatted}"
+        );
+        assert!(
+            formatted.contains("\n        pub use super::__HaltSurface as Halt;\n"),
+            "{formatted}"
+        );
+        assert!(
+            formatted.contains("\n    pub struct __VihacoDialect;\n"),
+            "{formatted}"
+        );
+        assert!(
+            formatted.contains("\n    impl crate::__private::DialectSpec for __VihacoDialect {\n"),
+            "{formatted}"
+        );
+        assert!(!formatted.contains("__dialect_parsers!"), "{formatted}");
+    }
+}

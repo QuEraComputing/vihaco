@@ -1,0 +1,5 @@
+error: duplicate `crate` override
+ --> tests/compile_fail/runtime_root/duplicate-attribute.rs:3:10
+  |
+3 | #[vihaco(crate = second)]
+  |          ^^^^^

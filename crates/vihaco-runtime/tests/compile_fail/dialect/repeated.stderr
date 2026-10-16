@@ -1,0 +1,5 @@
+error: repeated #[instruction] marker
+ --> tests/compile_fail/dialect/repeated.rs:4:30
+  |
+4 | mod invalid { #[instruction] #[instruction] pub struct Halt; }
+  |                              ^^^^^^^^^^^^^^

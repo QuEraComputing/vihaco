@@ -1,0 +1,5 @@
+error: #[dialect] requires an inline module
+ --> tests/compile_fail/dialect/out-of-line.rs:4:5
+  |
+4 | mod external;
+  |     ^^^^^^^^

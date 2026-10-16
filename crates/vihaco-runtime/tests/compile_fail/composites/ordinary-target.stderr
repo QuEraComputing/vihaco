@@ -1,0 +1,5 @@
+error[E0425]: cannot find type `state` in module `__vihaco_fields_Parent::__markers`
+  --> tests/compile_fail/composites/ordinary-target.rs:12:45
+   |
+12 |     let _: Option<framework::field!(Parent::state)> = None;
+   |                                             ^^^^^ not found in `__vihaco_fields_Parent::__markers`

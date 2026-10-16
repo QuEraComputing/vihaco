@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.0
         with:
           components: rustfmt
       - run: cargo fmt --all -- --check
@@ -27,18 +27,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.0
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # CPU and guide examples still use the feature-off component! API.
+      # The experimental API replaces that macro, so use a separate graph.
+      - run: cargo clippy --workspace --exclude vihaco-cpu --exclude vihaco-doctests --all-targets --features vihaco/typed-declarations -- -D warnings
 
   feature-checks:
     name: Feature checks (workspace)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.0
       - uses: Swatinem/rust-cache@v2
       # Check each feature-bearing package independently. Checking the whole
       # workspace in one Cargo invocation can re-enable a dependency's default
@@ -53,6 +56,11 @@ jobs:
                 echo "Checking $package without default features"
                 cargo check -p "$package" --no-default-features
               done
+      - name: Check experimental runtime contracts independently
+        run: |
+          cargo check -p vihaco --no-default-features
+          cargo check -p vihaco-runtime --no-default-features --features typed-declarations
+          cargo check -p vihaco-runtime-derive --no-default-features --features typed-declarations
 
   test:
     name: Test (${{ matrix.os }})
@@ -63,12 +71,16 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          # Compile-fail snapshots include standard-library source excerpts.
+          components: rust-src
       - uses: Swatinem/rust-cache@v2
       # `--all-targets` excludes doctests; the `doctest` job below covers those.
       # This also compiles the `docs/examples/*.rs` files (via the
       # `vihaco-doctests` crate) and runs the runnable ones.
       - run: cargo test --workspace --all-targets
+      - run: cargo test --workspace --exclude vihaco-cpu --exclude vihaco-doctests --all-targets --features vihaco/typed-declarations
 
   doctest:
     name: Doc tests
@@ -81,6 +93,7 @@ jobs:
       RUSTFLAGS: ""
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.0
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --doc
+      - run: cargo test --workspace --exclude vihaco-cpu --exclude vihaco-doctests --doc --features vihaco/typed-declarations

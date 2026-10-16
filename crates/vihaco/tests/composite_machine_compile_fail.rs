@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+#![cfg(not(feature = "typed-declarations"))]
+
 #[test]
 fn composite_machine_rejects_ambiguous_wiring() {
     let t = trybuild::TestCases::new();

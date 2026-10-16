@@ -30,6 +30,8 @@ pub use binary::{
 };
 pub use chumsky;
 pub use effect::Effects;
+#[doc(hidden)]
+pub use eyre;
 pub use instruction_syntax::{
     CanonicalInstructionSyntax, CanonicalInstructionVariantSyntax, InstructionSugarSyntax,
     InstructionSugarVariantSyntax, OperandKind, SugarOperandKind,
@@ -47,6 +49,36 @@ pub use traits::{FromBytes, FromText, GetProgramInfo, Reset};
 pub use vihaco_parser::Parse;
 pub use vihaco_parser::SurfaceInstruction;
 pub use vihaco_parser_derive::Parse;
+
+#[cfg(feature = "typed-declarations")]
+#[doc(hidden)]
+pub use runtime::__private;
+#[cfg(feature = "typed-declarations")]
+pub use runtime::{Dispatch, Execute, Field, Step};
+
+/// Name a composite field or nested route. See [`runtime::field`].
+#[cfg(feature = "typed-declarations")]
+pub use runtime::field;
+
+/// Declare runtime leaves and paired surface parsers with `typed-declarations`.
+/// See [`runtime::dialect`] for the `#[vihaco(crate = path)]` framework-root override.
+///
+/// ```
+/// # #[cfg(feature = "typed-declarations")]
+/// # {
+/// use vihaco::{dialect, Parse, chumsky::Parser};
+/// #[dialect]
+/// # #[vihaco(crate = ::vihaco)]
+/// pub mod arithmetic {
+///     #[instruction]
+///     pub struct Add(pub i64);
+/// }
+/// assert_eq!(arithmetic::syntax::Add::parser().parse("add 2")
+///     .into_result().unwrap().0, 2);
+/// # }
+/// ```
+#[cfg(feature = "typed-declarations")]
+pub use runtime::dialect;
 
 #[cfg(test)]
 mod public_api_tests {

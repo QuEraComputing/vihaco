@@ -1,0 +1,5 @@
+error: module paths cannot have generic arguments
+ --> tests/compile_fail/component/generic-path.rs:2:25
+  |
+2 | #[instructions { control<u8> }]
+  |                         ^^^^

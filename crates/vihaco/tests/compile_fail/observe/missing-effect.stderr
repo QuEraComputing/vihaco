@@ -1,0 +1,5 @@
+error: generated #[observe] impls that compose multiple observed events, multiple handlers, or typed follow-up effects must declare `effect = ...` in #[observe(...)]
+  --> tests/compile_fail/observe/missing-effect.rs:12:11
+   |
+12 | #[observe(TestEffect, AnotherEffect)]
+   |           ^^^^^^^^^^

@@ -1,0 +1,5 @@
+error: component dialect list must not be empty
+ --> tests/compile_fail/component/empty.rs:2:1
+  |
+2 | #[instructions {}]
+  | ^^^^^^^^^^^^^^^^^^

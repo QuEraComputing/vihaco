@@ -61,6 +61,31 @@ impl counter::Counter {
 }
 ```
 
+## Experimental typed declarations
+
+The nondefault `typed-declarations` feature enables `#[dialect]`,
+`#[component]`, and typed `#[composite]`. Components declare whole dialects;
+composites preserve actual child types and describe all eligible child
+capabilities in field order. Ordinary state and loadable fields do not contribute
+parent capabilities. Field names and aliases are source metadata; device codes
+are optional metadata. Use `field!(Machine::controller::cpu)` to name a nested
+route in type position. Each route composes nominal field markers and preserves
+its complete destination identity. The first identifier names the root composite;
+supply its generic arguments when needed, such as
+`field!(Machine<T>::controller::cpu)`. Used routes are checked against that root
+through `CheckedRoute` before resolving to their unchanged marker type. Unused
+type aliases may defer validation. Child namespaces are inferred from their
+authored type paths. Alternate type spellings need matching companion namespace
+reexports. Opaque generic or associated child types do not expose descendant
+namespaces. Root type aliases and renamed composite imports are not discovered
+automatically. Typed composites do not generate instruction enums, parsers, or
+dispatch.
+
+Cargo unifies this feature across all users of the same runtime package,
+including indirect dependencies. Existing `component!`, CPU, aggregate examples,
+and guide snippets require a separate feature-off graph. Old declarations need
+not compile in the experimental mode.
+
 ## Workspace
 
 vihaco is a Cargo workspace of focused crates — depend on what your workload
@@ -109,6 +134,19 @@ No mise? A stable Rust 2024 toolchain is enough — `cargo test --workspace
 [CONTRIBUTING.md](CONTRIBUTING.md) for the full task list.
 
 ## Documentation
+
+The nondefault `typed-declarations` feature enables experimental runtime
+contracts in `vihaco` or `vihaco-runtime`. It currently provides `Execute<I>`
+and internal support for upcoming declaration attributes. Capability reporting
+is under `__private`; it is not a user-facing API. On `vihaco-runtime`, the
+feature also enables `derive` and forwards it to the proc-macro crate.
+
+In this mode, `Component` and `Composite` no longer inherit `HasInstructionSet`:
+availability is independent of executable selection. Generic code needing
+runtime/syntax associations must state a `HasInstructionSet` bound explicitly.
+Cargo feature unification can activate this contract through another dependency.
+The default API stays current while the new declarations stabilize; the old
+implementation and gate will be removed after consumers migrate.
 
 Guides and the API reference are published to GitHub Pages:
 **<https://queracomputing.github.io/vihaco/>**. The guides walk through defining

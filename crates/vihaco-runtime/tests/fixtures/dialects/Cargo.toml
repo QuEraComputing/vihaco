@@ -1,0 +1,3 @@
+[workspace]
+resolver = "2"
+members = ["producer", "consumer", "facade", "feature-off", "indirect"]

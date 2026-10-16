@@ -1,0 +1,5 @@
+error: #[component] takes no arguments
+ --> tests/compile_fail/component/options.rs:1:29
+  |
+1 | #[vihaco_runtime::component(instruction = Old)]
+  |                             ^^^^^^^^^^^^^^^^^

@@ -1,0 +1,27 @@
+error[E0277]: the trait bound `T: Copy` is not satisfied
+  --> tests/compile_fail/declarations/generic-coverage.rs:14:59
+   |
+14 |     vihaco_runtime::__private::require_coverage::<Cpu<T>, Dialect>();
+   |                                                           ^^^^^^^ the trait `Copy` is not implemented for `T`
+   |
+note: required for `Cpu<T>` to implement `Execute<A>`
+  --> tests/compile_fail/declarations/generic-coverage.rs:7:12
+   |
+ 7 | impl<T, I> Execute<I> for Cpu<T> where T: Copy {
+   |            ^^^^^^^^^^     ^^^^^^          ---- unsatisfied trait bound introduced here
+note: required for `Dialect` to implement `vihaco_runtime::__private::Coverage<Cpu<T>>`
+  --> tests/compile_fail/declarations/../../support/declarations.rs
+   |
+   | impl<C: Execute<A> + Execute<B>> Coverage<C> for Dialect {}
+   |         ----------               ^^^^^^^^^^^     ^^^^^^^
+   |         |
+   |         unsatisfied trait bound introduced here
+note: required by a bound in `vihaco_runtime::__private::require_coverage`
+  --> src/declarations.rs
+   |
+   | pub fn require_coverage<C: Component, D: Coverage<C>>() {}
+   |                                          ^^^^^^^^^^^ required by this bound in `require_coverage`
+help: consider further restricting type parameter `T` with trait `Copy`
+   |
+13 | fn original_bounds<T: Clone + std::marker::Copy>() {
+   |                             +++++++++++++++++++

@@ -1,0 +1,5 @@
+error: #[dialect] takes no arguments
+ --> tests/compile_fail/dialect/options.rs:3:11
+  |
+3 | #[dialect(extra)]
+  |           ^^^^^

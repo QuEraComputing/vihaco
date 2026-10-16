@@ -1,11 +1,6 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use vihaco::{Effects, Observe, observe};
 
 #[derive(Debug, Clone)]
@@ -224,106 +219,8 @@ fn observe_macro_supports_explicit_composite_effect_type() {
     assert_eq!(obs.strings, vec!["hello"]);
 }
 
-fn write_temp_file(path: &Path, contents: &str) {
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, contents).unwrap();
-}
-
-fn temp_crate_dir(name: &str) -> PathBuf {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    std::env::temp_dir().join(format!(
-        "vihaco-observe-macro-{}-{}-{}",
-        name,
-        std::process::id(),
-        unique
-    ))
-}
-
-struct TempCrateDir(PathBuf);
-
-impl TempCrateDir {
-    fn new(name: &str) -> Self {
-        Self(temp_crate_dir(name))
-    }
-
-    fn path(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for TempCrateDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
 #[test]
 fn observe_macro_requires_explicit_effect_for_composite_observers() {
-    let dir = TempCrateDir::new("missing-effect");
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let vihaco_path = manifest_dir.canonicalize().unwrap();
-
-    write_temp_file(
-        &dir.path().join("Cargo.toml"),
-        &format!(
-            "[package]\nname = \"missing-effect\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\nvihaco = {{ path = {:?} }}\n",
-            vihaco_path
-        ),
-    );
-    write_temp_file(
-        &dir.path().join("src/lib.rs"),
-        r#"
-use vihaco::{Effects, observe};
-
-#[derive(Clone)]
-struct TestEffect(i32);
-
-#[derive(Clone)]
-struct AnotherEffect(String);
-
-#[derive(Default)]
-struct MissingEffectObserver;
-
-#[observe(TestEffect, AnotherEffect)]
-impl MissingEffectObserver {
-    fn observe_test_effect(
-        &mut self,
-        effect: &TestEffect,
-    ) -> std::result::Result<Effects<()>, std::convert::Infallible> {
-        let _ = effect.0;
-        Ok(Effects::none())
-    }
-
-    fn observe_another_effect(
-        &mut self,
-        effect: &AnotherEffect,
-    ) -> std::result::Result<Effects<()>, std::convert::Infallible> {
-        let _ = &effect.0;
-        Ok(Effects::none())
-    }
-}
-"#,
-    );
-
-    let output = Command::new("cargo")
-        .arg("check")
-        .arg("--offline")
-        .arg("--manifest-path")
-        .arg(dir.path().join("Cargo.toml"))
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-
-    assert!(!output.status.success(), "expected compile failure");
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains(
-            "generated #[observe] impls that compose multiple observed events, multiple handlers, or typed follow-up effects must declare `effect = ...`"
-        ),
-        "unexpected stderr:\n{stderr}"
-    );
+    let cases = trybuild::TestCases::new();
+    cases.compile_fail("tests/compile_fail/observe/missing-effect.rs");
 }

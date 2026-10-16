@@ -329,3 +329,53 @@ The composite continues to own program-counter routing and instruction execution
 Once you have one or more components, the next step is to understand how observer types consume the returned effects.
 
 Continue with [Observing Effects With `#[observe]`](/guide/observers).
+
+## Experimental typed declarations
+
+Enable the nondefault `typed-declarations` Cargo feature to use `#[component]`
+with whole dialect modules. Both APIs use the crate-root name `component`:
+without the feature, `vihaco::component!` is the existing function-like macro;
+with the feature, `#[vihaco::component]` is the typed declaration attribute.
+The legacy macro is unavailable when the feature is enabled. The aggregate
+examples above and the current CPU component use the feature-off API; typed
+components are checked in a separate feature-enabled dependency graph.
+
+A typed component declares complete dialect support and implements `Execute<I>`
+for every instruction in each listed dialect. Adding an instruction to a dialect
+requires adding its execution implementation to each component that declares it.
+The component needs no aggregate instruction enum or executable instruction set.
+Each `Execute` implementation chooses its own message, effect, and error types.
+
+The following example requires `vihaco = { version = "0.5", features =
+["typed-declarations"] }`:
+
+```rust,ignore
+use vihaco::{component, dialect, Execute};
+
+#[dialect]
+mod control {
+    #[instruction]
+    pub struct Halt;
+}
+
+#[component]
+#[instructions { control }]
+struct Cpu<T = u8>(T);
+
+impl<T> Execute<control::Halt> for Cpu<T> {
+    type Message = ();
+    type Effect = ();
+    type Error = std::convert::Infallible;
+
+    fn execute(&mut self, _: &control::Halt, _: ()) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+```
+
+The macro preserves ordinary structs, generics, defaults, and bounds. Module
+aliases are accepted, but listing the same dialect twice through aliases fails.
+Dialect order and instruction order are preserved in the complete description.
+Distinct dialects with the same source head are allowed when their instruction
+mnemonics are disjoint; canonical overlaps fail at the component declaration,
+including unused generic declarations.

@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+#![cfg(not(feature = "typed-declarations"))]
+
 use std::{io::Read, str::FromStr};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};

@@ -1,0 +1,5 @@
+error: duplicate instruction name `halt`
+ --> tests/compile_fail/dialect/duplicate-mnemonic.rs:4:74
+  |
+4 | mod invalid { #[instruction] pub struct Halt; #[instruction] #[pattern = "'halt $0"] pub struct Other(pub u32); }
+  |                                                                          ^^^^^^^^^^

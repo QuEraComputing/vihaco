@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+#![cfg(not(feature = "typed-declarations"))]
+
 use chumsky::Parser as _;
 use vihaco::{
     Component, Composite, HasInstructionSet, Parse, SurfaceInstruction, component, composite,
@@ -89,7 +91,11 @@ struct DemoComposite {
 #[test]
 fn generates_distinct_syntax_and_runtime_enums() {
     fn require_component<
-        T: Component<Runtime = demo::runtime::Instruction, Syntax = demo::syntax::Instruction>,
+        T: Component
+            + HasInstructionSet<
+                Runtime = demo::runtime::Instruction,
+                Syntax = demo::syntax::Instruction,
+            >,
     >() {
     }
     require_component::<demo::Demo>();

@@ -1,0 +1,21 @@
+error[E0433]: cannot find module or crate `__vihaco_fields_Parent` in this scope
+ --> tests/compile_fail/composites/conditional-marker.rs:8:34
+  |
+8 | fn main() { let _: Option<field!(Parent::child)> = None; }
+  |                                  ^^^^^^ use of unresolved module or unlinked crate `__vihaco_fields_Parent`
+  |
+  = help: if you wanted to use a crate named `__vihaco_fields_Parent`, use `cargo add __vihaco_fields_Parent` to add it to your `Cargo.toml`
+
+error[E0425]: cannot find type `Parent` in this scope
+ --> tests/compile_fail/composites/conditional-marker.rs:8:34
+  |
+8 | fn main() { let _: Option<field!(Parent::child)> = None; }
+  |                                  ^^^^^^ not found in this scope
+  |
+note: found an item that was configured out
+ --> tests/compile_fail/composites/conditional-marker.rs:7:8
+  |
+6 | #[cfg(any())]
+  |          -- the item is gated here
+7 | struct Parent {}
+  |        ^^^^^^

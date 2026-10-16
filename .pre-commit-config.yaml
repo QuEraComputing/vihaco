@@ -10,7 +10,15 @@ repos:
 
       - id: cargo-clippy
         name: cargo clippy
-        entry: cargo clippy --all-targets --all-features -- -D warnings
+        entry: cargo clippy --workspace --all-targets -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      # The typed API replaces component!; legacy CPU/guides stay feature-off.
+      - id: cargo-clippy-typed
+        name: cargo clippy (typed declarations)
+        entry: cargo clippy --workspace --exclude vihaco-cpu --exclude vihaco-doctests --all-targets --features vihaco/typed-declarations -- -D warnings
         language: system
         types: [rust]
         pass_filenames: false

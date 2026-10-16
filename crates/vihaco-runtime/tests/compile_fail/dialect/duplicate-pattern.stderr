@@ -1,0 +1,5 @@
+error: duplicate instruction pattern
+ --> tests/compile_fail/dialect/duplicate-pattern.rs:4:92
+  |
+4 | mod invalid { #[instruction] #[pattern = "'same"] pub struct A; #[instruction] #[pattern = "'same"] pub struct B; }
+  |                                                                                            ^^^^^^^
