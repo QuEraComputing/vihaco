@@ -4,15 +4,15 @@
 use crate::data::component::canonical_bool;
 use crate::word::encode_bool;
 use crate::{CPU, StepOutcome, cpu};
-use vihaco::Execute;
 use vihaco::traits::StackMemory;
+use vihaco::{Execute, NoMessage};
 
 impl Execute<cpu::Not> for CPU {
-    type Message = ();
+    type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, _instruction: &cpu::Not, _: ()) -> eyre::Result<StepOutcome> {
+    fn execute(&mut self, _instruction: &cpu::Not, _: NoMessage) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
         let value = !canonical_bool(self.stack_pop()?)?;
         self.stack_push(encode_bool(value));
@@ -21,11 +21,11 @@ impl Execute<cpu::Not> for CPU {
 }
 
 impl Execute<cpu::And> for CPU {
-    type Message = ();
+    type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, _instruction: &cpu::And, _: ()) -> eyre::Result<StepOutcome> {
+    fn execute(&mut self, _instruction: &cpu::And, _: NoMessage) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
         let rhs = canonical_bool(self.stack_pop()?)?;
         let lhs = canonical_bool(self.stack_pop()?)?;
@@ -35,11 +35,11 @@ impl Execute<cpu::And> for CPU {
 }
 
 impl Execute<cpu::Or> for CPU {
-    type Message = ();
+    type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, _instruction: &cpu::Or, _: ()) -> eyre::Result<StepOutcome> {
+    fn execute(&mut self, _instruction: &cpu::Or, _: NoMessage) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
         let rhs = canonical_bool(self.stack_pop()?)?;
         let lhs = canonical_bool(self.stack_pop()?)?;
@@ -49,11 +49,11 @@ impl Execute<cpu::Or> for CPU {
 }
 
 impl Execute<cpu::Xor> for CPU {
-    type Message = ();
+    type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, _instruction: &cpu::Xor, _: ()) -> eyre::Result<StepOutcome> {
+    fn execute(&mut self, _instruction: &cpu::Xor, _: NoMessage) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
         let rhs = canonical_bool(self.stack_pop()?)?;
         let lhs = canonical_bool(self.stack_pop()?)?;

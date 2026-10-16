@@ -350,7 +350,7 @@ The following example requires `vihaco = { version = "0.5", features =
 ["typed-declarations"] }`:
 
 ```rust,ignore
-use vihaco::{component, dialect, Execute};
+use vihaco::{component, dialect, Execute, NoMessage};
 
 #[dialect]
 mod control {
@@ -363,11 +363,11 @@ mod control {
 struct Cpu<T = u8>(T);
 
 impl<T> Execute<control::Halt> for Cpu<T> {
-    type Message = ();
+    type Message = NoMessage;
     type Effect = ();
     type Error = std::convert::Infallible;
 
-    fn execute(&mut self, _: &control::Halt, _: ()) -> Result<(), Self::Error> {
+    fn execute(&mut self, _: &control::Halt, _: NoMessage) -> Result<(), Self::Error> {
         Ok(())
     }
 }

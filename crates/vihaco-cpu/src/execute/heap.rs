@@ -3,15 +3,15 @@
 
 use crate::word::{decode_heap_ref, decode_u64, encode_heap_ref, encode_u64};
 use crate::{CPU, StepOutcome, Word, cpu};
-use vihaco::Execute;
 use vihaco::traits::StackMemory;
+use vihaco::{Execute, NoMessage};
 
 impl Execute<cpu::HeapAlloc> for CPU {
-    type Message = ();
+    type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, instruction: &cpu::HeapAlloc, _: ()) -> eyre::Result<StepOutcome> {
+    fn execute(&mut self, instruction: &cpu::HeapAlloc, _: NoMessage) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
         let n_elements = instruction.0;
         let n: usize = n_elements as usize;
@@ -25,11 +25,11 @@ impl Execute<cpu::HeapAlloc> for CPU {
 }
 
 impl Execute<cpu::GetItem> for CPU {
-    type Message = ();
+    type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, _instruction: &cpu::GetItem, _: ()) -> eyre::Result<StepOutcome> {
+    fn execute(&mut self, _instruction: &cpu::GetItem, _: NoMessage) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
         let index = Self::heap_index(self.stack_pop()?)?;
         let heap_id = decode_heap_ref(self.stack_pop()?);
@@ -43,11 +43,15 @@ impl Execute<cpu::GetItem> for CPU {
 }
 
 impl Execute<cpu::HeapDealloc> for CPU {
-    type Message = ();
+    type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, _instruction: &cpu::HeapDealloc, _: ()) -> eyre::Result<StepOutcome> {
+    fn execute(
+        &mut self,
+        _instruction: &cpu::HeapDealloc,
+        _: NoMessage,
+    ) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
         let id = decode_heap_ref(self.stack_pop()?);
         self.dealloc_heap_object(id)?;
@@ -56,11 +60,15 @@ impl Execute<cpu::HeapDealloc> for CPU {
 }
 
 impl Execute<cpu::HeapReserve> for CPU {
-    type Message = ();
+    type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, _instruction: &cpu::HeapReserve, _: ()) -> eyre::Result<StepOutcome> {
+    fn execute(
+        &mut self,
+        _instruction: &cpu::HeapReserve,
+        _: NoMessage,
+    ) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
         let capacity = decode_u64(self.stack_pop()?);
         let capacity = usize::try_from(capacity)
@@ -72,11 +80,11 @@ impl Execute<cpu::HeapReserve> for CPU {
 }
 
 impl Execute<cpu::HeapPush> for CPU {
-    type Message = ();
+    type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, _instruction: &cpu::HeapPush, _: ()) -> eyre::Result<StepOutcome> {
+    fn execute(&mut self, _instruction: &cpu::HeapPush, _: NoMessage) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
         self.require_operands(2)?;
         let value = self.stack_pop()?;
@@ -88,11 +96,11 @@ impl Execute<cpu::HeapPush> for CPU {
 }
 
 impl Execute<cpu::HeapLen> for CPU {
-    type Message = ();
+    type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, _instruction: &cpu::HeapLen, _: ()) -> eyre::Result<StepOutcome> {
+    fn execute(&mut self, _instruction: &cpu::HeapLen, _: NoMessage) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
         let heap_id = decode_heap_ref(self.stack_pop()?);
         let len = u64::try_from(self.heap_object(heap_id)?.len())?;
@@ -109,7 +117,7 @@ mod tests {
     fn heap_reserve_rejects_unrepresentable_allocation_without_allocating() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_u64(u64::MAX));
-        assert!(cpu.execute(&cpu::HeapReserve, ()).is_err());
+        assert!(cpu.execute(&cpu::HeapReserve, NoMessage::new()).is_err());
         assert!(cpu.heap_is_empty());
     }
 }

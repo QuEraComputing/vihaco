@@ -43,7 +43,7 @@ pub use macros::{Instruction, Message, component, composite, dispatch, observe};
 pub use program::{Type, Value};
 pub use runtime::{
     Component, Composite, CompositeMetadata, EffectSink, GeneratedComponent, HasInstructionSet,
-    Message as MessageMarker, Observe, expect_exactly_one_effect,
+    MemberOf, Message as MessageMarker, NoMessage, Observe, expect_exactly_one_effect,
 };
 pub use traits::{FromBytes, FromText, GetProgramInfo, Reset};
 pub use vihaco_abi::{Lower, Runtime, Syntax};
@@ -55,7 +55,7 @@ pub use vihaco_parser_derive::Parse;
 #[doc(hidden)]
 pub use runtime::__private;
 #[cfg(feature = "typed-declarations")]
-pub use runtime::{Dispatch, Execute, Field, Step};
+pub use runtime::{BuildMessage, Dispatch, Execute, Field, Step};
 
 /// Name a composite field or nested route. See [`runtime::field`].
 #[cfg(feature = "typed-declarations")]

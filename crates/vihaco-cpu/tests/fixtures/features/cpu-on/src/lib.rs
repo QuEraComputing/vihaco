@@ -7,7 +7,7 @@ fn typed_cpu_parses_and_executes_with_this_dependency_graph() {
     let instruction = host::cpu::Branch::<Syntax>::parser().parse("br 10").into_result().unwrap().lower(&mut NumericLabels).unwrap();
     assert_eq!(instruction, host::cpu::Branch(10));
     let mut cpu = host::CPU::default();
-    assert_eq!(cpu.execute(&instruction, ()).unwrap(), host::StepOutcome::Continue);
+    assert_eq!(cpu.execute(&instruction, vm::NoMessage::new()).unwrap(), host::StepOutcome::Continue);
     assert_eq!(cpu.take_pending_pc(), Some(10));
 }
 

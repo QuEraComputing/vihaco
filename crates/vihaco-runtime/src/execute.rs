@@ -12,24 +12,24 @@ use crate::Component;
 /// # Examples
 ///
 /// ```
-/// use vihaco_runtime::{Component, Effects, Execute};
+/// use vihaco_runtime::{Component, Effects, Execute, NoMessage};
 ///
 /// struct Add(i64);
 /// struct Counter(i64);
 /// impl Component for Counter {}
 /// impl Execute<Add> for Counter {
-///     type Message = ();
+///     type Message = NoMessage;
 ///     type Effect = Effects<i64>;
 ///     type Error = eyre::Report;
 ///
-///     fn execute(&mut self, instruction: &Add, _: ()) -> eyre::Result<Self::Effect> {
+///     fn execute(&mut self, instruction: &Add, _: NoMessage) -> eyre::Result<Self::Effect> {
 ///         self.0 += instruction.0;
 ///         Ok(Effects::one(self.0))
 ///     }
 /// }
 ///
 /// let mut counter = Counter(1);
-/// assert_eq!(counter.execute(&Add(2), ()).unwrap(), Effects::one(3));
+/// assert_eq!(counter.execute(&Add(2), NoMessage::new()).unwrap(), Effects::one(3));
 /// ```
 pub trait Execute<I>: Component {
     /// Input supplied by the runtime, rather than encoded in the instruction.

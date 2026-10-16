@@ -9,6 +9,8 @@ use crate::{Composite, Execute, Field};
 /// [`crate::field!`] to select a direct field or a nested route. The final child
 /// must implement [`Execute<I>`], while the step implementation supplies the
 /// composite's behavior, including runtime input and effect handling.
+/// [`crate::BuildMessage`] is an optional helper for preparing that input; it
+/// does not change this trait's signature or provide a step automatically.
 pub trait Step<F, I>
 where
     Self: Composite + Field<F>,
