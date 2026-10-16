@@ -291,7 +291,7 @@ requires adding its execution implementation to each component that declares it.
 The component needs no aggregate instruction enum or executable instruction set.
 Each <code>Execute</code> implementation chooses its own message, effect, and error types.</p>
 <p>The following example requires <code>vihaco = { version = "0.5", features = ["typed-declarations"] }</code>:</p>
-<pre><code class="language-rust,ignore">use vihaco::{component, dialect, Execute};
+<pre><code class="language-rust,ignore">use vihaco::{component, dialect, Execute, NoMessage};
 
 #[dialect]
 mod control {
@@ -304,11 +304,11 @@ mod control {
 struct Cpu&#x3C;T = u8>(T);
 
 impl&#x3C;T> Execute&#x3C;control::Halt> for Cpu&#x3C;T> {
-    type Message = ();
+    type Message = NoMessage;
     type Effect = ();
     type Error = std::convert::Infallible;
 
-    fn execute(&#x26;mut self, _: &#x26;control::Halt, _: ()) -> Result&#x3C;(), Self::Error> {
+    fn execute(&#x26;mut self, _: &#x26;control::Halt, _: NoMessage) -> Result&#x3C;(), Self::Error> {
         Ok(())
     }
 }

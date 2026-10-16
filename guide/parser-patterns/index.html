@@ -59,30 +59,33 @@ assert_eq!(
 <code>head = "memory"</code> combines with the pattern token <code>'load</code> to accept
 <code>memory.load</code>.</p>
 <p>Unannotated bindings use the corresponding field type’s
-<code>vihaco_parser::Parse::parser()</code>. An annotation selects a different parser type,
-then converts its value into the field with <code>TryInto</code>. Failed conversions return
-parse errors at the operand’s span. No <code>Debug</code> or <code>Display</code> bound is required on
-the conversion error.</p>
+<code>vihaco_parser::Parse::parser()</code>. An annotation selects the retained operand
+type. A standalone <code>Parse</code> derive requires that type to match the field; it
+performs no implicit conversion. Typed dialects generate a syntax phase when
+the annotated type differs from the runtime field type, and instruction-owned
+<code>Lower</code> implementations convert those values using loader capabilities.</p>
 <pre><code class="language-rust">use chumsky::Parser as _;
 use vihaco_parser::Parse as _;
 
 #[derive(Debug, PartialEq, vihaco_parser_derive::Parse)]
 #[syntax_class(instruction, head = "cpu")]
 #[pattern = "'call $0 `,` $1:u64"]
-struct Call(u32, u32);
+struct Call(u32, u64);
 
 assert_eq!(Call::parser().parse("cpu.call 2, 10").into_result(), Ok(Call(2, 10)));
-assert!(Call::parser().parse("cpu.call 2, 4294967296").has_errors());
+assert_eq!(Call::parser().parse("cpu.call 2, 4294967296").into_result(), Ok(Call(2, 4294967296)));
 </code></pre>
-<p>Here <code>$0</code> uses <code>u32::parser()</code> directly, while <code>$1</code> uses <code>u64::parser()</code> and a
-checked conversion into <code>u32</code>. Binding indices identify fields even when a
+<p>Here <code>$0</code> uses <code>u32::parser()</code> directly, while <code>$1</code> retains the output of
+<code>u64::parser()</code>. Binding indices identify fields even when a
 pattern changes capture order. Named bindings support annotations too, such as
 <code>$address:u64</code>. Type aliases, qualified paths, and nested generic arguments keep
 normal Rust scope. Parenthesize types needing whitespace outside delimiters.</p>
-<p>Give encoded literals a local newtype implementing <code>Parse</code> and <code>From</code> into the
-runtime field. Rust supplies <code>TryInto</code> through that <code>From</code> implementation. For
-example, an <code>I64Literal</code> can parse a signed integer and encode it into a CPU
-<code>Word</code>, preserving negative bit patterns without a separate resolution pass.</p>
+<p>For typed dialects, give encoded literals a local newtype implementing <code>Parse</code>.
+The syntax instruction retains that newtype; its <code>Lower</code> implementation encodes
+the runtime field. For example, an <code>I64Literal</code> can retain a signed integer until
+lowering encodes it into a CPU <code>Word</code>, preserving negative bit patterns. Such
+local conversions can implement lowering for any context without capability
+bounds.</p>
 <h2 id="syntax-classes">Syntax classes</h2>
 <p>Every type using pattern generation must declare a syntax class.</p>
 
