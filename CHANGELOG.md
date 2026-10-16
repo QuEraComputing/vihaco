@@ -18,6 +18,18 @@ below the `## [Unreleased]` heading, so do not remove or reword that line.
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/QuEraComputing/vihaco/compare/v0.5.0...v0.6.0) - 2026-10-16
+
+### Added
+
+- generate flat composite instruction sets with compile-time Step coverage ([#135](https://github.com/QuEraComputing/vihaco/pull/135))
+
+### Other
+
+- Add typed declarations and `Execute`, `Step`, and `Dispatch` execution traits ([#131](https://github.com/QuEraComputing/vihaco/pull/131))
+- Update CPU internals visibility ([#127](https://github.com/QuEraComputing/vihaco/pull/127))
+- Add append-only heap ability ([#124](https://github.com/QuEraComputing/vihaco/pull/124))
+
 ## [0.5.0](https://github.com/QuEraComputing/vihaco/compare/v0.4.0...v0.5.0) - 2026-09-23
 
 ### Other
