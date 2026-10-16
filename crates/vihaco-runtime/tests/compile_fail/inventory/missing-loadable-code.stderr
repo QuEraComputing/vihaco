@@ -1,0 +1,5 @@
+error: every #[device] requires an explicit u8 code
+ --> tests/compile_fail/inventory/missing-loadable-code.rs:2:53
+  |
+2 | #[composite] struct Machine { #[device] #[loadable] image: () }
+  |                                                     ^^^^^

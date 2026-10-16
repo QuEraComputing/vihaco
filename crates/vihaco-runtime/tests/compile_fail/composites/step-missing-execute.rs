@@ -5,7 +5,7 @@ struct Child {}
 
 #[composite]
 struct Machine {
-    #[device]
+    #[device(100)]
     child: Child,
 }
 

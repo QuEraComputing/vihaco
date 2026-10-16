@@ -7,6 +7,7 @@ use syn::DeriveInput;
 
 use crate::common::resolve_root;
 
+/// Generate the Message marker implementation using the declaration's framework root.
 pub fn expand(input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as DeriveInput);
     let root = match resolve_root(&input.attrs) {

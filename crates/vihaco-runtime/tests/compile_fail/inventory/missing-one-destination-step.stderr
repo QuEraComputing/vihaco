@@ -1,0 +1,14 @@
+error[E0277]: the trait bound `Machine: vihaco_runtime::Step<second, arithmetic::Add>` is not satisfied
+ --> tests/compile_fail/inventory/missing-one-destination-step.rs:8:1
+  |
+8 | #[composite] struct Machine { #[device(1)] first: Cpu, #[device(2)] second: Cpu }
+  | ^^^^^^^^^^^^ unsatisfied trait bound
+  |
+help: the trait `Step<second, Add>` is not implemented for `Machine`
+      but trait `Step<first, Add>` is implemented for it
+ --> tests/compile_fail/inventory/missing-one-destination-step.rs:9:1
+  |
+9 | impl vihaco_runtime::Step<vihaco_runtime::field!(Machine::first), arithmetic::Add> for Machine {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = help: for that trait implementation, expected `first`, found `second`
+  = note: this error originates in the macro `::vihaco_runtime::__private::__inventory_collect` (in Nightly builds, run with -Z macro-backtrace for more info)

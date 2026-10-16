@@ -17,6 +17,7 @@ struct Component {
     dialects: Vec<Path>,
 }
 
+/// Validate a typed component declaration and emit its support and inventory machinery.
 pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStream> {
     if !options.is_empty() {
         return Err(syn::Error::new_spanned(
@@ -28,6 +29,7 @@ pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStr
     Ok(emit(declaration))
 }
 
+/// Read the complete dialect list and consume the component-owned helper attributes.
 fn parse(mut item: ItemStruct) -> Result<Component> {
     let root = resolve_root(&item.attrs)?;
     let mut helpers = item
@@ -84,6 +86,7 @@ fn parse(mut item: ItemStruct) -> Result<Component> {
     })
 }
 
+/// Generate dialect support, eager coverage checks, capability metadata, and inventory queries.
 fn emit(component: Component) -> TokenStream {
     let Component {
         item,
@@ -121,21 +124,38 @@ fn emit(component: Component) -> TokenStream {
             #(<#identities as #root::__private::DialectSpec>::LEAVES),*
         ])
     };
+    let requests = dialects
+        .iter()
+        .map(|path| crate::inventory::Request {
+            callback: syn::parse_quote!(#path::__vihaco_inventory::__enumerate),
+            provider: syn::parse_quote!(#path::__VihacoDialect),
+            prefix: vec![],
+            field: None,
+            codes: vec![],
+        })
+        .collect();
+    let inventory = crate::inventory::start("component", &root, &item, requests);
     quote! {
         #item
+        #(#[#gates])*
+        #inventory
         #(#[#gates])*
         #[doc(hidden)]
         #[allow(non_snake_case)]
         pub mod #fields_module {
             #[allow(unused_imports)]
             use super::*;
+
             #[doc(hidden)]
             #[allow(unused_imports)]
             pub use #namespace_root::__private::FieldPath as __FieldPath;
+
             #[doc(hidden)]
             #[allow(unused_imports)]
             pub use #namespace_root::__private::CheckedRoute as __CheckedRoute;
+
             pub mod __markers {}
+
             pub mod __children {}
         }
         #(#[#gates])*

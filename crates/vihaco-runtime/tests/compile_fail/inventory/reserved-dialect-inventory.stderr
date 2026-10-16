@@ -1,0 +1,5 @@
+error: generated inventory module collides with an authored item
+ --> tests/compile_fail/inventory/reserved-dialect-inventory.rs:2:5
+  |
+2 | mod arithmetic {
+  |     ^^^^^^^^^^

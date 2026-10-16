@@ -33,6 +33,7 @@ pub fn resolve_root(attrs: &[syn::Attribute]) -> syn::Result<Path> {
     Ok(discover_root(|name| crate_name(name).ok()))
 }
 
+/// Find the facade or runtime dependency, preserving renamed and self-crate paths.
 fn discover_root(mut lookup: impl FnMut(&str) -> Option<FoundCrate>) -> Path {
     for name in ["vihaco", "vihaco-runtime"] {
         if let Some(found) = lookup(name) {
@@ -96,6 +97,7 @@ fn crate_override(attrs: &[syn::Attribute]) -> syn::Result<Option<syn::Path>> {
     Ok(found)
 }
 
+/// Extract only conditional existence attributes for generated companion items.
 #[cfg(feature = "typed-declarations")]
 // Only conditional item existence propagates to generated items. An authored
 // cfg_attr may also contain derive/repr attributes that cannot apply to a const.

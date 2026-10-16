@@ -17,7 +17,9 @@ struct Counter(u64);
 
 impl Execute<arithmetic::Add> for Counter {
     type Message = ();
+
     type Effect = ();
+
     type Error = std::convert::Infallible;
 
     fn execute(&mut self, instruction: &arithmetic::Add, _: ()) -> Result<(), Self::Error> {
@@ -28,16 +30,22 @@ impl Execute<arithmetic::Add> for Counter {
 
 #[composite]
 struct Controller {
-    #[device]
+    #[device(1)]
     counter: Counter,
 }
 
 #[composite]
 struct Machine {
-    #[device]
+    #[device(2)]
     direct: Counter,
-    #[device]
+    #[device(3)]
     controller: Controller,
+}
+
+impl Step<field!(Controller::counter), arithmetic::Add> for Controller {
+    fn step(&mut self, instruction: arithmetic::Add) {
+        self.counter.execute(&instruction, ()).unwrap();
+    }
 }
 
 impl Step<field!(Machine::direct), arithmetic::Add> for Machine {
@@ -49,28 +57,6 @@ impl Step<field!(Machine::direct), arithmetic::Add> for Machine {
 impl Step<field!(Machine::controller::counter), arithmetic::Add> for Machine {
     fn step(&mut self, instruction: arithmetic::Add) {
         self.controller.counter.execute(&instruction, ()).unwrap();
-    }
-}
-
-enum MachineInstruction {
-    DirectAdd(arithmetic::Add),
-    NestedAdd(arithmetic::Add),
-}
-
-impl Dispatch for Machine {
-    type Instruction = MachineInstruction;
-
-    fn dispatch(&mut self, instruction: Self::Instruction) {
-        match instruction {
-            MachineInstruction::DirectAdd(add) => {
-                <Self as Step<field!(Machine::direct), arithmetic::Add>>::step(self, add);
-            }
-            MachineInstruction::NestedAdd(add) => {
-                <Self as Step<field!(Machine::controller::counter), arithmetic::Add>>::step(
-                    self, add,
-                );
-            }
-        }
     }
 }
 
@@ -88,12 +74,12 @@ fn dispatch_selects_distinct_direct_and_nested_destinations() {
     };
     dispatch(
         &mut machine,
-        MachineInstruction::DirectAdd(arithmetic::Add(3)),
+        __vihaco_MachineInstruction::V_direct__arithmetic__Add(arithmetic::Add(3)),
     );
     assert_eq!((machine.direct.0, machine.controller.counter.0), (3, 0));
     dispatch(
         &mut machine,
-        MachineInstruction::NestedAdd(arithmetic::Add(7)),
+        __vihaco_MachineInstruction::V_controller__counter__arithmetic__Add(arithmetic::Add(7)),
     );
     assert_eq!((machine.direct.0, machine.controller.counter.0), (3, 7));
 }

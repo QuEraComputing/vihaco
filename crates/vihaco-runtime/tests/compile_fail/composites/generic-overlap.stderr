@@ -1,34 +1,11 @@
-error[E0080]: evaluation panicked: overlapping canonical instruction selector
-  --> tests/compile_fail/composites/generic-overlap.rs:34:15
+error: instruction inventory requires a named child declaration path; generic and associated child declarations cannot be inferred
+  --> tests/compile_fail/composites/generic-overlap.rs:26:12
    |
-34 | const _: () = validate(<Parent<Bad> as Capabilities>::DESCRIPTION);
-   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+26 |     child: T,
+   |            ^
+
+error[E0433]: cannot find module or crate `__vihaco_inventory_Inner` in this scope
+  --> tests/compile_fail/composites/generic-overlap.rs:32:12
    |
-note: inside `vihaco_runtime::__private::validate`
-  --> src/declarations.rs
-   |
-   |                 validate(device.child);
-   |                 ^^^^^^^^^^^^^^^^^^^^^^
-note: inside `vihaco_runtime::__private::validate`
-  --> src/declarations.rs
-   |
-   |                 validate(device.child);
-   |                 ^^^^^^^^^^^^^^^^^^^^^^
-note: inside `vihaco_runtime::__private::validate`
-  --> src/declarations.rs
-   |
-   |                     assert_disjoint_dialects(dialect, other);
-   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-note: inside `vihaco_runtime::__private::assert_disjoint_dialects`
-  --> $RUST/core/src/panic.rs
-   |
-   |           $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
-   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the failure occurred here
-   |
-  ::: src/declarations.rs
-   |
-   | /             assert!(
-   | |                 !equal(leaf.mnemonic, other.mnemonic),
-   | |                 "overlapping canonical instruction selector"
-   | |             );
-   | |_____________- in this macro invocation
+32 |     child: Inner<T>,
+   |            ^^^^^ use of unresolved module or unlinked crate `__vihaco_inventory_Inner`
