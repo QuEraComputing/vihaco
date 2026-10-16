@@ -39,8 +39,6 @@ impl<T, I> Execute<I> for Cpu<T> {
 // A narrower executable association does not limit aggregate availability.
 impl<T> HasInstructionSet for Cpu<T> {
     type Runtime = arithmetic::Halt;
-
-    type Syntax = arithmetic::syntax::Halt;
 }
 
 type Alias<T> = Cpu<T>;
@@ -149,25 +147,22 @@ fn flat_payloads_and_generated_dispatch_keep_distinct_destinations() {
 }
 
 #[test]
-fn complete_surface_parser_supports_aliases_and_preserves_leaf_values() {
-    type Syntax = <Machine<u8> as HasInstructionSet>::Syntax;
-    let source = Syntax::parser()
+fn complete_runtime_parser_supports_aliases_and_preserves_leaf_values() {
+    let source = <Machine<u8> as HasInstructionSet>::Runtime::parser()
         .parse("left::core-v2::arithmetic::add -3")
         .into_result()
         .unwrap();
     assert_eq!(
         source,
-        __vihaco_MachineSyntaxInstruction::V_left__cpu__arithmetic__Add(arithmetic::syntax::Add(
-            -3
-        ))
+        __vihaco_MachineInstruction::V_left__cpu__arithmetic__Add(arithmetic::Add(-3))
     );
     assert!(
-        Syntax::parser()
+        <Machine<u8> as HasInstructionSet>::Runtime::parser()
             .parse("excluded::cpu::arithmetic::add 1")
             .has_errors()
     );
     assert!(
-        Syntax::parser()
+        <Machine<u8> as HasInstructionSet>::Runtime::parser()
             .parse("left::image::arithmetic::add 1")
             .has_errors()
     );
@@ -183,7 +178,7 @@ fn empty_inventory_has_an_uninhabited_aggregate_and_rejects_source() {
         0
     );
     assert!(
-        <Empty as HasInstructionSet>::Syntax::parser()
+        <Empty as HasInstructionSet>::Runtime::parser()
             .parse("")
             .has_errors()
     );
@@ -293,11 +288,11 @@ mod readable_names {
         let _: <Machine as HasInstructionSet>::Runtime =
             __vihaco_MachineInstruction::V_cpu_u2__second__Add(second::Add);
         assert_eq!(
-            <Machine as HasInstructionSet>::Syntax::parser()
+            <Machine as HasInstructionSet>::Runtime::parser()
                 .parse("type::second::add")
                 .into_result()
                 .unwrap(),
-            __vihaco_MachineSyntaxInstruction::V_type__second__Add(second::syntax::Add)
+            __vihaco_MachineInstruction::V_type__second__Add(second::Add)
         );
     }
 }

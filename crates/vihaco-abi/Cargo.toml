@@ -11,6 +11,7 @@ authors.workspace = true
 byteorder = { workspace = true }
 chumsky = { workspace = true }
 eyre = { workspace = true }
+vihaco-parser = { workspace = true }
 smallvec = { workspace = true }
 vihaco-abi-derive = { workspace = true, optional = true }
 

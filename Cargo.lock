@@ -655,6 +655,7 @@ dependencies = [
  "eyre",
  "smallvec",
  "vihaco-abi-derive",
+ "vihaco-parser",
 ]
 
 [[package]]

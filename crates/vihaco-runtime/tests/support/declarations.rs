@@ -35,17 +35,14 @@ impl<C: Execute<A> + Execute<B>> Coverage<C> for Dialect {}
 impl<C: Execute<Extra>> Coverage<C> for Foreign {}
 
 impl InstructionSpec for A {
-    type Surface = u32;
     type Dialect = Dialect;
     const MNEMONIC: &'static str = "a";
 }
 impl InstructionSpec for B {
-    type Surface = u32;
     type Dialect = Dialect;
     const MNEMONIC: &'static str = "b";
 }
 impl InstructionSpec for Extra {
-    type Surface = u32;
     type Dialect = Foreign;
     const MNEMONIC: &'static str = "extra";
 }

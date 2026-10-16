@@ -14,7 +14,6 @@ use vihaco_parser::{Ident, Parse, QuotedString};
 
 use vihaco_bytecode::SstHeader;
 use vihaco_bytecode::SstSectionView;
-use vihaco_parser::SurfaceInstruction;
 
 use crate::{Param, ParsedFunction, ParsedModule};
 
@@ -137,7 +136,7 @@ where
 
 fn functions<'src, I, Ty>() -> impl Parser<'src, &'src str, Vec<ParsedFunction<I, Ty>>, E<'src>>
 where
-    I: SurfaceInstruction + Parse<'src> + 'src,
+    I: Parse<'src> + 'src,
     Ty: Parse<'src> + 'src,
 {
     skip()
@@ -149,16 +148,31 @@ where
 
 impl<'src, I, Ty> Parse<'src> for ParsedFunction<I, Ty>
 where
-    I: SurfaceInstruction + Parse<'src> + 'src,
+    I: Parse<'src> + 'src,
     Ty: Parse<'src> + 'src,
 {
     fn parser() -> impl Parser<'src, &'src str, Self, E<'src>> {
         let return_ty = just("->").padded().ignore_then(Ty::parser()).or_not();
+        #[cfg(not(feature = "typed-declarations"))]
         let body = skip()
             .ignore_then(I::parser())
             .repeated()
             .collect::<Vec<_>>()
             .then_ignore(skip());
+        #[cfg(feature = "typed-declarations")]
+        let body = {
+            let label = just("label")
+                .then_ignore(text::whitespace().at_least(1))
+                .ignore_then(just('@'))
+                .ignore_then(Ident::parser())
+                .map(|_| None);
+            skip()
+                .ignore_then(label.or(I::parser().map(Some)))
+                .repeated()
+                .collect::<Vec<_>>()
+                .map(|items| items.into_iter().flatten().collect::<Vec<_>>())
+                .then_ignore(skip())
+        };
 
         just("fn")
             .padded()
@@ -178,11 +192,8 @@ where
     }
 }
 
-impl<I, Ty, H> ParsedModule<I, Ty, H>
-where
-    I: SurfaceInstruction,
-{
-    /// Parse a source section into a pre-resolution module.
+impl<I, Ty, H> ParsedModule<I, Ty, H> {
+    /// Parse a source section into its consumer instruction representation.
     pub fn parse_section<'src, C>(section: SstSectionView<'src, C>) -> eyre::Result<Self>
     where
         H: SstHeader,

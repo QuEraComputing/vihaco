@@ -533,11 +533,10 @@ fn emit(collection: Collection) -> Result<TokenStream> {
     })
 }
 
-/// Generate flat runtime and surface enums, qualified source parsers, and eager Step dispatch.
+/// Generate a flat runtime enum, its qualified parser, and eager Step dispatch.
 fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenStream> {
     let name = &item.ident;
     let runtime = format_ident!("__vihaco_{}Instruction", name.unraw());
-    let surface = format_ident!("__vihaco_{}SyntaxInstruction", name.unraw());
     let provider = module_ident(name);
     let (impl_generics, type_generics, where_clause) = item.generics.split_for_impl();
     let variants: Vec<_> = entries.iter().map(|entry| variant(&entry.record)).collect();
@@ -549,10 +548,6 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
             syn::parse_quote!(<#provider::Provider as #root::__private::LeafAt<#slot>>::Instruction)
         })
         .collect();
-    let surfaces: Vec<Type> = types
-        .iter()
-        .map(|ty| syn::parse_quote!(<#ty as #root::__private::InstructionSpec>::Surface))
-        .collect();
     let mut arms = Vec::new();
     for ((entry, variant), ty) in entries.iter().zip(&variants).zip(&types) {
         let field = entry.field.as_ref().ok_or_else(|| {
@@ -560,7 +555,7 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
         })?;
         arms.push(quote!(#runtime::#variant(instruction) => <Self as #root::Step<#field, #ty>>::step(self, instruction)));
     }
-    let parsers = entries.iter().zip(&variants).zip(&surfaces).map(|((entry, variant), ty)| {
+    let parsers = entries.iter().zip(&variants).zip(&types).map(|((entry, variant), ty)| {
         let mut prefix = quote!(#root::chumsky::primitive::empty());
         for segment in &entry.record.segments {
             let source = &segment.source;
@@ -583,16 +578,13 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
         #[doc(hidden)] #[allow(non_camel_case_types, clippy::enum_variant_names)] #[derive(Clone, Debug, PartialEq)]
         pub enum #runtime { #(#variants(#types)),* }
 
-        #[doc(hidden)] #[allow(non_camel_case_types, clippy::enum_variant_names)] #[derive(Clone, Debug, PartialEq)]
-        pub enum #surface { #(#variants(#surfaces)),* }
-
         impl #impl_generics #root::HasInstructionSet for #name #type_generics #where_clause {
-            type Runtime = #runtime; type Syntax = #surface;
+            type Runtime = #runtime;
         }
 
-        impl #root::SurfaceInstruction for #surface {}
 
-        impl<'src> #root::Parse<'src> for #surface {
+
+        impl<'src> #root::Parse<'src> for #runtime {
             fn parser() -> impl #root::chumsky::Parser<'src, &'src str, Self, #root::chumsky::extra::Err<#root::chumsky::error::Simple<'src, char>>> {
                 use #root::chumsky::Parser as _;
                 #parser

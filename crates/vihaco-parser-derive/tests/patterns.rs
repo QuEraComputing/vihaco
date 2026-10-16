@@ -548,3 +548,79 @@ fn generated_names_are_lowercase() {
     assert_eq!(parse("test.httpserver"), Ok(AcronymInstruction::HttpServer));
     assert!(parse::<AcronymInstruction>("test.HttpServer").is_err());
 }
+
+#[derive(Parse, Debug, PartialEq)]
+#[syntax_class(instruction, head = "test")]
+enum ConvertedBindings {
+    #[pattern = "'call $0 `,` $1:u64"]
+    Call(u32, u32),
+    #[pattern = "'swap $1:u64 `,` $0"]
+    Swap(u32, u8),
+    #[pattern = "'named $right:u64 `,` $left"]
+    Named { left: u32, right: u8 },
+    #[pattern = "'pairs $0:Vec<(u32, u64)>"]
+    Pairs(Vec<(u32, u64)>),
+    #[pattern = "'scoped $0: ::std::primitive::u64"]
+    Scoped(u32),
+    #[pattern = "'associated $0:<AnnotationConfig as AnnotationTypes>::Number"]
+    Associated(u32),
+}
+trait AnnotationTypes {
+    type Number;
+}
+struct AnnotationConfig;
+impl AnnotationTypes for AnnotationConfig {
+    type Number = u64;
+}
+
+#[test]
+fn annotated_bindings_convert_and_unannotated_bindings_use_field_types() {
+    assert_eq!(parse("test.call 2, 10"), Ok(ConvertedBindings::Call(2, 10)));
+    assert_eq!(
+        parse("test.swap 7, 1000"),
+        Ok(ConvertedBindings::Swap(1000, 7))
+    );
+    assert_eq!(
+        parse("test.named 7, 1000"),
+        Ok(ConvertedBindings::Named {
+            left: 1000,
+            right: 7
+        })
+    );
+    assert_eq!(
+        parse("test.pairs [(1, 2), (3, 4)]"),
+        Ok(ConvertedBindings::Pairs(vec![(1, 2), (3, 4)]))
+    );
+    assert_eq!(parse("test.scoped 10"), Ok(ConvertedBindings::Scoped(10)));
+    assert_eq!(
+        parse("test.associated 10"),
+        Ok(ConvertedBindings::Associated(10))
+    );
+    assert!(parse::<ConvertedBindings>("test.call 2, 4294967296").is_err());
+    assert!(parse::<ConvertedBindings>("test.swap 256, 1").is_err());
+    assert!(parse::<ConvertedBindings>("test.named 256, 1").is_err());
+    assert!(parse::<ConvertedBindings>("test.call -1, 10").is_err());
+}
+
+// A conversion error need not implement Debug or Display.
+struct ConversionError;
+#[derive(Parse)]
+#[syntax_class(value)]
+struct SmallLiteral(u64);
+impl TryFrom<SmallLiteral> for u8 {
+    type Error = ConversionError;
+    fn try_from(value: SmallLiteral) -> Result<Self, Self::Error> {
+        u8::try_from(value.0).map_err(|_| ConversionError)
+    }
+}
+#[derive(Parse, Debug, PartialEq)]
+#[syntax_class(value)]
+#[pattern = "$0:SmallLiteral"]
+struct ConvertedValue(u8);
+
+#[test]
+fn conversions_return_operand_spans_without_error_formatting_bounds() {
+    assert_eq!(parse("7"), Ok(ConvertedValue(7)));
+    let errors = parse::<ConvertedValue>("256").unwrap_err();
+    assert_eq!(errors[0].span().into_range(), 0..3);
+}

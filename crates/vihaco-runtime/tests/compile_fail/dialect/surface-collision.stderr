@@ -1,5 +1,0 @@
-error: generated surface name collides with an authored item
- --> tests/compile_fail/dialect/surface-collision.rs:4:67
-  |
-4 | mod invalid { pub struct __HaltSurface; #[instruction] pub struct Halt; }
-  |                                                                   ^^^^

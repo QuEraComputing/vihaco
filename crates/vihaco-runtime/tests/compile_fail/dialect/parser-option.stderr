@@ -1,0 +1,5 @@
+error: #[instruction] takes no arguments
+ --> tests/compile_fail/dialect/parser-option.rs:5:5
+  |
+5 |     #[instruction(parser = custom)]
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

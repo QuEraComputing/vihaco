@@ -1,21 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Dialect validation and emission of paired runtime/surface instructions.
-//!
-//! Surface structs are defined beside the authored runtime structs so their
-//! operand types resolve in the same Rust scope. Defining them inside `syntax`
-//! would change the meaning of relative paths such as `self::Operand` and
-//! `super::Operand`. Imports from the parent module would not preserve every
-//! path, and same-named surface types could shadow runtime instruction operands.
-//!
-//! The public `syntax` module therefore reexports the surface types under their
-//! instruction names, including unit/tuple constructors. Hidden `__NameSurface`
-//! definitions provide the original operand scope while callers use
-//! `dialect::syntax::Name`. Reexports preserve type identity, so InstructionSpec
-//! can associate that public path without conversions or operand-path rewriting.
-//! Inline documentation exposes the public names in rustdoc; validation rejects
-//! authored collisions with the namespace and hidden definition names.
+//! Dialect validation and direct runtime instruction parsing.
 
 use std::collections::HashSet;
 
@@ -38,7 +24,7 @@ struct Dialect {
     leaves: Vec<ItemStruct>,
 }
 
-/// Validate an inline dialect declaration and generate its runtime and surface instruction pairs.
+/// Validate an inline dialect declaration and generate direct runtime parsers.
 pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStream> {
     if !options.is_empty() {
         return Err(syn::Error::new_spanned(
@@ -76,13 +62,7 @@ fn validate(mut module: ItemMod) -> Result<Dialect> {
             "generated inventory module collides with an authored item",
         ));
     }
-    if names.contains("syntax") {
-        return Err(syn::Error::new(
-            module.ident.span(),
-            "generated syntax module collides with an authored item",
-        ));
-    }
-    let leaves = collect_instruction_leaves(items, &names)?;
+    let leaves = collect_instruction_leaves(items)?;
     if leaves.is_empty() {
         return Err(syn::Error::new(
             module.ident.span(),
@@ -118,17 +98,14 @@ fn resolve_dialect_root(mut root: Path) -> Path {
 }
 
 /// Collect immediate marked instruction structs and reject misplaced helpers elsewhere.
-fn collect_instruction_leaves(
-    items: &mut [Item],
-    names: &HashSet<String>,
-) -> Result<Vec<ItemStruct>> {
+fn collect_instruction_leaves(items: &mut [Item]) -> Result<Vec<ItemStruct>> {
     let mut leaves = Vec::new();
     let mut leaf_names = HashSet::new();
     for item in items {
         if let Item::Struct(leaf) = item
             && has_instruction_marker(&leaf.attrs)?
         {
-            leaves.push(validate_instruction(leaf, names, &mut leaf_names)?);
+            leaves.push(validate_instruction(leaf, &mut leaf_names)?);
         } else {
             check_item(item, HelperValidationMode::UnmarkedItem)?;
         }
@@ -136,7 +113,7 @@ fn collect_instruction_leaves(
     Ok(leaves)
 }
 
-/// Recognize a single argument-free instruction marker, diagnosing malformed markers.
+/// Recognize one argument-free instruction marker.
 fn has_instruction_marker(attrs: &[Attribute]) -> Result<bool> {
     let mut markers = attrs
         .iter()
@@ -159,10 +136,9 @@ fn has_instruction_marker(attrs: &[Attribute]) -> Result<bool> {
     Ok(true)
 }
 
-/// Prepare one runtime leaf and its parser-bearing copy after validating names and helpers.
+/// Validate a runtime leaf and prepare its parser metadata.
 fn validate_instruction(
     leaf: &mut ItemStruct,
-    names: &HashSet<String>,
     leaf_names: &mut HashSet<String>,
 ) -> Result<ItemStruct> {
     validate_instruction_shape(leaf)?;
@@ -179,22 +155,15 @@ fn validate_instruction(
             "duplicate instruction name",
         ));
     }
-    if names.contains(&surface_ident(&leaf.ident).to_string()) {
-        return Err(syn::Error::new(
-            leaf.ident.span(),
-            "generated surface name collides with an authored item",
-        ));
-    }
     validate_instruction_attrs(&leaf.attrs)?;
     strip_attrs(&mut leaf.attrs, &["instruction"]);
-    // Inspect fields and remaining attrs, excluding the owned pattern.
     let mut checked = leaf.clone();
     strip_attrs(&mut checked.attrs, &["pattern"]);
     check_item(&Item::Struct(checked), HelperValidationMode::Instruction)?;
     add_derives(leaf)?;
-    let paired = leaf.clone();
+    let instruction = leaf.clone();
     strip_attrs(&mut leaf.attrs, &["pattern"]);
-    Ok(paired)
+    Ok(instruction)
 }
 
 /// Require public, nongeneric unit or tuple structs for instruction leaves.
@@ -379,12 +348,7 @@ fn collect_names(item: &Item, names: &mut HashSet<String>) {
     }
 }
 
-/// Choose the hidden name of a runtime leaf's paired surface struct.
-fn surface_ident(runtime: &syn::Ident) -> syn::Ident {
-    format_ident!("__{}Surface", runtime)
-}
-
-/// Emit dialect identity, surface parsers, coverage obligations, and the leaf inventory producer.
+/// Emit runtime parsers, dialect identity, coverage, and the leaf inventory producer.
 fn emit(dialect: Dialect) -> Result<TokenStream> {
     let Dialect {
         mut module,
@@ -393,43 +357,16 @@ fn emit(dialect: Dialect) -> Result<TokenStream> {
         leaves,
     } = dialect;
     let head = module.ident.unraw().to_string();
-    let mut surfaces = Vec::new();
+    let mut instructions = Vec::new();
     let mut runtime_names = Vec::new();
-    let mut reexports = Vec::new();
     for leaf in &leaves {
         let runtime = &leaf.ident;
         runtime_names.push(runtime);
-        let mut surface = leaf.clone();
-        surface.ident = surface_ident(runtime);
-        let name = &surface.ident;
-        // Only the public access path gains a module level. The actual struct
-        // and its parser remain in the runtime leaf's authored operand scope.
-        reexports.push(quote! {
-            #[doc(inline)]
-            pub use super::#name as #runtime;
-        });
-        surface.attrs.retain(|attr| {
-            [
-                "doc",
-                "allow",
-                "warn",
-                "deny",
-                "forbid",
-                "deprecated",
-                "must_use",
-                "pattern",
-            ]
-            .iter()
-            .any(|name| attr.path().is_ident(name))
-        });
-        surface.attrs.push(parse_quote!(#[doc(hidden)]));
-        surface
-            .attrs
-            .push(parse_quote!(#[derive(Clone, Debug, PartialEq)]));
-        surface
+        let mut instruction = leaf.clone();
+        instruction
             .attrs
             .push(parse_quote!(#[syntax_class(instruction)]));
-        if !surface
+        if !instruction
             .attrs
             .iter()
             .any(|attr| attr.path().is_ident("pattern"))
@@ -445,12 +382,12 @@ fn emit(dialect: Dialect) -> Result<TokenStream> {
                 );
             }
             let pattern = syn::LitStr::new(&pattern, runtime.span());
-            surface.attrs.push(parse_quote!(#[pattern = #pattern]));
+            instruction.attrs.push(parse_quote!(#[pattern = #pattern]));
         }
-        surface
+        instruction
             .attrs
             .push(parse_quote!(#[__vihaco_runtime(#runtime)]));
-        surfaces.push(quote!(#surface));
+        instructions.push(quote!(#instruction));
     }
     // A coverage parameter must not shadow an authored instruction type.
     let mut component = format_ident!("__VihacoComponent");
@@ -472,10 +409,6 @@ fn emit(dialect: Dialect) -> Result<TokenStream> {
     let declarations = quote! {
         #producer
         #(#slots)*
-        pub mod syntax {
-            #(#reexports)*
-        }
-
         #[doc(hidden)]
         pub struct __VihacoDialect;
 
@@ -492,12 +425,20 @@ fn emit(dialect: Dialect) -> Result<TokenStream> {
         where #(#component: #root::Execute<#runtime_names>),* {}
     };
     // Ordinary items remain visible to expansion formatters. The internal
-    // module attribute consumes surface markers and emits their parsers without
+    // module attribute consumes parser markers and emits their parsers without
     // hiding the declarations inside an opaque function-like macro body.
     module.attrs.push(parse_quote!(
         #[#parent_root::__private::__dialect_parsers(#root)]
     ));
-    let generated = quote!(#declarations #(#surfaces)*);
+    let mut instructions = instructions.into_iter();
+    for item in &mut module.content.as_mut().expect("validated inline module").1 {
+        if let Item::Struct(leaf) = item
+            && runtime_names.iter().any(|name| **name == leaf.ident)
+        {
+            *item = syn::parse2(instructions.next().expect("one parser per runtime leaf"))?;
+        }
+    }
+    let generated = quote!(#declarations);
     // Append ordinary items to the authored module, retaining item order/scope.
     let generated: syn::File = syn::parse2(generated)?;
     module
@@ -529,13 +470,10 @@ mod tests {
         let file: syn::File = syn::parse2(expanded).unwrap();
         let formatted = prettyplease::unparse(&file);
         assert!(
-            formatted.contains("\n    pub mod syntax {\n"),
+            formatted.contains("#[__vihaco_runtime(Halt)]"),
             "{formatted}"
         );
-        assert!(
-            formatted.contains("\n        pub use super::__HaltSurface as Halt;\n"),
-            "{formatted}"
-        );
+        assert!(formatted.contains("pub struct Halt;"), "{formatted}");
         assert!(
             formatted.contains("\n    pub struct __VihacoDialect;\n"),
             "{formatted}"

@@ -1,0 +1,5 @@
+error: invalid binding parser type: unexpected token, expected `)`
+ --> tests/compile_errors/annotation-invalid-type.rs:5:13
+  |
+5 | #[pattern = "'call $0:(u32 u64)"]
+  |             ^^^^^^^^^^^^^^^^^^^^

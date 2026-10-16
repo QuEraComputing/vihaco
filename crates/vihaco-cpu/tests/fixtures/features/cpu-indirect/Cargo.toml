@@ -1,0 +1,10 @@
+[package]
+name = "cpu-indirect"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+host = { workspace = true }
+activation = { package = "cpu-activation", path = "../cpu-activation" }
+rt = { workspace = true }
