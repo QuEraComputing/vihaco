@@ -6,7 +6,7 @@ extern crate self as vihaco;
 use vihaco_bytecode as binary;
 // Extracted crates re-exported at their original module paths so the public
 // API is unchanged (see design/crate-split.md §7).
-pub use vihaco_abi::{effect, frame, instruction_syntax, metadata, program};
+pub use vihaco_abi::{effect, frame, instruction_syntax, metadata, program, word};
 pub use vihaco_module::{color, module, show, show_instruction};
 /// Program loading interfaces and the standard program image.
 pub mod loader {
@@ -85,6 +85,11 @@ pub use runtime::field;
 /// ```
 #[cfg(feature = "typed-declarations")]
 pub use runtime::dialect;
+
+#[cfg(feature = "program-image-execution")]
+pub use runtime::{
+    Apply, HasOperandStack, PopFromStack, PopStack, PushStack, PushToStack, StackValue,
+};
 
 #[cfg(test)]
 mod public_api_tests {

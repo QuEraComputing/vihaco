@@ -12,3 +12,6 @@ colored = "3.0.0"
 eyre = { workspace = true }
 vihaco-abi = { workspace = true }
 vihaco-bytecode = { workspace = true }
+
+[features]
+program-image-execution = []

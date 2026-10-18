@@ -11,6 +11,11 @@
 //! fields. Feature-off execution retains the existing declarations. The two
 //! declaration modes require separate Cargo feature graphs.
 //!
+//! The nondefault `program-image-execution` feature implies `typed-declarations`
+//! and adds `PopFromStack`, `PushToStack`, typed stack access, and capability-
+//! gated message preparation. These are foundations for program-owned execution;
+//! they do not switch a CPU or supply a composite's Step implementation.
+//!
 //! With `typed-declarations`, `#[dialect]` gives public runtime instruction
 //! structs syntax parsers. Operand types retain their authored scope. Only
 //! immediate marked nongeneric unit/tuple structs belong to a dialect. Differing
@@ -336,3 +341,11 @@ pub use vihaco_runtime_derive::component;
 /// ```
 #[cfg(feature = "typed-declarations")]
 pub use vihaco_runtime_derive::field;
+
+#[cfg(feature = "program-image-execution")]
+mod stack;
+
+#[cfg(feature = "program-image-execution")]
+pub use stack::{Apply, HasOperandStack, PopFromStack, PushToStack};
+#[cfg(feature = "program-image-execution")]
+pub use vihaco_module::{PopStack, PushStack, StackValue};

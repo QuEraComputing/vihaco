@@ -7,3 +7,10 @@ pub mod color;
 pub mod host;
 pub mod loader;
 pub mod module;
+
+/// Typed operand access for program-owned execution storage.
+#[cfg(feature = "program-image-execution")]
+pub mod stack;
+
+#[cfg(feature = "program-image-execution")]
+pub use stack::{PopStack, PushStack, StackValue};

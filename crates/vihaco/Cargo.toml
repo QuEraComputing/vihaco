@@ -26,6 +26,7 @@ vihaco-parser-derive = { workspace = true }
 vihaco-stdlib = { workspace = true }
 
 [features]
+program-image-execution = ["typed-declarations", "vihaco-runtime/program-image-execution", "vihaco-stdlib/program-image-execution"]
 typed-declarations = ["vihaco-runtime/typed-declarations", "vihaco-syntax/typed-declarations", "vihaco-stdlib/typed-declarations"]
 
 [dev-dependencies]
