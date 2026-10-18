@@ -18,6 +18,7 @@ vihaco-parser-derive = { workspace = true, optional = true }
 vihaco-runtime-derive = { workspace = true, optional = true }
 
 [features]
+program-image-execution = ["typed-declarations", "vihaco-module/program-image-execution"]
 default = ["derive"]
 derive = ["dep:vihaco-runtime-derive", "dep:vihaco-parser-derive", "vihaco-abi/derive"]
 typed-declarations = ["derive", "vihaco-runtime-derive/typed-declarations"]

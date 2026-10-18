@@ -1,0 +1,12 @@
+error[E0277]: the trait bound `Machine: BuildMessage<Route, Instruction, PopFromStack<()>>` is not satisfied
+  --> tests/compile_fail/stack/missing-capability.rs:22:14
+   |
+22 |     let _ = <Machine as BuildMessage<Route, Instruction>>::build_message(&mut Machine, &Instruction);
+   |              ^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `HasOperandStack<Instruction>` is not implemented for `Machine`
+  --> tests/compile_fail/stack/missing-capability.rs:14:1
+   |
+14 | struct Machine;
+   | ^^^^^^^^^^^^^^
+   = note: required for `Machine` to implement `BuildMessage<Route, Instruction, PopFromStack<()>>`

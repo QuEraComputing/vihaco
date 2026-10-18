@@ -1,0 +1,14 @@
+error[E0277]: the trait bound `WordStorage: PopStack<f64>` is not satisfied
+  --> tests/compile_fail/stack/missing-representation.rs:33:14
+   |
+33 |     let _ = <Machine as BuildMessage<Route, Instruction>>::build_message(
+   |              ^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `PopStack<f64>` is not implemented for `WordStorage`
+      but trait `PopStack<u64>` is implemented for it
+  --> tests/compile_fail/stack/missing-representation.rs:16:1
+   |
+16 | impl PopStack<u64> for WordStorage {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for that trait implementation, expected `u64`, found `f64`
+   = note: required for `Machine` to implement `BuildMessage<Route, Instruction, PopFromStack<(f64,)>>`

@@ -114,8 +114,37 @@ for graphs containing a typed CPU. CPU features only activate lower crates. Lega
 `vihaco_module::loader::ProgramImage` or `vihaco_runtime::loader::ProgramImage`
 should import `vihaco_stdlib::ProgramImage` instead. Generic loader and host
 traits remain in `vihaco-module`. Direct stdlib consumers enable
-`vihaco-stdlib/typed-declarations` for CPU string interning; this forwards to CPU
-and runtime. Enabling only a CPU feature does not activate stdlib above it.
+`vihaco-stdlib/typed-declarations` for CPU string interning, or
+`vihaco-stdlib/program-image-execution` for the execution protocols; these forward
+to CPU and runtime. Enabling only a CPU feature does not activate stdlib above it.
+
+The nondefault `program-image-execution` feature on `vihaco-stdlib`, `vihaco-cpu`, `vihaco`, or
+`vihaco-runtime` implies `typed-declarations` and exposes the foundations for
+program-owned execution. Component authors select `PopFromStack` messages and
+`PushToStack` effects; the completed route will supply storage through
+ProgramImage and connect it through generated composite wiring. Tuple inputs
+and outputs support arities 0–16; homogeneous array outputs support any length.
+Boolean stack items accept zero as false and any nonzero word as true, and
+write canonical `0`/`1` results.
+
+`StackValue::Storage` separates the Rust types components compute with from the
+representations exchanged with program storage. For example, a component receives
+`bool` even though its storage representation is a Word; an `f64` can remain
+native so a later execution cursor can cache it efficiently. Program storage can
+change without changing a component's operand/result types. Authors using the
+built-in types only choose their message/effect shapes.
+
+Custom stack items define `from_storage`/`into_storage` conversions; default
+access methods handle popping and pushing. They do not need a Word encoding.
+
+`PopStack<T>::pop`, `PushStack<T>::push`, `StackValue`, `HasOperandStack`,
+and `Apply` are framework/advanced extension contracts, not stack logic that
+component or composite authors must implement. The typed access traits allow
+specialized storage implementations without requiring named numeric methods.
+This is implementation boundary A: concrete storage and generated wiring remain
+future work, and the shipped CPU still uses its existing typed execution behavior.
+Word encodings are shared in `vihaco-abi::word` and re-exported unchanged through
+`vihaco_cpu::word` and the CPU crate root.
 
 ## Workspace
 

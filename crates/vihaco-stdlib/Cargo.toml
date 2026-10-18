@@ -15,6 +15,11 @@ typed-declarations = [
     "vihaco-cpu/typed-declarations",
     "vihaco-syntax/typed-declarations", # Integration-test syntax follows the declaration mode.
 ]
+program-image-execution = [
+    "typed-declarations",
+    "vihaco-runtime/program-image-execution",
+    "vihaco-cpu/program-image-execution",
+]
 
 [dependencies]
 eyre = { workspace = true }

@@ -8,6 +8,11 @@
 //! crates; facade applications can instead enable `vihaco/typed-declarations`.
 //! Feature-off use retains the legacy instruction enums and `CPUMessage`.
 //!
+//! The nondefault `program-image-execution` feature implies `typed-declarations`
+//! and forwards the framework's stack protocols. Currently it adds protocol
+//! foundations only: CPU execution still uses the existing typed route until
+//! the program-storage and execution-cutover boundaries are implemented.
+//!
 //! Typed instruction syntax retains readable literals until explicit lowering
 //! encodes them into runtime `Word` payloads. Branch and call targets accept
 //! numeric addresses or `@name` symbols; function references accept numeric

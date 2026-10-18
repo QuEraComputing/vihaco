@@ -11,6 +11,7 @@ pub mod metadata;
 pub mod program;
 #[doc(hidden)]
 pub mod traits;
+pub mod word;
 
 /// Bytecode-instruction traits, mounted at a stable `instruction` path so that
 /// derive-generated code can resolve `::<root>::instruction::OpCode` whether the
