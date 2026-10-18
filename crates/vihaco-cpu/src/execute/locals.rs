@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 use crate::{CPU, StepOutcome, Word, cpu};
-use vihaco::traits::{FrameMemory, StackMemory};
-use vihaco::{Execute, NoMessage};
+use vihaco_module::host::{FrameMemory, StackMemory};
+use vihaco_runtime::{Execute, NoMessage};
 
 impl Execute<cpu::LoadI32> for CPU {
     type Message = NoMessage;

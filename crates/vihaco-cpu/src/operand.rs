@@ -6,7 +6,7 @@
 use vihaco_parser::{Ident, QuotedString};
 
 /// An executable address or function index, or a symbol to resolve during loading.
-#[derive(vihaco::Parse, Clone, Debug, PartialEq)]
+#[derive(vihaco_parser_derive::Parse, Clone, Debug, PartialEq)]
 #[syntax_class(value)]
 pub enum Target {
     #[pattern = "$0"]
@@ -16,7 +16,7 @@ pub enum Target {
 }
 
 /// An existing string-table index or a string literal to intern during loading.
-#[derive(vihaco::Parse, Clone, Debug, PartialEq)]
+#[derive(vihaco_parser_derive::Parse, Clone, Debug, PartialEq)]
 #[syntax_class(value)]
 pub enum StringOperand {
     #[pattern = "$0"]

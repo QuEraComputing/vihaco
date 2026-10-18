@@ -3,8 +3,8 @@
 
 use crate::word::*;
 use crate::{CPU, StepOutcome, cpu};
-use vihaco::traits::StackMemory;
-use vihaco::{Execute, NoMessage};
+use vihaco_module::host::StackMemory;
+use vihaco_runtime::{Execute, NoMessage};
 
 impl Execute<cpu::ShlI32> for CPU {
     type Message = NoMessage;

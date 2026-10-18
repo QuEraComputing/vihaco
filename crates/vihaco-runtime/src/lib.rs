@@ -197,7 +197,7 @@ pub use vihaco_runtime_derive::component_macro;
 #[cfg(all(feature = "derive", not(feature = "typed-declarations")))]
 pub use vihaco_runtime_derive::component_macro as component;
 
-#[cfg(feature = "typed-declarations")]
+#[cfg(feature = "derive")]
 pub use vihaco_parser_derive::Parse;
 
 /// Declare instructions with retained syntax operands and capability-based lowering.

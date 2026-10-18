@@ -7,7 +7,7 @@ use crate::{
     cpu,
     operand::{StringOperand, Target},
 };
-use vihaco::{Lower, Syntax};
+use vihaco_abi::{Lower, Syntax};
 
 /// Resolve labels in the function currently being lowered.
 ///
@@ -32,22 +32,6 @@ pub trait FunctionLookup {
 /// table. Implementations report an error if the table cannot represent an index.
 pub trait StringIntern {
     fn intern_string(&mut self, value: &str) -> eyre::Result<u32>;
-}
-
-impl<I, C, V, Ty, Info> StringIntern for vihaco::ProgramImage<I, C, V, Ty, Info> {
-    fn intern_string(&mut self, value: &str) -> eyre::Result<u32> {
-        if let Some(index) = self
-            .module
-            .strings
-            .iter()
-            .position(|existing| existing == value)
-        {
-            return Ok(u32::try_from(index)?);
-        }
-        let index = u32::try_from(self.module.strings.len())?;
-        self.module.strings.push(value.to_owned());
-        Ok(index)
-    }
 }
 
 fn label_target<C: LabelLookup + ?Sized>(target: Target, context: &C) -> eyre::Result<u32> {
@@ -110,7 +94,7 @@ impl<C: StringIntern + ?Sized> Lower<C> for cpu::ConstString<Syntax> {
 // Literal encoding is instruction-owned lowering and needs no loader capabilities.
 macro_rules! lower_literal {
     ($($instruction:ident => $convert:expr),* $(,)?) => {$(
-        impl<C: ?Sized> vihaco::Lower<C> for cpu::$instruction<vihaco::Syntax> {
+        impl<C: ?Sized> vihaco_abi::Lower<C> for cpu::$instruction<vihaco_abi::Syntax> {
             type Runtime = cpu::$instruction;
             fn lower(self, _: &mut C) -> eyre::Result<Self::Runtime> {
                 Ok(cpu::$instruction(($convert)(self.0)))

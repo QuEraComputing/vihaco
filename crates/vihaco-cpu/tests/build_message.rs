@@ -3,13 +3,13 @@
 
 #![cfg(feature = "typed-declarations")]
 
-use vihaco::traits::{StackFrame, StackMemory};
-use vihaco::{BuildMessage, Execute, NoMessage, Step, composite, field};
 pub use vihaco_cpu::{__vihaco_fields_CPU, __vihaco_inventory_CPU};
 use vihaco_cpu::{
     CPU, StepOutcome, cpu, decode_function_ref, decode_string_id, encode_function_ref,
     encode_string_id, message,
 };
+use vihaco_module::host::{StackFrame, StackMemory};
+use vihaco_runtime::{BuildMessage, Execute, NoMessage, Step, composite, field};
 
 #[composite]
 #[derive(Default)]

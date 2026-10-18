@@ -8,11 +8,12 @@ use crate::Word;
 use crate::data::CPU;
 use crate::word::*;
 use eyre::Result;
+use vihaco_abi::{frame::Frame, traits::Reset};
+use vihaco_module::host::*;
 #[cfg(not(feature = "typed-declarations"))]
-use vihaco::Effects;
+use vihaco_runtime::Effects;
 #[cfg(not(feature = "typed-declarations"))]
-use vihaco::dispatch;
-use vihaco::{frame::Frame, traits::*};
+use vihaco_runtime::dispatch;
 
 impl Reset for CPU {
     fn reset(&mut self) {
@@ -219,7 +220,7 @@ impl CPU {
 }
 
 #[cfg(not(feature = "typed-declarations"))]
-#[derive(Debug, Clone, PartialEq, vihaco::Message)]
+#[derive(Debug, Clone, PartialEq, vihaco_runtime::Message)]
 pub enum CPUMessage {
     None,
     /// Target metadata selected by the composite for the executing CPU device.
@@ -490,8 +491,10 @@ impl CPU {
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
-    use vihaco::{Effects, GeneratedComponent, frame::Frame, traits::StackMemory};
+    use vihaco_abi::frame::Frame;
+    use vihaco_module::host::StackMemory;
     use vihaco_parser::Ident;
+    use vihaco_runtime::{Effects, GeneratedComponent};
 
     trait ExecuteInstruction {
         fn execute_instruction(&mut self, instruction: RuntimeInstruction) -> Result<StepOutcome>;
@@ -499,7 +502,7 @@ mod tests {
 
     impl ExecuteInstruction for CPU {
         fn execute_instruction(&mut self, instruction: RuntimeInstruction) -> Result<StepOutcome> {
-            vihaco::expect_exactly_one_effect(GeneratedComponent::execute_generated(
+            vihaco_runtime::expect_exactly_one_effect(GeneratedComponent::execute_generated(
                 self,
                 &instruction,
                 CPUMessage::None,

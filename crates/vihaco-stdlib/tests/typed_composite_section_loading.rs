@@ -68,7 +68,7 @@ struct Middle {
 struct Root {
     events: Events,
     // Ordinary program state retains its authored ProgramCounter behavior.
-    program: framework::loader::ProgramImage<u8, Context>,
+    program: vihaco_stdlib::ProgramImage<u8, Context>,
     #[device(4, alias = "parser_name")]
     #[loadable("custom")]
     middle: Middle,
@@ -147,7 +147,7 @@ fn typed_composite_section_loading() {
     let events = Events::default();
     let mut root = Root {
         events: events.clone(),
-        program: framework::loader::ProgramImage::default(),
+        program: vihaco_stdlib::ProgramImage::default(),
         middle: Middle {
             events: events.clone(),
             leaf: Image(events.clone()),

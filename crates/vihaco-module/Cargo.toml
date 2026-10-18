@@ -1,7 +1,7 @@
 [package]
 name = "vihaco-module"
 edition = "2024"
-description = "Loadable program model for vihaco: modules, program images/loader, host-VM traits, and colored output."
+description = "Loadable program model for vihaco: modules, loading interfaces, host-VM traits, and colored output."
 version.workspace = true
 license.workspace = true
 repository.workspace = true

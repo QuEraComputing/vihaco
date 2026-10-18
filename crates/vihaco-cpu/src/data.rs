@@ -4,10 +4,8 @@
 use crate::Word;
 #[cfg(not(feature = "typed-declarations"))]
 use crate::instruction::SurfaceValue;
-use vihaco::{
-    frame::Frame,
-    traits::{FrameMemory, StackFrame, StackMemory},
-};
+use vihaco_abi::frame::Frame;
+use vihaco_module::host::{FrameMemory, StackFrame, StackMemory};
 #[cfg(not(feature = "typed-declarations"))]
 use vihaco_parser::Ident;
 
@@ -19,7 +17,7 @@ pub(crate) mod component;
 pub use component::CPUMessage;
 
 #[cfg(not(feature = "typed-declarations"))]
-vihaco::component! {
+vihaco_runtime::component! {
     #[derive(Default, Debug)]
     pub component CPU {
         pub(crate) frames: Vec<Frame>,
@@ -31,7 +29,7 @@ vihaco::component! {
         pub(crate) return_values: Vec<Word>,
     }
 
-    type Type = vihaco::Type;
+    type Type = vihaco_abi::Type;
     value Word = crate::Word;
 
     instruction {
@@ -386,7 +384,7 @@ enum HeapSlot {
     Deallocated,
 }
 #[cfg(feature = "typed-declarations")]
-#[vihaco::component]
+#[vihaco_runtime::component]
 #[instructions { crate::cpu }]
 #[derive(Default, Debug)]
 pub struct CPU {

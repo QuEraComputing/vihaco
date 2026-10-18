@@ -687,9 +687,11 @@ dependencies = [
  "eyre",
  "log",
  "trybuild",
- "vihaco",
+ "vihaco-abi",
+ "vihaco-module",
  "vihaco-parser",
  "vihaco-parser-derive",
+ "vihaco-runtime",
 ]
 
 [[package]]
@@ -768,7 +770,13 @@ name = "vihaco-stdlib"
 version = "0.5.0"
 dependencies = [
  "eyre",
+ "vihaco-abi",
+ "vihaco-bytecode",
+ "vihaco-cpu",
+ "vihaco-module",
+ "vihaco-parser",
  "vihaco-runtime",
+ "vihaco-syntax",
 ]
 
 [[package]]
