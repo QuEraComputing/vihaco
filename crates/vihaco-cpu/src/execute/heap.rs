@@ -3,8 +3,8 @@
 
 use crate::word::{decode_heap_ref, decode_u64, encode_heap_ref, encode_u64};
 use crate::{CPU, StepOutcome, Word, cpu};
-use vihaco::traits::StackMemory;
-use vihaco::{Execute, NoMessage};
+use vihaco_module::host::StackMemory;
+use vihaco_runtime::{Execute, NoMessage};
 
 impl Execute<cpu::HeapAlloc> for CPU {
     type Message = NoMessage;

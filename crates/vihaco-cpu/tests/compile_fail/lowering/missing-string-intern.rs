@@ -1,4 +1,4 @@
-use vihaco::{Lower, Syntax};
+use vihaco_abi::{Lower, Syntax};
 use vihaco_cpu::{cpu, operand::StringOperand};
 
 fn main() {

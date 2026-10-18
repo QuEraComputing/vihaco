@@ -5,5 +5,5 @@ edition = "2024"
 publish = false
 
 [dependencies]
-host = { workspace = true, features = ["typed-declarations"] }
-vm = { workspace = true }
+host = { workspace = true }
+vm = { workspace = true, features = ["typed-declarations"] }

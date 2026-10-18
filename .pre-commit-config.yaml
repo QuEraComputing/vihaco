@@ -15,10 +15,10 @@ repos:
         types: [rust]
         pass_filenames: false
 
-      # The typed API replaces component!; legacy CPU/guides stay feature-off.
+      # Legacy guide examples use a separate feature-off graph.
       - id: cargo-clippy-typed
         name: cargo clippy (typed declarations)
-        entry: cargo clippy --workspace --exclude vihaco-cpu --exclude vihaco-doctests --all-targets --features vihaco/typed-declarations -- -D warnings
+        entry: cargo clippy --workspace --exclude vihaco-doctests --all-targets --features vihaco/typed-declarations -- -D warnings
         language: system
         types: [rust]
         pass_filenames: false

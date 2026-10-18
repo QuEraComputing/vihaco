@@ -7,8 +7,8 @@ use crate::{
     cpu,
     operand::{StringOperand, Target},
 };
-use vihaco::loader::MetadataLoweringContext;
-use vihaco::{Lower, Syntax};
+use vihaco_abi::{Lower, Syntax};
+use vihaco_module::loader::MetadataLoweringContext;
 
 /// Resolve labels in the function currently being lowered.
 ///
@@ -54,22 +54,6 @@ impl FunctionLookup for MetadataLoweringContext {
 impl StringIntern for MetadataLoweringContext {
     fn intern_string(&mut self, value: &str) -> eyre::Result<u32> {
         self.string_index(value)
-    }
-}
-
-impl<I, C, V, Ty, Info> StringIntern for vihaco::ProgramImage<I, C, V, Ty, Info> {
-    fn intern_string(&mut self, value: &str) -> eyre::Result<u32> {
-        if let Some(index) = self
-            .module
-            .strings
-            .iter()
-            .position(|existing| existing == value)
-        {
-            return Ok(u32::try_from(index)?);
-        }
-        let index = u32::try_from(self.module.strings.len())?;
-        self.module.strings.push(value.to_owned());
-        Ok(index)
     }
 }
 
@@ -133,7 +117,7 @@ impl<C: StringIntern + ?Sized> Lower<C> for cpu::ConstString<Syntax> {
 // Literal encoding is instruction-owned lowering and needs no loader capabilities.
 macro_rules! lower_literal {
     ($($instruction:ident => $convert:expr),* $(,)?) => {$(
-        impl<C: ?Sized> vihaco::Lower<C> for cpu::$instruction<vihaco::Syntax> {
+        impl<C: ?Sized> vihaco_abi::Lower<C> for cpu::$instruction<vihaco_abi::Syntax> {
             type Runtime = cpu::$instruction;
             fn lower(self, _: &mut C) -> eyre::Result<Self::Runtime> {
                 Ok(cpu::$instruction(($convert)(self.0)))
@@ -155,8 +139,8 @@ lower_literal! {
 #[cfg(test)]
 mod metadata_context_tests {
     use super::*;
-    use vihaco::loader::FunctionScope;
-    use vihaco::module::{FunctionInfo, NoInfo, ProgramMetadata, Signature};
+    use vihaco_module::loader::FunctionScope;
+    use vihaco_module::module::{FunctionInfo, NoInfo, ProgramMetadata, Signature};
     use vihaco_parser::{Ident, QuotedString};
 
     #[test]

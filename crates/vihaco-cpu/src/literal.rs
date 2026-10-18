@@ -5,7 +5,7 @@
 
 use crate::Word;
 
-#[derive(vihaco::Parse, Clone, Debug, PartialEq)]
+#[derive(vihaco_parser_derive::Parse, Clone, Debug, PartialEq)]
 #[syntax_class(value)]
 pub struct I32Literal(i32);
 
@@ -15,7 +15,7 @@ impl From<I32Literal> for Word {
     }
 }
 
-#[derive(vihaco::Parse, Clone, Debug, PartialEq)]
+#[derive(vihaco_parser_derive::Parse, Clone, Debug, PartialEq)]
 #[syntax_class(value)]
 pub struct I64Literal(i64);
 
@@ -25,7 +25,7 @@ impl From<I64Literal> for Word {
     }
 }
 
-#[derive(vihaco::Parse, Clone, Debug, PartialEq)]
+#[derive(vihaco_parser_derive::Parse, Clone, Debug, PartialEq)]
 #[syntax_class(value)]
 pub struct F32Literal(f32);
 
@@ -35,7 +35,7 @@ impl From<F32Literal> for Word {
     }
 }
 
-#[derive(vihaco::Parse, Clone, Debug, PartialEq)]
+#[derive(vihaco_parser_derive::Parse, Clone, Debug, PartialEq)]
 #[syntax_class(value)]
 pub struct F64Literal(f64);
 

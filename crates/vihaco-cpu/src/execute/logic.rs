@@ -4,8 +4,8 @@
 use crate::data::component::canonical_bool;
 use crate::word::encode_bool;
 use crate::{CPU, StepOutcome, cpu};
-use vihaco::traits::StackMemory;
-use vihaco::{Execute, NoMessage};
+use vihaco_module::host::StackMemory;
+use vihaco_runtime::{Execute, NoMessage};
 
 impl Execute<cpu::Not> for CPU {
     type Message = NoMessage;

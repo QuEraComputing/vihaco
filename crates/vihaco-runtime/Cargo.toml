@@ -19,8 +19,8 @@ vihaco-runtime-derive = { workspace = true, optional = true }
 
 [features]
 default = ["derive"]
-derive = ["dep:vihaco-runtime-derive", "vihaco-abi/derive"]
-typed-declarations = ["derive", "dep:vihaco-parser-derive", "vihaco-runtime-derive/typed-declarations"]
+derive = ["dep:vihaco-runtime-derive", "dep:vihaco-parser-derive", "vihaco-abi/derive"]
+typed-declarations = ["derive", "vihaco-runtime-derive/typed-declarations"]
 
 [dev-dependencies]
 trybuild = "1.0"

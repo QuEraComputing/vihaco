@@ -78,8 +78,9 @@ the aggregate type. Renamed child imports need matching generated inventory and
 field companion reexports; named generic children are supported, while bare
 generic or associated child types cannot supply an inferred inventory.
 
-For the shipped CPU, enable **`vihaco-cpu/typed-declarations`**, which forwards the
-framework feature and selects CPU's typed implementation. Its `cpu` module
+Facade applications enable **`vihaco/typed-declarations`**, which forwards through
+stdlib to CPU and runtime. Direct CPU consumers enable
+**`vihaco-cpu/typed-declarations`**. Its `cpu` module
 exposes instruction structs whose phase defaults to runtime. Constants parse
 readable syntax literals and lower them into runtime words. Branches and calls
 accept numeric addresses or `@name` targets; function-reference constants accept
@@ -96,17 +97,25 @@ the typed dialect. Instructions use `()` or the `message::FunctionInfo` and
 CPU lowering lives outside the dialect definitions in `vihaco_cpu::lower`.
 Loaders implement `LabelLookup` for function-local labels and `FunctionLookup`
 for section function addresses and indices. `StringIntern` supplies string-table
-indices; `ProgramImage` implements it with deduplication of decoded contents.
+indices; `vihaco_stdlib::ProgramImage` implements it with deduplication of decoded contents.
 Prepare functions and label positions before calling
 `LoadOwnSstSection::lower_instructions` so forward references resolve. The
 generated composite aggregate enforces these capabilities even for programs
 using only numeric operands. Heap-reference constants continue to accept numeric IDs.
 
 Generated hierarchical bytecode codecs remain separate work. Cargo feature
-unification can activate the experimental contract indirectly. Enable CPU's
-local feature for every graph containing a typed CPU; enabling only a framework
-dependency's feature cannot activate CPU's local cfg in reverse. Legacy
+unification can activate the experimental contract indirectly. Runtime-only
+feature activation cannot select CPU's local cfg; use the facade or CPU feature
+for graphs containing a typed CPU. CPU features only activate lower crates. Legacy
 `component!` examples and guide snippets retain a separate feature-off graph.
+
+`ProgramImage` now lives in `vihaco-stdlib`; `vihaco::ProgramImage` and
+`vihaco::loader::ProgramImage` remain available. Direct users of
+`vihaco_module::loader::ProgramImage` or `vihaco_runtime::loader::ProgramImage`
+should import `vihaco_stdlib::ProgramImage` instead. Generic loader and host
+traits remain in `vihaco-module`. Direct stdlib consumers enable
+`vihaco-stdlib/typed-declarations` for CPU string interning; this forwards to CPU
+and runtime. Enabling only a CPU feature does not activate stdlib above it.
 
 ## Workspace
 
@@ -122,7 +131,7 @@ needs; there is no umbrella crate.
 | [`vihaco-module`](crates/vihaco-module) | The loadable `Module` model, program loader, host-VM traits, and assembly-style `Display`. |
 | [`vihaco-runtime`](crates/vihaco-runtime) | The component/machine runtime: `GeneratedComponent`, effect sinks, and observation machinery. |
 | [`vihaco-runtime-derive`](crates/vihaco-runtime-derive) | `#[derive(Message)]`, `component!`, `#[composite]`, `#[observe]`, re-exported through `vihaco-runtime`'s `derive` feature. |
-| [`vihaco-stdlib`](crates/vihaco-stdlib) | Standard-library components and observers, including `StdoutObserver`. |
+| [`vihaco-stdlib`](crates/vihaco-stdlib) | Standard-library components and observers, including `ProgramImage` and `StdoutObserver`. |
 | [`vihaco-syntax`](crates/vihaco-syntax) | Typed SST parsing and module construction (`Resolve`). |
 | [`vihaco-cpu`](crates/vihaco-cpu) | A ready-made CPU/host component — a small stack machine (constants, arithmetic, branches, halt, …) with a `StepOutcome` control-flow effect. Use directly, or as a reference for writing your own. |
 | [`vihaco-parser`](crates/vihaco-parser) | The `Parse<'src>` and `SurfaceInstruction` traits plus lexical, primitive, and collection implementations shared by the parser derive. |

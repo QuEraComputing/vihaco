@@ -120,7 +120,7 @@ impl<Ty, H> Resolve<TextInst, Ty, H> for TextResolver {
 }
 
 type BytecodeProgram = ProgramImage<TestInst, TextContext>;
-type TextProgram = ProgramImage<TextInst, TextContext>;
+type TextProgram = vihaco::loader::ProgramImage<TextInst, TextContext>;
 
 fn load_bytecode_program<'bc>(
     program: &mut BytecodeProgram,

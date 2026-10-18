@@ -4,8 +4,8 @@
 //! Checked word-stack CPU component.
 //!
 //! Enable `vihaco-cpu/typed-declarations` to use the `cpu` runtime dialect and
-//! per-instruction `Execute` implementations. This forwards the framework feature;
-//! enabling the framework feature alone does not select CPU's typed declaration.
+//! per-instruction `Execute` implementations. This forwards to the lower runtime
+//! crates; facade applications can instead enable `vihaco/typed-declarations`.
 //! Feature-off use retains the legacy instruction enums and `CPUMessage`.
 //!
 //! Typed instruction syntax retains readable literals until explicit lowering
@@ -13,7 +13,7 @@
 //! numeric addresses or `@name` symbols; function references accept numeric
 //! indices or function symbols. String constants accept indices or quoted text.
 //! Loaders supply `lower::LabelLookup`, `lower::FunctionLookup`, and
-//! `lower::StringIntern` to resolve them. [`vihaco::ProgramImage`] implements
+//! `lower::StringIntern` to resolve them. `vihaco_stdlib::ProgramImage` implements
 //! string interning using its section string table. Heap references remain numeric.
 //! For explicit metadata, [`vihaco::loader::MetadataLoweringContext`] implements
 //! all three lookup capabilities and rejects strings absent from the supplied
@@ -27,7 +27,8 @@
 //! ```
 //! # #[cfg(feature = "typed-declarations")]
 //! # {
-//! use vihaco::{Execute, NoMessage, Lower, Parse, Syntax, chumsky::Parser as _, traits::StackMemory};
+//! use vihaco_runtime::{Execute, NoMessage, Lower, Parse, Syntax, chumsky::Parser as _};
+//! use vihaco_module::host::StackMemory;
 //! use vihaco_cpu::{CPU, cpu, encode_i64, StepOutcome};
 //! let instruction = cpu::ConstI64::<Syntax>::parser().parse("const_i64 -42")
 //!     .into_result().unwrap();
@@ -36,23 +37,6 @@
 //! let mut cpu = CPU::default();
 //! assert_eq!(cpu.execute(&instruction, NoMessage::new()).unwrap(), StepOutcome::Continue);
 //! assert_eq!(cpu.stack(), &[encode_i64(-42)]);
-//! # }
-//! ```
-//!
-//! Equal string contents reuse the same section-local index:
-//!
-//! ```
-//! # #[cfg(feature = "typed-declarations")]
-//! # {
-//! use vihaco::{Lower, NoContext, Parse, ProgramImage, Syntax, chumsky::Parser as _};
-//! use vihaco_cpu::cpu;
-//! let mut image = ProgramImage::<(), NoContext>::default();
-//! for _ in 0..2 {
-//!     let source = cpu::ConstString::<Syntax>::parser().parse("const_string \"hello\"")
-//!         .into_result().unwrap();
-//!     assert_eq!(source.lower(&mut image).unwrap(), cpu::ConstString(0));
-//! }
-//! assert_eq!(image.module.strings, ["hello"]);
 //! # }
 //! ```
 
@@ -102,7 +86,7 @@ mod tests {
 
     #[test]
     fn surface_instruction_implements_surface_marker() {
-        fn require_surface_instruction<T: vihaco::SurfaceInstruction>() {}
+        fn require_surface_instruction<T: vihaco_parser::SurfaceInstruction>() {}
 
         require_surface_instruction::<SurfaceInstruction>();
     }

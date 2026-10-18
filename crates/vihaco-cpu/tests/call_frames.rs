@@ -3,11 +3,9 @@
 
 #![cfg(not(feature = "typed-declarations"))]
 
-use vihaco::{
-    GeneratedComponent, expect_exactly_one_effect,
-    traits::{FrameMemory, StackFrame, StackMemory},
-};
 use vihaco_cpu::{CPU, CPUMessage, RuntimeInstruction as I, StepOutcome, encode_function_ref};
+use vihaco_module::host::{FrameMemory, StackFrame, StackMemory};
+use vihaco_runtime::{GeneratedComponent, expect_exactly_one_effect};
 
 fn execute(cpu: &mut CPU, instruction: I) -> eyre::Result<StepOutcome> {
     expect_exactly_one_effect(cpu.execute_generated(&instruction, CPUMessage::None)?)
