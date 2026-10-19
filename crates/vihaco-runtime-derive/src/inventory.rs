@@ -552,12 +552,46 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
     let authored = quote!(#root #item #(#types)*);
     let phase_parameter = fresh_aggregate_ident("__VihacoPhase", authored.clone());
     let context_parameter = fresh_aggregate_ident("__VihacoLoader", authored);
+    let execution_context = fresh_aggregate_ident("__VihacoExecutionContext", quote!(#root #item));
+    let mut dispatch_generics = item.generics.clone();
+    dispatch_generics
+        .params
+        .push(syn::parse_quote!(#execution_context: ?Sized));
+    // Use the same nominal route spelling for every instruction at one field.
+    // Distinct per-leaf RouteAt projections can hide their equal child types
+    // from Rust's solver when combined with context-dependent Step bounds.
+    let field_module = crate::field::module_ident(name);
+    let fields = entries
+        .iter()
+        .map(|entry| {
+            let mut namespace = quote!(#field_module);
+            let mut markers = Vec::new();
+            for segment in &entry.record.segments {
+                let field = &segment.name;
+                markers.push(quote!(#namespace::__markers::#field));
+                namespace = quote!(#namespace::__children::#field);
+            }
+            let mut route = markers.pop().expect("composite destination");
+            while let Some(head) = markers.pop() {
+                route = quote!(#root::__private::FieldPath<#head, #route>);
+            }
+            route
+        })
+        .collect::<Vec<_>>();
+    for (field, ty) in fields.iter().zip(&types) {
+        dispatch_generics
+            .make_where_clause()
+            .predicates
+            .push(syn::parse_quote!(Self: #root::Step<#field, #ty, #execution_context>));
+        dispatch_generics
+            .make_where_clause()
+            .predicates
+            .push(syn::parse_quote!(<Self as #root::Field<#field>>::Child: #root::Execute<#ty>));
+    }
+    let (dispatch_impl_generics, _, dispatch_where_clause) = dispatch_generics.split_for_impl();
     let mut arms = Vec::new();
-    for ((entry, variant), ty) in entries.iter().zip(&variants).zip(&types) {
-        let field = entry.field.as_ref().ok_or_else(|| {
-            syn::Error::new(name.span(), "composite instruction has no destination")
-        })?;
-        arms.push(quote!(#runtime::#variant(instruction) => <Self as #root::Step<#field, #ty>>::step(self, instruction)));
+    for ((field, variant), ty) in fields.iter().zip(&variants).zip(&types) {
+        arms.push(quote!(#runtime::#variant(instruction) => <Self as #root::Step<#field, #ty, #execution_context>>::step(self, instruction, context)));
     }
     let members: Vec<_> = (0..entries.len())
         .map(|i| format_ident!("Instruction{i}"))
@@ -637,6 +671,11 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
             },
         )
     };
+    let dispatch_body = if entries.is_empty() {
+        quote!(match *instruction {})
+    } else {
+        quote!(match instruction { #(#arms),* })
+    };
     Ok(quote! {
         #[doc(hidden)] #[allow(non_camel_case_types, clippy::enum_variant_names)] #[derive(Clone, Debug, PartialEq)]
         #declaration
@@ -649,17 +688,18 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
         #lowering
         impl #root::SurfaceInstruction for #syntax {}
 
-        impl #impl_generics #root::Dispatch for #name #type_generics #where_clause {
+        impl #dispatch_impl_generics #root::Dispatch<#execution_context> for #name #type_generics #dispatch_where_clause {
             type Instruction = #runtime;
-            fn dispatch(&mut self, instruction: Self::Instruction) -> #root::eyre::Result<()> {
-                match instruction { #(#arms),* }
+            #[inline(always)]
+            fn dispatch(&mut self, instruction: &#runtime, context: &#execution_context) -> #root::eyre::Result<()> {
+                #dispatch_body
             }
         }
     })
 }
 
 /// Keep generated aggregate parameters distinct from authored framework paths.
-fn fresh_aggregate_ident(base: &str, tokens: TokenStream) -> Ident {
+pub(crate) fn fresh_aggregate_ident(base: &str, tokens: TokenStream) -> Ident {
     fn collect(tokens: TokenStream, names: &mut std::collections::HashSet<String>) {
         for token in tokens {
             match token {
@@ -685,7 +725,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dispatch_is_for_the_declared_type_with_only_original_generic_bounds() {
+    fn dispatch_preserves_original_type_arguments_and_adds_execution_context() {
         let root = syn::parse_quote!(framework);
         let item: ItemStruct = syn::parse_quote!(
             struct Machine<T: Clone>
@@ -697,7 +737,10 @@ mod tests {
         );
         let entry = Entry {
             record: Record {
-                segments: vec![],
+                segments: vec![Segment {
+                    name: syn::parse_quote!(cpu),
+                    source: vec![],
+                }],
                 dialect: syn::parse_quote!(arithmetic),
                 leaf: syn::parse_quote!(Add),
                 slot: 0,
@@ -734,7 +777,7 @@ mod tests {
         assert!(
             matches!(&arguments.args[0], syn::GenericArgument::Type(Type::Path(ty)) if ty.path.is_ident("T"))
         );
-        assert_eq!(implementation.generics.params.len(), 1);
+        assert_eq!(implementation.generics.params.len(), 2);
         let syn::GenericParam::Type(parameter) = &implementation.generics.params[0] else {
             panic!("original parameter")
         };
@@ -749,7 +792,7 @@ mod tests {
             .as_ref()
             .unwrap()
             .predicates;
-        assert_eq!(predicates.len(), 1);
+        assert_eq!(predicates.len(), 3);
         let syn::WherePredicate::Type(predicate) = &predicates[0] else {
             panic!("original where predicate")
         };

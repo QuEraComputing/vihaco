@@ -3,7 +3,16 @@
 
 //! The facade opt-in forwards through stdlib to CPU and the runtime protocols.
 
-pub fn instruction() -> host::cpu::AddU64 {
+pub use vm::{execute, resume};
+
+pub fn instruction() -> host::cpu::AddU64
+where
+    host::CPU: rt::Execute<
+            host::cpu::AddU64,
+            Message = rt::PopFromStack<(host::Word, host::Word)>,
+            Effect = rt::PushToStack<(host::Word,)>,
+        >,
+{
     host::cpu::AddU64
 }
 

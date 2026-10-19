@@ -13,8 +13,9 @@
 //!
 //! The nondefault `program-image-execution` feature implies `typed-declarations`
 //! and adds `PopFromStack`, `PushToStack`, typed stack access, and capability-
-//! gated message preparation. These are foundations for program-owned execution;
-//! they do not switch a CPU or supply a composite's Step implementation.
+//! gated message preparation. A `#[program]` device supplies program access and
+//! operand-storage wiring. Composite authors implement Steps and choose effect
+//! handling; program execution lives in stdlib.
 //!
 //! With `typed-declarations`, `#[dialect]` gives public runtime instruction
 //! structs syntax parsers. Operand types retain their authored scope. Only
@@ -93,7 +94,7 @@ mod step;
 pub mod __private;
 
 #[cfg(feature = "typed-declarations")]
-pub use build_message::BuildMessage;
+pub use build_message::{BuildMessage, PrepareMessage};
 
 #[cfg(feature = "typed-declarations")]
 pub use dispatch::Dispatch;
@@ -124,6 +125,7 @@ pub use generated::{
     Component, Composite, CompositeMetadata, GeneratedComponent, HasInstructionSet,
     expect_exactly_one_effect,
 };
+
 pub use marker::Message;
 pub use member_of::MemberOf;
 pub use no_message::NoMessage;
@@ -150,11 +152,16 @@ pub use vihaco_runtime_derive::{Message, dispatch, machine, observe};
 /// from their declared dialects to a hidden flat runtime enum exposed through
 /// [`HasInstructionSet`]. Its syntax parser uses
 /// `field::nested_field::dialect::instruction` prefixes and accepts device aliases.
-/// Implement [`Step`] for every destination/leaf pair. The generated [`Dispatch`]
+/// Implement [`Step`] for every destination/leaf pair. With `program-image-execution`,
+/// a `#[program]` device selects program access and operand-storage wiring; Steps
+/// and effect handling remain authored.
+/// The generated [`Dispatch`]
 /// implementation checks complete coverage when the composite is compiled,
 /// even if dispatch is never called. Generic declarations retain their original bounds.
 /// Every device needs an explicit u8 code, unique within its parent. Ordinary
 /// state and `#[loadable]` subtrees are excluded from parent instruction sets.
+/// [`Field::get`] and [`Field::get_mut`] borrow eligible devices through direct or
+/// nested field routes, including devices that contain borrowed data.
 /// Named generic children are supported; bare type parameters and associated
 /// child types cannot supply an inferred inventory companion. Renamed child
 /// imports/type aliases require matching `__vihaco_inventory_Name` and field
@@ -183,8 +190,8 @@ pub use vihaco_runtime_derive::{Message, dispatch, machine, observe};
 /// # #[vihaco(crate = ::vihaco_runtime)]
 /// struct Machine { #[device(7, alias = "host")] cpu: Cpu }
 /// impl Step<field!(Machine::cpu), control::Halt> for Machine {
-///     fn step(&mut self, instruction: control::Halt) -> vihaco_runtime::eyre::Result<()> {
-///         self.cpu.execute(&instruction, NoMessage::new())?;
+///     fn step(&mut self, instruction: &control::Halt, _: &()) -> vihaco_runtime::eyre::Result<()> {
+///         self.cpu.execute(instruction, NoMessage::new())?;
 ///         Ok(())
 ///     }
 /// }
@@ -346,6 +353,19 @@ pub use vihaco_runtime_derive::field;
 mod stack;
 
 #[cfg(feature = "program-image-execution")]
-pub use stack::{Apply, HasOperandStack, PopFromStack, PushToStack};
+pub use stack::{Apply, HasOperandStack, InputCount, PopFromStack, PushToStack, StackInputCount};
+
+#[cfg(feature = "program-image-execution")]
+mod stack_batch;
+
+#[cfg(feature = "program-image-execution")]
+pub use stack_batch::{StackBatch, StackBatchIntoIter};
+
 #[cfg(feature = "program-image-execution")]
 pub use vihaco_module::{PopStack, PushStack, StackValue};
+
+#[cfg(feature = "program-image-execution")]
+mod execution;
+
+#[cfg(feature = "program-image-execution")]
+pub use execution::HasProgram;

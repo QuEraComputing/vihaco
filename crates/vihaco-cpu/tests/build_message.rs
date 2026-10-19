@@ -1,13 +1,17 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-#![cfg(feature = "typed-declarations")]
+#![cfg(all(
+    feature = "typed-declarations",
+    not(feature = "program-image-execution")
+))]
 
 pub use vihaco_cpu::{__vihaco_fields_CPU, __vihaco_inventory_CPU};
 use vihaco_cpu::{
     CPU, StepOutcome, cpu, decode_function_ref, decode_string_id, encode_function_ref,
     encode_string_id, message,
 };
+
 use vihaco_module::host::{StackFrame, StackMemory};
 use vihaco_runtime::{BuildMessage, Execute, NoMessage, Step, composite, field};
 
@@ -22,8 +26,12 @@ struct Machine {
     print_messages_built: usize,
 }
 
-impl BuildMessage<field!(Machine::cpu), cpu::Call, message::FunctionInfo> for Machine {
-    fn build_message(&mut self, instruction: &cpu::Call) -> eyre::Result<message::FunctionInfo> {
+impl BuildMessage<field!(Machine::cpu), cpu::Call, (), message::FunctionInfo> for Machine {
+    fn build_message(
+        &mut self,
+        instruction: &cpu::Call,
+        _: &(),
+    ) -> eyre::Result<message::FunctionInfo> {
         let function = self
             .functions
             .iter()
@@ -34,8 +42,12 @@ impl BuildMessage<field!(Machine::cpu), cpu::Call, message::FunctionInfo> for Ma
     }
 }
 
-impl BuildMessage<field!(Machine::cpu), cpu::IndirectCall, message::FunctionInfo> for Machine {
-    fn build_message(&mut self, _: &cpu::IndirectCall) -> eyre::Result<message::FunctionInfo> {
+impl BuildMessage<field!(Machine::cpu), cpu::IndirectCall, (), message::FunctionInfo> for Machine {
+    fn build_message(
+        &mut self,
+        _: &cpu::IndirectCall,
+        _: &(),
+    ) -> eyre::Result<message::FunctionInfo> {
         let index = decode_function_ref(*self.cpu.stack_top()?);
         self.functions
             .get(index as usize)
@@ -44,8 +56,8 @@ impl BuildMessage<field!(Machine::cpu), cpu::IndirectCall, message::FunctionInfo
     }
 }
 
-impl BuildMessage<field!(Machine::cpu), cpu::Print, message::Print> for Machine {
-    fn build_message(&mut self, _: &cpu::Print) -> eyre::Result<message::Print> {
+impl BuildMessage<field!(Machine::cpu), cpu::Print, (), message::Print> for Machine {
+    fn build_message(&mut self, _: &cpu::Print, _: &()) -> eyre::Result<message::Print> {
         let index = decode_string_id(*self.cpu.stack_top()?);
         let text = self
             .strings
@@ -64,10 +76,10 @@ where
     CPU: Execute<I, Effect = StepOutcome, Error = eyre::Report>,
     Self: BuildMessage<field!(Machine::cpu), I>,
 {
-    fn step(&mut self, instruction: I) -> eyre::Result<()> {
+    fn step(&mut self, instruction: &I, _: &()) -> eyre::Result<()> {
         let message =
-            <Self as BuildMessage<field!(Machine::cpu), I>>::build_message(self, &instruction)?;
-        let outcome = self.cpu.execute(&instruction, message)?;
+            <Self as BuildMessage<field!(Machine::cpu), I>>::build_message(self, instruction, &())?;
+        let outcome = self.cpu.execute(instruction, message)?;
         self.outcomes.push(outcome);
         Ok(())
     }
@@ -78,7 +90,7 @@ where
     CPU: Execute<I>,
     Machine: Step<field!(Machine::cpu), I>,
 {
-    <Machine as Step<field!(Machine::cpu), I>>::step(machine, instruction)
+    <Machine as Step<field!(Machine::cpu), I>>::step(machine, &instruction, &())
 }
 
 fn machine() -> Machine {
@@ -129,6 +141,7 @@ fn print_builder_resolves_text_without_consuming_the_operand() -> eyre::Result<(
     let message = <Machine as BuildMessage<field!(Machine::cpu), cpu::Print>>::build_message(
         &mut machine,
         &cpu::Print,
+        &(),
     )?;
     assert_eq!(message.0, "hello");
     assert_eq!(machine.print_messages_built, 1);
@@ -155,7 +168,7 @@ fn preparation_error_prevents_execution() {
 fn explicit_message_parameter_is_still_the_execute_message() {
     fn require_builder<C, F, I, M>()
     where
-        C: BuildMessage<F, I, M>,
+        C: BuildMessage<F, I, (), M>,
         C::Child: Execute<I, Message = M>,
     {
     }

@@ -6,4 +6,7 @@ impl<I> vihaco_runtime::Execute<I> for Cpu {
     fn execute(&mut self, _: &I, _:()) -> Result<(),Self::Error> { Ok(()) }
 }
 #[composite] struct Machine { #[device(1)] cpu: Cpu }
-fn main() {}
+fn main() {
+    fn require_dispatch<T: vihaco_runtime::Dispatch>() {}
+    require_dispatch::<Machine>();
+}

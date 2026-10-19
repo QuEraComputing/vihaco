@@ -58,6 +58,7 @@ struct Field {
     source: String,
     section: Option<String>,
     eligible: bool,
+    program: bool,
 }
 
 struct Composite {
@@ -112,8 +113,29 @@ fn parse(mut item: ItemStruct) -> Result<Composite> {
         let source = ident.unraw().to_string();
         let mut device = None;
         let mut section = None;
+        let mut program = false;
         for attr in &field.attrs {
-            if attr.path().is_ident("device") {
+            if attr.path().is_ident("program") {
+                if !cfg!(feature = "program-image-execution") {
+                    return Err(syn::Error::new_spanned(
+                        attr,
+                        "program execution helpers require program-image-execution",
+                    ));
+                }
+                if !matches!(attr.meta, Meta::Path(_)) {
+                    return Err(syn::Error::new_spanned(
+                        attr,
+                        "execution field helpers take no arguments",
+                    ));
+                }
+                if program {
+                    return Err(syn::Error::new_spanned(
+                        attr,
+                        "duplicate execution field helper",
+                    ));
+                }
+                program = true;
+            } else if attr.path().is_ident("device") {
                 if device.is_some() {
                     return Err(syn::Error::new_spanned(attr, "duplicate #[device] helper"));
                 }
@@ -206,7 +228,13 @@ fn parse(mut item: ItemStruct) -> Result<Composite> {
             }
         }
         let eligible = device.is_some() && section.is_none();
-        strip_attrs(&mut field.attrs, &["device", "loadable"]);
+        if program && !eligible {
+            return Err(syn::Error::new(
+                ident.span(),
+                "#[program] requires a non-loadable #[device] field",
+            ));
+        }
+        strip_attrs(&mut field.attrs, &["device", "loadable", "program"]);
         fields.push(Field {
             ident,
             ty: field.ty.clone(),
@@ -214,7 +242,14 @@ fn parse(mut item: ItemStruct) -> Result<Composite> {
             source,
             section,
             eligible,
+            program,
         });
+    }
+    if fields.iter().filter(|f| f.program).count() > 1 {
+        return Err(syn::Error::new_spanned(
+            &item,
+            "only one #[program] field is supported",
+        ));
     }
     Ok(Composite { item, root, fields })
 }
@@ -321,6 +356,7 @@ pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStr
         ));
     }
     let Composite { item, root, fields } = parse(syn::parse2(item)?)?;
+    let execution = execution_wiring(&item, &root, &fields);
     let namespace_root = crate::common::root_in_child_module(&root);
     let name = &item.ident;
     let (impl_generics, type_generics, where_clause) = item.generics.split_for_impl();
@@ -386,13 +422,31 @@ pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStr
         let ty = &field.ty;
         let source = &field.source;
         let aliases = &field.device.as_ref().expect("eligible device").aliases;
+        let tail = crate::inventory::fresh_aggregate_ident("__VihacoTail", quote!(#item #root));
+        let mut nested_generics = item.generics.clone();
+        nested_generics.params.push(syn::parse_quote!(#tail));
+        nested_generics.make_where_clause().predicates.push(syn::parse_quote!(#ty: #root::Field<#tail>));
+        let (nested_impl, _, nested_where) = nested_generics.split_for_impl();
         quote! {
-            #(#[#gates])*
-            impl #impl_generics #root::__private::DirectField<#marker_module::__markers::#marker> for #name #type_generics #where_clause {}
             #(#[#gates])*
             impl #impl_generics #root::Field<#marker_module::__markers::#marker> for #name #type_generics #where_clause {
                 type Child = #ty;
                 const SOURCE: &'static [&'static str] = &[#source, #(#aliases),*];
+                #[inline(always)]
+                fn get(&self) -> &Self::Child { &self.#marker }
+                #[inline(always)]
+                fn get_mut(&mut self) -> &mut Self::Child { &mut self.#marker }
+            }
+            // Use the actual child field rather than an unconstrained associated
+            // type, so intermediate borrows need no additional lifetime bounds.
+            #(#[#gates])*
+            impl #nested_impl #root::Field<#root::__private::FieldPath<#marker_module::__markers::#marker, #tail>> for #name #type_generics #nested_where {
+                type Child = <#ty as #root::Field<#tail>>::Child;
+                const SOURCE: &'static [&'static str] = <#ty as #root::Field<#tail>>::SOURCE;
+                #[inline(always)]
+                fn get(&self) -> &Self::Child { <#ty as #root::Field<#tail>>::get(&self.#marker) }
+                #[inline(always)]
+                fn get_mut(&mut self) -> &mut Self::Child { <#ty as #root::Field<#tail>>::get_mut(&mut self.#marker) }
             }
         }
     });
@@ -506,7 +560,30 @@ pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStr
             const DEVICES: &'static [#root::__private::CompositeDevice] = &[#(#metadata),*];
         }
         #loaders
+        #execution
     })
+}
+
+/// Describe which field owns the program; execution policy is ordinary Rust.
+fn execution_wiring(item: &ItemStruct, root: &Path, fields: &[Field]) -> TokenStream {
+    let Some(program) = fields.iter().find(|f| f.program) else {
+        return TokenStream::new();
+    };
+    let name = &item.ident;
+    let field = &program.ident;
+    let ty = &program.ty;
+    let gates = gates(&item.attrs);
+    let (impl_generics, type_generics, where_clause) = item.generics.split_for_impl();
+    quote! {
+        #(#[#gates])*
+        impl #impl_generics #root::HasProgram for #name #type_generics #where_clause {
+            type Program = #ty;
+            #[inline]
+            fn program(&self) -> &Self::Program { &self.#field }
+            #[inline]
+            fn program_mut(&mut self) -> &mut Self::Program { &mut self.#field }
+        }
+    }
 }
 
 #[cfg(test)]

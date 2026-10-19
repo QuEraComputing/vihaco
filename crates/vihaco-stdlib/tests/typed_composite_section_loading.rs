@@ -7,15 +7,19 @@ use framework::composite;
 use framework::loader::{
     LoadBytecodeSection, LoadOwnBytecodeSection, LoadOwnSstSection, LoadSstSection,
 };
+
 use std::cell::RefCell;
 use std::rc::Rc;
 use vihaco_bytecode::{
     BytecodeFile, BytecodeGlobalContext, SectionNameResolver, SstFile, SstGlobalContext,
 };
+
 use vihaco_runtime as framework;
 
 type Events = Rc<RefCell<Vec<String>>>;
+
 struct Context;
+
 impl SectionNameResolver for Context {
     fn section_name(&self, index: u32) -> Option<&str> {
         match index {
@@ -26,17 +30,21 @@ impl SectionNameResolver for Context {
         }
     }
 }
+
 impl BytecodeGlobalContext for Context {
     fn from_bytes(_: &[u8]) -> eyre::Result<Self> {
         Ok(Self)
     }
 }
+
 impl SstGlobalContext for Context {
     fn from_text(_: &str) -> eyre::Result<Self> {
         Ok(Self)
     }
 }
+
 struct Image(Events);
+
 impl LoadBytecodeSection<Context> for Image {
     fn load_bytecode_section<'bc>(
         &mut self,
@@ -46,6 +54,7 @@ impl LoadBytecodeSection<Context> for Image {
         Ok(())
     }
 }
+
 impl LoadSstSection<Context> for Image {
     fn load_sst_section<'bc>(
         &mut self,
@@ -55,6 +64,7 @@ impl LoadSstSection<Context> for Image {
         Ok(())
     }
 }
+
 #[composite]
 #[vihaco(crate = framework)]
 struct Middle {
@@ -63,6 +73,7 @@ struct Middle {
     #[loadable]
     leaf: Image,
 }
+
 #[composite]
 #[vihaco(crate = framework)]
 struct Root {
@@ -73,6 +84,8 @@ struct Root {
     #[loadable("custom")]
     middle: Middle,
 }
+
+#[cfg(not(feature = "program-image-execution"))]
 impl vihaco_module::host::ProgramCounter for Root {
     type Instruction = u8;
     fn pc(&self) -> u32 {
@@ -85,6 +98,7 @@ impl vihaco_module::host::ProgramCounter for Root {
         vihaco_module::host::ProgramCounter::get_instruction(&self.program, pc)
     }
 }
+
 macro_rules! own {
     ($ty:ty) => {
         impl LoadOwnBytecodeSection<Context> for $ty {
@@ -111,7 +125,9 @@ macro_rules! own {
         }
     };
 }
+
 own!(Middle);
+
 own!(Root);
 
 fn section(children: &[(u32, Vec<u8>)]) -> Vec<u8> {
@@ -133,6 +149,7 @@ fn section(children: &[(u32, Vec<u8>)]) -> Vec<u8> {
     }
     out
 }
+
 fn bytecode(children: &[(u32, Vec<u8>)]) -> BytecodeFile<Context> {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(vihaco_bytecode::MAGIC);
@@ -142,6 +159,7 @@ fn bytecode(children: &[(u32, Vec<u8>)]) -> BytecodeFile<Context> {
     bytes.extend_from_slice(&section(children));
     BytecodeFile::from_bytes(bytes).unwrap()
 }
+
 #[test]
 fn typed_composite_section_loading() {
     let events = Events::default();
@@ -174,9 +192,17 @@ fn typed_composite_section_loading() {
         .unwrap_err();
     assert!(err.to_string().contains("unexpected child section"));
     assert_eq!(*events.borrow(), ["<root>"]);
-    root.program.module.code = vec![9];
-    use vihaco_module::host::ProgramCounter;
-    assert_eq!(*root.get_instruction(root.pc()).unwrap(), 9);
-    *root.pc_mut() = 1;
-    assert!(root.get_instruction(root.pc()).is_err());
+    #[cfg(not(feature = "program-image-execution"))]
+    {
+        root.program.module.code = vec![9];
+        use vihaco_module::host::ProgramCounter;
+        assert_eq!(*root.get_instruction(root.pc()).unwrap(), 9);
+        *root.pc_mut() = 1;
+        assert!(root.get_instruction(root.pc()).is_err());
+    }
+    #[cfg(feature = "program-image-execution")]
+    {
+        root.program.module.code = vec![9];
+        assert_eq!(root.program.module.code, [9]);
+    }
 }

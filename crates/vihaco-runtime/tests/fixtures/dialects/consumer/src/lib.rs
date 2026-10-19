@@ -14,6 +14,7 @@ use rt::{Parse, chumsky::Parser};
 #[rt::component]
 #[instructions { ::producer::exported }]
 struct Cpu;
+
 macro_rules! execute {
     ($($instruction:ty),*) => {$(
         impl rt::Execute<$instruction> for Cpu {
@@ -23,6 +24,7 @@ macro_rules! execute {
         }
     )*};
 }
+
 execute!(imported::Add, imported::Halt);
 
 #[test]
@@ -96,27 +98,27 @@ struct FlatMachine {
 }
 
 impl rt::Step<rt::field!(FlatMachine::primary), imported::Add> for FlatMachine {
-    fn step(&mut self, instruction: imported::Add) -> rt::eyre::Result<()> { self.total += instruction.0; Ok(()) }
+    fn step(&mut self, instruction: &imported::Add, _: &()) -> rt::eyre::Result<()> { self.total += instruction.0; Ok(()) }
 }
 
 impl rt::Step<rt::field!(FlatMachine::spare), imported::Add> for FlatMachine {
-    fn step(&mut self, instruction: imported::Add) -> rt::eyre::Result<()> { self.total += 10 * instruction.0; Ok(()) }
+    fn step(&mut self, instruction: &imported::Add, _: &()) -> rt::eyre::Result<()> { self.total += 10 * instruction.0; Ok(()) }
 }
 
 impl rt::Step<rt::field!(FlatMachine::primary), imported::Halt> for FlatMachine {
-    fn step(&mut self, _: imported::Halt) -> rt::eyre::Result<()> { self.total = -1; Ok(()) }
+    fn step(&mut self, _: &imported::Halt, _: &()) -> rt::eyre::Result<()> { self.total = -1; Ok(()) }
 }
 
 impl rt::Step<rt::field!(FlatMachine::spare), imported::Halt> for FlatMachine {
-    fn step(&mut self, _: imported::Halt) -> rt::eyre::Result<()> { self.total = -2; Ok(()) }
+    fn step(&mut self, _: &imported::Halt, _: &()) -> rt::eyre::Result<()> { self.total = -2; Ok(()) }
 }
 
 #[test]
 fn generated_flat_enum_and_dispatch_cross_crate_and_renamed_framework() {
     use rt::{Dispatch, HasInstructionSet};
     let mut machine = FlatMachine { primary: producer::Cpu, spare: producer::Cpu, total: 0 };
-    machine.dispatch(__vihaco_FlatMachineInstruction::V_primary__arithmetic__Add(imported::Add(2))).unwrap();
-    machine.dispatch(__vihaco_FlatMachineInstruction::V_spare__arithmetic__Add(imported::Add(3))).unwrap();
+    machine.dispatch(&__vihaco_FlatMachineInstruction::V_primary__arithmetic__Add(imported::Add(2)), &()).unwrap();
+    machine.dispatch(&__vihaco_FlatMachineInstruction::V_spare__arithmetic__Add(imported::Add(3)), &()).unwrap();
     assert_eq!(machine.total, 32);
     let source = <FlatMachine as HasInstructionSet>::Syntax::parser().parse("host::arithmetic::add -8").into_result().unwrap();
     let source = rt::Lower::lower(source, &mut ()).unwrap();
@@ -131,14 +133,14 @@ struct PrivateMachine {
 }
 
 impl rt::Step<rt::field!(PrivateMachine::secret), producer::PrivateStop> for PrivateMachine {
-    fn step(&mut self, _: producer::PrivateStop) -> rt::eyre::Result<()> { self.stopped = true; Ok(()) }
+    fn step(&mut self, _: &producer::PrivateStop, _: &()) -> rt::eyre::Result<()> { self.stopped = true; Ok(()) }
 }
 
 #[test]
 fn private_dialect_types_cross_crate_through_generated_provider_projections() {
     use rt::{Dispatch, HasInstructionSet};
     let mut machine = PrivateMachine { secret: producer::PrivateDevice, stopped: false };
-    machine.dispatch(__vihaco_PrivateMachineInstruction::V_secret__private_ucontrol__Stop(producer::PrivateStop)).unwrap();
+    machine.dispatch(&__vihaco_PrivateMachineInstruction::V_secret__private_ucontrol__Stop(producer::PrivateStop), &()).unwrap();
     assert!(machine.stopped);
     assert!(<PrivateMachine as HasInstructionSet>::Runtime::parser().parse("secret::private_control::stop").has_output());
 }
@@ -148,15 +150,15 @@ use producer::__vihaco_fields_Machine as __vihaco_fields_ProducerMachine;
 
 impl<I> rt::Step<rt::field!(Machine::r#type), I> for Machine
 where Cpu: rt::Execute<I, Message = (), Error = std::convert::Infallible> {
-    fn step(&mut self, instruction: I) -> rt::eyre::Result<()> { rt::Execute::execute(&mut self.r#type, &instruction, ())?; Ok(()) }
+    fn step(&mut self, instruction: &I, _: &()) -> rt::eyre::Result<()> { rt::Execute::execute(&mut self.r#type, instruction, ())?; Ok(()) }
 }
 
 impl<I> rt::Step<rt::field!(ExternalRoot::main::cpu), I> for ExternalRoot
 where producer::Machine: rt::Step<rt::field!(ProducerMachine::cpu), I>, producer::Cpu: rt::Execute<I> {
-    fn step(&mut self, instruction: I) -> rt::eyre::Result<()> { <producer::Machine as rt::Step<rt::field!(ProducerMachine::cpu), I>>::step(&mut self.main, instruction)?; Ok(()) }
+    fn step(&mut self, instruction: &I, _: &()) -> rt::eyre::Result<()> { <producer::Machine as rt::Step<rt::field!(ProducerMachine::cpu), I>>::step(&mut self.main, instruction, &())?; Ok(()) }
 }
 
 impl<I> rt::Step<rt::field!(ExternalRoot::spare::cpu), I> for ExternalRoot
 where producer::Machine: rt::Step<rt::field!(ProducerMachine::cpu), I>, producer::Cpu: rt::Execute<I> {
-    fn step(&mut self, instruction: I) -> rt::eyre::Result<()> { <producer::Machine as rt::Step<rt::field!(ProducerMachine::cpu), I>>::step(&mut self.spare, instruction)?; Ok(()) }
+    fn step(&mut self, instruction: &I, _: &()) -> rt::eyre::Result<()> { <producer::Machine as rt::Step<rt::field!(ProducerMachine::cpu), I>>::step(&mut self.spare, instruction, &())?; Ok(()) }
 }

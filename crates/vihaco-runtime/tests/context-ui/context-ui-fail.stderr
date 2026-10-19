@@ -1,0 +1,13 @@
+error[E0308]: mismatched types
+  --> tests/context-ui/context-ui-fail.rs:21:65
+   |
+21 |     machine.dispatch(&Instruction::V_device__ops__Run(ops::Run),&"wrong context").unwrap();
+   |             -------- arguments to this method are incorrect     ^^^^^^^^^^^^^^^^ expected `&u32`, found `&&str`
+   |
+   = note: expected reference `&u32`
+              found reference `&&'static str`
+note: method defined here
+  --> src/dispatch.rs
+   |
+   |     fn dispatch(&mut self, instruction: &Self::Instruction, context: &Context) -> eyre::Result<()>;
+   |        ^^^^^^^^

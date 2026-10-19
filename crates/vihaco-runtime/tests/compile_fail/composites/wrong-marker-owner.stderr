@@ -4,11 +4,17 @@ error[E0277]: the trait bound `Left: vihaco_runtime::Field<__vihaco_fields_Right
 13 | fn main() { let _: Option<Wrong> = None; }
    |                           ^^^^^ unsatisfied trait bound
    |
-help: the trait `Field<__vihaco_fields_Right::__markers::child>` is not implemented for `Left`
-      but trait `Field<__vihaco_fields_Left::__markers::child>` is implemented for it
+help: the trait `vihaco_runtime::Field<__vihaco_fields_Right::__markers::child>` is not implemented for `Left`
+  --> tests/compile_fail/composites/wrong-marker-owner.rs:9:1
+   |
+ 9 | struct Left { #[device(100)] child: Child }
+   | ^^^^^^^^^^^
+help: `Left` implements trait `vihaco_runtime::Field<F>`
   --> tests/compile_fail/composites/wrong-marker-owner.rs:8:1
    |
  8 | #[composite]
    | ^^^^^^^^^^^^
-   = help: for that trait implementation, expected `__vihaco_fields_Left::__markers::child`, found `__vihaco_fields_Right::__markers::child`
+   | |
+   | `vihaco_runtime::Field<__vihaco_fields_Left::__markers::child>`
+   | `vihaco_runtime::Field<vihaco_runtime::__private::FieldPath<__vihaco_fields_Left::__markers::child, __VihacoTail>>`
    = note: this error originates in the attribute macro `composite` (in Nightly builds, run with -Z macro-backtrace for more info)

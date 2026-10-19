@@ -13,7 +13,7 @@ impl<I> vihaco_runtime::Execute<I> for Cpu {
 }
 #[composite] struct Machine { #[device(1)] cpu: Cpu }
 impl<I> vihaco_runtime::Step<vihaco_runtime::field!(Machine::cpu), I> for Machine {
-    fn step(&mut self, _: I) -> vihaco_runtime::eyre::Result<()> { Ok(()) }
+    fn step(&mut self, _: &I, _: &()) -> vihaco_runtime::eyre::Result<()> { Ok(()) }
 }
 fn main() {
     let source = __vihaco_MachineInstruction::<Syntax>::V_cpu__control__Call(control::Call(7));

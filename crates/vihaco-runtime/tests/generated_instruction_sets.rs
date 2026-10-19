@@ -43,6 +43,7 @@ impl<T> HasInstructionSet for Cpu<T> {
 }
 
 type Alias<T> = Cpu<T>;
+
 pub use __vihaco_fields_Cpu as __vihaco_fields_Alias;
 pub use __vihaco_inventory_Cpu as __vihaco_inventory_Alias;
 
@@ -56,8 +57,8 @@ struct Inner<T> {
 }
 
 impl<T, I> Step<field!(Inner<T>::cpu), I> for Inner<T> {
-    fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-        self.cpu.execute(&instruction, ())?;
+    fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+        self.cpu.execute(instruction, ())?;
         Ok(())
     }
 }
@@ -77,28 +78,28 @@ struct Machine<T> {
 }
 
 impl<T> Step<field!(Machine<T>::left::cpu), arithmetic::Add> for Machine<T> {
-    fn step(&mut self, instruction: arithmetic::Add) -> vihaco_runtime::eyre::Result<()> {
+    fn step(&mut self, instruction: &arithmetic::Add, _: &()) -> vihaco_runtime::eyre::Result<()> {
         self.total += instruction.0;
         Ok(())
     }
 }
 
 impl<T> Step<field!(Machine<T>::right::cpu), arithmetic::Add> for Machine<T> {
-    fn step(&mut self, instruction: arithmetic::Add) -> vihaco_runtime::eyre::Result<()> {
+    fn step(&mut self, instruction: &arithmetic::Add, _: &()) -> vihaco_runtime::eyre::Result<()> {
         self.total += 10 * instruction.0;
         Ok(())
     }
 }
 
 impl<T> Step<field!(Machine<T>::left::cpu), arithmetic::Halt> for Machine<T> {
-    fn step(&mut self, _: arithmetic::Halt) -> vihaco_runtime::eyre::Result<()> {
+    fn step(&mut self, _: &arithmetic::Halt, _: &()) -> vihaco_runtime::eyre::Result<()> {
         self.total = -1;
         Ok(())
     }
 }
 
 impl<T> Step<field!(Machine<T>::right::cpu), arithmetic::Halt> for Machine<T> {
-    fn step(&mut self, _: arithmetic::Halt) -> vihaco_runtime::eyre::Result<()> {
+    fn step(&mut self, _: &arithmetic::Halt, _: &()) -> vihaco_runtime::eyre::Result<()> {
         self.total = -2;
         Ok(())
     }
@@ -122,26 +123,30 @@ fn flat_payloads_and_generated_dispatch_keep_distinct_destinations() {
         total: 0,
     };
     machine
-        .dispatch(__vihaco_MachineInstruction::V_left__cpu__arithmetic__Add(
-            arithmetic::Add(2),
-        ))
+        .dispatch(
+            &__vihaco_MachineInstruction::V_left__cpu__arithmetic__Add(arithmetic::Add(2)),
+            &(),
+        )
         .unwrap();
     machine
-        .dispatch(__vihaco_MachineInstruction::V_right__cpu__arithmetic__Add(
-            arithmetic::Add(3),
-        ))
+        .dispatch(
+            &__vihaco_MachineInstruction::V_right__cpu__arithmetic__Add(arithmetic::Add(3)),
+            &(),
+        )
         .unwrap();
     assert_eq!(machine.total, 32);
     machine
-        .dispatch(__vihaco_MachineInstruction::V_left__cpu__arithmetic__Halt(
-            arithmetic::Halt,
-        ))
+        .dispatch(
+            &__vihaco_MachineInstruction::V_left__cpu__arithmetic__Halt(arithmetic::Halt),
+            &(),
+        )
         .unwrap();
     assert_eq!(machine.total, -1);
     machine
-        .dispatch(__vihaco_MachineInstruction::V_right__cpu__arithmetic__Halt(
-            arithmetic::Halt,
-        ))
+        .dispatch(
+            &__vihaco_MachineInstruction::V_right__cpu__arithmetic__Halt(arithmetic::Halt),
+            &(),
+        )
         .unwrap();
     assert_eq!(machine.total, -2);
     assert_eq!(
@@ -197,6 +202,7 @@ fn empty_inventory_has_an_uninhabited_aggregate_and_rejects_source() {
             .has_errors()
     );
 }
+
 macro_rules! declarations {
     ($module:ident) => {
         mod $module {
@@ -229,15 +235,17 @@ macro_rules! declarations {
             }
 
             impl vihaco_runtime::Step<vihaco_runtime::field!(Machine::cpu), control::Stop> for Machine {
-                fn step(&mut self, instruction: control::Stop) -> vihaco_runtime::eyre::Result<()> {
-                    vihaco_runtime::Execute::execute(&mut self.cpu, &instruction, ())?;
+                fn step(&mut self, instruction: &control::Stop, _: &()) -> vihaco_runtime::eyre::Result<()> {
+                    vihaco_runtime::Execute::execute(&mut self.cpu, instruction, ())?;
                     Ok(())
                 }
             }
         }
     };
 }
+
 declarations!(one);
+
 declarations!(two);
 
 #[test]
@@ -285,15 +293,15 @@ mod readable_names {
     }
 
     impl<I> Step<field!(Machine::cpu_2), I> for Machine {
-        fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-            self.cpu_2.execute(&instruction, ())?;
+        fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+            self.cpu_2.execute(instruction, ())?;
             Ok(())
         }
     }
 
     impl<I> Step<field!(Machine::r#type), I> for Machine {
-        fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-            self.r#type.execute(&instruction, ())?;
+        fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+            self.r#type.execute(instruction, ())?;
             Ok(())
         }
     }
@@ -348,8 +356,8 @@ mod helper_capture {
     }
 
     impl<I> __VihacoMachine::Step<__VihacoMachine::field!(Machine::cpu), I> for Machine {
-        fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-            __VihacoMachine::Execute::execute(&mut self.cpu, &instruction, ())?;
+        fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+            __VihacoMachine::Execute::execute(&mut self.cpu, instruction, ())?;
             Ok(())
         }
     }

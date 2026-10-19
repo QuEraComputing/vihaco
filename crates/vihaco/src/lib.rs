@@ -8,19 +8,23 @@ use vihaco_bytecode as binary;
 // API is unchanged (see design/crate-split.md §7).
 pub use vihaco_abi::{effect, frame, instruction_syntax, metadata, program, word};
 pub use vihaco_module::{color, module, show, show_instruction};
+
 /// Program loading interfaces and the standard program image.
 pub mod loader {
     pub use vihaco_module::loader::*;
     pub use vihaco_stdlib::ProgramImage;
 }
+
 pub use vihaco_syntax as syntax;
 // The runtime layer and standard-library observers now live in their focused
 // crates; re-export them at the original paths (see design/crate-split.md §7).
 pub use vihaco_runtime as runtime;
 pub use vihaco_stdlib::observer;
+
 pub mod instruction;
 pub mod machine;
 pub mod macros;
+
 #[doc(hidden)]
 pub mod traits;
 pub mod value {
@@ -33,23 +37,28 @@ pub use binary::{
     SstFile, SstGlobalContext, SstHeader, SstSectionView, VERSION, WriteBytecodeHeader,
     decode_instruction_stream,
 };
+
 pub use chumsky;
 pub use effect::Effects;
+
 #[doc(hidden)]
 pub use eyre;
 pub use instruction_syntax::{
     CanonicalInstructionSyntax, CanonicalInstructionVariantSyntax, InstructionSugarSyntax,
     InstructionSugarVariantSyntax, OperandKind, SugarOperandKind,
 };
+
 pub use loader::{
     LoadBytecodeSection, LoadOwnBytecodeSection, LoadOwnSstSection, LoadSstSection, ProgramImage,
 };
+
 pub use macros::{Instruction, Message, component, composite, dispatch, observe};
 pub use program::{Type, Value};
 pub use runtime::{
     Component, Composite, CompositeMetadata, EffectSink, GeneratedComponent, HasInstructionSet,
     MemberOf, Message as MessageMarker, NoMessage, Observe, expect_exactly_one_effect,
 };
+
 pub use traits::{FromBytes, FromText, GetProgramInfo, Reset};
 pub use vihaco_abi::{Lower, Runtime, Syntax};
 pub use vihaco_parser::Parse;
@@ -59,6 +68,7 @@ pub use vihaco_parser_derive::Parse;
 #[cfg(feature = "typed-declarations")]
 #[doc(hidden)]
 pub use runtime::__private;
+
 #[cfg(feature = "typed-declarations")]
 pub use runtime::{BuildMessage, Dispatch, Execute, Field, Step};
 
@@ -88,7 +98,17 @@ pub use runtime::dialect;
 
 #[cfg(feature = "program-image-execution")]
 pub use runtime::{
-    Apply, HasOperandStack, PopFromStack, PopStack, PushStack, PushToStack, StackValue,
+    Apply, HasOperandStack, InputCount, PopFromStack, PopStack, PushStack, PushToStack, StackBatch,
+    StackBatchIntoIter, StackInputCount, StackValue,
+};
+
+#[cfg(feature = "program-image-execution")]
+pub use vihaco_runtime::HasProgram;
+
+#[cfg(feature = "program-image-execution")]
+pub use vihaco_stdlib::{
+    ExecutionState,
+    execution_state::{execute, resume},
 };
 
 #[cfg(test)]
