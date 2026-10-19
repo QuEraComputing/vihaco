@@ -155,9 +155,10 @@ pub use vihaco_runtime_derive::{Message, dispatch, machine, observe};
 /// Implement [`Step`] for every destination/leaf pair. With `program-image-execution`,
 /// a `#[program]` device selects program access and operand-storage wiring; Steps
 /// and effect handling remain authored.
-/// The generated [`Dispatch`]
-/// implementation checks complete coverage when the composite is compiled,
-/// even if dispatch is never called. Generic declarations retain their original bounds.
+/// The generated [`Dispatch`] implementation requires complete [`Step`] coverage
+/// for the selected context when a `Dispatch<Context>` bound is required or dispatch
+/// is called. Declaring a composite alone does not check Step coverage.
+/// Generic declarations retain their original bounds.
 /// Every device needs an explicit u8 code, unique within its parent. Ordinary
 /// state and `#[loadable]` subtrees are excluded from parent instruction sets.
 /// [`Field::get`] and [`Field::get_mut`] borrow eligible devices through direct or
