@@ -143,6 +143,8 @@ impl LoadOwnSstSection<vihaco_bytecode::NoContext> for Loader
 where
     Source: Lower<Self, Runtime = Runtime>,
 {
+    type Output = ();
+
     fn load_own_sst_section<'bc>(
         &mut self,
         section: vihaco_runtime::SstSectionView<'bc, vihaco_bytecode::NoContext>,
@@ -166,6 +168,8 @@ where
 }
 
 impl LoadOwnSstSection<vihaco_bytecode::NoContext> for Machine {
+    type Output = ();
+
     fn load_own_sst_section<'bc>(
         &mut self,
         section: vihaco_runtime::SstSectionView<'bc, vihaco_bytecode::NoContext>,

@@ -1,7 +1,7 @@
 error[E0277]: the trait bound `Loader: Lookup` is not satisfied
-  --> tests/compile_fail/lowering/missing-capability.rs:34:20
+  --> tests/compile_fail/lowering/missing-capability.rs:36:20
    |
-34 |     let _ = Loader.lower_instructions([source]);
+36 |     let _ = Loader.lower_instructions([source]);
    |                    ^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
    |
 help: the trait `Lookup` is not implemented for `Loader`

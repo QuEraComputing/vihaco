@@ -109,7 +109,7 @@ pub use vihaco_runtime::HasProgram;
 
 #[cfg(feature = "program-image-execution")]
 pub use vihaco_stdlib::{
-    ExecutionState,
+    ExecutionState, Image,
     execution_state::{execute, resume},
 };
 
@@ -151,6 +151,8 @@ mod public_api_tests {
     }
 
     impl LoadOwnBytecodeSection<PublicContext> for PublicReset {
+        type Output = ();
+
         fn load_own_bytecode_section<'bc>(
             &mut self,
             _section: crate::BytecodeSectionView<'bc, PublicContext>,
@@ -160,6 +162,8 @@ mod public_api_tests {
     }
 
     impl LoadBytecodeSection<PublicContext> for PublicReset {
+        type Output = ();
+
         fn load_bytecode_section<'bc>(
             &mut self,
             section: crate::BytecodeSectionView<'bc, PublicContext>,

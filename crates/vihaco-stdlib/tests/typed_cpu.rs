@@ -898,6 +898,8 @@ where
     <Machine as HasInstructionSet>::Syntax:
         vihaco_runtime::Lower<Self, Runtime = <Machine as HasInstructionSet>::Runtime>,
 {
+    type Output = ();
+
     fn load_own_sst_section<'src>(
         &mut self,
         section: vihaco_bytecode::SstSectionView<'src, vihaco_bytecode::NoContext>,

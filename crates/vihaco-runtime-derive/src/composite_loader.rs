@@ -46,7 +46,7 @@ pub(crate) fn emit(
     for loadable in loadables {
         let ty = &loadable.ty;
         loadable_predicates
-            .push(quote! { #ty: #root::loader::LoadBytecodeSection<#loadable_context_param> });
+            .push(quote! { #ty: #root::loader::LoadBytecodeSection<#loadable_context_param, Output = ()> });
     }
     let loadable_method_where = method_where_clause(&loadable_predicates);
 
@@ -92,10 +92,10 @@ pub(crate) fn emit(
             pub fn load_generated_bytecode_sections<#bc_lifetime, #loadable_context_param>(
                 &mut self,
                 section: #root::BytecodeSectionView<#bc_lifetime, #loadable_context_param>,
-            ) -> #root::eyre::Result<()>
+            ) -> #root::eyre::Result<<Self as #root::loader::LoadOwnBytecodeSection<#loadable_context_param>>::Output>
             #loadable_method_where
             {
-                #root::loader::LoadOwnBytecodeSection::<#loadable_context_param>::load_own_bytecode_section(
+                let __vihaco_output = #root::loader::LoadOwnBytecodeSection::<#loadable_context_param>::load_own_bytecode_section(
                     self,
                     section.clone(),
                 )?;
@@ -122,7 +122,7 @@ pub(crate) fn emit(
                 }
 
                 #( #child_loads )*
-                Ok(())
+                Ok(__vihaco_output)
             }
         }
 
@@ -131,10 +131,12 @@ pub(crate) fn emit(
             for #ident #ty_generics
             #loadable_where_clause
         {
+            type Output = <Self as #root::loader::LoadOwnBytecodeSection<#loadable_context_param>>::Output;
+
             fn load_bytecode_section<#bc_lifetime>(
                 &mut self,
                 section: #root::BytecodeSectionView<#bc_lifetime, #loadable_context_param>,
-            ) -> #root::eyre::Result<()> {
+            ) -> #root::eyre::Result<Self::Output> {
                 self.load_generated_bytecode_sections(section)
             }
         }
@@ -146,8 +148,9 @@ pub(crate) fn emit(
     );
     for loadable in loadables {
         let ty = &loadable.ty;
-        text_loadable_predicates
-            .push(quote! { #ty: #root::loader::LoadSstSection<#loadable_context_param> });
+        text_loadable_predicates.push(
+            quote! { #ty: #root::loader::LoadSstSection<#loadable_context_param, Output = ()> },
+        );
     }
     let text_loadable_method_where = method_where_clause(&text_loadable_predicates);
 
@@ -189,10 +192,10 @@ pub(crate) fn emit(
             pub fn load_generated_sst_sections<#bc_lifetime, #loadable_context_param>(
                 &mut self,
                 section: #root::SstSectionView<#bc_lifetime, #loadable_context_param>,
-            ) -> #root::eyre::Result<()>
+            ) -> #root::eyre::Result<<Self as #root::loader::LoadOwnSstSection<#loadable_context_param>>::Output>
             #text_loadable_method_where
             {
-                #root::loader::LoadOwnSstSection::<#loadable_context_param>::load_own_sst_section(
+                let __vihaco_output = #root::loader::LoadOwnSstSection::<#loadable_context_param>::load_own_sst_section(
                     self,
                     section.clone(),
                 )?;
@@ -219,7 +222,7 @@ pub(crate) fn emit(
                 }
 
                 #( #text_child_loads )*
-                Ok(())
+                Ok(__vihaco_output)
             }
         }
 
@@ -228,10 +231,12 @@ pub(crate) fn emit(
             for #ident #ty_generics
             #text_loadable_where_clause
         {
+            type Output = <Self as #root::loader::LoadOwnSstSection<#loadable_context_param>>::Output;
+
             fn load_sst_section<#bc_lifetime>(
                 &mut self,
                 section: #root::SstSectionView<#bc_lifetime, #loadable_context_param>,
-            ) -> #root::eyre::Result<()> {
+            ) -> #root::eyre::Result<Self::Output> {
                 self.load_generated_sst_sections(section)
             }
         }
