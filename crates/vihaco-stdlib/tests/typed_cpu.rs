@@ -1,7 +1,10 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-#![cfg(feature = "typed-declarations")]
+#![cfg(all(
+    feature = "typed-declarations",
+    not(feature = "program-image-execution")
+))]
 
 use vihaco_cpu::{
     CPU, StepOutcome, cpu, encode_f32, encode_f64, encode_function_ref, encode_i64,
@@ -9,6 +12,7 @@ use vihaco_cpu::{
     message,
     operand::Target,
 };
+
 use vihaco_module::host::{FrameMemory, StackFrame, StackMemory};
 use vihaco_runtime::{
     Dispatch, Execute, HasInstructionSet, NoMessage, Parse, Step, chumsky::Parser as _, composite,
@@ -18,11 +22,13 @@ use vihaco_runtime::{
 // These tests exercise resolved numeric operands. Capability methods are never
 // needed for them, but aggregate lowering still requires the complete contract.
 struct NumericContext;
+
 impl LabelLookup for NumericContext {
     fn label_address(&self, name: &str) -> eyre::Result<u32> {
         Err(eyre::eyre!("unknown label {name}"))
     }
 }
+
 impl FunctionLookup for NumericContext {
     fn function_address(&self, name: &str) -> eyre::Result<u32> {
         Err(eyre::eyre!("unknown function {name}"))
@@ -31,6 +37,7 @@ impl FunctionLookup for NumericContext {
         Err(eyre::eyre!("unknown function {name}"))
     }
 }
+
 impl StringIntern for NumericContext {
     fn intern_string(&mut self, _: &str) -> eyre::Result<u32> {
         Err(eyre::eyre!("numeric-only fixture cannot intern strings"))
@@ -85,46 +92,51 @@ macro_rules! steps {
             GeU32, GeU64, GeF32, GeF64
         );
         impl Step<$route, cpu::Call> for $machine {
-            fn step(&mut self, instruction: cpu::Call) -> eyre::Result<()> {
-                self.$($device).+.execute(&instruction, message::FunctionInfo {
+            fn step(&mut self, instruction: &cpu::Call, _: &()) -> eyre::Result<()> {
+                self.$($device).+.execute(instruction, message::FunctionInfo {
                     arity: instruction.0, start_address: instruction.1, local_count: instruction.0,
                 })?;
                 Ok(())
             }
         }
         impl Step<$route, cpu::IndirectCall> for $machine {
-            fn step(&mut self, instruction: cpu::IndirectCall) -> eyre::Result<()> {
-                self.$($device).+.execute(&instruction, message::FunctionInfo {
+            fn step(&mut self, instruction: &cpu::IndirectCall, _: &()) -> eyre::Result<()> {
+                self.$($device).+.execute(instruction, message::FunctionInfo {
                     arity: 0, start_address: 0, local_count: 0,
                 })?;
                 Ok(())
             }
         }
         impl Step<$route, cpu::Print> for $machine {
-            fn step(&mut self, instruction: cpu::Print) -> eyre::Result<()> {
-                self.$($device).+.execute(&instruction, message::Print("text".into()))?;
+            fn step(&mut self, instruction: &cpu::Print, _: &()) -> eyre::Result<()> {
+                self.$($device).+.execute(instruction, message::Print("text".into()))?;
                 Ok(())
             }
         }
     };
 }
+
 macro_rules! ordinary_steps {
     ($machine:ty, $route:ty, $device:tt; $($instruction:ident),*) => {$(
         ordinary_step!($machine, $route, $device, $instruction);
     )*};
 }
+
 macro_rules! ordinary_step {
     ($machine:ty, $route:ty, ($($device:ident).+), $instruction:ident) => {
         impl Step<$route, cpu::$instruction> for $machine {
-            fn step(&mut self, instruction: cpu::$instruction) -> eyre::Result<()> {
-                self.$($device).+.execute(&instruction, NoMessage::new())?;
+            fn step(&mut self, instruction: &cpu::$instruction, _: &()) -> eyre::Result<()> {
+                self.$($device).+.execute(instruction, NoMessage::new())?;
                 Ok(())
             }
         }
     };
 }
+
 steps!(Controller, field!(Controller::cpu), cpu);
+
 steps!(Machine, field!(Machine::controller::cpu), controller.cpu);
+
 steps!(Machine, field!(Machine::spare), spare);
 
 fn machine() -> Machine {
@@ -141,10 +153,10 @@ fn step(machine: &mut Machine, source: &str) -> eyre::Result<()> {
         .parse(source)
         .into_result()
         .unwrap();
-    machine.dispatch(vihaco_runtime::Lower::lower(
-        instruction,
-        &mut NumericContext,
-    )?)
+    machine.dispatch(
+        &vihaco_runtime::Lower::lower(instruction, &mut NumericContext)?,
+        &(),
+    )
 }
 
 #[test]
@@ -290,7 +302,10 @@ fn sst_labels_are_readability_metadata_and_do_not_occupy_runtime_slots() {
     let mut machine = machine();
     for instruction in parsed.body {
         machine
-            .dispatch(vihaco_runtime::Lower::lower(instruction, &mut NumericContext).unwrap())
+            .dispatch(
+                &vihaco_runtime::Lower::lower(instruction, &mut NumericContext).unwrap(),
+                &(),
+            )
             .unwrap();
     }
     assert_eq!(machine.controller.cpu.take_pending_pc(), Some(1));
@@ -387,9 +402,9 @@ fn dispatch_returns_cpu_errors_and_allows_subsequent_execution() {
             __vihaco_MachineInstruction::V_spare__cpu__AddI64(cpu::AddI64),
         ),
     ] {
-        machine.dispatch(halt.clone()).unwrap();
-        assert!(machine.dispatch(failing).is_err());
-        machine.dispatch(halt).unwrap();
+        machine.dispatch(&halt, &()).unwrap();
+        assert!(machine.dispatch(&failing, &()).is_err());
+        machine.dispatch(&halt, &()).unwrap();
     }
 }
 
@@ -837,6 +852,7 @@ struct SymbolLoader {
         vihaco_bytecode::NoContext,
     >,
 }
+
 impl LabelLookup for SymbolLoader {
     fn label_address(&self, name: &str) -> eyre::Result<u32> {
         self.labels
@@ -845,6 +861,7 @@ impl LabelLookup for SymbolLoader {
             .ok_or_else(|| eyre::eyre!("unknown label {name}"))
     }
 }
+
 impl FunctionLookup for SymbolLoader {
     fn function_address(&self, name: &str) -> eyre::Result<u32> {
         self.functions
@@ -859,6 +876,7 @@ impl FunctionLookup for SymbolLoader {
             .ok_or_else(|| eyre::eyre!("unknown function {name}"))
     }
 }
+
 impl StringIntern for SymbolLoader {
     fn intern_string(&mut self, text: &str) -> eyre::Result<u32> {
         self.image.intern_string(text)
@@ -866,12 +884,15 @@ impl StringIntern for SymbolLoader {
 }
 
 struct Header;
+
 impl vihaco_abi::traits::FromText for Header {
     fn from_text(_: &str) -> eyre::Result<Self> {
         Ok(Self)
     }
 }
+
 impl vihaco_bytecode::SstHeader for Header {}
+
 impl vihaco_module::loader::LoadOwnSstSection<vihaco_bytecode::NoContext> for SymbolLoader
 where
     <Machine as HasInstructionSet>::Syntax:
@@ -929,6 +950,7 @@ where
         Ok(())
     }
 }
+
 fn load_symbolic(loader: &mut SymbolLoader, functions: &str) -> eyre::Result<()> {
     use vihaco_module::loader::LoadOwnSstSection;
     let text = format!(
@@ -985,19 +1007,15 @@ fn @helper() {
     );
     let mut machine = machine();
     for instruction in &loader.image.module.code[..3] {
-        machine.dispatch(instruction.clone()).unwrap();
+        machine.dispatch(instruction, &()).unwrap();
     }
     assert_eq!(
         machine.controller.cpu.stack(),
         &[0, 0, encode_function_ref(1)]
     );
-    machine
-        .dispatch(loader.image.module.code[3].clone())
-        .unwrap();
+    machine.dispatch(&loader.image.module.code[3], &()).unwrap();
     assert_eq!(machine.controller.cpu.take_pending_pc(), Some(6));
-    machine
-        .dispatch(loader.image.module.code[5].clone())
-        .unwrap();
+    machine.dispatch(&loader.image.module.code[5], &()).unwrap();
     assert_eq!(machine.controller.cpu.take_pending_pc(), Some(7));
 }
 

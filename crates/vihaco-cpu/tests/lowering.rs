@@ -1,7 +1,10 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-#![cfg(feature = "typed-declarations")]
+#![cfg(all(
+    feature = "typed-declarations",
+    not(feature = "program-image-execution")
+))]
 
 #[test]
 fn cpu_lowering_requires_loader_capabilities_at_compile_time() {

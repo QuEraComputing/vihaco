@@ -28,7 +28,7 @@ impl ExecutionState {
     ///
     /// Entry creates the outermost frame, zeroes non-argument locals, selects
     /// the function's first instruction, and clears the halt flag. A halted
-    /// invocation can be replaced while reusing the allocated storage.
+    /// invocation can be replaced while reusing allocated storage.
     ///
     /// # Errors
     /// Rejects an active invocation, invalid metadata/target, a wrong argument
@@ -97,6 +97,34 @@ impl ExecutionState {
         );
         Ok(())
     }
+
+    #[inline]
+    pub(super) fn peek_operand(&self) -> eyre::Result<Word> {
+        self.require_operands(1)?;
+        self.stack
+            .last()
+            .copied()
+            .ok_or_else(|| eyre::eyre!("stack underflow"))
+    }
+
+    #[inline]
+    pub(super) fn local_address(&self, index: u32) -> eyre::Result<usize> {
+        self.ensure_running()?;
+        let frame = self
+            .frames
+            .last()
+            .ok_or_else(|| eyre::eyre!("no current frame"))?;
+        eyre::ensure!(
+            (index as usize) < frame.local_count,
+            "local index out of bounds"
+        );
+        let address = frame
+            .base
+            .checked_add(index as usize)
+            .ok_or_else(|| eyre::eyre!("local address overflow"))?;
+        eyre::ensure!(address < self.stack.len(), "local index out of bounds");
+        Ok(address)
+    }
 }
 
 impl Reset for ExecutionState {
@@ -143,5 +171,7 @@ macro_rules! float_access {
         }
     };
 }
+
 float_access!(f32, decode_f32, encode_f32);
+
 float_access!(f64, decode_f64, encode_f64);

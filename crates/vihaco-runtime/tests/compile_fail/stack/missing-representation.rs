@@ -18,10 +18,12 @@ impl PopStack<u64> for WordStorage {
 }
 
 struct Route;
-struct Machine(WordStorage);
+struct Machine(WordStorage, Device);
 impl Composite for Machine {}
 impl Field<Route> for Machine {
     type Child = Device;
+    fn get(&self) -> &Device { &self.1 }
+    fn get_mut(&mut self) -> &mut Device { &mut self.1 }
     const SOURCE: &'static [&'static str] = &["device"];
 }
 impl HasOperandStack<Instruction> for Machine {
@@ -31,6 +33,5 @@ impl HasOperandStack<Instruction> for Machine {
 
 fn main() {
     let _ = <Machine as BuildMessage<Route, Instruction>>::build_message(
-        &mut Machine(WordStorage), &Instruction,
-    );
+        &mut Machine(WordStorage, Device), &Instruction, &());
 }

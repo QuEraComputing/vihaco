@@ -12,7 +12,7 @@ struct Machine {
 struct Unsupported;
 
 impl Step<field!(Machine::child), Unsupported> for Machine {
-    fn step(&mut self, _: Unsupported) -> vihaco_runtime::eyre::Result<()> { Ok(()) }
+    fn step(&mut self, _: &Unsupported, _: &()) -> vihaco_runtime::eyre::Result<()> { Ok(()) }
 }
 
 fn main() {}

@@ -4,14 +4,26 @@ error[E0277]: the trait bound `Actual: vihaco_runtime::Field<leaf>` is not satis
 13 | fn main() { let _: Option<Route> = None; }
    |                           ^^^^^ unsatisfied trait bound
    |
-help: the trait `Field<leaf>` is not implemented for `Actual`
-      but trait `Field<other>` is implemented for it
+help: the trait `vihaco_runtime::Field<leaf>` is not implemented for `Actual`
+  --> tests/compile_fail/composites/checked-route-used.rs:7:14
+   |
+ 7 | #[composite] struct Actual { #[device(101)] other: Leaf }
+   |              ^^^^^^^^^^^^^
+help: `Actual` implements trait `vihaco_runtime::Field<F>`
   --> tests/compile_fail/composites/checked-route-used.rs:7:1
    |
  7 | #[composite] struct Actual { #[device(101)] other: Leaf }
    | ^^^^^^^^^^^^
-   = help: for that trait implementation, expected `other`, found `leaf`
-   = note: required for `Machine` to implement `vihaco_runtime::Field<vihaco_runtime::__private::FieldPath<child, leaf>>`
+   | |
+   | `vihaco_runtime::Field<other>`
+   | `vihaco_runtime::Field<vihaco_runtime::__private::FieldPath<other, __VihacoTail>>`
+note: required for `Machine` to implement `vihaco_runtime::Field<vihaco_runtime::__private::FieldPath<child, leaf>>`
+  --> tests/compile_fail/composites/checked-route-used.rs:11:1
+   |
+11 | #[composite] struct Machine { #[device(102)] child: AliasChild }
+   | ^^^^^^^^^^^^        ^^^^^^^
+   | |
+   | unsatisfied trait bound introduced here
 note: required by a bound in `vihaco_runtime::__private::CheckedRoute::Marker`
   --> src/declarations.rs
    |

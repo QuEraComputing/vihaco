@@ -20,7 +20,7 @@ impl<I> vihaco_runtime::Execute<I> for Cpu {
 }
 #[composite] struct Machine { #[device(1)] cpu: Cpu }
 impl<I> vihaco_runtime::Step<vihaco_runtime::field!(Machine::cpu), I> for Machine {
-    fn step(&mut self, _: I) -> vihaco_runtime::eyre::Result<()> { Ok(()) }
+    fn step(&mut self, _: &I, _: &()) -> vihaco_runtime::eyre::Result<()> { Ok(()) }
 }
 struct Loader;
 impl vihaco_runtime::loader::LoadOwnSstSection<()> for Loader {

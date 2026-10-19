@@ -8,6 +8,7 @@ use vihaco_module::{
     PopStack, PushStack,
     module::{FunctionInfo, LocalModule, Signature},
 };
+
 use vihaco_stdlib::ExecutionState;
 
 fn module() -> LocalModule<(), (), (), ()> {

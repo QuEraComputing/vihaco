@@ -16,12 +16,18 @@ typed-declarations = [
     "vihaco-syntax/typed-declarations", # Integration-test syntax follows the declaration mode.
 ]
 program-image-execution = [
+    "dep:chumsky",
+    "dep:vihaco-parser",
+    "dep:vihaco-parser-derive",
     "typed-declarations",
     "vihaco-runtime/program-image-execution",
     "vihaco-cpu/program-image-execution",
 ]
 
 [dependencies]
+chumsky = { workspace = true, optional = true }
+vihaco-parser = { workspace = true, optional = true }
+vihaco-parser-derive = { workspace = true, optional = true }
 eyre = { workspace = true }
 vihaco-abi = { workspace = true }
 vihaco-bytecode = { workspace = true }

@@ -6,7 +6,7 @@
 //! Equal string contents reuse the same section-local index:
 //!
 //! ```
-//! # #[cfg(feature = "typed-declarations")]
+//! # #[cfg(all(feature = "typed-declarations", not(feature = "program-image-execution")))]
 //! # {
 //! use vihaco_runtime::{Lower, Parse, Syntax, chumsky::Parser as _};
 //! use vihaco_bytecode::NoContext;
@@ -21,6 +21,21 @@
 //! assert_eq!(image.module.strings, ["hello"]);
 //! # }
 //! ```
+
+#[cfg(feature = "program-image-execution")]
+mod dialect;
+
+#[cfg(feature = "program-image-execution")]
+pub use dialect::program;
+
+#[cfg(feature = "program-image-execution")]
+mod literal;
+
+#[cfg(feature = "program-image-execution")]
+pub mod lower;
+
+#[cfg(feature = "program-image-execution")]
+pub mod operand;
 
 use vihaco_abi::{Type, Value};
 use vihaco_bytecode::{ConstantId, ContextHandle};
@@ -143,7 +158,10 @@ where
     }
 }
 
-#[cfg(feature = "typed-declarations")]
+#[cfg(all(
+    feature = "typed-declarations",
+    not(feature = "program-image-execution")
+))]
 impl<I, C, V, Ty, Info> vihaco_cpu::lower::StringIntern for ProgramImage<I, C, V, Ty, Info> {
     fn intern_string(&mut self, value: &str) -> eyre::Result<u32> {
         if let Some(index) = self

@@ -10,13 +10,17 @@ use crate::{Composite, Execute, Field};
 /// must implement [`Execute<I>`], while the step implementation supplies the
 /// composite's behavior, including runtime input and effect handling.
 /// [`crate::BuildMessage`] is an optional helper for preparing that input; it
-/// does not change this trait's signature or provide a step automatically.
-pub trait Step<F, I>
+/// does not provide a step automatically. `Context` is shared execution input,
+/// defaults to `()`, and is forwarded by dispatch; the Step decides how to use it.
+/// With `program-image-execution`, a composite with a `#[program]` execution-state device
+/// supplies operand storage. Steps remain authored; program execution handles
+/// running checks and PC progression outside this trait.
+pub trait Step<F, I, Context: ?Sized = ()>
 where
     Self: Composite + Field<F>,
     <Self as Field<F>>::Child: Execute<I>,
 {
-    /// Perform a step for the selected destination and instruction.
+    /// Perform a step for the selected destination, borrowing its instruction.
     ///
     /// # Errors
     ///
@@ -25,5 +29,5 @@ where
     /// execution errors into [`eyre::Report`], including `Infallible`, or to
     /// propagate existing reports unchanged. Returning an error does not roll
     /// back state changes or effects already applied.
-    fn step(&mut self, instruction: I) -> eyre::Result<()>;
+    fn step(&mut self, instruction: &I, context: &Context) -> eyre::Result<()>;
 }

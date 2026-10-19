@@ -9,9 +9,13 @@
 //! Feature-off use retains the legacy instruction enums and `CPUMessage`.
 //!
 //! The nondefault `program-image-execution` feature implies `typed-declarations`
-//! and forwards the framework's stack protocols. Currently it adds protocol
-//! foundations only: CPU execution still uses the existing typed route until
-//! the program-storage and execution-cutover boundaries are implemented.
+//! and switches CPU handlers to typed operands and stack result effects.
+//! ProgramImage owns locals, operands, frames, and the program counter. Heap
+//! storage remains on CPU and uses the same typed transfers.
+//!
+//! With this feature, program instructions and their lowering helpers live in
+//! `vihaco_stdlib::program`; CPU exposes only computation and heap instructions.
+//! The following syntax description and example describe the typed-only route.
 //!
 //! Typed instruction syntax retains readable literals until explicit lowering
 //! encodes them into runtime `Word` payloads. Branch and call targets accept
@@ -30,7 +34,7 @@
 //! `host::cpu::const_i64 -42`. Generated aggregate bytecode codecs are separate work.
 //!
 //! ```
-//! # #[cfg(feature = "typed-declarations")]
+//! # #[cfg(all(feature = "typed-declarations", not(feature = "program-image-execution")))]
 //! # {
 //! use vihaco_runtime::{Execute, NoMessage, Lower, Parse, Syntax, chumsky::Parser as _};
 //! use vihaco_module::host::StackMemory;
@@ -45,38 +49,74 @@
 //! # }
 //! ```
 
+#[cfg(not(feature = "program-image-execution"))]
 mod data;
+
+#[cfg(feature = "program-image-execution")]
+#[path = "program_cpu.rs"]
+mod data;
+
 #[cfg(feature = "typed-declarations")]
-#[path = "cpu.rs"]
+#[cfg_attr(not(feature = "program-image-execution"), path = "cpu.rs")]
+#[cfg_attr(feature = "program-image-execution", path = "computation.rs")]
 mod dialect;
+
 #[cfg(not(feature = "typed-declarations"))]
 mod display;
+
 #[cfg(not(feature = "typed-declarations"))]
 mod instruction;
+
 #[cfg(feature = "typed-declarations")]
 pub use dialect::cpu;
+
 #[cfg(feature = "typed-declarations")]
 mod execute;
-#[cfg(feature = "typed-declarations")]
+
+#[cfg(all(
+    feature = "typed-declarations",
+    not(feature = "program-image-execution")
+))]
 mod literal;
-#[cfg(feature = "typed-declarations")]
+
+#[cfg(all(
+    feature = "typed-declarations",
+    not(feature = "program-image-execution")
+))]
 pub mod lower;
-#[cfg(feature = "typed-declarations")]
+
+#[cfg(all(
+    feature = "typed-declarations",
+    not(feature = "program-image-execution")
+))]
 pub mod message;
-#[cfg(feature = "typed-declarations")]
+
+#[cfg(all(
+    feature = "typed-declarations",
+    not(feature = "program-image-execution")
+))]
 pub mod operand;
+
 #[cfg(feature = "typed-declarations")]
 #[doc(hidden)]
 pub use data::{__vihaco_fields_CPU, __vihaco_inventory_CPU};
+
+#[cfg(not(feature = "program-image-execution"))]
 mod outcome;
 pub mod word;
+
 pub use data::CPU;
+
 #[cfg(not(feature = "typed-declarations"))]
 pub use data::CPUMessage;
+
 #[cfg(not(feature = "typed-declarations"))]
 pub use data::{RuntimeInstruction, SurfaceInstruction};
+
 #[cfg(not(feature = "typed-declarations"))]
 pub use instruction::{SurfaceType, SurfaceValue};
+
+#[cfg(not(feature = "program-image-execution"))]
 pub use outcome::StepOutcome;
 pub use word::{
     Word, decode_bool, decode_f32, decode_f64, decode_function_ref, decode_heap_ref, decode_i32,

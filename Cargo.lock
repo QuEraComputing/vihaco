@@ -747,6 +747,7 @@ version = "0.6.0"
 dependencies = [
  "chumsky",
  "eyre",
+ "smallvec",
  "trybuild",
  "vihaco-abi",
  "vihaco-bytecode",
@@ -772,12 +773,14 @@ dependencies = [
 name = "vihaco-stdlib"
 version = "0.6.0"
 dependencies = [
+ "chumsky",
  "eyre",
  "vihaco-abi",
  "vihaco-bytecode",
  "vihaco-cpu",
  "vihaco-module",
  "vihaco-parser",
+ "vihaco-parser-derive",
  "vihaco-runtime",
  "vihaco-syntax",
 ]

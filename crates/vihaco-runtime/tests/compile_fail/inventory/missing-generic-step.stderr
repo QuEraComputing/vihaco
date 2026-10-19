@@ -1,16 +1,26 @@
-error[E0277]: the trait bound `Machine<T>: vihaco_runtime::Step<cpu, arithmetic::Add>` is not satisfied
- --> tests/compile_fail/inventory/missing-generic-step.rs:8:1
-  |
-8 | #[composite] struct Machine<T> { #[device(1)] cpu: Cpu<T> }
-  | ^^^^^^^^^^^^ unsatisfied trait bound
-  |
-help: the trait `vihaco_runtime::Step<cpu, arithmetic::Add>` is not implemented for `Machine<T>`
- --> tests/compile_fail/inventory/missing-generic-step.rs:8:14
-  |
-8 | #[composite] struct Machine<T> { #[device(1)] cpu: Cpu<T> }
-  |              ^^^^^^^^^^^^^^^^^
-  = note: this error originates in the macro `::vihaco_runtime::__private::__inventory_collect` (in Nightly builds, run with -Z macro-backtrace for more info)
-help: consider introducing a `where` clause, but there might be an alternative better way to express this requirement
-  |
-8 | #[composite] struct Machine<T> where Machine<T>: vihaco_runtime::Step<cpu, arithmetic::Add> { #[device(1)] cpu: Cpu<T> }
-  |                                ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+error[E0277]: the trait bound `Machine<u16>: Dispatch` is not satisfied
+  --> tests/compile_fail/inventory/missing-generic-step.rs:14:24
+   |
+14 |     require_dispatch::<Machine<u16>>();
+   |                        ^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `vihaco_runtime::Step<cpu, arithmetic::Add>` is not implemented for `Machine<u16>`
+      but it is implemented for `Machine<u8>`
+  --> tests/compile_fail/inventory/missing-generic-step.rs:9:1
+   |
+ 9 | impl vihaco_runtime::Step<vihaco_runtime::field!(Machine<u8>::cpu), arithmetic::Add> for Machine<u8> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for that trait implementation, expected `u8`, found `u16`
+note: required for `Machine<u16>` to implement `Dispatch`
+  --> tests/compile_fail/inventory/missing-generic-step.rs:8:1
+   |
+ 8 | #[composite] struct Machine<T> { #[device(1)] cpu: Cpu<T> }
+   | ^-----------        ^^^^^^^^^^
+   | |
+   | unsatisfied trait bound introduced here
+note: required by a bound in `require_dispatch`
+  --> tests/compile_fail/inventory/missing-generic-step.rs:13:28
+   |
+13 |     fn require_dispatch<T: vihaco_runtime::Dispatch>() {}
+   |                            ^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `require_dispatch`
+   = note: this error originates in the attribute macro `composite` (in Nightly builds, run with -Z macro-backtrace for more info)

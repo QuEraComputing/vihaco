@@ -49,6 +49,7 @@ impl<const N: usize> HasInstructionSet for Cpu<'_, N> {
     type Runtime = control::Halt;
     type Syntax = control::Halt;
 }
+
 use Cpu as Imported;
 
 type Alias<'a, const N: usize = 2> = Imported<'a, N>;
@@ -99,8 +100,8 @@ impl<'a, const N: usize, I> framework::Step<field!(Inner<'a, N>::r#type), I> for
 where
     Cpu<'a, N>: Execute<I, Message = (), Error = std::convert::Infallible>,
 {
-    fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-        Execute::<I>::execute(&mut self.r#type, &instruction, ())?;
+    fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+        Execute::<I>::execute(&mut self.r#type, instruction, ())?;
         Ok(())
     }
 }
@@ -109,8 +110,8 @@ impl<'a, const N: usize, I> framework::Step<field!(Inner<'a, N>::MiXeD), I> for 
 where
     Cpu<'a, N>: Execute<I, Message = (), Error = std::convert::Infallible>,
 {
-    fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-        Execute::<I>::execute(&mut self.MiXeD, &instruction, ())?;
+    fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+        Execute::<I>::execute(&mut self.MiXeD, instruction, ())?;
         Ok(())
     }
 }
@@ -119,8 +120,8 @@ impl<'a, const N: usize, I> framework::Step<field!(Inner<'a, N>::Δ), I> for Inn
 where
     Cpu<'a, N>: Execute<I, Message = (), Error = std::convert::Infallible>,
 {
-    fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-        Execute::<I>::execute(&mut self.Δ, &instruction, ())?;
+    fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+        Execute::<I>::execute(&mut self.Δ, instruction, ())?;
         Ok(())
     }
 }
@@ -129,8 +130,8 @@ impl<'a, const N: usize, I> framework::Step<field!(Outer<'a, N>::left::r#type), 
 where
     Cpu<'a, N>: Execute<I, Message = (), Error = std::convert::Infallible>,
 {
-    fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-        Execute::<I>::execute(&mut self.left.r#type, &instruction, ())?;
+    fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+        Execute::<I>::execute(&mut self.left.r#type, instruction, ())?;
         Ok(())
     }
 }
@@ -139,8 +140,8 @@ impl<'a, const N: usize, I> framework::Step<field!(Outer<'a, N>::left::MiXeD), I
 where
     Cpu<'a, N>: Execute<I, Message = (), Error = std::convert::Infallible>,
 {
-    fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-        Execute::<I>::execute(&mut self.left.MiXeD, &instruction, ())?;
+    fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+        Execute::<I>::execute(&mut self.left.MiXeD, instruction, ())?;
         Ok(())
     }
 }
@@ -149,8 +150,8 @@ impl<'a, const N: usize, I> framework::Step<field!(Outer<'a, N>::left::Δ), I> f
 where
     Cpu<'a, N>: Execute<I, Message = (), Error = std::convert::Infallible>,
 {
-    fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-        Execute::<I>::execute(&mut self.left.Δ, &instruction, ())?;
+    fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+        Execute::<I>::execute(&mut self.left.Δ, instruction, ())?;
         Ok(())
     }
 }
@@ -159,8 +160,8 @@ impl<'a, const N: usize, I> framework::Step<field!(Outer<'a, N>::right), I> for 
 where
     Cpu<'a, N>: Execute<I, Message = (), Error = std::convert::Infallible>,
 {
-    fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-        Execute::<I>::execute(&mut self.right, &instruction, ())?;
+    fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+        Execute::<I>::execute(&mut self.right, instruction, ())?;
         Ok(())
     }
 }
@@ -261,6 +262,33 @@ fn exact_types<'a, const N: usize>(_: &'a [u8; N]) {
 #[test]
 fn typed_composite_fields_and_capabilities() {
     exact_types(&[0; 2]);
+    let initial = [1, 2];
+    let replacement = [3, 4];
+    let mut machine = Outer {
+        left: Inner {
+            state: 0,
+            r#type: Cpu(&initial),
+            MiXeD: Cpu(&initial),
+            Δ: Cpu(&initial),
+        },
+        right: Cpu(&initial),
+        image: Image::default(),
+    };
+    assert!(std::ptr::eq(
+        <Outer<'_> as Field<field!(Outer<'_>::left)>>::get(&machine),
+        &machine.left
+    ));
+    <Outer<'_> as Field<field!(Outer<'_>::right)>>::get_mut(&mut machine).0 = &replacement;
+    assert_eq!(
+        <Outer<'_> as Field<field!(Outer<'_>::right)>>::get(&machine).0,
+        &replacement
+    );
+    assert_eq!(
+        <Outer<'_> as Field<field!(Outer<'_>::left::r#type)>>::get(&machine).0,
+        &initial
+    );
+    <Outer<'_> as Field<field!(Outer<'_>::left::r#type)>>::get_mut(&mut machine).0 = &replacement;
+    assert_eq!(machine.left.r#type.0, &replacement);
     assert_eq!(
         <Inner<'static> as Field<field!(Inner<'static>::r#type)>>::SOURCE,
         ["type", "core", "core-v2"]
@@ -315,8 +343,8 @@ fn typed_composite_fields_and_capabilities() {
     where
         Cpu<'static>: Execute<I, Message = (), Error = std::convert::Infallible>,
     {
-        fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-            Execute::<I>::execute(&mut self.cpu, &instruction, ())?;
+        fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+            Execute::<I>::execute(&mut self.cpu, instruction, ())?;
             Ok(())
         }
     }
@@ -356,8 +384,8 @@ fn markers_are_zero_sized_and_distinct_by_owner_and_field() {
     where
         Cpu<'static>: Execute<I, Message = (), Error = std::convert::Infallible>,
     {
-        fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-            Execute::<I>::execute(&mut self.r#type, &instruction, ())?;
+        fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+            Execute::<I>::execute(&mut self.r#type, instruction, ())?;
             Ok(())
         }
     }
@@ -391,8 +419,8 @@ mod paths {
     where
         Cpu<'static>: Execute<I, Message = (), Error = std::convert::Infallible>,
     {
-        fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-            Execute::<I>::execute(&mut self.cpu, &instruction, ())?;
+        fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+            Execute::<I>::execute(&mut self.cpu, instruction, ())?;
             Ok(())
         }
     }
@@ -456,8 +484,8 @@ mod nested {
     where
         Cpu<'a, N>: Execute<I, Message = (), Error = std::convert::Infallible>,
     {
-        fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-            Execute::<I>::execute(&mut self.etc, &instruction, ())?;
+        fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+            Execute::<I>::execute(&mut self.etc, instruction, ())?;
             Ok(())
         }
     }
@@ -466,8 +494,8 @@ mod nested {
     where
         Cpu<'a, N>: Execute<I, Message = (), Error = std::convert::Infallible>,
     {
-        fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-            Execute::<I>::execute(&mut self.c.etc, &instruction, ())?;
+        fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+            Execute::<I>::execute(&mut self.c.etc, instruction, ())?;
             Ok(())
         }
     }
@@ -476,8 +504,8 @@ mod nested {
     where
         Cpu<'a, N>: Execute<I, Message = (), Error = std::convert::Infallible>,
     {
-        fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-            Execute::<I>::execute(&mut self.b.c.etc, &instruction, ())?;
+        fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+            Execute::<I>::execute(&mut self.b.c.etc, instruction, ())?;
             Ok(())
         }
     }
@@ -486,8 +514,8 @@ mod nested {
     where
         Cpu<'a, N>: Execute<I, Message = (), Error = std::convert::Infallible>,
     {
-        fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-            Execute::<I>::execute(&mut self.a.b.c.etc, &instruction, ())?;
+        fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+            Execute::<I>::execute(&mut self.a.b.c.etc, instruction, ())?;
             Ok(())
         }
     }
@@ -497,8 +525,8 @@ mod nested {
     where
         Cpu<'a, N>: Execute<I, Message = (), Error = std::convert::Infallible>,
     {
-        fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-            Execute::<I>::execute(&mut self.cpu.a.b.c.etc, &instruction, ())?;
+        fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+            Execute::<I>::execute(&mut self.cpu.a.b.c.etc, instruction, ())?;
             Ok(())
         }
     }
@@ -508,8 +536,8 @@ mod nested {
     where
         Cpu<'a, N>: Execute<I, Message = (), Error = std::convert::Infallible>,
     {
-        fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-            Execute::<I>::execute(&mut self.controller.cpu.a.b.c.etc, &instruction, ())?;
+        fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+            Execute::<I>::execute(&mut self.controller.cpu.a.b.c.etc, instruction, ())?;
             Ok(())
         }
     }
@@ -519,8 +547,8 @@ mod nested {
     where
         Cpu<'a, N>: Execute<I, Message = (), Error = std::convert::Infallible>,
     {
-        fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-            Execute::<I>::execute(&mut self.spare.cpu.a.b.c.etc, &instruction, ())?;
+        fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+            Execute::<I>::execute(&mut self.spare.cpu.a.b.c.etc, instruction, ())?;
             Ok(())
         }
     }

@@ -69,7 +69,9 @@ and implement `Execute<I>` for every instruction. Composites generate flat
 runtime instruction enums, direct parsers, and `Dispatch`; provide
 `Step<field!(Machine::destination), Instruction>` for every destination/leaf pair.
 Device codes are explicit u8 values, unique within each parent. Ordinary state
-and loadable subtrees do not contribute parent instructions.
+and loadable subtrees do not contribute parent instructions. Generated
+`Field<Route>::get` and `get_mut` borrow direct or nested devices, including
+devices containing borrowed data.
 
 Parsing produces runtime instructions directly, with no paired surface enum or
 separate `Resolve` pass. Composite source uses `device::nested_device::dialect::mnemonic`
@@ -118,31 +120,60 @@ traits remain in `vihaco-module`. Direct stdlib consumers enable
 `vihaco-stdlib/program-image-execution` for the execution protocols; these forward
 to CPU and runtime. Enabling only a CPU feature does not activate stdlib above it.
 
-The nondefault `program-image-execution` feature on `vihaco-stdlib`, `vihaco-cpu`, `vihaco`, or
-`vihaco-runtime` implies `typed-declarations` and exposes the foundations for
-program-owned execution. Component authors select `PopFromStack` messages and
-`PushToStack` effects; the completed route will supply storage through
-ProgramImage and connect it through generated composite wiring. Tuple inputs
-and outputs support arities 0–16; homogeneous array outputs support any length.
-Boolean stack items accept zero as false and any nonzero word as true, and
-write canonical `0`/`1` results.
+The nondefault `program-image-execution` feature on `vihaco-stdlib`, `vihaco-cpu`,
+`vihaco`, or `vihaco-runtime` implies `typed-declarations`. The host owns a
+`LocalModule`; the machine contains an `ExecutionState` component marked
+`#[program]`, which supplies execution-state access and operand-storage wiring.
+Call `vihaco_stdlib::execution_state::execute(&module, &mut machine, arguments)`
+(or the facade's `execute`) to enter main. `resume(&module, &mut machine)` requires
+the same unchanged module associated with that invocation; identity is not enforced.
 
-`StackValue::Storage` separates the Rust types components compute with from the
-representations exchanged with program storage. For example, a component receives
-`bool` even though its storage representation is a Word; an `f64` can remain
-native so a later execution cursor can cache it efficiently. Program storage can
-change without changing a component's operand/result types. Authors using the
-built-in types only choose their message/effect shapes.
+`ExecutionState` owns call frames, locals, operands, private PC, and halt/running
+flags. It stores no module, Arc, loader context, or instruction type parameter.
+`start(&module, arguments)` creates main's frame; `reset()` clears invocation
+state while retaining allocated storage. `stack()`, `frames()`, and `pc()` provide
+read-only inspection. The legacy `ProgramImage` remains a separate loader/host API.
 
-Custom stack items define `from_storage`/`into_storage` conversions; default
-access methods handle popping and pushing. They do not need a Word encoding.
+The runner captures a code reference before its loop. Instructions borrow that
+external module while Dispatch mutably borrows the machine, requiring no instruction
+clone or Arc operation. Dispatch, authored Step, and BuildMessage forward a shared
+execution context, here `&LocalModule`. Execute and Apply remain unchanged.
+The runner establishes sequential continuation before dispatch; execution-state
+instructions replace it for branches, calls, and returns. Composite authors never
+manage the PC. Halt/root return and errors retain the source instruction position.
+Earlier consumption and component mutations are not rolled back.
 
-`PopStack<T>::pop`, `PushStack<T>::push`, `StackValue`, `HasOperandStack`,
-and `Apply` are framework/advanced extension contracts, not stack logic that
-component or composite authors must implement. The typed access traits allow
-specialized storage implementations without requiring named numeric methods.
-This is implementation boundary A: concrete storage and generated wiring remain
-future work, and the shipped CPU still uses its existing typed execution behavior.
+Component authors select `PopFromStack` messages and `PushToStack` effects; standard
+builders transfer operands and resolve call/branch metadata. Authors implement Steps
+and choose effect handling; no Step or Apply policy is generated. Custom message
+builders remain available. Tuple inputs/outputs support arities 0–16 and homogeneous
+array outputs support any length. Boolean extraction treats any nonzero word as true
+and produces canonical `0`/`1` results.
+
+`StackValue::Storage` separates public computation types from their internal storage
+representation. Components receive typed values; storage can change without changing
+their message/effect shapes. `PopStack`, `PushStack`, `StackValue`, `HasOperandStack`,
+and `Apply` are framework extension contracts, not stack logic ordinary authors
+must implement. Custom value types provide storage conversions.
+
+Constants, locals, stack and control instructions live in
+`vihaco_stdlib::program::program`, with parsing/lowering helpers in `program::lower`
+and `program::operand`. Module construction and string interning happen before
+execution. CPU computes with typed operands and returns effects; it owns no stack,
+frames, or PC. Its heap exchanges operands through the same stack protocols.
+HeapAlloc and HeapPush consume available operands sequentially on underflow.
+Print belongs to a separate component; no Span or Breakpoint handling is added.
+Feature-disabled legacy and typed CPU behavior is retained.
+
+For variable input counts, use `PopFromStack<StackBatch<T>>` and implement
+`StackInputCount<I>` on the component. `InputCount::Immediate(n)` obtains the count
+from the instruction; `FromStack` consumes a word count above the values. Batches
+preserve original stack order and own their contents. Up to eight values stay
+inline; nine or more use heap storage. Components can retain a batch and use
+slices or iteration without managing storage. Mixed tuple/batch messages and
+dynamic batch outputs are not supplied.
+
+Heap state survives program restart/reset; explicitly reset CPU to clear its heap.
 Word encodings are shared in `vihaco-abi::word` and re-exported unchanged through
 `vihaco_cpu::word` and the CPU crate root.
 
@@ -215,6 +246,13 @@ can't drift from the API. To preview the docs locally:
 cd docs && pnpm install && pnpm dev
 ```
 
+The legacy guide examples run in the default feature configuration. CI checks
+typed declarations and borrowed-program execution in separate runs, excluding the
+legacy `vihaco-doctests` crate so feature unification does not switch those examples
+to a different API. The runnable example in
+[`ExecutionState`'s documentation](crates/vihaco-stdlib/src/execution_state.rs)
+exercises an externally owned module, authored Steps, and execution.
+
 ## Contributing
 
 Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for how to
@@ -225,9 +263,3 @@ build, test, and submit changes. By contributing you agree to the
 
 Licensed under the [MIT License](LICENSE). © The vihaco Authors — see
 [AUTHORS](AUTHORS). Initially developed at QuEra Computing Inc.
-
-With `program-image-execution`, stdlib also provides `ExecutionState`: checked invocation
-state containing frames, locals, operands, and a private program counter. The host
-owns the module separately and borrows it when starting an invocation; ExecutionState
-has no instruction type parameter or program ownership. Typed stack messages and
-effects handle operand transfer for component authors.

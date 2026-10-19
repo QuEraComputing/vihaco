@@ -3,7 +3,7 @@
 
 //! Framework stack preparation and effect-application protocols.
 
-use crate::{BuildMessage, Composite, Execute, Field, Message, PopStack, PushStack, StackValue};
+use crate::{Composite, Execute, Field, Message, PopStack, PrepareMessage, PushStack, StackValue};
 
 /// Copied operands prepared for an instruction, distinct from its payload.
 ///
@@ -11,7 +11,9 @@ use crate::{BuildMessage, Composite, Execute, Field, Message, PopStack, PushStac
 /// while extraction proceeds right to left: `(lhs, rhs)` pops `rhs` first.
 /// Successful pops remain consumed if a later pop or CPU execution fails.
 /// The empty tuple consumes nothing and does not access the stack capability.
-/// Construction itself requires no allocation or stack borrow.
+/// Tuple construction requires no allocation or stack borrow. Homogeneous
+/// [`crate::StackBatch`] inputs use [`StackInputCount`] and inline storage with
+/// heap fallback; their owned message likewise retains no stack borrow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PopFromStack<Values>(pub Values);
 
@@ -28,14 +30,13 @@ pub struct PushToStack<Values>(pub Values);
 
 /// Framework wiring from composite instruction preparation to operand storage.
 ///
-/// The completed program-owned route supplies this connection through composite
-/// generation; ordinary component/composite authors only select `PopFromStack`
-/// and `PushToStack` types. Boundary A checks capability constraints through
-/// compilation; runtime coverage will use ProgramImage when that wiring lands.
+/// A composite with a `#[program]` device supplies this connection automatically.
+/// Ordinary component/composite authors select `PopFromStack` and `PushToStack`
+/// types; they do not implement stack storage or transfer logic.
 ///
-/// Opting into this capability selects the global tuple [`BuildMessage`]
+/// Opting into this capability selects the global tuple [`crate::BuildMessage`]
 /// implementations for compatible child message types. A field name or merely
-/// containing a ProgramImage does not establish the capability. Custom
+/// containing an ExecutionState does not establish the capability. Custom
 /// preparation can use a distinct message type with its own builder.
 ///
 /// No canonical-Boolean validation policy is needed: [`StackValue`] Boolean
@@ -44,25 +45,25 @@ pub trait HasOperandStack<I> {
     /// The checked operand source used for this instruction.
     type Source;
 
-    /// Borrow the operand source for a tuple of the supplied static arity.
+    /// Borrow the operand source for the supplied operand count.
     ///
     /// The arity allows a later cached implementation to prepare storage once.
     /// This accessor must not consume operands, bulk-precheck their availability,
     /// or otherwise change the sequential partial-consumption semantics.
-    /// Empty tuple builders do not invoke it.
+    /// Empty tuple and immediate empty batch builders do not invoke it.
     fn operand_stack(&mut self, arity: usize) -> &mut Self::Source;
 }
 
 /// Framework hook to apply one effect during [`crate::Step`].
 ///
-/// Ordinary authors select `PushToStack` effects; the completed program-owned
-/// route supplies the Step wiring that invokes this hook. Implementations are
+/// Authors can apply `PushToStack` effects to their program inside authored Steps.
+/// The framework does not impose effect handling. Implementations are
 /// extension plumbing for storage/effects, not required component boilerplate.
 ///
 /// Stack output implementations use direct typed insertion. This trait neither
 /// executes instructions nor supplies a Step or observer callbacks. The caller
-/// handles [`crate::Effects`] in order, applying each effect after execution and
-/// before its applied/finished observation phases. Applied values are not
+/// handles [`crate::Effects`] in order, applying each effect after execution.
+/// Applied values are not
 /// rolled back if later work fails. Custom fallible effect handling remains in
 /// Step; stack insertion follows [`PushStack`]'s ordinary
 /// allocation behavior.
@@ -71,13 +72,13 @@ pub trait Apply<E> {
     fn apply(&mut self, effect: E);
 }
 
-impl<C, F, I> BuildMessage<F, I, PopFromStack<()>> for C
+impl<C, F, I, Context: ?Sized> PrepareMessage<C, F, I, Context> for PopFromStack<()>
 where
     C: Composite + Field<F> + HasOperandStack<I>,
     C::Child: Execute<I, Message = PopFromStack<()>>,
 {
     #[inline]
-    fn build_message(&mut self, _: &I) -> eyre::Result<PopFromStack<()>> {
+    fn prepare(_: &mut C, _: &I, _: &Context) -> eyre::Result<Self> {
         Ok(PopFromStack(()))
     }
 }
@@ -109,16 +110,16 @@ macro_rules! stack_tuple {
         let $value = $ty::pop_from($source)?;
     };
     ($($ty:ident:$value:ident),+) => {
-        impl<Parent, Route, Inst, $($ty: StackValue),+>
-            BuildMessage<Route, Inst, PopFromStack<($($ty,)+)>> for Parent
+        impl<Parent, Route, Inst, Context: ?Sized, $($ty: StackValue),+>
+            PrepareMessage<Parent, Route, Inst, Context> for PopFromStack<($($ty,)+)>
         where
             Parent: Composite + Field<Route> + HasOperandStack<Inst>,
             Parent::Child: Execute<Inst, Message = PopFromStack<($($ty,)+)>>,
             Parent::Source: $(PopStack<$ty::Storage> +)+ Sized,
         {
             #[inline]
-            fn build_message(&mut self, _: &Inst) -> eyre::Result<PopFromStack<($($ty,)+)>> {
-                let source = self.operand_stack([$(stringify!($ty)),+].len());
+            fn prepare(parent: &mut Parent, _: &Inst, _: &Context) -> eyre::Result<Self> {
+                let source = parent.operand_stack([$(stringify!($ty)),+].len());
                 stack_tuple!(@pop source; $($ty:$value),+);
                 Ok(PopFromStack(($($value,)+)))
             }
@@ -139,18 +140,93 @@ macro_rules! stack_tuple {
 }
 
 stack_tuple!(A:a);
+
 stack_tuple!(A:a, B:b);
+
 stack_tuple!(A:a, B:b, C:c);
+
 stack_tuple!(A:a, B:b, C:c, D:d);
+
 stack_tuple!(A:a, B:b, C:c, D:d, E:e);
+
 stack_tuple!(A:a, B:b, C:c, D:d, E:e, F:f);
+
 stack_tuple!(A:a, B:b, C:c, D:d, E:e, F:f, G:g);
+
 stack_tuple!(A:a, B:b, C:c, D:d, E:e, F:f, G:g, H:h);
+
 stack_tuple!(A:a, B:b, C:c, D:d, E:e, F:f, G:g, H:h, I:i);
+
 stack_tuple!(A:a, B:b, C:c, D:d, E:e, F:f, G:g, H:h, I:i, J:j);
+
 stack_tuple!(A:a, B:b, C:c, D:d, E:e, F:f, G:g, H:h, I:i, J:j, K:k);
+
 stack_tuple!(A:a, B:b, C:c, D:d, E:e, F:f, G:g, H:h, I:i, J:j, K:k, L:l);
+
 stack_tuple!(A:a, B:b, C:c, D:d, E:e, F:f, G:g, H:h, I:i, J:j, K:k, L:l, M:m);
+
 stack_tuple!(A:a, B:b, C:c, D:d, E:e, F:f, G:g, H:h, I:i, J:j, K:k, L:l, M:m, N:n);
+
 stack_tuple!(A:a, B:b, C:c, D:d, E:e, F:f, G:g, H:h, I:i, J:j, K:k, L:l, M:m, N:n, O:o);
+
 stack_tuple!(A:a, B:b, C:c, D:d, E:e, F:f, G:g, H:h, I:i, J:j, K:k, L:l, M:m, N:n, O:o, P:p);
+
+/// Where a homogeneous batch's operand count is obtained.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputCount {
+    /// A count computed from the current instruction's payload.
+    Immediate(usize),
+    /// Pop a word count above the batch, checking that it fits `usize`.
+    FromStack,
+}
+
+/// Count metadata for a component/instruction pair using [`crate::StackBatch`].
+///
+/// Components describe the count source; vihaco performs all stack operations.
+/// This belongs to the component so external instruction vocabularies are usable.
+pub trait StackInputCount<I> {
+    fn input_count(instruction: &I) -> eyre::Result<InputCount>;
+}
+
+impl<C, F, I, T, Context: ?Sized> PrepareMessage<C, F, I, Context>
+    for PopFromStack<crate::StackBatch<T>>
+where
+    C: Composite + Field<F> + HasOperandStack<I>,
+    C::Child: Execute<I, Message = PopFromStack<crate::StackBatch<T>>> + StackInputCount<I>,
+    T: StackValue + 'static,
+    C::Source: PopStack<T::Storage> + PopStack<vihaco_abi::word::Word>,
+{
+    fn prepare(parent: &mut C, instruction: &I, _: &Context) -> eyre::Result<Self> {
+        let count = match C::Child::input_count(instruction)? {
+            InputCount::Immediate(count) => count,
+            InputCount::FromStack => {
+                let word = PopStack::<vihaco_abi::word::Word>::pop(parent.operand_stack(1))?;
+                usize::try_from(word)?
+            }
+        };
+        let mut values = smallvec::SmallVec::new();
+        // Reserve before value consumption. A count popped above remains consumed
+        // if reservation fails, just as earlier tuple pops remain consumed.
+        values
+            .try_reserve_exact(count)
+            .map_err(|error| eyre::eyre!("cannot reserve operand batch: {error:?}"))?;
+        if count != 0 {
+            let source = parent.operand_stack(count);
+            for _ in 0..count {
+                values.push(T::pop_from(source)?);
+            }
+            values.reverse();
+        }
+        Ok(PopFromStack(crate::StackBatch { values }))
+    }
+}
+
+// Selecting a program device also selects its operand storage. This connection
+// supplies no Step or effect policy.
+impl<C: crate::HasProgram, I> HasOperandStack<I> for C {
+    type Source = C::Program;
+    #[inline]
+    fn operand_stack(&mut self, _: usize) -> &mut Self::Source {
+        self.program_mut()
+    }
+}

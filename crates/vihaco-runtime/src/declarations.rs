@@ -70,10 +70,6 @@ where
 {
 }
 
-/// A single declared field, rather than a composed route.
-/// Keeping route heads direct also bounds trait search during error recovery.
-pub trait DirectField<F>: Field<F> {}
-
 /// Resolves a route to its unchanged marker after checking traversal from Self.
 /// An unused associated-type projection can defer this check until it is used.
 pub trait CheckedRoute<Route>: Field<Route> {
@@ -89,16 +85,6 @@ where
 
 /// An outer field followed by a route through its child.
 pub struct FieldPath<Head, Tail>(std::marker::PhantomData<(Head, Tail)>);
-
-impl<C, Head, Tail> Field<FieldPath<Head, Tail>> for C
-where
-    C: DirectField<Head>,
-    <C as Field<Head>>::Child: Field<Tail>,
-{
-    type Child = <<C as Field<Head>>::Child as Field<Tail>>::Child;
-    /// Source spellings of the final field in the route.
-    const SOURCE: &'static [&'static str] = <<C as Field<Head>>::Child as Field<Tail>>::SOURCE;
-}
 
 /// Declaration-local device metadata, including loadable section boundaries.
 /// Every device has an explicit code, independent of marker type identity.
