@@ -7,8 +7,8 @@
 //! backing representation. Available with `program-image-execution`.
 //!
 //! These are storage extension contracts for the framework, not requirements
-//! for ordinary component/composite authors. In the completed route, ProgramImage
-//! (and later its cursor) supplies access; instructions declare operand/result types.
+//! for ordinary component/composite authors. `vihaco_stdlib::ExecutionState`
+//! supplies access; instructions declare operand/result types.
 
 use vihaco_abi::word::{
     Word, decode_bool, decode_i32, decode_i64, decode_u32, encode_bool, encode_i32, encode_i64,
@@ -52,9 +52,10 @@ pub trait PushStack<T> {
 ///
 /// Separates the type a component computes with from the representation used to
 /// access program storage. A component can declare operands such as
-/// `PopFromStack<(i64, f64)>` and receive ordinary Rust values, while ProgramImage
-/// decides how to store them. A later optimized cursor can keep a floating-point
-/// value in a native cache without changing that component's messages or effects.
+/// `PopFromStack<(i64, f64)>` and receive ordinary Rust values, while
+/// `vihaco_stdlib::ExecutionState` decides how to store them. A later optimized
+/// cursor can keep a floating-point value in a native cache without changing
+/// that component's messages or effects.
 /// This trait is framework plumbing; ordinary component authors do not implement
 /// it or any stack access logic.
 ///

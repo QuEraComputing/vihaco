@@ -10,8 +10,8 @@
 //!
 //! The nondefault `program-image-execution` feature implies `typed-declarations`
 //! and switches CPU handlers to typed operands and stack result effects.
-//! ProgramImage owns locals, operands, frames, and the program counter. Heap
-//! storage remains on CPU and uses the same typed transfers.
+//! `vihaco_stdlib::ExecutionState` owns locals, operands, frames, and the program
+//! counter. Heap storage remains on CPU and uses the same typed transfers.
 //!
 //! With this feature, program instructions and their lowering helpers live in
 //! `vihaco_stdlib::program`; CPU exposes only computation and heap instructions.
