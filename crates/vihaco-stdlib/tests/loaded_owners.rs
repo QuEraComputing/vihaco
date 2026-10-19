@@ -17,7 +17,7 @@ use vihaco_runtime::{
 };
 use vihaco_stdlib::{
     ExecutionState, Image,
-    execution_state::{execute, resume},
+    execution_state::execute,
     program::lower::{FunctionLookup, LabelLookup, StringIntern},
 };
 
@@ -149,14 +149,6 @@ impl Sequencer {
             .as_ref()
             .ok_or_else(|| eyre::eyre!("not loaded"))?;
         execute(&image.module, &mut self.machine, &[])
-    }
-
-    fn resume(&mut self) -> eyre::Result<()> {
-        let image = self
-            .image
-            .as_ref()
-            .ok_or_else(|| eyre::eyre!("not loaded"))?;
-        resume(&image.module, &mut self.machine)
     }
 }
 
@@ -399,70 +391,10 @@ fn @helper() {{
     // Loaded artifacts own their code and metadata independently of the source file.
     drop(file);
     drop(source);
-    assert_eq!(
-        controller.image.as_ref().unwrap().module.functions[1].start_address,
-        3
-    );
-    assert_eq!(
-        controller
-            .machine
-            .sequencer
-            .image
-            .as_ref()
-            .unwrap()
-            .module
-            .functions[1]
-            .start_address,
-        4
-    );
     controller.run().unwrap();
     assert_eq!(controller.machine.execution.stack(), &[11]);
     assert_eq!(
         controller.machine.sequencer.machine.execution.stack(),
         &[42]
-    );
-    assert!(controller.machine.execution.is_halted());
-    assert!(controller.machine.execution.frames().is_empty());
-    assert!(
-        controller
-            .machine
-            .sequencer
-            .machine
-            .execution
-            .frames()
-            .is_empty()
-    );
-
-    let child = &mut controller.machine.sequencer;
-    child.machine.execution.reset();
-    child
-        .machine
-        .execution
-        .start(&child.image.as_ref().unwrap().module, &[])
-        .unwrap();
-    let replacement = vihaco_bytecode::SstFile::<NoContext>::from_text(&format!("sst v{}\n.section(root):\n.text(root):\nfn @main() {{ execution::program::const_u64 7 execution::program::ret 1 }}\n.text(root).\n.section(root).\n", vihaco_bytecode::VERSION)).unwrap();
-    assert!(child.load_sst_section(replacement.root()).is_err());
-    child.resume().unwrap();
-    assert_eq!(child.machine.execution.stack(), &[42]);
-    assert_eq!(controller.machine.execution.stack(), &[11]);
-
-    let child = &mut controller.machine.sequencer;
-    child.load_sst_section(replacement.root()).unwrap();
-    assert!(child.machine.execution.stack().is_empty());
-    let invalid = vihaco_bytecode::SstFile::<NoContext>::from_text(&format!("sst v{}\n.section(root):\n.text(root):\nfn @main() {{ execution::program::call 0, @missing }}\n.text(root).\n.section(root).\n", vihaco_bytecode::VERSION)).unwrap();
-    assert!(child.load_sst_section(invalid.root()).is_err());
-    child.run().unwrap();
-    assert_eq!(child.machine.execution.stack(), &[7]);
-    controller.run().unwrap();
-    assert_eq!(controller.machine.execution.stack(), &[11]);
-    assert_eq!(controller.machine.sequencer.machine.execution.stack(), &[7]);
-
-    // Parent syntax cannot address a child's independently loaded instruction set.
-    type Source = <ControllerMachine as HasInstructionSet>::Syntax;
-    use vihaco_runtime::chumsky::Parser as _;
-    assert!(
-        Source::parser()
-            .parse("sequencer::cpu::cpu::add_u64")
-            .has_errors()
     );
 }

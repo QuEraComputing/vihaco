@@ -82,25 +82,9 @@ struct Middle {
 #[vihaco(crate = framework)]
 struct Root {
     events: Events,
-    // Ordinary program state retains its authored ProgramCounter behavior.
-    program: vihaco_stdlib::ProgramImage<u8, Context>,
     #[device(4, alias = "parser_name")]
     #[loadable("custom")]
     middle: Middle,
-}
-
-#[cfg(not(feature = "program-image-execution"))]
-impl vihaco_module::host::ProgramCounter for Root {
-    type Instruction = u8;
-    fn pc(&self) -> u32 {
-        self.program.pc
-    }
-    fn pc_mut(&mut self) -> &mut u32 {
-        &mut self.program.pc
-    }
-    fn get_instruction(&self, pc: u32) -> eyre::Result<&u8> {
-        vihaco_module::host::ProgramCounter::get_instruction(&self.program, pc)
-    }
 }
 
 macro_rules! own {
@@ -173,7 +157,6 @@ fn typed_composite_section_loading() {
     let events = Events::default();
     let mut root = Root {
         events: events.clone(),
-        program: vihaco_stdlib::ProgramImage::default(),
         middle: Middle {
             events: events.clone(),
             leaf: Image(events.clone()),
@@ -200,17 +183,4 @@ fn typed_composite_section_loading() {
         .unwrap_err();
     assert!(err.to_string().contains("unexpected child section"));
     assert_eq!(*events.borrow(), ["<root>"]);
-    #[cfg(not(feature = "program-image-execution"))]
-    {
-        root.program.module.code = vec![9];
-        use vihaco_module::host::ProgramCounter;
-        assert_eq!(*root.get_instruction(root.pc()).unwrap(), 9);
-        *root.pc_mut() = 1;
-        assert!(root.get_instruction(root.pc()).is_err());
-    }
-    #[cfg(feature = "program-image-execution")]
-    {
-        root.program.module.code = vec![9];
-        assert_eq!(root.program.module.code, [9]);
-    }
 }

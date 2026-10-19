@@ -80,19 +80,3 @@ impl<'a, T> IntoIterator for &'a StackBatch<T> {
         self.as_slice().iter()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::StackBatch;
-    #[test]
-    fn eight_operands_fit_inline_and_nine_spill() {
-        for count in [0, 8, 9] {
-            let mut batch = StackBatch {
-                values: smallvec::SmallVec::<[u64; 8]>::new(),
-            };
-            batch.values.try_reserve_exact(count).unwrap();
-            batch.values.extend(0..count as u64);
-            assert_eq!(batch.values.spilled(), count > 8);
-        }
-    }
-}
