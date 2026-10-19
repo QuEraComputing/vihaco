@@ -198,6 +198,50 @@ fn generated_execution_routes_calls_locals_computation_and_root_results() {
 }
 
 #[test]
+fn recursive_execution_preserves_continuations_and_multiple_results() {
+    let (mut module, mut vm) = machine(&[
+        "program::program::const_u64 3",
+        "program::program::const_fn_ref 1",
+        "program::program::call_indirect",
+        "program::program::ret 2",
+        "program::program::load_u64 0",
+        "program::program::cond_br 9, 6",
+        "program::program::const_u64 10",
+        "program::program::const_u64 20",
+        "program::program::ret 2",
+        "program::program::load_u64 0",
+        "program::program::const_u64 1",
+        "cpu::cpu::sub_u64",
+        "program::program::call 1, 4",
+        "program::program::load_u64 0",
+        "cpu::cpu::add_u64",
+        "program::program::ret 2",
+    ]);
+    module.functions[0].local_count = 0;
+    module.functions[0].end_address = 4;
+    module.functions[0].signature.ret = vec![vihaco_abi::Type::U64; 2];
+    module.functions.push(FunctionInfo {
+        name: 0,
+        signature: Signature {
+            params: vec![vihaco_module::module::Parameter {
+                name: 0,
+                ty: vihaco_abi::Type::U64,
+            }],
+            ret: vec![vihaco_abi::Type::U64; 2],
+        },
+        local_count: 1,
+        start_address: 4,
+        end_address: 16,
+        file: 0,
+    });
+    execute(&module, &mut vm, &[]).unwrap();
+    assert_eq!(vm.program.stack(), &[10, 26]); // 20 + each restored caller's 1, 2, 3.
+    assert!(vm.program.frames().is_empty());
+    assert!(vm.program.is_halted());
+    assert_eq!(vm.program.pc(), 3);
+}
+
+#[test]
 fn execution_failures_preserve_consumption_and_faulting_pc() {
     let (module, mut vm) = machine(&[
         "program::program::const_u64 4",
@@ -292,6 +336,22 @@ fn heap_transfers_use_program_operands_and_preserve_device_state() {
         assert_eq!(vm.program.stack(), &[0]);
         assert_eq!(vm.program.pc(), 1);
     }
+    let (module, mut vm) = machine(&[
+        "program::program::const_u64 7",
+        "program::program::const_u64 9",
+        "cpu::cpu::heap_alloc 2",
+        "program::program::dup",
+        "cpu::cpu::heap_len",
+        "program::program::store_u64 0",
+        "cpu::cpu::heap_dealloc",
+        "program::program::const_heap_ref 0",
+        "program::program::const_u64 0",
+        "cpu::cpu::get_item",
+    ]);
+    let error = execute(&module, &mut vm, &[]).unwrap_err();
+    assert!(error.to_string().contains("deallocated"));
+    assert_eq!(vm.program.stack(), &[2]);
+    assert_eq!(vm.program.pc(), 9);
 }
 
 #[vihaco_runtime::dialect]
