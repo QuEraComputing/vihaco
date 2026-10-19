@@ -12,7 +12,7 @@
 //! use vihaco_abi::{Type, Value};
 //! use vihaco_module::module::{LocalModule, FunctionInfo, Signature};
 //! use vihaco_runtime::{composite, field, Apply, BuildMessage, Execute, HasInstructionSet, Step};
-//! use vihaco_stdlib::{ExecutionState, execution_state::execute, program::program};
+//! use vihaco_stdlib::{ExecutionState, Image, execution_state::execute, program::program};
 //! use vihaco_cpu::{CPU, cpu};
 //!
 //! #[composite]
@@ -63,9 +63,22 @@
 //!     }],
 //!     ..Default::default()
 //! };
-//! let mut machine = Machine { execution: ExecutionState::new(), cpu: CPU::default() };
-//! execute(&module, &mut machine, &[])?;
-//! assert_eq!(machine.execution.stack(), &[42]);
+//! // An ordinary outer owner keeps immutable program data beside its machine.
+//! struct Loaded {
+//!     image: Image<Instruction>,
+//!     machine: Machine,
+//! }
+//! impl Loaded {
+//!     fn run(&mut self) -> eyre::Result<()> {
+//!         execute(&self.image.module, &mut self.machine, &[])
+//!     }
+//! }
+//! let mut loaded = Loaded {
+//!     image: Image::new(module),
+//!     machine: Machine { execution: ExecutionState::new(), cpu: CPU::default() },
+//! };
+//! loaded.run()?;
+//! assert_eq!(loaded.machine.execution.stack(), &[42]);
 //! # Ok::<(), eyre::Report>(())
 //! ```
 use crate::program::program;

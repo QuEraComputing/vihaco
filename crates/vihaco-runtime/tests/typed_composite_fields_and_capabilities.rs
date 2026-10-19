@@ -202,6 +202,8 @@ struct Image {
 }
 
 impl framework::loader::LoadBytecodeSection<()> for Image {
+    type Output = ();
+
     fn load_bytecode_section<'bc>(
         &mut self,
         section: framework::BytecodeSectionView<'bc, ()>,
@@ -212,6 +214,8 @@ impl framework::loader::LoadBytecodeSection<()> for Image {
 }
 
 impl framework::loader::LoadSstSection<()> for Image {
+    type Output = ();
+
     fn load_sst_section<'bc>(
         &mut self,
         section: framework::SstSectionView<'bc, ()>,
@@ -222,6 +226,8 @@ impl framework::loader::LoadSstSection<()> for Image {
 }
 
 impl framework::loader::LoadOwnBytecodeSection<()> for LoadOnly {
+    type Output = ();
+
     fn load_own_bytecode_section<'bc>(
         &mut self,
         _: framework::BytecodeSectionView<'bc, ()>,
@@ -231,6 +237,8 @@ impl framework::loader::LoadOwnBytecodeSection<()> for LoadOnly {
 }
 
 impl framework::loader::LoadOwnSstSection<()> for LoadOnly {
+    type Output = ();
+
     fn load_own_sst_section<'bc>(
         &mut self,
         _: framework::SstSectionView<'bc, ()>,

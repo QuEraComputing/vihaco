@@ -24,6 +24,8 @@ impl<I> vihaco_runtime::Step<vihaco_runtime::field!(Machine::cpu), I> for Machin
 }
 struct Loader;
 impl vihaco_runtime::loader::LoadOwnSstSection<()> for Loader {
+    type Output = ();
+
     fn load_own_sst_section<'bc>(
         &mut self, _: vihaco_runtime::SstSectionView<'bc, ()>,
     ) -> eyre::Result<()> { Ok(()) }

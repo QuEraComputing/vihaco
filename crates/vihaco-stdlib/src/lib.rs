@@ -15,5 +15,11 @@ pub mod execution_state;
 pub use execution_state::ExecutionState;
 
 #[cfg(feature = "program-image-execution")]
+pub mod image;
+
+#[cfg(feature = "program-image-execution")]
+pub use image::Image;
+
+#[cfg(feature = "program-image-execution")]
 #[doc(hidden)]
 pub use execution_state::{__vihaco_fields_ExecutionState, __vihaco_inventory_ExecutionState};

@@ -1,0 +1,23 @@
+error[E0599]: the method `load_sst_section` exists for struct `Machine`, but its trait bounds were not satisfied
+  --> tests/compile_fail/composites/loadable-output.rs:25:38
+   |
+ 3 | struct Child;
+   | ------------ doesn't satisfy `<Child as LoadSstSection<_>>::Output = ()`
+...
+12 | struct Machine {
+   | -------------- method `load_sst_section` not found for this struct because it doesn't satisfy `Machine: LoadSstSection<_>`
+...
+25 |     let _ = Machine { child: Child }.load_sst_section(section);
+   |                                      ^^^^^^^^^^^^^^^^
+   |
+note: trait bound `<Child as LoadSstSection<_>>::Output = ()` was not satisfied
+  --> tests/compile_fail/composites/loadable-output.rs:11:1
+   |
+11 | #[composite]
+   | ^^^^^^^^^^^^
+12 | struct Machine {
+   |        ^^^^^^^
+   = help: items from traits can only be used if the trait is implemented and in scope
+   = note: the following trait defines an item `load_sst_section`, perhaps you need to implement it:
+           candidate #1: `LoadSstSection`
+   = note: this error originates in the attribute macro `composite` (in Nightly builds, run with -Z macro-backtrace for more info)

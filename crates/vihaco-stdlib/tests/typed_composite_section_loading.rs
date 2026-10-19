@@ -46,6 +46,8 @@ impl SstGlobalContext for Context {
 struct Image(Events);
 
 impl LoadBytecodeSection<Context> for Image {
+    type Output = ();
+
     fn load_bytecode_section<'bc>(
         &mut self,
         section: framework::BytecodeSectionView<'bc, Context>,
@@ -56,6 +58,8 @@ impl LoadBytecodeSection<Context> for Image {
 }
 
 impl LoadSstSection<Context> for Image {
+    type Output = ();
+
     fn load_sst_section<'bc>(
         &mut self,
         section: framework::SstSectionView<'bc, Context>,
@@ -100,35 +104,39 @@ impl vihaco_module::host::ProgramCounter for Root {
 }
 
 macro_rules! own {
-    ($ty:ty) => {
+    ($ty:ty, $output:ty, $value:expr) => {
         impl LoadOwnBytecodeSection<Context> for $ty {
+            type Output = $output;
+
             fn load_own_bytecode_section<'bc>(
                 &mut self,
                 section: framework::BytecodeSectionView<'bc, Context>,
-            ) -> eyre::Result<()> {
+            ) -> eyre::Result<Self::Output> {
                 self.events
                     .borrow_mut()
                     .push(section.display_path().to_string());
-                Ok(())
+                Ok($value)
             }
         }
         impl LoadOwnSstSection<Context> for $ty {
+            type Output = $output;
+
             fn load_own_sst_section<'bc>(
                 &mut self,
                 section: framework::SstSectionView<'bc, Context>,
-            ) -> eyre::Result<()> {
+            ) -> eyre::Result<Self::Output> {
                 self.events
                     .borrow_mut()
                     .push(section.display_path().to_string());
-                Ok(())
+                Ok($value)
             }
         }
     };
 }
 
-own!(Middle);
+own!(Middle, (), ());
 
-own!(Root);
+own!(Root, u32, 17);
 
 fn section(children: &[(u32, Vec<u8>)]) -> Vec<u8> {
     let mut out = Vec::new();
@@ -173,7 +181,7 @@ fn typed_composite_section_loading() {
     };
     assert_eq!(framework::__private::capabilities::<Root>().count(), 0);
     let file = bytecode(&[(0, section(&[(1, section(&[]))]))]);
-    root.load_bytecode_section(file.root()).unwrap();
+    assert_eq!(root.load_bytecode_section(file.root()).unwrap(), 17);
     assert_eq!(*events.borrow(), ["<root>", "custom", "custom/leaf"]);
     events.borrow_mut().clear();
     let text = format!(
@@ -181,7 +189,7 @@ fn typed_composite_section_loading() {
         vihaco_bytecode::VERSION
     );
     let file = SstFile::<Context>::from_text(&text).unwrap();
-    root.load_sst_section(file.root()).unwrap();
+    assert_eq!(root.load_sst_section(file.root()).unwrap(), 17);
     assert_eq!(*events.borrow(), ["<root>", "custom", "custom/leaf"]);
     events.borrow_mut().clear();
     root.load_bytecode_section(bytecode(&[]).root()).unwrap();
