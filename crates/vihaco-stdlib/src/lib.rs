@@ -6,3 +6,8 @@ pub use program::ProgramImage;
 
 pub mod clock;
 pub mod observer;
+
+#[cfg(feature = "program-image-execution")]
+pub mod execution_state;
+#[cfg(feature = "program-image-execution")]
+pub use execution_state::ExecutionState;

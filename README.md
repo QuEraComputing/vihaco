@@ -225,3 +225,9 @@ build, test, and submit changes. By contributing you agree to the
 
 Licensed under the [MIT License](LICENSE). © The vihaco Authors — see
 [AUTHORS](AUTHORS). Initially developed at QuEra Computing Inc.
+
+With `program-image-execution`, stdlib also provides `ExecutionState`: checked invocation
+state containing frames, locals, operands, and a private program counter. The host
+owns the module separately and borrows it when starting an invocation; ExecutionState
+has no instruction type parameter or program ownership. Typed stack messages and
+effects handle operand transfer for component authors.
