@@ -17,6 +17,9 @@ repository.workspace = true
 authors.workspace = true
 publish = false
 
+[features]
+typed-declarations = ["vihaco/typed-declarations", "vihaco-cpu/typed-declarations"]
+
 [dependencies]
 vihaco = { workspace = true }
 vihaco-cpu = { workspace = true }

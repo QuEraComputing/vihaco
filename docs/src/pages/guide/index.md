@@ -24,8 +24,8 @@ For the type-by-type API reference, see the generated [rustdoc](/reference).
    - [Pattern Parser](/guide/parser-patterns)
      Compile-time-checked patterns for instruction, value, and type enums and
      structs.
-   - [Module Parsing and Resolution](/guide/parser-advanced)
-     Module-level parsing: device headers, typed function bodies, `Resolve`
+   - [Module Parsing and Loading](/guide/parser-advanced)
+     SST metadata, typed function bodies, lowering, and generated section hooks
      implementations, and component section routing.
 3. [Using Messages With `vihaco`](/guide/messages)
    How a runtime resolves execution input and supplies messages to components.

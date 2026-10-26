@@ -4,11 +4,9 @@ error[E0277]: the trait bound `(): LabelLookup` is not satisfied
 7 |     let _ = source.lower(&mut ());
   |                    ^^^^^ the trait `LabelLookup` is not implemented for `()`
   |
-help: the trait `vihaco::Lower<C>` is conditionally implemented for `Branch<Syntax>`
+help: the trait `LabelLookup` is implemented for `MetadataLoweringContext`
  --> src/lower.rs
   |
-  | impl<C: LabelLookup + ?Sized> Lower<C> for cpu::Branch<Syntax> {
-  | ^^^^^^^^-----------^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |         |
-  |         unsatisfied requirement introduced here: `(): LabelLookup`
+  | impl LabelLookup for MetadataLoweringContext {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   = note: required for `Branch<Syntax>` to implement `vihaco::Lower<()>`

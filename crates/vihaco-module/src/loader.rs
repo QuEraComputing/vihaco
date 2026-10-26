@@ -7,6 +7,8 @@ use vihaco_bytecode::{BytecodeSectionView, ConstantId, ContextHandle, SstSection
 use crate::host::{GetProgramInfo, ProgramCounter};
 use crate::module::{LocalModule, NoInfo};
 
+pub use crate::lowering::{FunctionScope, MetadataLoweringContext};
+
 /// Allow a machine to load the bytecode data owned directly by its section.
 ///
 /// When used with the [`vihaco_runtime_derive::composite`] macro, this hook runs before

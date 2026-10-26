@@ -21,6 +21,7 @@
 
 // ── Landing / quick-start example files (compiled as shown on the site) ──
 
+#[cfg(not(feature = "typed-declarations"))]
 mod ex_counter {
     include!("../../../docs/examples/counter.rs");
 }
@@ -29,6 +30,7 @@ mod ex_observe {
     include!("../../../docs/examples/observe.rs");
 }
 
+#[cfg(not(feature = "typed-declarations"))]
 mod ex_quickstart {
     include!("../../../docs/examples/quickstart.rs");
 

@@ -282,6 +282,10 @@ The section frame is part of every section, including the root section. The byte
 
 ### SST Multi-Section Bytecode
 
+For a complete example that combines compiler-supplied metadata, existing device
+headers, `fn` bodies, and `Lower<C>` inside the generated loading flow, see
+[Module Parsing and Loading](/guide/parser-advanced#complete-loading-example).
+
 SST uses `SstFile<C>`, `SstSectionView<'bc, C>`, and generated `LoadSstSection<C>` machinery. The backing contents are the original SST and each section stores ranges into that string. Use `SstFile<NoContext>` for an empty global block, or `SstFile<C>` when you need a custom context:
 
 ```rust ignore

@@ -36,6 +36,13 @@ struct ParserPaths {
     chumsky: syn::Path,
 }
 
+impl ParserPaths {
+    fn parser_for(&self, ty: &Type) -> TokenStream2 {
+        let parser_root = &self.parser_root;
+        quote!(<#ty as #parser_root::Parse>::parser())
+    }
+}
+
 #[derive(PartialEq)]
 enum BindingRef<'p> {
     Index(u32, Option<&'p str>),
@@ -50,11 +57,17 @@ enum PatternLiteral<'p> {
 
 impl PatternLiteral<'_> {
     fn suppresses_leading_whitespace(&self) -> bool {
-        matches!(self, Symbol(','))
+        matches!(
+            self,
+            Symbol(',' | ':' | ';' | '{' | '}' | '[' | ']' | '(' | ')')
+        )
     }
 
     fn suppresses_trailing_whitespace(&self) -> bool {
-        matches!(self, Symbol('@'))
+        matches!(
+            self,
+            Symbol('@' | ':' | ';' | '{' | '}' | '[' | ']' | '(' | ')')
+        )
     }
 }
 
@@ -166,7 +179,7 @@ fn pattern_syntax_parser<'p>(
         })
         .boxed();
 
-    let symbol = choice((just(','), just('@'))).map(Symbol).boxed();
+    let symbol = chumsky::primitive::one_of(",@:;{}[]()").map(Symbol).boxed();
 
     let dotted_ident = ident
         .then(just('.').ignore_then(ident).repeated())
@@ -606,7 +619,7 @@ fn build_parser_syntax_parts(
                 constructor_position,
             }) => {
                 let parser_ty = parser_ty.unwrap_or(ty);
-                let parser = quote!(<#parser_ty as #parser_root::Parse>::parser());
+                let parser = paths.parser_for(&parser_ty);
                 parts.push(ParserPart::Capture {
                     parser,
                     name,
@@ -617,11 +630,18 @@ fn build_parser_syntax_parts(
             Literal(literal) => {
                 let suppresses_leading_whitespace = literal.suppresses_leading_whitespace();
                 let suppresses_trailing_whitespace = literal.suppresses_trailing_whitespace();
+                let flexible = matches!(
+                    literal,
+                    Symbol(':' | ';' | '{' | '}' | '[' | ']' | '(' | ')')
+                );
                 let literal = literal.to_string();
+                let parser = if flexible {
+                    quote! { #chumsky::primitive::just(#literal).padded_by(#parser_root::trivia()).ignored() }
+                } else {
+                    quote! { #chumsky::primitive::just(#literal).ignored() }
+                };
                 parts.push(ParserPart::Ignore {
-                    parser: quote! {
-                        #chumsky::primitive::just(#literal).ignored()
-                    },
+                    parser,
                     suppresses_leading_whitespace,
                     suppresses_trailing_whitespace,
                 });
@@ -890,6 +910,83 @@ fn compile_pattern_parser(
     }
 }
 
+/// Combine alternatives without the deep types produced by chained `.or()`.
+/// Chumsky supports tuple choices up to 26 elements; group larger choices.
+fn emit_choice(alternatives: &[TokenStream2], chumsky: &syn::Path) -> TokenStream2 {
+    match alternatives {
+        [] => unreachable!("empty choices are handled by the caller"),
+        [only] => only.clone(),
+        alternatives if alternatives.len() <= 26 => {
+            quote!(#chumsky::primitive::choice((#(#alternatives),*)))
+        }
+        alternatives => {
+            let groups = alternatives
+                .chunks(26)
+                .map(|group| emit_choice(group, chumsky))
+                .collect::<Vec<_>>();
+            emit_choice(&groups, chumsky)
+        }
+    }
+}
+
+fn apply_head(
+    parser: TokenStream2,
+    class: Option<&SyntaxClassAttr>,
+    paths: &ParserPaths,
+) -> TokenStream2 {
+    let chumsky = &paths.chumsky;
+    match class {
+        Some(SyntaxClassAttr::Instruction { head: Some(head) }) => {
+            let head = format!("{head}.");
+            quote!(#chumsky::primitive::just(#head).ignore_then(#parser))
+        }
+        Some(SyntaxClassAttr::Metadata {
+            head: Some(head),
+            delimiters: Some(_),
+        }) => {
+            quote!(#chumsky::primitive::just(#head)
+                .then_ignore(#chumsky::text::whitespace().at_least(1))
+                .ignore_then(#parser))
+        }
+        Some(SyntaxClassAttr::Metadata {
+            head: Some(head), ..
+        }) => {
+            let head = format!("{head} ");
+            quote!(#chumsky::primitive::just(#head).ignore_then(#parser))
+        }
+        _ => parser,
+    }
+}
+
+fn emit_parse_impl(
+    ident: &Ident,
+    generics: &Generics,
+    src_lifetime: &Lifetime,
+    body: TokenStream2,
+    paths: &ParserPaths,
+) -> TokenStream2 {
+    let ParserPaths {
+        parser_root,
+        chumsky,
+    } = paths;
+    let parser_generics = generics_with_lifetime(generics, src_lifetime);
+    let (impl_generics, _, where_clause) = parser_generics.split_for_impl();
+    let (_, ty_generics, _) = generics.split_for_impl();
+    quote! {
+        impl #impl_generics #parser_root::Parse<#src_lifetime> for #ident #ty_generics #where_clause {
+            fn parser() -> impl #chumsky::Parser<
+                #src_lifetime,
+                &#src_lifetime str,
+                Self,
+                #chumsky::extra::Err<#chumsky::error::Simple<#src_lifetime, char>>,
+            > {
+                use #chumsky::Parser as _;
+                #body
+            }
+        }
+    }
+}
+
 fn expand_enum(input: EnumInfo, paths: &ParserPaths) -> Result<TokenStream> {
     let ParserPaths {
         parser_root,
@@ -913,6 +1010,19 @@ fn expand_enum(input: EnumInfo, paths: &ParserPaths) -> Result<TokenStream> {
             "#[derive(Parse)] on an enum requires a #[syntax_class(...)] attribute",
         ));
     };
+
+    if matches!(
+        enum_attrs.syntax_class,
+        Some(SyntaxClassAttr::Metadata {
+            delimiters: Some(_),
+            ..
+        })
+    ) {
+        return Err(Error::new_spanned(
+            enum_ident,
+            "metadata delimiters require a named struct",
+        ));
+    }
 
     let src_lifetime = fresh_lifetime(input.generics, "__vihaco_src");
 
@@ -966,56 +1076,23 @@ fn expand_enum(input: EnumInfo, paths: &ParserPaths) -> Result<TokenStream> {
         std::cmp::Reverse(token.as_ref().map_or(0, |(token, _)| token.len()))
     });
 
-    let parser_generics = generics_with_lifetime(input.generics, &src_lifetime);
-    let (impl_generics, _, where_clause) = parser_generics.split_for_impl();
-    let (_, ty_generics, _) = input.generics.split_for_impl();
-
-    // Build the alternative parser. A left-nested `.or()` chain can blow the
-    // trait-resolver recursion limit (observed at ~41 variants), while
-    // chumsky's tuple `choice` is flat but only implemented up to 26 elements.
-    // Above that, group variants into inner tuple choices and wrap those in an
-    // outer tuple choice, keeping the type shallow without boxing.
-    let var_names: Vec<&Ident> = variant_data.iter().map(|(n, _, _)| n).collect();
-    let variant_bindings: Vec<&TokenStream2> = variant_data.iter().map(|(_, b, _)| b).collect();
-    let or_chain = if variant_data.len() == 1 {
-        // chumsky's `choice` is only impl'd for tuples of size 2..=26;
-        // a single-variant enum just yields its sole binding directly.
-        let only = &variant_data[0].0;
-        quote! { #only }
-    } else if variant_data.len() <= 26 {
-        quote! { #chumsky::primitive::choice((#(#var_names),*)) }
-    } else {
-        let chunks: Vec<TokenStream2> = var_names
-            .chunks(26)
-            .map(|chunk| {
-                if let [only] = chunk {
-                    quote! { #only }
-                } else {
-                    let parts = chunk.iter();
-                    quote! { #chumsky::primitive::choice((#(#parts),*)) }
-                }
-            })
-            .collect();
-        quote! { #chumsky::primitive::choice((#(#chunks),*)) }
-    };
-
-    let parser = match &enum_attrs.syntax_class {
-        Some(SyntaxClassAttr::Instruction { head: Some(head) }) => {
-            let head = format!("{head}.");
-            quote! {
-                #chumsky::primitive::just(#head)
-                .ignore_then(#or_chain)
-            }
-        }
-        Some(SyntaxClassAttr::Metadata { head }) => {
-            let head = format!("{head} ");
-            quote! {
-                #chumsky::primitive::just(#head)
-                    .ignore_then(#or_chain)
-            }
-        }
-        _ => or_chain,
-    };
+    let alternatives = variant_data
+        .iter()
+        .map(|(name, _, _)| quote!(#name))
+        .collect::<Vec<_>>();
+    let parser = apply_head(
+        emit_choice(&alternatives, chumsky),
+        enum_attrs.syntax_class.as_ref(),
+        paths,
+    );
+    let variant_bindings = variant_data.iter().map(|(_, binding, _)| binding);
+    let parse_impl = emit_parse_impl(
+        enum_ident,
+        input.generics,
+        &src_lifetime,
+        quote! { #(#variant_bindings)* #parser },
+        paths,
+    );
 
     let surface_instruction_impl = if matches!(
         &enum_attrs.syntax_class,
@@ -1029,22 +1106,7 @@ fn expand_enum(input: EnumInfo, paths: &ParserPaths) -> Result<TokenStream> {
         quote! {}
     };
 
-    let output = quote! {
-        impl #impl_generics #parser_root::Parse<#src_lifetime> for #enum_ident #ty_generics #where_clause {
-            fn parser() -> impl #chumsky::Parser<
-                #src_lifetime,
-                &#src_lifetime str,
-                Self,
-                #chumsky::extra::Err<#chumsky::error::Simple<#src_lifetime, char>>,
-            > {
-                use #chumsky::Parser as _;
-                #(#variant_bindings)*
-                #parser
-            }
-        }
-
-        #surface_instruction_impl
-    };
+    let output = quote! { #parse_impl #surface_instruction_impl };
 
     Ok(output.into())
 }
@@ -1067,10 +1129,6 @@ fn compile_struct(
     input: StructInfo,
     paths: &ParserPaths,
 ) -> Result<(TokenStream, Option<InstructionWithSpan>)> {
-    let ParserPaths {
-        parser_root,
-        chumsky,
-    } = paths;
     let struct_ident = input.ident;
     let struct_attrs = StructAttrs::from_attrs(input.attrs)?;
     if struct_attrs.syntax_class.is_none() {
@@ -1091,58 +1149,142 @@ fn compile_struct(
     }
 
     let src_lifetime = fresh_lifetime(input.generics, "__vihaco_src");
-
-    let pattern_compilation_info = PatternCompilationInfo {
-        fields: &input.data.fields,
-        pattern_info: struct_attrs.pattern,
-        target: PatternTarget::Struct {
-            ident: struct_ident.clone(),
-        },
-        class: struct_attrs.syntax_class.clone(),
-    };
-
-    let span = struct_ident.span();
-    let (ident, parser_binding, mnemonic) =
-        compile_pattern_parser(pattern_compilation_info, span, span, paths)?;
-
-    let parser_generics = generics_with_lifetime(input.generics, &src_lifetime);
-    let (impl_generics, _, where_clause) = parser_generics.split_for_impl();
-    let (_, ty_generics, _) = input.generics.split_for_impl();
-
-    let parser = match &struct_attrs.syntax_class {
-        Some(SyntaxClassAttr::Instruction { head: Some(head) }) => {
-            let head = format!("{head}.");
-            quote! {
-                #chumsky::primitive::just(#head)
-                .ignore_then(#ident)
-            }
+    let mut generics = input.generics.clone();
+    let (body, mnemonic) = if let Some(SyntaxClassAttr::Metadata {
+        delimiters: Some((open, close)),
+        ..
+    }) = &struct_attrs.syntax_class
+    {
+        if struct_attrs.pattern.is_some() {
+            return Err(Error::new_spanned(
+                struct_ident,
+                "delimited metadata generates its fields; omit #[pattern]",
+            ));
         }
-        Some(SyntaxClassAttr::Metadata { head }) => {
-            let head = format!("{head} ");
-            quote! {
-                #chumsky::primitive::just(#head)
-                    .ignore_then(#ident)
-            }
+        let body = emit_metadata_record(&input, paths, &src_lifetime, open, close)?;
+        for field in &input.data.fields {
+            let ty = &field.ty;
+            let parser_root = &paths.parser_root;
+            generics
+                .make_where_clause()
+                .predicates
+                .push(syn::parse_quote!(#ty: #parser_root::Parse<#src_lifetime> + #src_lifetime));
         }
-        _ => quote! { #ident },
+        (body, None)
+    } else {
+        let info = PatternCompilationInfo {
+            fields: &input.data.fields,
+            pattern_info: struct_attrs.pattern,
+            target: PatternTarget::Struct {
+                ident: struct_ident.clone(),
+            },
+            class: struct_attrs.syntax_class.clone(),
+        };
+        let span = struct_ident.span();
+        let (ident, binding, mnemonic) = compile_pattern_parser(info, span, span, paths)?;
+        (quote! { { #binding #ident } }, mnemonic)
     };
-
-    let output = quote! {
-        impl #impl_generics #parser_root::Parse<#src_lifetime> for #struct_ident #ty_generics #where_clause {
-            fn parser() -> impl #chumsky::Parser<
-                #src_lifetime,
-                &#src_lifetime str,
-                Self,
-                #chumsky::extra::Err<#chumsky::error::Simple<#src_lifetime, char>>,
-            > {
-                use #chumsky::Parser as _;
-                #parser_binding
-                #parser
-            }
-        }
-    };
-
+    let parser = apply_head(body, struct_attrs.syntax_class.as_ref(), paths);
+    let output = emit_parse_impl(struct_ident, &generics, &src_lifetime, parser, paths);
     Ok((output.into(), mnemonic))
+}
+
+/// Emit the unordered record body; struct emission supplies its head and impl.
+fn emit_metadata_record(
+    input: &StructInfo<'_>,
+    paths: &ParserPaths,
+    lifetime: &Lifetime,
+    open: &str,
+    close: &str,
+) -> Result<TokenStream2> {
+    let Fields::Named(fields) = &input.data.fields else {
+        return Err(Error::new_spanned(
+            input.ident,
+            "metadata delimiters require a named struct",
+        ));
+    };
+    let ParserPaths {
+        parser_root,
+        chumsky,
+    } = paths;
+    let names: Vec<_> = fields
+        .named
+        .iter()
+        .map(|field| field.ident.as_ref().unwrap())
+        .collect();
+    let types: Vec<_> = fields.named.iter().map(|field| &field.ty).collect();
+    let mut used: HashSet<_> = input
+        .generics
+        .const_params()
+        .map(|param| param.ident.to_string())
+        .collect();
+    let mut fresh = |base: &str| {
+        let mut candidate = base.to_owned();
+        while !used.insert(candidate.clone()) {
+            candidate.push('_');
+        }
+        Ident::new(&candidate, Span::mixed_site())
+    };
+    let entries_binding = fresh("__entries");
+    let span_binding = fresh("__span");
+    let value_binding = fresh("__value");
+    let slots: Vec<_> = (0..names.len())
+        .map(|i| fresh(&format!("__slot_{i}")))
+        .collect();
+    let incoming: Vec<_> = (0..names.len())
+        .map(|i| fresh(&format!("__incoming_{i}")))
+        .collect();
+    let alternatives: Vec<_> = names
+        .iter()
+        .zip(&types)
+        .enumerate()
+        .map(|(index, (name, ty))| {
+            let key = name.unraw().to_string();
+            let value_parser = paths.parser_for(ty);
+            let values = types.iter().enumerate().map(|(position, ty)| {
+                if index == position {
+                    quote!(::core::option::Option::<#ty>::Some(#value_binding))
+                } else {
+                    quote!(::core::option::Option::<#ty>::None)
+                }
+            });
+            quote! {
+                #parser_root::metadata_key(#key)
+                    .then_ignore(#chumsky::primitive::just(':').padded_by(#parser_root::trivia()))
+                    .ignore_then((#value_parser).padded_by(#parser_root::trivia()))
+                    .map(|#value_binding| (#(#values,)*))
+            }
+        })
+        .collect();
+    let body = if alternatives.is_empty() {
+        // Empty named records still parse `{}` and reject any entries.
+        quote!(#chumsky::primitive::any().try_map(|_, #span_binding| -> ::core::result::Result<(), #chumsky::error::Simple<#lifetime, char>> {
+            Err(#chumsky::error::Simple::new(None, #span_binding))
+        }))
+    } else {
+        emit_choice(&alternatives, chumsky)
+    };
+    Ok(quote! {{
+        use #chumsky::IterParser as _;
+        (#body).separated_by(#chumsky::primitive::just(',').padded_by(#parser_root::trivia()))
+            .allow_trailing().collect::<::std::vec::Vec<_>>()
+            .delimited_by(
+                #chumsky::primitive::just(#open).padded_by(#parser_root::trivia()),
+                #chumsky::primitive::just(#close).padded_by(#parser_root::trivia()),
+            ).try_map(|#entries_binding, #span_binding| {
+                    #(let mut #slots: ::core::option::Option<#types> = None;)*
+                    for (#(#incoming,)*) in #entries_binding {
+                        #(if let Some(#value_binding) = #incoming {
+                            if #slots.replace(#value_binding).is_some() {
+                                return Err(#chumsky::error::Simple::new(None, #span_binding));
+                            }
+                        })*
+                    }
+                    Ok(Self {
+                        #(#names: #slots.ok_or_else(|| #chumsky::error::Simple::new(None, #span_binding))?,)*
+                    })
+        })
+    }})
 }
 
 pub fn expand(input: DeriveInput) -> Result<TokenStream> {

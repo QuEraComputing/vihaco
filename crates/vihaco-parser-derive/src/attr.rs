@@ -19,8 +19,13 @@ mod kw {
 
 #[derive(Clone)]
 pub enum SyntaxClassAttr {
-    Instruction { head: Option<String> },
-    Metadata { head: String },
+    Instruction {
+        head: Option<String>,
+    },
+    Metadata {
+        head: Option<String>,
+        delimiters: Option<(String, String)>,
+    },
     Type,
     Value,
 }
@@ -45,16 +50,46 @@ impl Parse for SyntaxClassAttr {
         if input.peek(kw::metadata) {
             input.parse::<kw::metadata>()?;
 
-            if input.is_empty() {
-                return Err(input.error("metadata syntax class must have `head` argument"));
+            let mut head = None;
+            let mut open = None;
+            let mut close = None;
+            while !input.is_empty() {
+                input.parse::<Token![,]>()?;
+                if input.is_empty() {
+                    break;
+                }
+                let key: syn::Ident = input.parse()?;
+                input.parse::<Token![=]>()?;
+                let value = input.parse::<LitStr>()?;
+                let destination = match key.to_string().as_str() {
+                    "head" => &mut head,
+                    "open" => &mut open,
+                    "close" => &mut close,
+                    _ => {
+                        return Err(Error::new(
+                            key.span(),
+                            "expected `head`, `open`, or `close`",
+                        ))
+                    }
+                };
+                if destination.is_some() {
+                    return Err(Error::new(key.span(), "duplicate metadata option"));
+                }
+                if value.value().is_empty() {
+                    return Err(Error::new(
+                        value.span(),
+                        "metadata options must not be empty",
+                    ));
+                }
+                *destination = Some(value.value());
             }
-
-            input.parse::<Token![,]>()?;
-            input.parse::<kw::head>()?;
-            input.parse::<Token![=]>()?;
-            let head = input.parse::<LitStr>()?.value();
-
-            return Ok(Self::Metadata { head });
+            let delimiters = match (open, close) {
+                (Some(open), Some(close)) if open != close => Some((open, close)),
+                (None, None) => None,
+                (Some(_), Some(_)) => return Err(input.error("open and close must differ")),
+                _ => return Err(input.error("open and close must be specified together")),
+            };
+            return Ok(Self::Metadata { head, delimiters });
         }
 
         if input.peek(kw::value) {

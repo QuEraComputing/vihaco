@@ -29,11 +29,7 @@ type E<'src> = extra::Err<Simple<'src, char>>;
 
 /// Whitespace and `//`-to-end-of-line comments. Zero-or-more.
 pub fn skip<'src>() -> impl Parser<'src, &'src str, (), E<'src>> + Clone {
-    let ws = any().filter(|c: &char| c.is_whitespace()).ignored();
-    let line_comment = just("//")
-        .then(any().and_is(just('\n').not()).repeated())
-        .ignored();
-    ws.or(line_comment).repeated().collect::<()>()
+    vihaco_parser::trivia()
 }
 
 /// `"…"` with `\\`, `\"`, `\n`, `\t`, `\r` escape sequences.
@@ -160,7 +156,18 @@ where
     Ty: Parse<'src> + 'src,
 {
     fn parser() -> impl Parser<'src, &'src str, Self, E<'src>> {
-        let return_ty = just("->").padded().ignore_then(Ty::parser()).or_not();
+        let returns = Ty::parser()
+            .padded()
+            .separated_by(just(',').padded())
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .delimited_by(just('(').padded(), just(')').padded())
+            .or(Ty::parser().map(|ty| vec![ty]));
+        let return_types = just("->")
+            .padded()
+            .ignore_then(returns)
+            .or_not()
+            .map(Option::unwrap_or_default);
         #[cfg(not(feature = "typed-declarations"))]
         let body = skip()
             .ignore_then(I::parser())
@@ -200,17 +207,17 @@ where
             .ignore_then(just('@'))
             .ignore_then(Ident::parser())
             .then(param_list::<Ty>())
-            .then(return_ty)
+            .then(return_types)
             .then_ignore(just('{').padded())
             .then(body)
             .then_ignore(just('}').padded())
-            .map(|(((name, params), return_ty), body)| {
+            .map(|(((name, params), return_types), body)| {
                 #[cfg(feature = "typed-declarations")]
                 let (body, labels) = body;
                 ParsedFunction {
                     name,
                     params,
-                    return_ty,
+                    return_types,
                     body,
                     #[cfg(feature = "typed-declarations")]
                     labels,

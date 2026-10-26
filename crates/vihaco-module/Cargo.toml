@@ -8,6 +8,9 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+chumsky = { workspace = true }
+vihaco-parser = { workspace = true }
+vihaco-parser-derive = { workspace = true }
 colored = "3.0.0"
 eyre = { workspace = true }
 vihaco-abi = { workspace = true }

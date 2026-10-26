@@ -104,8 +104,10 @@ Every type using pattern generation must declare a syntax class.
 | `#[syntax_class(type)]` | A type expression. | Instruction tokens are forbidden and every variant or struct needs an explicit pattern. |
 
 Put `#[syntax_class]` on the enum or struct definition, never on a variant or
-field. An instruction or metadata head is required and is written without its
-separator. Instruction heads use `.`; metadata heads use one ASCII space.
+field. An instruction head is optional. Metadata heads are also optional, allowing
+nested metadata records without a repeated declaration prefix. Heads are written
+without their separator: instruction heads use `.` and metadata heads use one
+ASCII space.
 
 Metadata patterns are useful for line-oriented headers:
 
@@ -164,7 +166,7 @@ atom          = instruction-token | metadata-name | binding | literal ;
 instruction-token = "'", ascii-identifier ;
 metadata-name = ascii-identifier, { ".", ascii-identifier } ;
 binding       = "$", (ascii-identifier | decimal-index) ;
-literal       = "`", (ascii-identifier | "," | "@"), "`" ;
+literal       = "`", (ascii-identifier | "," | "@" | ":" | ";" | "{" | "}" | "[" | "]" | "(" | ")"), "`" ;
 ```
 
 The atoms mean:
@@ -179,9 +181,10 @@ The atoms mean:
 | `` `,` `` | Match a comma with punctuation-aware spacing. | <code>$0 `,` $1</code> |
 | `` `@` `` | Match an at sign with punctuation-aware spacing. | <code>$0 `@` $1</code> |
 
-Only comma and at sign are currently supported as punctuation literals.
-Metadata names may additionally contain dots without backticks. Arbitrary
-punctuation and quoted strings are not part of the pattern language.
+Punctuation literals support commas, at signs, colons, semicolons, braces,
+brackets, and parentheses. Metadata names may additionally contain dots without
+backticks. Other punctuation and quoted strings are not pattern literals;
+quoted source strings are parsed through `String` or `QuotedString` fields.
 
 ## Whitespace is part of the grammar
 
@@ -199,9 +202,50 @@ punctuation looks natural:
   after itself: <code>$0 `@` $1</code> accepts `1 @target`, not `1@target` or
   `1 @ target`.
 
-Keywords and symbols match exactly. The generated parser does not consume
+Keywords and symbols match exactly. Ordinary pattern boundaries do not consume
 indentation, line endings, or comments; the surrounding module/list parser is
-responsible for those boundaries.
+responsible for those boundaries. Delimited metadata records and the new
+punctuation literals use the whitespace/comment rules below.
+
+New punctuation literals (`:`, `;`, `{`, `}`, `[`, `]`, `(`, `)`) accept
+optional whitespace and line comments on either side. The existing comma and
+at-sign spacing rules remain unchanged.
+
+## Delimited metadata records
+
+Named structs can generate key/value record parsers instead of supplying a
+pattern:
+
+```text
+#[derive(Parse)]
+#[syntax_class(metadata, head = "metadata", open = "{", close = "}")]
+struct MetadataHeader {
+    functions: Vec<FunctionMetadata>,
+    main_function: Option<u32>,
+}
+
+#[derive(Parse)]
+#[syntax_class(metadata, open = "{", close = "}")]
+struct FunctionMetadata {
+    name: u32,
+    local_count: u32,
+}
+```
+
+`head` is optional for nested records. `open` and `close` must appear together,
+be nonempty, and differ. Delimited records require named structs and cannot
+also specify `#[pattern]`.
+
+Rust field names become bare or double-quoted keys, followed by `:` and the
+field type's `Parse` implementation. Fields may appear in any order; commas
+separate entries and trailing commas and `//` comments are accepted. Unknown,
+duplicate, and missing keys are errors. Every field is required, including
+`Option<T>` fields: `null` represents `None`, while omitting the key is an error.
+Arrays use brackets and also accept comments and trailing commas.
+
+The record parser does not consume a terminating semicolon. The surrounding
+header-declaration parser consumes `;`, allowing metadata and existing
+`device ...;` declarations in the same header.
 
 ## Field-shape invariants
 
@@ -287,4 +331,4 @@ pattern-derived.
 
 For module parsing, typed function bodies, resolution, and explicit source
 sugar, continue to
-[Module Parsing and Resolution](/guide/parser-advanced).
+[Module Parsing and Loading](/guide/parser-advanced).

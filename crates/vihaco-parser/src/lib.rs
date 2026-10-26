@@ -3,7 +3,7 @@
 
 pub mod impls;
 
-pub use impls::{bare_token, ident, BareToken, Ident, QuotedString};
+pub use impls::{bare_token, ident, metadata_key, trivia, BareToken, Ident, QuotedString};
 
 use chumsky::error::Simple;
 use chumsky::extra;

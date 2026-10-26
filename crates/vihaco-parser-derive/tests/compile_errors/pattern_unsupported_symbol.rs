@@ -6,7 +6,7 @@ use vihaco_parser_derive::Parse;
 #[derive(Parse)]
 #[syntax_class(instruction, head = "test")]
 enum Instruction {
-    #[pattern = "'load `;`"]
+    #[pattern = "'load `?`"]
     Load,
 }
 
