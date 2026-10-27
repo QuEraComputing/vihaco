@@ -1,0 +1,638 @@
+<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Load compiler-produced SST metadata and function bodies through generated section hooks and instruction-level lowering."><title>Module Parsing and Loading — vihaco</title><script>
+      (() => {
+        // localStorage can throw when storage is blocked (hardened privacy
+        // settings, sandboxed frames); fall back to "auto" so the theme still
+        // applies before first paint.
+        let stored = "auto";
+        try { stored = localStorage.getItem("vihaco-theme") || "auto"; } catch (e) {}
+        const sysDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const resolved = stored === "auto" ? (sysDark ? "dark" : "light") : stored;
+        document.documentElement.setAttribute("data-theme", resolved);
+        document.documentElement.setAttribute("data-theme-pref", stored);
+      })();
+    </script><link rel="stylesheet" href="/vihaco/pr-preview/pr-160/_astro/Base.Wd5z-zFf.css"></head> <body> <header class="masthead"> <div class="masthead-inner"> <a class="brand" href="/vihaco/pr-preview/pr-160/"> <span class="brand-mark" aria-hidden="true"></span> <span class="brand-mono">vihaco</span> <span class="brand-sub">/ virtual ISA &amp; machine framework</span> </a> <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Open navigation menu"> <span class="nav-toggle-bars" aria-hidden="true"></span> </button> <nav class="nav-links" id="primary-nav"> <a href="/vihaco/pr-preview/pr-160/">Overview</a><a href="/vihaco/pr-preview/pr-160/quickstart">Quick Start</a><a href="/vihaco/pr-preview/pr-160/guide" aria-current="page">Guides</a><a href="/vihaco/pr-preview/pr-160/reference">Reference</a> <div class="theme-toggle" role="group" aria-label="Theme"> <button type="button" data-theme-set="light" title="Light theme" aria-label="Light theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <circle cx="12" cy="12" r="4"></circle> <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path> </svg> </button> <button type="button" data-theme-set="dark" title="Dark theme" aria-label="Dark theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path> </svg> </button> <button type="button" data-theme-set="auto" title="Match system theme" aria-label="Auto (follow system)" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <rect x="3" y="4" width="18" height="13" rx="2"></rect> <path d="M8 21h8M12 17v4"></path> </svg> </button> </div> </nav> </div> </header> <main> <div class="page-shell page-shell--3col"> <details class="page-sections side-nav" aria-label="Guides"> <summary class="page-toc-label">Guides</summary> <ol> <li> <a href="/vihaco/pr-preview/pr-160/guide/instructions">Defining Instructions</a> </li><li> <a href="/vihaco/pr-preview/pr-160/guide/instructions-advanced">Advanced Instruction Usage</a> </li><li> <a href="/vihaco/pr-preview/pr-160/guide/parser">Parser Integration</a> </li><li> <a href="/vihaco/pr-preview/pr-160/guide/parser-patterns">Pattern Parser Generator</a> </li><li> <a href="/vihaco/pr-preview/pr-160/guide/parser-advanced" aria-current="page">Module Parsing and Loading</a> </li><li> <a href="/vihaco/pr-preview/pr-160/guide/messages">Using Messages</a> </li><li> <a href="/vihaco/pr-preview/pr-160/guide/components">Building Components</a> </li><li> <a href="/vihaco/pr-preview/pr-160/guide/observers">Observing Effects</a> </li><li> <a href="/vihaco/pr-preview/pr-160/guide/composites">Defining a Composite</a> </li> </ol> </details> <div class="page-toc-content">  <article class="shell narrow guide-body"> <h1 id="module-parsing-and-loading">Module Parsing and Loading</h1>
+<p>SST loading uses the existing section hooks. The upstream compiler supplies
+complete program metadata; Vihaco parses it, checks it against <code>fn</code> bodies,
+invokes each instruction’s <code>Lower&#x3C;C></code>, and assembles the loaded image.</p>
+<p><code>#[composite]</code> generates section traversal and child routing. The machine author
+implements <code>LoadOwnSstSection</code> for the data owned directly by that section and
+provides the context capabilities its instructions use during lowering. There
+is no second compiler or instruction-by-instruction resolver to implement.</p>
+<h2 id="complete-loading-example">Complete loading example</h2>
+<p>This example loads a CPU program into a child machine through its parent’s
+<strong>generated</strong> <code>LoadSstSection</code> implementation. It stops at loading. A composite
+still requires <code>Step</code> coverage for its instruction inventory, so this example
+includes a guard that rejects execution. Replace that guard with your machine’s
+normal <code>Step</code> / <code>BuildMessage</code> implementations before running instructions.</p>
+<p>Enable <code>typed-declarations</code> on <strong>both</strong> <code>vihaco</code> and <code>vihaco-cpu</code>. The standalone
+<code>Parse</code> derive currently also requires direct <code>vihaco-parser</code> and <code>chumsky</code>
+dependencies. The example uses <code>eyre</code> for errors.</p>
+<p>Save this compiler-produced source as <code>program.sst</code>:</p>
+<pre><code class="language-text">sst v1
+.section(root):
+    .section(controller):
+    .header(controller):
+        device cpu.clock_hz 1000;
+        metadata {
+            strings: ["main", "helper", "program.sst", "hello", "done"],
+            functions: [
+                {
+                    name: 0,
+                    signature: { params: [], ret: [] },
+                    local_count: 0,
+                    start_address: 0,
+                    end_address: 4,
+                    file: 2,
+                },
+                {
+                    name: 1,
+                    signature: { params: [], ret: [] },
+                    local_count: 0,
+                    start_address: 4,
+                    end_address: 5,
+                    file: 2,
+                },
+            ],
+            labels: [{ name: 4, address: 3 }],
+            constants: [],
+            main_function: 0,
+            source_symbols: [],
+            extra: {},
+        };
+    .header(controller).
+    .text(controller):
+        fn @main() {
+            cpu::cpu::const_string "hello"
+            cpu::cpu::call 0, @helper
+            cpu::cpu::br @done
+            label @done
+            cpu::cpu::ret 0
+        }
+        fn @helper() {
+            cpu::cpu::ret 0
+        }
+    .text(controller).
+    .section(controller).
+.section(root).
+</code></pre>
+<p>Every metadata field is required, including empty tables and <code>extra</code>. Array
+positions define table indices. Function and label addresses count runtime
+instructions, not bytes; <code>end_address</code> is exclusive. <code>label</code> declarations do not
+occupy instruction slots. Device declarations keep their existing syntax and
+can appear before or after <code>metadata</code>.</p>
+<p>The Rust code below contains the machine-owned header parser and authored
+own-section hooks. <code>MetadataLoweringContext</code> provides the standard CPU lookup
+capabilities, and <code>ParsedModule::lower_with_metadata</code> handles validation,
+function scopes, instruction lowering, and module assembly. Record parsing is
+derived; the header parser handles declarations and their semicolons.</p>
+<pre><code class="language-rust">use eyre::{eyre, Result};
+use vihaco::chumsky::prelude::*;
+use vihaco::module::ProgramMetadata;
+use vihaco::loader::MetadataLoweringContext;
+use vihaco::syntax::{skip, ParsedModule};
+use vihaco::traits::FromText;
+use vihaco::{
+    composite, HasInstructionSet, LoadOwnSstSection, LoadSstSection,
+    NoContext, Parse, ProgramImage, SstFile, SstHeader, SstSectionView, Type,
+};
+// Imported typed components need their generated inventory companions.
+pub use vihaco_cpu::{CPU, __vihaco_fields_CPU, __vihaco_inventory_CPU};
+
+type MachineInstruction = &#x3C;Machine as HasInstructionSet>::Runtime;
+type MachineSyntax = &#x3C;Machine as HasInstructionSet>::Syntax;
+
+#[composite]
+#[derive(Default)]
+struct Machine {
+    #[device(0)]
+    cpu: CPU,
+    image: ProgramImage&#x3C;MachineInstruction, NoContext>,
+    clock_hz: u64,
+}
+
+// A composite requires Step coverage for its instruction inventory even when
+// only loading. This example rejects execution; a real machine supplies its
+// normal Step / BuildMessage implementations here.
+impl&#x3C;I> vihaco::Step&#x3C;vihaco::field!(Machine::cpu), I> for Machine
+where
+    CPU: vihaco::Execute&#x3C;I>,
+{
+    fn step(&#x26;mut self, _: I) -> Result&#x3C;()> {
+        Err(eyre!("this example loads programs but does not execute them"))
+    }
+}
+
+#[composite]
+#[derive(Default)]
+struct Rig {
+    #[device(0)]
+    #[loadable]
+    controller: Machine,
+}
+
+// The machine owns the declaration list; the record parser owns its fields.
+#[derive(Parse)]
+#[syntax_class(metadata)]
+enum HeaderItem {
+    #[pattern = "$0"]
+    Metadata(ProgramMetadata),
+    #[pattern = "device cpu.clock_hz $0"]
+    ClockHz(u64),
+}
+
+struct Header {
+    metadata: ProgramMetadata,
+    clock_hz: u64,
+}
+
+impl FromText for Header {
+    fn from_text(text: &#x26;str) -> Result&#x3C;Self> {
+        let items = HeaderItem::parser()
+            .padded_by(skip())
+            .then_ignore(just(';').padded_by(skip()))
+            .repeated()
+            .collect::&#x3C;Vec&#x3C;_>>()
+            .then_ignore(skip())
+            .then_ignore(end())
+            .parse(text)
+            .into_result()
+            .map_err(|errors| eyre!("invalid header: {errors:?}"))?;
+
+        let mut metadata = None;
+        let mut clock_hz = 1000;
+        for item in items {
+            match item {
+                HeaderItem::Metadata(value) => {
+                    eyre::ensure!(metadata.is_none(), "duplicate metadata declaration");
+                    metadata = Some(value);
+                }
+                HeaderItem::ClockHz(value) => clock_hz = value,
+            }
+        }
+        Ok(Self {
+            metadata: metadata.ok_or_else(|| eyre!("missing program metadata"))?,
+            clock_hz,
+        })
+    }
+}
+
+impl SstHeader for Header {}
+
+// Authored hook: load only the program owned by this section.
+impl LoadOwnSstSection&#x3C;NoContext> for Machine {
+    fn load_own_sst_section(
+        &#x26;mut self,
+        section: SstSectionView&#x3C;'_, NoContext>,
+    ) -> Result&#x3C;()> {
+        let context_handle = section.context_handle();
+        let ParsedModule { header, functions } =
+            ParsedModule::&#x3C;MachineSyntax, Type, Header>::parse_section(section)?;
+        let Header { metadata, clock_hz } = header;
+        let mut context = MetadataLoweringContext::new(&#x26;metadata)?;
+        let module = ParsedModule { header: (), functions }
+            .lower_with_metadata(metadata, &#x26;mut context)?;
+
+        // Install only after validation and lowering succeed.
+        self.image = ProgramImage {
+            module,
+            context: Some(context_handle),
+            pc: 0,
+        };
+        self.clock_hz = clock_hz;
+        Ok(())
+    }
+}
+
+// This parent section only contains children, so it has no program to load.
+impl LoadOwnSstSection&#x3C;NoContext> for Rig {
+    fn load_own_sst_section(
+        &#x26;mut self,
+        _: SstSectionView&#x3C;'_, NoContext>,
+    ) -> Result&#x3C;()> {
+        Ok(())
+    }
+}
+
+fn load(source: &#x26;str) -> Result&#x3C;Rig> {
+    let file = SstFile::&#x3C;NoContext>::from_text(source)?;
+    let mut rig = Rig::default();
+    // Generated LoadSstSection calls the root hook, routes "controller", and
+    // invokes the child's generated loader and authored own-section hook.
+    rig.load_sst_section(file.root())?;
+    Ok(rig)
+}
+
+fn main() -> Result&#x3C;()> {
+    let source = std::fs::read_to_string("program.sst")?;
+    let rig = load(&#x26;source)?;
+    println!("Loaded {} instructions", rig.controller.image.module.code.len());
+    Ok(())
+}
+</code></pre>
+<p>The call sequence is:</p>
+<pre><code class="language-text">SstFile::from_text
+  → Rig::load_sst_section                     generated
+    → Rig::load_own_sst_section               authored, no root program
+    → Machine::load_sst_section               generated child routing
+      → Machine::load_own_sst_section         authored
+        → ParsedModule::parse_section
+        → MetadataLoweringContext::new
+        → ParsedModule::lower_with_metadata
+          → validate declarations and metadata
+          → FunctionScope::enter_function before each body
+          → Lower::lower for each instruction
+          → ProgramMetadata::into_module
+        → install ProgramImage
+</code></pre>
+<p>After loading, the child image contains five instructions. The call to <code>helper</code>
+targets address <code>4</code>, the branch to <code>done</code> targets address <code>3</code>, and the string
+literal references string index <code>3</code>. The image owns its program data and retains
+the global context handle after the <code>SstFile</code> is dropped.</p>
+<h3 id="responsibilities-and-validation">Responsibilities and validation</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Responsibility</th><th>Owner</th></tr></thead><tbody><tr><td>Produce tables, signatures, addresses, entrypoint, and local counts</td><td>Upstream compiler</td></tr><tr><td>Locate section/header/body ranges</td><td><code>SstFile</code></td></tr><tr><td>Route independently loadable child sections</td><td>Generated <code>LoadSstSection</code></td></tr><tr><td>Choose device declarations and apply configuration</td><td>Machine-owned header and hook</td></tr><tr><td>Parse typed <code>fn</code> bodies and check agreement with supplied metadata</td><td><code>ParsedModule</code></td></tr><tr><td>Convert one instruction</td><td>Its <code>Lower&#x3C;C></code> implementation</td></tr><tr><td>Supply fixed function and string lookups and function-local label scopes</td><td><code>MetadataLoweringContext</code></td></tr><tr><td>Validate and lower functions with instruction error context</td><td><code>ParsedModule::lower_with_metadata</code></td></tr><tr><td>Check final table bounds and assemble standard <code>Value</code> metadata</td><td><code>ProgramMetadata::into_module</code></td></tr></tbody></table>
+<p><code>validate_metadata</code> checks function names, signatures, ranges, and declared
+labels, including duplicate function-local labels. It does not fill missing
+metadata. <code>into_module</code> checks final table bounds, local counts, and standard
+constant references while moving the supplied fields into <code>LocalModule</code>.
+Custom value models can use <code>ProgramMetadata::validate</code> and assemble their own
+<code>LocalModule</code> with their value-specific checks.</p>
+<p>The context above deliberately <strong>looks up</strong> strings instead of appending them.
+It rejects a literal absent from the compiler-supplied table. Function indices
+and function addresses remain separate lookups, and each function gets its own
+label scope. An instruction can require additional application capabilities,
+such as qubit pools or durations, through its <code>Lower&#x3C;C></code> bounds.</p>
+<p>The own-section hook uses a temporary context because <code>Lower&#x3C;C></code> accepts any
+context type. A consumer can wrap <code>MetadataLoweringContext</code>, add capabilities,
+and implement <code>FunctionScope</code> by delegating to the wrapped context. The driver
+prepares the complete function-local label scope before lowering its first
+instruction, so forward references work. Each syntax instruction produces one
+runtime instruction, preserving the supplied instruction addresses.
+<code>ProgramMetadata::map_extra</code> changes consumer-specific extra information without
+copying or reordering tables. Configuration-only parent sections can keep
+device-only headers, while each executable section requires its program metadata.</p>
+<p>The example installs its image after its own parsing, validation, and lowering
+succeed. Generated loading is not transactional across the whole tree: an
+already-loaded parent or child is not rolled back if a later child fails.</p>
+<p>The complete code block is compile-checked with:</p>
+<pre><code class="language-sh">cargo test -p vihaco-doctests --doc --features typed-declarations guide_parser_advanced
+</code></pre>
+<h2 id="existing-declaration-based-parsing">Existing declaration-based parsing</h2>
+<p>The following sections describe the general parsed-module API and the legacy
+feature-off <code>Resolve</code> path. With <code>typed-declarations</code>, use the generated syntax
+aggregate and instruction-level <code>Lower&#x3C;C></code> as above.</p>
+<h2 id="parsed-module-types">Parsed module types</h2>
+<p><code>vihaco::syntax</code> exposes the typed intermediate representation:</p>
+<pre><code class="language-rust">use vihaco_parser::Ident;
+
+pub struct ParsedModule&#x3C;I, Ty, H> {
+    pub header: H,
+    pub functions: Vec&#x3C;ParsedFunction&#x3C;I, Ty>>,
+}
+
+pub struct ParsedFunction&#x3C;I, Ty> {
+    pub name: Ident,
+    pub params: Vec&#x3C;Param&#x3C;Ty>>,
+    pub return_types: Vec&#x3C;Ty>,
+    pub body: Vec&#x3C;I>,
+}
+
+pub struct Param&#x3C;Ty> {
+    pub name: Ident,
+    pub ty: Ty,
+}
+</code></pre>
+<p>Whitespace and <code>//</code> comments are skipped between instructions. An unknown
+instruction or a partially matched pattern makes the function parse fail.
+The consumer-provided <code>Ty</code> parses parameter and return-type syntax, so the
+framework does not impose a universal type language.</p>
+<p>Parameters are written as comma-separated <code>name: type</code> pairs. An empty
+parameter list is written as <code>()</code>, as in <code>fn @main() { ... }</code>:</p>
+<pre><code class="language-text">fn @compute(input: i64, output: f64) {
+    // ...
+}
+</code></pre>
+<h2 id="step-1-define-the-instruction-and-type-syntax">Step 1: define the instruction and type syntax</h2>
+<p>Function-body instructions and source types implement <code>Parse</code>. The pattern
+derive also emits the <code>SurfaceInstruction</code> marker for instruction enums, but
+<code>ParsedModule::parse_section</code> itself only requires their parsers.</p>
+<pre><code class="language-rust">use vihaco::Instruction;
+use vihaco_parser_derive::Parse;
+
+#[derive(Debug, Clone, PartialEq, Instruction, Parse)]
+#[syntax_class(instruction, head = "device")]
+enum DeviceInstruction {
+    Halt,
+    #[pattern = "'wait $0"]
+    Wait(u32),
+}
+
+#[derive(Debug, Clone, PartialEq, Parse)]
+#[syntax_class(type)]
+enum DeviceType {
+    #[pattern = "`i64`"]
+    I64,
+    #[pattern = "`f64`"]
+    F64,
+}
+</code></pre>
+<p>The source for that type uses fully qualified instructions:</p>
+<pre><code class="language-text">fn @main() {
+    device.wait 10
+    device.halt
+}
+</code></pre>
+<h2 id="step-2-define-the-section-header">Step 2: define the section header</h2>
+<p>Section headers implement <code>FromText</code>; <code>SstHeader</code> marks types accepted by the
+SST section parser.</p>
+<pre><code class="language-rust">#[derive(Debug, Clone, PartialEq)]
+pub struct DeviceHeader {
+    pub core_count: u32,
+}
+
+impl vihaco::FromText for DeviceHeader {
+    fn from_text(text: &#x26;str) -> eyre::Result&#x3C;Self> {
+        Ok(Self {
+            core_count: text.trim().parse()?,
+        })
+    }
+}
+
+impl vihaco::SstHeader for DeviceHeader {}
+</code></pre>
+<p>Use a zero-sized header type when a section has no header data.</p>
+<h2 id="step-3-parse-the-section">Step 3: parse the section</h2>
+<pre><code class="language-rust">use vihaco::{NoContext, SstFile};
+use vihaco::syntax::ParsedModule;
+
+let file = SstFile::&#x3C;NoContext>::from_text(source)?;
+let parsed =
+    ParsedModule::&#x3C;DeviceInstruction, DeviceType, DeviceHeader>::parse_section(file.root())?;
+</code></pre>
+<p><code>parsed.header</code> is the typed <code>DeviceHeader</code>, while each function body contains
+only <code>DeviceInstruction</code> values and its signature uses <code>DeviceType</code>.</p>
+<h2 id="step-4-legacy-feature-off-resolution">Step 4: legacy feature-off resolution</h2>
+<p><code>Resolve&#x3C;I, Ty, H></code> owns the application-specific conversion from a
+<code>ParsedModule&#x3C;I, Ty, H></code> to any output module type.</p>
+<pre><code class="language-rust">use vihaco::module::LocalModule;
+use vihaco::syntax::{ParsedModule, Resolve};
+use vihaco::{Type, Value};
+
+#[derive(Default)]
+struct DeviceResolver;
+
+impl Resolve&#x3C;DeviceInstruction, DeviceType, DeviceHeader> for DeviceResolver {
+    type Module = LocalModule&#x3C;DeviceInstruction, Value, Type>;
+
+    fn resolve_module(
+        &#x26;mut self,
+        parsed: ParsedModule&#x3C;DeviceInstruction, DeviceType, DeviceHeader>,
+    ) -> eyre::Result&#x3C;Self::Module> {
+        let mut module = LocalModule::default();
+        for function in parsed.functions {
+            module.code.extend(function.body);
+        }
+        Ok(module)
+    }
+}
+</code></pre>
+<p>A resolver may instead translate a source-oriented instruction type into a
+different runtime instruction type, expand an explicitly modeled sugar
+variant, or intern data carried by typed fields. The important boundary is
+that parsing has already produced typed variants; resolution never receives an
+unstructured source line.</p>
+<h2 id="model-source-only-forms-explicitly">Model source-only forms explicitly</h2>
+<p>Patterns can represent symbols and sugar directly:</p>
+<pre><code class="language-rust">use vihaco_parser::Ident;
+
+#[derive(vihaco_parser_derive::Parse)]
+#[syntax_class(instruction, head = "control")]
+enum ControlSurface {
+    #[pattern = "'branch `@` $0"]
+    Branch(Ident),
+    #[pattern = "'repeat $0"]
+    Repeat(u32),
+}
+</code></pre>
+<p>A resolver can map <code>Branch(Ident)</code> through a label table and expand
+<code>Repeat(u32)</code> into multiple runtime instructions. Malformed spellings are
+rejected by the parser instead of being deferred as untyped data.</p>
+<p>Quoted strings use <code>QuotedString</code>; domain expressions use nested local enums
+or structs that derive <code>Parse</code>. Keep state such as intern tables in the
+resolver; the parsed field should carry the owned source value needed for that
+later conversion.</p>
+<h2 id="parse-composite-sections-by-component">Parse composite sections by component</h2>
+<p>A generated composite runtime instruction enum is the runtime dispatch type. SST
+source is parsed through user-declared surface instruction types, each deriving
+<code>Parse</code> with its own namespace and patterns. Parse each component section as a
+<code>ParsedModule&#x3C;ComponentSurface, ComponentType, ComponentHeader></code>, resolve it,
+and load the resulting runtime instructions into that component.</p>
+<p>This keeps source syntax attached to the component that owns it. Composite
+loading routes sections to components; it does not require a second source
+grammar for the generated composite runtime instruction enum.</p>
+<p>Function return types are stored in <code>ParsedFunction::return_types</code>. A single
+return uses <code>-> u64</code>, multiple returns use <code>-> (u64, bool)</code>, and no annotation
+means an empty return list. Supplied metadata must agree with this list.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/pr-preview/pr-160/guide/parser-patterns" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Pattern Parser Generator</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/pr-preview/pr-160/guide/messages" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Using Messages</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#complete-loading-example" data-toc-link="#complete-loading-example">Complete loading example</a></li><li><a href="#existing-declaration-based-parsing" data-toc-link="#existing-declaration-based-parsing">Existing declaration-based parsing</a></li><li><a href="#parsed-module-types" data-toc-link="#parsed-module-types">Parsed module types</a></li><li><a href="#step-1-define-the-instruction-and-type-syntax" data-toc-link="#step-1-define-the-instruction-and-type-syntax">Step 1: define the instruction and type syntax</a></li><li><a href="#step-2-define-the-section-header" data-toc-link="#step-2-define-the-section-header">Step 2: define the section header</a></li><li><a href="#step-3-parse-the-section" data-toc-link="#step-3-parse-the-section">Step 3: parse the section</a></li><li><a href="#step-4-legacy-feature-off-resolution" data-toc-link="#step-4-legacy-feature-off-resolution">Step 4: legacy feature-off resolution</a></li><li><a href="#model-source-only-forms-explicitly" data-toc-link="#model-source-only-forms-explicitly">Model source-only forms explicitly</a></li><li><a href="#parse-composite-sections-by-component" data-toc-link="#parse-composite-sections-by-component">Parse composite sections by component</a></li> </ol> </details> </div> </main> <script>
+        // Scroll-spy: mark the TOC link for the section currently in view.
+        (() => {
+          const links = Array.from(document.querySelectorAll(".page-toc [data-toc-link]"));
+          if (!links.length) return;
+          const targets = links
+            .map((a) => {
+              const href = a.getAttribute("data-toc-link") || "";
+              const id = href.startsWith("#") ? href.slice(1) : null;
+              const el = id ? document.getElementById(id) : null;
+              return el ? { link: a, el } : null;
+            })
+            .filter(Boolean);
+          if (!targets.length) return;
+          const ANCHOR = 120;
+          function update() {
+            let activeIdx = 0;
+            for (let i = 0; i < targets.length; i++) {
+              const top = targets[i].el.getBoundingClientRect().top;
+              if (top - ANCHOR <= 0) activeIdx = i;
+              else break;
+            }
+            for (let i = 0; i < targets.length; i++) {
+              targets[i].link.setAttribute("aria-current", i === activeIdx ? "true" : "false");
+            }
+          }
+          update();
+          window.addEventListener("scroll", update, { passive: true });
+          window.addEventListener("resize", update);
+        })();
+      </script> <script>
+      // Mobile navigation drawer + responsive open-state for the sidebar TOCs.
+      (() => {
+        const mq = window.matchMedia("(min-width: 901px)");
+        const sideNavs = document.querySelectorAll("details.side-nav");
+        function syncSideNavs() {
+          for (const d of sideNavs) {
+            if (mq.matches) d.setAttribute("open", "");
+            else d.removeAttribute("open");
+          }
+        }
+        syncSideNavs();
+        mq.addEventListener("change", syncSideNavs);
+
+        const toggle = document.querySelector(".nav-toggle");
+        const nav = document.getElementById("primary-nav");
+        if (toggle && nav) {
+          function setOpen(open) {
+            toggle.setAttribute("aria-expanded", open ? "true" : "false");
+            toggle.setAttribute("aria-label", open ? "Close navigation menu" : "Open navigation menu");
+            nav.toggleAttribute("data-open", open);
+          }
+          toggle.addEventListener("click", () => {
+            const open = toggle.getAttribute("aria-expanded") !== "true";
+            setOpen(open);
+          });
+          nav.addEventListener("click", (e) => {
+            if (e.target && e.target.closest && e.target.closest("a")) setOpen(false);
+          });
+          const mqNav = window.matchMedia("(min-width: 721px)");
+          mqNav.addEventListener("change", () => setOpen(false));
+        }
+      })();
+    </script><script>
+      // Inject a copy button into every <pre> block.
+      (() => {
+        const COPY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+        const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+        for (const pre of document.querySelectorAll("pre")) {
+          if (pre.querySelector(".copy-btn")) continue;
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "copy-btn";
+          btn.setAttribute("aria-label", "Copy code to clipboard");
+          btn.innerHTML = COPY_SVG + "<span>Copy</span>";
+          pre.appendChild(btn);
+          btn.addEventListener("click", async () => {
+            const code = pre.querySelector("code");
+            let raw;
+            if (code) {
+              raw = code.innerText;
+            } else {
+              const clone = pre.cloneNode(true);
+              for (const el of clone.querySelectorAll(".copy-btn")) el.remove();
+              raw = clone.innerText;
+            }
+            const text = raw.replace(/\n$/, "");
+            try {
+              await navigator.clipboard.writeText(text);
+            } catch {
+              const ta = document.createElement("textarea");
+              ta.value = text;
+              ta.style.position = "fixed";
+              ta.style.opacity = "0";
+              document.body.appendChild(ta);
+              ta.select();
+              try { document.execCommand("copy"); } catch {}
+              document.body.removeChild(ta);
+            }
+            btn.dataset.state = "copied";
+            btn.innerHTML = CHECK_SVG + "<span>Copied</span>";
+            setTimeout(() => {
+              btn.removeAttribute("data-state");
+              btn.innerHTML = COPY_SVG + "<span>Copy</span>";
+            }, 1500);
+          });
+        }
+      })();
+    </script><script>
+      // Theme switcher: light / dark / auto, persisted in localStorage.
+      (() => {
+        const root = document.documentElement;
+        const mql = window.matchMedia("(prefers-color-scheme: dark)");
+        const buttons = document.querySelectorAll(".theme-toggle button[data-theme-set]");
+        // localStorage may be unavailable (blocked storage); degrade gracefully
+        // so the toggle still themes the page for the current session.
+        const readPref = () => {
+          try { return localStorage.getItem("vihaco-theme") || "auto"; } catch (e) { return "auto"; }
+        };
+        function apply(pref) {
+          const resolved = pref === "auto" ? (mql.matches ? "dark" : "light") : pref;
+          root.setAttribute("data-theme", resolved);
+          root.setAttribute("data-theme-pref", pref);
+          try { localStorage.setItem("vihaco-theme", pref); } catch (e) {}
+          for (const b of buttons) {
+            b.setAttribute("aria-pressed", b.dataset.themeSet === pref ? "true" : "false");
+          }
+        }
+        apply(readPref());
+        for (const b of buttons) b.addEventListener("click", () => apply(b.dataset.themeSet));
+        mql.addEventListener("change", () => {
+          if (readPref() === "auto") apply("auto");
+        });
+      })();
+    </script><button type="button" class="back-to-top" aria-label="Back to top" hidden> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M12 19V5"></path> <path d="m5 12 7-7 7 7"></path> </svg> </button> <script>
+      (() => {
+        const btn = document.querySelector(".back-to-top");
+        if (!btn) return;
+        const threshold = () => Math.max(window.innerHeight * 1.2, 600);
+        function sync() {
+          btn.toggleAttribute("hidden", !(window.scrollY > threshold()));
+        }
+        btn.addEventListener("click", () => {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+          const brand = document.querySelector(".brand");
+          if (brand && brand.focus) brand.focus({ preventScroll: true });
+        });
+        window.addEventListener("scroll", sync, { passive: true });
+        window.addEventListener("resize", sync);
+        sync();
+      })();
+    </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
+          documentation generated <time>2026-10-27</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+      (() => {
+        if (typeof hljs === "undefined") return;
+        for (const el of document.querySelectorAll("pre code[class*='language-']")) {
+          hljs.highlightElement(el);
+        }
+      })();
+    </script></body> </html>
