@@ -823,7 +823,7 @@ fn sst_signatures_parse_runtime_types_without_surface_types() {
             vihaco_abi::Type::String
         ]
     );
-    assert_eq!(parsed.return_types, vec![vihaco::Type::Bool]);
+    assert_eq!(parsed.return_types, vec![vihaco_abi::Type::Bool]);
     assert_eq!(parsed.body.len(), 1);
     assert_eq!(
         vihaco_abi::Type::parser()

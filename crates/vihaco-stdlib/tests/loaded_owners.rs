@@ -326,7 +326,7 @@ where
             name,
             signature: Signature {
                 params,
-                ret: function.return_ty.into_iter().collect(),
+                ret: function.return_types,
             },
             local_count,
             start_address: start,

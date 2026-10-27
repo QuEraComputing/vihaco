@@ -24,7 +24,7 @@
 //! Loaders supply `lower::LabelLookup`, `lower::FunctionLookup`, and
 //! `lower::StringIntern` to resolve them. `vihaco_stdlib::ProgramImage` implements
 //! string interning using its section string table. Heap references remain numeric.
-//! For explicit metadata, [`vihaco::loader::MetadataLoweringContext`] implements
+//! For explicit metadata, [`vihaco_module::loader::MetadataLoweringContext`] implements
 //! all three lookup capabilities and rejects strings absent from the supplied
 //! table. It works with `ParsedModule::lower_with_metadata` in `vihaco-syntax`.
 //! `label @name` is retained in the parsed function's label metadata without an
