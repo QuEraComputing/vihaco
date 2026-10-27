@@ -24,7 +24,7 @@
 <a href=#24 id=24 data-nosnippet>24</a>//! Loaders supply `lower::LabelLookup`, `lower::FunctionLookup`, and
 <a href=#25 id=25 data-nosnippet>25</a>//! `lower::StringIntern` to resolve them. `vihaco_stdlib::ProgramImage` implements
 <a href=#26 id=26 data-nosnippet>26</a>//! string interning using its section string table. Heap references remain numeric.
-<a href=#27 id=27 data-nosnippet>27</a>//! For explicit metadata, [`vihaco::loader::MetadataLoweringContext`] implements
+<a href=#27 id=27 data-nosnippet>27</a>//! For explicit metadata, [`vihaco_module::loader::MetadataLoweringContext`] implements
 <a href=#28 id=28 data-nosnippet>28</a>//! all three lookup capabilities and rejects strings absent from the supplied
 <a href=#29 id=29 data-nosnippet>29</a>//! table. It works with `ParsedModule::lower_with_metadata` in `vihaco-syntax`.
 <a href=#30 id=30 data-nosnippet>30</a>//! `label @name` is retained in the parsed function's label metadata without an
