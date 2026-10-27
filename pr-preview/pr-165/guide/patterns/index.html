@@ -1,0 +1,452 @@
+<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Reuse typed input preparation and execution policy without coupling devices to runtimes."><title>Patterns for larger machines — vihaco</title><script>
+      (() => {
+        // localStorage can throw when storage is blocked (hardened privacy
+        // settings, sandboxed frames); fall back to "auto" so the theme still
+        // applies before first paint.
+        let stored = "auto";
+        try { stored = localStorage.getItem("vihaco-theme") || "auto"; } catch (e) {}
+        const sysDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const resolved = stored === "auto" ? (sysDark ? "dark" : "light") : stored;
+        document.documentElement.setAttribute("data-theme", resolved);
+        document.documentElement.setAttribute("data-theme-pref", stored);
+      })();
+    </script><link rel="stylesheet" href="/vihaco/pr-preview/pr-165/_astro/Base.Wd5z-zFf.css"></head> <body> <header class="masthead"> <div class="masthead-inner"> <a class="brand" href="/vihaco/pr-preview/pr-165/"> <span class="brand-mark" aria-hidden="true"></span> <span class="brand-mono">vihaco</span> <span class="brand-sub">/ virtual ISA &amp; machine framework</span> </a> <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Open navigation menu"> <span class="nav-toggle-bars" aria-hidden="true"></span> </button> <nav class="nav-links" id="primary-nav"> <a href="/vihaco/pr-preview/pr-165/">Overview</a><a href="/vihaco/pr-preview/pr-165/quickstart">Quick Start</a><a href="/vihaco/pr-preview/pr-165/guide" aria-current="page">Author’s Guide</a><a href="/vihaco/pr-preview/pr-165/reference">Reference</a> <div class="theme-toggle" role="group" aria-label="Theme"> <button type="button" data-theme-set="light" title="Light theme" aria-label="Light theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <circle cx="12" cy="12" r="4"></circle> <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path> </svg> </button> <button type="button" data-theme-set="dark" title="Dark theme" aria-label="Dark theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path> </svg> </button> <button type="button" data-theme-set="auto" title="Match system theme" aria-label="Auto (follow system)" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <rect x="3" y="4" width="18" height="13" rx="2"></rect> <path d="M8 21h8M12 17v4"></path> </svg> </button> </div> </nav> </div> </header> <main> <div class="page-shell page-shell--3col"> <details class="page-sections side-nav" aria-label="Author’s guide"> <summary class="page-toc-label">Author’s guide</summary> <ol> <li> <a href="/vihaco/pr-preview/pr-165/guide">Start here</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/mental-model">The mental model</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/first-machine">Your first machine</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/essentials">Essential concepts</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/instructions">Dialects and instructions</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/components">Writing components</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/messages">Preparing messages</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/stack">Stack inputs and outputs</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/composites">Writing composites</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/execution">Executing one instruction</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/effects">Handling effects</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/program-execution">Running programs</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/loadables">Images and Loadables</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/parser">Parsing source</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/parser-advanced">Loading SST programs</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/sst-reference">Emitting SST from a compiler</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/instructions-advanced">Binary formats</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/patterns" aria-current="page">Patterns for larger machines</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/testing">Testing and extending</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/parser-patterns">Pattern parser reference</a> </li> </ol> </details> <div class="page-toc-content">  <article class="shell narrow guide-body"> <h1 id="patterns-for-larger-machines">Patterns for larger machines</h1>
+<p>As you add instructions, you’ll often find yourself preparing similar inputs
+and handling results the same way. You can share that work without combining
+the instructions’ individual behavior.</p>
+<p>The message and step examples use the same small arithmetic machine. You can find the
+<a href="https://github.com/QuEraComputing/vihaco/blob/main/docs/examples/patterns.rs">complete runnable source</a>
+in the repository; it works with the <a href="/vihaco/pr-preview/pr-165/guide">guide setup</a>.</p>
+<h2 id="group-by-message-shape">Group by message shape</h2>
+<p>A dialect library can publish traits in a module such as <code>message_kind</code> to
+group instructions with the same preparation needs. For example, several
+instructions might take two addresses and a numeric parameter. The trait can
+also expose accessors for payload fields the builder needs.</p>
+<p>On the composite, write one <code>BuildMessage</code> impl bounded by the shape trait.
+Name the message type explicitly and require it to match the selected child’s
+<code>Execute&#x3C;I>::Message</code>. The builder can then resolve inputs for every instruction
+in the group. Each instruction still has its own execution behavior.</p>
+<p>Here’s a small example. <code>Add</code> and <code>Subtract</code> name two addresses in the machine’s
+<code>values</code> table, while <code>Read</code> names one. The message-kind traits expose those
+addresses so builders can resolve them. <code>Calculator</code> executes each operation
+with the resolved values, and the composite keeps the results.</p>
+<pre><code class="language-rust">use vihaco::{BuildMessage, Execute, Step, component, composite, dialect, field};
+
+#[dialect]
+pub mod arithmetic {
+    #[instruction]
+    pub struct Add(pub usize, pub usize);
+
+    #[instruction]
+    pub struct Subtract(pub usize, pub usize);
+
+    #[instruction]
+    pub struct Read(pub usize);
+}
+
+pub mod message_kind {
+    pub trait Binary {
+        fn addresses(&#x26;self) -> (usize, usize);
+    }
+
+    pub trait Unary {
+        fn address(&#x26;self) -> usize;
+    }
+}
+
+impl message_kind::Binary for arithmetic::Add {
+    fn addresses(&#x26;self) -> (usize, usize) {
+        (self.0, self.1)
+    }
+}
+
+impl message_kind::Binary for arithmetic::Subtract {
+    fn addresses(&#x26;self) -> (usize, usize) {
+        (self.0, self.1)
+    }
+}
+
+impl message_kind::Unary for arithmetic::Read {
+    fn address(&#x26;self) -> usize {
+        self.0
+    }
+}
+
+pub struct BinaryInput(pub u64, pub u64);
+
+pub struct UnaryInput(pub u64);
+
+#[composite]
+pub struct Machine {
+    #[device(1)]
+    calculator: Calculator,
+    values: Vec&#x3C;u64>,
+    results: Vec&#x3C;u64>,
+}
+
+impl Machine {
+    fn value(&#x26;self, address: usize) -> eyre::Result&#x3C;u64> {
+        self.values
+            .get(address)
+            .copied()
+            .ok_or_else(|| eyre::eyre!("unknown value address: {address}"))
+    }
+}
+
+impl&#x3C;I> BuildMessage&#x3C;field!(Machine::calculator), I, (), BinaryInput> for Machine
+where
+    I: message_kind::Binary,
+    Calculator: Execute&#x3C;I, Message = BinaryInput>,
+{
+    fn build_message(&#x26;mut self, instruction: &#x26;I, _: &#x26;()) -> eyre::Result&#x3C;BinaryInput> {
+        let (lhs, rhs) = instruction.addresses();
+        Ok(BinaryInput(self.value(lhs)?, self.value(rhs)?))
+    }
+}
+</code></pre>
+<p>Both binary operations use this one builder. Their execution implementations
+still choose whether to add or subtract, and report overflow or underflow.
+The builder reports an error if either address is missing.</p>
+<p>If a standard stack message already describes the input, use that. Custom shapes
+are useful when preparation also resolves references, validates input, or reads
+application-specific data.</p>
+<h2 id="keep-blanket-implementations-disjoint">Keep blanket implementations disjoint</h2>
+<p>Rust doesn’t treat different marker bounds as proof that two blanket builders
+can’t overlap. Even if you keep the groups separate, the coherence checker can
+reject the impls.</p>
+<p>Name distinct message types explicitly to separate the builder impls, and
+require the child’s associated message to match. Standard stack messages already
+have framework-supplied preparation, so custom builders only need to handle
+your own message types.</p>
+<p><code>MemberOf&#x3C;G></code> helps group types, but doesn’t declare execution support or bypass
+the overlap rules.</p>
+<p>The unary builder names <code>UnaryInput</code>, keeping it distinct from the
+<code>BinaryInput</code> builder above:</p>
+<pre><code class="language-rust">impl&#x3C;I> BuildMessage&#x3C;field!(Machine::calculator), I, (), UnaryInput> for Machine
+where
+    I: message_kind::Unary,
+    Calculator: Execute&#x3C;I, Message = UnaryInput>,
+{
+    fn build_message(&#x26;mut self, instruction: &#x26;I, _: &#x26;()) -> eyre::Result&#x3C;UnaryInput> {
+        Ok(UnaryInput(self.value(instruction.address())?))
+    }
+}
+</code></pre>
+<p>Both builders are generic over <code>I</code>, but their explicit fourth type parameters
+are different: <code>BinaryInput</code> and <code>UnaryInput</code>. The marker bounds select the input
+shape, while those message types keep the impls disjoint. Each equality bound
+also checks that the component expects the message being built.</p>
+<p>A few clear shape contracts are easier to work with than preparation code that
+inspects every instruction at runtime. Test the shared ordering and validation
+with representative instructions from each shape.</p>
+<h2 id="share-continuation-by-destination">Share continuation by destination</h2>
+<p>One generic <code>Step</code> can serve a device when its instructions all follow the same
+sequence: prepare input, execute, and handle the result. Its bounds describe
+the input and output requirements. Different devices can use different shared
+steps, even for the same instruction type.</p>
+<p>All three operations return a <code>u64</code>, so one step can prepare their different
+messages and collect their results:</p>
+<pre><code class="language-rust">impl&#x3C;I> Step&#x3C;field!(Machine::calculator), I> for Machine
+where
+    Calculator: Execute&#x3C;I, Effect = u64, Error = eyre::Report>,
+    Self: BuildMessage&#x3C;field!(Machine::calculator), I>,
+{
+    fn step(&#x26;mut self, instruction: &#x26;I, context: &#x26;()) -> eyre::Result&#x3C;()> {
+        let message = self.build_message(instruction, context)?;
+        let result = self.calculator.execute(instruction, message)?;
+        self.results.push(result);
+        Ok(())
+    }
+}
+</code></pre>
+<p>The bounds let Rust pick the right builder for <code>I</code>. This step handles the
+component’s result directly; a machine using <code>PushToStack</code> could call <code>Apply</code>
+instead. A preparation or execution error returns before a new result is added.</p>
+<p>If an instruction needs extra behavior, keep that visible. Take care not to
+introduce overlapping blanket and specialized step impls.</p>
+<h2 id="substitute-implementations-behind-one-component">Substitute implementations behind one component</h2>
+<p>A wrapper can forward <code>Execute&#x3C;I></code> to an interchangeable backend. Give the
+backends matching message, effect, and error types for that contract. Then you
+can swap the implementation while keeping the composite’s preparation and
+result handling.</p>
+<p>This wrapper forwards instructions to its backend. Its declaration requires
+complete support for the counter dialect, with the same message, effect, and
+error types for any backend you put inside it:</p>
+<pre><code class="language-rust">use vihaco::{Execute, NoMessage, component, dialect};
+
+#[dialect]
+pub mod counter {
+    #[instruction]
+    pub struct Add(pub u64);
+}
+
+#[component]
+#[instructions { counter }]
+#[derive(Default)]
+pub struct Counter(u64);
+
+impl Execute&#x3C;counter::Add> for Counter {
+    type Message = NoMessage;
+    type Effect = u64;
+    type Error = eyre::Report;
+
+    fn execute(&#x26;mut self, instruction: &#x26;counter::Add, _: NoMessage) -> eyre::Result&#x3C;u64> {
+        self.0 = self
+            .0
+            .checked_add(instruction.0)
+            .ok_or_else(|| eyre::eyre!("counter overflow"))?;
+        Ok(self.0)
+    }
+}
+
+#[component]
+#[instructions { counter }]
+pub struct Device&#x3C;B>
+where
+    B: Execute&#x3C;counter::Add, Message = NoMessage, Effect = u64, Error = eyre::Report>,
+{
+    backend: B,
+}
+
+impl&#x3C;B, I> Execute&#x3C;I> for Device&#x3C;B>
+where
+    B: Execute&#x3C;counter::Add, Message = NoMessage, Effect = u64, Error = eyre::Report> + Execute&#x3C;I>,
+{
+    type Message = &#x3C;B as Execute&#x3C;I>>::Message;
+    type Effect = &#x3C;B as Execute&#x3C;I>>::Effect;
+    type Error = &#x3C;B as Execute&#x3C;I>>::Error;
+
+    fn execute(
+        &#x26;mut self,
+        instruction: &#x26;I,
+        message: Self::Message,
+    ) -> Result&#x3C;Self::Effect, Self::Error> {
+        self.backend.execute(instruction, message)
+    }
+}
+
+fn main() -> eyre::Result&#x3C;()> {
+    let mut device = Device {
+        backend: Counter::default(),
+    };
+    assert_eq!(device.execute(&#x26;counter::Add(5), NoMessage::new())?, 5);
+    assert_eq!(device.execute(&#x26;counter::Add(2), NoMessage::new())?, 7);
+    Ok(())
+}
+</code></pre>
+<p>Here <code>Counter</code> is the backend. Another backend meeting the same bound can occupy
+that field without changing the forwarding method. For a larger dialect, the
+wrapper’s bounds need to establish support for every declared instruction.</p>
+<p>As the code grows, put implementations into modules by instruction family and
+backend. Shared message preparation stays with the composite; the computation
+stays with the device.</p>
+<h2 id="typed-interactive-execution">Typed interactive execution</h2>
+<p>A REPL or application command can construct a leaf instruction and call its
+step directly. You don’t have to append code to a program or inspect the
+aggregate enum for that.</p>
+<p>You can call the arithmetic machine’s shared step directly with typed leaf
+instructions:</p>
+<pre><code class="language-rust">pub fn main() -> eyre::Result&#x3C;()> {
+    let mut machine = Machine {
+        calculator: Calculator,
+        values: vec![20, 22],
+        results: vec![],
+    };
+    type Destination = field!(Machine::calculator);
+
+    &#x3C;Machine as Step&#x3C;Destination, arithmetic::Add>>::step(
+        &#x26;mut machine,
+        &#x26;arithmetic::Add(0, 1),
+        &#x26;(),
+    )?;
+    &#x3C;Machine as Step&#x3C;Destination, arithmetic::Subtract>>::step(
+        &#x26;mut machine,
+        &#x26;arithmetic::Subtract(1, 0),
+        &#x26;(),
+    )?;
+    &#x3C;Machine as Step&#x3C;Destination, arithmetic::Read>>::step(
+        &#x26;mut machine,
+        &#x26;arithmetic::Read(0),
+        &#x26;(),
+    )?;
+    assert_eq!(machine.results, vec![42, 2, 20]);
+
+    // An invalid address fails before execution adds another result.
+    assert!(
+        &#x3C;Machine as Step&#x3C;Destination, arithmetic::Read>>::step(
+            &#x26;mut machine,
+            &#x26;arithmetic::Read(99),
+            &#x26;(),
+        )
+        .is_err()
+    );
+    assert_eq!(machine.results, vec![42, 2, 20]);
+    Ok(())
+}
+</code></pre>
+<p>These operations use the machine’s value table and a unit context, so they
+need no running program. The results are <code>42</code>, <code>2</code>, and <code>20</code>; an unknown address
+returns an error without appending a result.</p>
+<p>Supply the context and invocation state the step expects. A direct call won’t
+run the program runner’s setup or manage instruction progression.</p>
+<p><a href="/vihaco/pr-preview/pr-165/guide/testing">Testing and extending</a> covers how to check these pieces and add
+new ones.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/pr-preview/pr-165/guide/instructions-advanced" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Binary formats</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/pr-preview/pr-165/guide/testing" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Testing and extending</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#group-by-message-shape" data-toc-link="#group-by-message-shape">Group by message shape</a></li><li><a href="#keep-blanket-implementations-disjoint" data-toc-link="#keep-blanket-implementations-disjoint">Keep blanket implementations disjoint</a></li><li><a href="#share-continuation-by-destination" data-toc-link="#share-continuation-by-destination">Share continuation by destination</a></li><li><a href="#substitute-implementations-behind-one-component" data-toc-link="#substitute-implementations-behind-one-component">Substitute implementations behind one component</a></li><li><a href="#typed-interactive-execution" data-toc-link="#typed-interactive-execution">Typed interactive execution</a></li> </ol> </details> </div> </main> <script>
+        // Scroll-spy: mark the TOC link for the section currently in view.
+        (() => {
+          const links = Array.from(document.querySelectorAll(".page-toc [data-toc-link]"));
+          if (!links.length) return;
+          const targets = links
+            .map((a) => {
+              const href = a.getAttribute("data-toc-link") || "";
+              const id = href.startsWith("#") ? href.slice(1) : null;
+              const el = id ? document.getElementById(id) : null;
+              return el ? { link: a, el } : null;
+            })
+            .filter(Boolean);
+          if (!targets.length) return;
+          const ANCHOR = 120;
+          function update() {
+            let activeIdx = 0;
+            for (let i = 0; i < targets.length; i++) {
+              const top = targets[i].el.getBoundingClientRect().top;
+              if (top - ANCHOR <= 0) activeIdx = i;
+              else break;
+            }
+            for (let i = 0; i < targets.length; i++) {
+              targets[i].link.setAttribute("aria-current", i === activeIdx ? "true" : "false");
+            }
+          }
+          update();
+          window.addEventListener("scroll", update, { passive: true });
+          window.addEventListener("resize", update);
+        })();
+      </script> <script>
+      // Mobile navigation drawer + responsive open-state for the sidebar TOCs.
+      (() => {
+        const mq = window.matchMedia("(min-width: 901px)");
+        const sideNavs = document.querySelectorAll("details.side-nav");
+        function syncSideNavs() {
+          for (const d of sideNavs) {
+            if (mq.matches) d.setAttribute("open", "");
+            else d.removeAttribute("open");
+          }
+        }
+        syncSideNavs();
+        mq.addEventListener("change", syncSideNavs);
+
+        const toggle = document.querySelector(".nav-toggle");
+        const nav = document.getElementById("primary-nav");
+        if (toggle && nav) {
+          function setOpen(open) {
+            toggle.setAttribute("aria-expanded", open ? "true" : "false");
+            toggle.setAttribute("aria-label", open ? "Close navigation menu" : "Open navigation menu");
+            nav.toggleAttribute("data-open", open);
+          }
+          toggle.addEventListener("click", () => {
+            const open = toggle.getAttribute("aria-expanded") !== "true";
+            setOpen(open);
+          });
+          nav.addEventListener("click", (e) => {
+            if (e.target && e.target.closest && e.target.closest("a")) setOpen(false);
+          });
+          const mqNav = window.matchMedia("(min-width: 721px)");
+          mqNav.addEventListener("change", () => setOpen(false));
+        }
+      })();
+    </script><script>
+      // Inject a copy button into every <pre> block.
+      (() => {
+        const COPY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+        const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+        for (const pre of document.querySelectorAll("pre")) {
+          if (pre.querySelector(".copy-btn")) continue;
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "copy-btn";
+          btn.setAttribute("aria-label", "Copy code to clipboard");
+          btn.innerHTML = COPY_SVG + "<span>Copy</span>";
+          pre.appendChild(btn);
+          btn.addEventListener("click", async () => {
+            const code = pre.querySelector("code");
+            let raw;
+            if (code) {
+              raw = code.innerText;
+            } else {
+              const clone = pre.cloneNode(true);
+              for (const el of clone.querySelectorAll(".copy-btn")) el.remove();
+              raw = clone.innerText;
+            }
+            const text = raw.replace(/\n$/, "");
+            try {
+              await navigator.clipboard.writeText(text);
+            } catch {
+              const ta = document.createElement("textarea");
+              ta.value = text;
+              ta.style.position = "fixed";
+              ta.style.opacity = "0";
+              document.body.appendChild(ta);
+              ta.select();
+              try { document.execCommand("copy"); } catch {}
+              document.body.removeChild(ta);
+            }
+            btn.dataset.state = "copied";
+            btn.innerHTML = CHECK_SVG + "<span>Copied</span>";
+            setTimeout(() => {
+              btn.removeAttribute("data-state");
+              btn.innerHTML = COPY_SVG + "<span>Copy</span>";
+            }, 1500);
+          });
+        }
+      })();
+    </script><script>
+      // Theme switcher: light / dark / auto, persisted in localStorage.
+      (() => {
+        const root = document.documentElement;
+        const mql = window.matchMedia("(prefers-color-scheme: dark)");
+        const buttons = document.querySelectorAll(".theme-toggle button[data-theme-set]");
+        // localStorage may be unavailable (blocked storage); degrade gracefully
+        // so the toggle still themes the page for the current session.
+        const readPref = () => {
+          try { return localStorage.getItem("vihaco-theme") || "auto"; } catch (e) { return "auto"; }
+        };
+        function apply(pref) {
+          const resolved = pref === "auto" ? (mql.matches ? "dark" : "light") : pref;
+          root.setAttribute("data-theme", resolved);
+          root.setAttribute("data-theme-pref", pref);
+          try { localStorage.setItem("vihaco-theme", pref); } catch (e) {}
+          for (const b of buttons) {
+            b.setAttribute("aria-pressed", b.dataset.themeSet === pref ? "true" : "false");
+          }
+        }
+        apply(readPref());
+        for (const b of buttons) b.addEventListener("click", () => apply(b.dataset.themeSet));
+        mql.addEventListener("change", () => {
+          if (readPref() === "auto") apply("auto");
+        });
+      })();
+    </script><button type="button" class="back-to-top" aria-label="Back to top" hidden> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M12 19V5"></path> <path d="m5 12 7-7 7 7"></path> </svg> </button> <script>
+      (() => {
+        const btn = document.querySelector(".back-to-top");
+        if (!btn) return;
+        const threshold = () => Math.max(window.innerHeight * 1.2, 600);
+        function sync() {
+          btn.toggleAttribute("hidden", !(window.scrollY > threshold()));
+        }
+        btn.addEventListener("click", () => {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+          const brand = document.querySelector(".brand");
+          if (brand && brand.focus) brand.focus({ preventScroll: true });
+        });
+        window.addEventListener("scroll", sync, { passive: true });
+        window.addEventListener("resize", sync);
+        sync();
+      })();
+    </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
+          documentation generated <time>2026-10-27</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+      (() => {
+        if (typeof hljs === "undefined") return;
+        for (const el of document.querySelectorAll("pre code[class*='language-']")) {
+          hljs.highlightElement(el);
+        }
+      })();
+    </script></body> </html>

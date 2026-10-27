@@ -1,0 +1,240 @@
+<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Build an image from sectioned source, explicit metadata, and symbolic lowering."><title>Loading SST programs — vihaco</title><script>
+      (() => {
+        // localStorage can throw when storage is blocked (hardened privacy
+        // settings, sandboxed frames); fall back to "auto" so the theme still
+        // applies before first paint.
+        let stored = "auto";
+        try { stored = localStorage.getItem("vihaco-theme") || "auto"; } catch (e) {}
+        const sysDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const resolved = stored === "auto" ? (sysDark ? "dark" : "light") : stored;
+        document.documentElement.setAttribute("data-theme", resolved);
+        document.documentElement.setAttribute("data-theme-pref", stored);
+      })();
+    </script><link rel="stylesheet" href="/vihaco/pr-preview/pr-165/_astro/Base.Wd5z-zFf.css"></head> <body> <header class="masthead"> <div class="masthead-inner"> <a class="brand" href="/vihaco/pr-preview/pr-165/"> <span class="brand-mark" aria-hidden="true"></span> <span class="brand-mono">vihaco</span> <span class="brand-sub">/ virtual ISA &amp; machine framework</span> </a> <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Open navigation menu"> <span class="nav-toggle-bars" aria-hidden="true"></span> </button> <nav class="nav-links" id="primary-nav"> <a href="/vihaco/pr-preview/pr-165/">Overview</a><a href="/vihaco/pr-preview/pr-165/quickstart">Quick Start</a><a href="/vihaco/pr-preview/pr-165/guide" aria-current="page">Author’s Guide</a><a href="/vihaco/pr-preview/pr-165/reference">Reference</a> <div class="theme-toggle" role="group" aria-label="Theme"> <button type="button" data-theme-set="light" title="Light theme" aria-label="Light theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <circle cx="12" cy="12" r="4"></circle> <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path> </svg> </button> <button type="button" data-theme-set="dark" title="Dark theme" aria-label="Dark theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path> </svg> </button> <button type="button" data-theme-set="auto" title="Match system theme" aria-label="Auto (follow system)" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <rect x="3" y="4" width="18" height="13" rx="2"></rect> <path d="M8 21h8M12 17v4"></path> </svg> </button> </div> </nav> </div> </header> <main> <div class="page-shell page-shell--3col"> <details class="page-sections side-nav" aria-label="Author’s guide"> <summary class="page-toc-label">Author’s guide</summary> <ol> <li> <a href="/vihaco/pr-preview/pr-165/guide">Start here</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/mental-model">The mental model</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/first-machine">Your first machine</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/essentials">Essential concepts</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/instructions">Dialects and instructions</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/components">Writing components</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/messages">Preparing messages</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/stack">Stack inputs and outputs</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/composites">Writing composites</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/execution">Executing one instruction</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/effects">Handling effects</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/program-execution">Running programs</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/loadables">Images and Loadables</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/parser">Parsing source</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/parser-advanced" aria-current="page">Loading SST programs</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/sst-reference">Emitting SST from a compiler</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/instructions-advanced">Binary formats</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/patterns">Patterns for larger machines</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/testing">Testing and extending</a> </li><li> <a href="/vihaco/pr-preview/pr-165/guide/parser-patterns">Pattern parser reference</a> </li> </ol> </details> <div class="page-toc-content">  <article class="shell narrow guide-body"> <h1 id="loading-sst-programs">Loading SST programs</h1>
+<blockquote>
+<p><strong>SST’s future:</strong> SST may become unsupported or be superseded by a bytecode
+format plus a disassembler. It is not a promised long-term compiler target.</p>
+</blockquote>
+<p>If you’re writing a compiler, start with
+<a href="/vihaco/pr-preview/pr-165/guide/sst-reference">emitting SST from a compiler</a> for the file format and
+metadata you must produce. This chapter describes the consuming loader.</p>
+<p>Loading an SST program means choosing its section, reading the declarations,
+resolving symbols, and building a module. Do this outside the mutable execution
+machine, then pair the result with the machine when it’s ready.</p>
+<h2 id="read-a-section">Read a section</h2>
+<p>Start with <code>SstFile&#x3C;C>::from_text(source)</code>. The type <code>C</code> interprets the file’s
+global context; use <code>NoContext</code> when you have no global data. From <code>root()</code>,
+<code>child(name)</code> and <code>children()</code> let you pick sections for independently loaded
+programs. These section names describe the file structure, rather than routes
+to instruction destinations.</p>
+<p>A section view gives you the header and source body. Pass it to
+<code>ParsedModule::&#x3C;SourceInstruction, Type, Header>::parse_section(section)</code>, using
+your composite’s syntax instruction type as <code>SourceInstruction</code>. You’ll get
+header declarations and functions with typed instruction bodies.</p>
+<h2 id="collect-declarations-before-lowering">Collect declarations before lowering</h2>
+<p>Use <code>HeaderDeclarations&#x3C;Declaration></code> to parse the declarations individually.
+Your metadata-class enum can include <code>ProgramMetadata</code> alongside your own
+configuration declarations. Collect them into a state object you write, reject
+duplicates, and check required settings before building execution artifacts.
+You can prepare the declarations in a different order from how they appear in
+the file.</p>
+<p><code>ProgramMetadata</code> supplies every non-code field:</p>
+<ul>
+<li>Functions, with their signatures, reserved local counts, and instruction ranges.</li>
+<li>Labels, strings, constants, and source symbols.</li>
+<li>The entry function, if there is one.</li>
+<li>Your application’s <code>extra</code> metadata.</li>
+</ul>
+<p>The order of each table determines its indices. Function names, parameter names,
+and filenames refer into the string table. <code>main_function</code> selects an entry in
+the function table; it isn’t an instruction address.</p>
+<p>Function ranges count decoded instructions and use an exclusive end address.
+A function’s local count includes its parameters. The producer supplies any
+extra locals; the loader doesn’t infer them from instructions.</p>
+<h2 id="prepare-capabilities-and-lower">Prepare capabilities and lower</h2>
+<p><code>MetadataLoweringContext::new(&#x26;metadata)</code> prepares the standard function, label,
+and string capabilities. If custom instructions need more lookup services, you
+can extend it or use your own context.</p>
+<p>Call <code>lower_functions_with_metadata(functions, &#x26;metadata, &#x26;mut context)</code> to check
+the declarations and tables, then lower the bodies. Before lowering each
+function, the driver prepares its full local label scope. That’s how a branch
+can refer to a label farther down the function.</p>
+<p>Assemble the result with <code>metadata.into_module(code)</code>. It keeps your table order
+and checks standard value references. If your declarations need a different
+runtime metadata type, use <code>map_extra</code>. You can then wrap the module in an Image
+and pair it with a machine in a Loadable.</p>
+<p>If lowering fails, it returns no partial instruction vector. Any changes already
+made to the context remain, though; the pipeline doesn’t roll them back.</p>
+<h2 id="run-the-complete-example">Run the complete example</h2>
+<p>The repository’s
+<a href="https://github.com/QuEraComputing/vihaco/blob/main/crates/vihaco-stdlib/examples/loadable.rs">Loadable example</a>
+and its
+<a href="https://github.com/QuEraComputing/vihaco/blob/main/crates/vihaco-stdlib/examples/loadable.sst">SST file</a>
+put the whole sequence together. They include an application header, tables in a
+different order from the function bodies, a helper call, and a forward branch.</p>
+<p>Run it from a checkout:</p>
+<pre><code class="language-sh">cargo run -p vihaco-stdlib --features program-image-execution --example loadable
+</code></pre>
+<p>The result is <code>[42]</code>. To try another file, pass its source path after <code>--</code>.
+Once construction finishes, the loader drops the file view and source. The image
+owns the runtime instructions and metadata it needs.</p>
+<p><a href="/vihaco/pr-preview/pr-165/guide/instructions-advanced">Binary formats</a> covers loading encoded programs.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/pr-preview/pr-165/guide/parser" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Parsing source</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/pr-preview/pr-165/guide/sst-reference" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Emitting SST from a compiler</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#read-a-section" data-toc-link="#read-a-section">Read a section</a></li><li><a href="#collect-declarations-before-lowering" data-toc-link="#collect-declarations-before-lowering">Collect declarations before lowering</a></li><li><a href="#prepare-capabilities-and-lower" data-toc-link="#prepare-capabilities-and-lower">Prepare capabilities and lower</a></li><li><a href="#run-the-complete-example" data-toc-link="#run-the-complete-example">Run the complete example</a></li> </ol> </details> </div> </main> <script>
+        // Scroll-spy: mark the TOC link for the section currently in view.
+        (() => {
+          const links = Array.from(document.querySelectorAll(".page-toc [data-toc-link]"));
+          if (!links.length) return;
+          const targets = links
+            .map((a) => {
+              const href = a.getAttribute("data-toc-link") || "";
+              const id = href.startsWith("#") ? href.slice(1) : null;
+              const el = id ? document.getElementById(id) : null;
+              return el ? { link: a, el } : null;
+            })
+            .filter(Boolean);
+          if (!targets.length) return;
+          const ANCHOR = 120;
+          function update() {
+            let activeIdx = 0;
+            for (let i = 0; i < targets.length; i++) {
+              const top = targets[i].el.getBoundingClientRect().top;
+              if (top - ANCHOR <= 0) activeIdx = i;
+              else break;
+            }
+            for (let i = 0; i < targets.length; i++) {
+              targets[i].link.setAttribute("aria-current", i === activeIdx ? "true" : "false");
+            }
+          }
+          update();
+          window.addEventListener("scroll", update, { passive: true });
+          window.addEventListener("resize", update);
+        })();
+      </script> <script>
+      // Mobile navigation drawer + responsive open-state for the sidebar TOCs.
+      (() => {
+        const mq = window.matchMedia("(min-width: 901px)");
+        const sideNavs = document.querySelectorAll("details.side-nav");
+        function syncSideNavs() {
+          for (const d of sideNavs) {
+            if (mq.matches) d.setAttribute("open", "");
+            else d.removeAttribute("open");
+          }
+        }
+        syncSideNavs();
+        mq.addEventListener("change", syncSideNavs);
+
+        const toggle = document.querySelector(".nav-toggle");
+        const nav = document.getElementById("primary-nav");
+        if (toggle && nav) {
+          function setOpen(open) {
+            toggle.setAttribute("aria-expanded", open ? "true" : "false");
+            toggle.setAttribute("aria-label", open ? "Close navigation menu" : "Open navigation menu");
+            nav.toggleAttribute("data-open", open);
+          }
+          toggle.addEventListener("click", () => {
+            const open = toggle.getAttribute("aria-expanded") !== "true";
+            setOpen(open);
+          });
+          nav.addEventListener("click", (e) => {
+            if (e.target && e.target.closest && e.target.closest("a")) setOpen(false);
+          });
+          const mqNav = window.matchMedia("(min-width: 721px)");
+          mqNav.addEventListener("change", () => setOpen(false));
+        }
+      })();
+    </script><script>
+      // Inject a copy button into every <pre> block.
+      (() => {
+        const COPY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+        const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+        for (const pre of document.querySelectorAll("pre")) {
+          if (pre.querySelector(".copy-btn")) continue;
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "copy-btn";
+          btn.setAttribute("aria-label", "Copy code to clipboard");
+          btn.innerHTML = COPY_SVG + "<span>Copy</span>";
+          pre.appendChild(btn);
+          btn.addEventListener("click", async () => {
+            const code = pre.querySelector("code");
+            let raw;
+            if (code) {
+              raw = code.innerText;
+            } else {
+              const clone = pre.cloneNode(true);
+              for (const el of clone.querySelectorAll(".copy-btn")) el.remove();
+              raw = clone.innerText;
+            }
+            const text = raw.replace(/\n$/, "");
+            try {
+              await navigator.clipboard.writeText(text);
+            } catch {
+              const ta = document.createElement("textarea");
+              ta.value = text;
+              ta.style.position = "fixed";
+              ta.style.opacity = "0";
+              document.body.appendChild(ta);
+              ta.select();
+              try { document.execCommand("copy"); } catch {}
+              document.body.removeChild(ta);
+            }
+            btn.dataset.state = "copied";
+            btn.innerHTML = CHECK_SVG + "<span>Copied</span>";
+            setTimeout(() => {
+              btn.removeAttribute("data-state");
+              btn.innerHTML = COPY_SVG + "<span>Copy</span>";
+            }, 1500);
+          });
+        }
+      })();
+    </script><script>
+      // Theme switcher: light / dark / auto, persisted in localStorage.
+      (() => {
+        const root = document.documentElement;
+        const mql = window.matchMedia("(prefers-color-scheme: dark)");
+        const buttons = document.querySelectorAll(".theme-toggle button[data-theme-set]");
+        // localStorage may be unavailable (blocked storage); degrade gracefully
+        // so the toggle still themes the page for the current session.
+        const readPref = () => {
+          try { return localStorage.getItem("vihaco-theme") || "auto"; } catch (e) { return "auto"; }
+        };
+        function apply(pref) {
+          const resolved = pref === "auto" ? (mql.matches ? "dark" : "light") : pref;
+          root.setAttribute("data-theme", resolved);
+          root.setAttribute("data-theme-pref", pref);
+          try { localStorage.setItem("vihaco-theme", pref); } catch (e) {}
+          for (const b of buttons) {
+            b.setAttribute("aria-pressed", b.dataset.themeSet === pref ? "true" : "false");
+          }
+        }
+        apply(readPref());
+        for (const b of buttons) b.addEventListener("click", () => apply(b.dataset.themeSet));
+        mql.addEventListener("change", () => {
+          if (readPref() === "auto") apply("auto");
+        });
+      })();
+    </script><button type="button" class="back-to-top" aria-label="Back to top" hidden> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M12 19V5"></path> <path d="m5 12 7-7 7 7"></path> </svg> </button> <script>
+      (() => {
+        const btn = document.querySelector(".back-to-top");
+        if (!btn) return;
+        const threshold = () => Math.max(window.innerHeight * 1.2, 600);
+        function sync() {
+          btn.toggleAttribute("hidden", !(window.scrollY > threshold()));
+        }
+        btn.addEventListener("click", () => {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+          const brand = document.querySelector(".brand");
+          if (brand && brand.focus) brand.focus({ preventScroll: true });
+        });
+        window.addEventListener("scroll", sync, { passive: true });
+        window.addEventListener("resize", sync);
+        sync();
+      })();
+    </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
+          documentation generated <time>2026-10-27</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+      (() => {
+        if (typeof hljs === "undefined") return;
+        for (const el of document.querySelectorAll("pre code[class*='language-']")) {
+          hljs.highlightElement(el);
+        }
+      })();
+    </script></body> </html>
