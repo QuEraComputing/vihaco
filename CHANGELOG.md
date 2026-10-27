@@ -18,6 +18,18 @@ below the `## [Unreleased]` heading, so do not remove or reword that line.
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/QuEraComputing/vihaco/compare/v0.6.0...v0.7.0) - 2026-10-27
+
+### Added
+
+- [**breaking**] add ability to mark program metadata in SST file ([#159](https://github.com/QuEraComputing/vihaco/pull/159))
+
+### Other
+
+- Add `Loadable` wrapper for program images and machines ([#162](https://github.com/QuEraComputing/vihaco/pull/162))
+- Separate program ownership from execution state ([#160](https://github.com/QuEraComputing/vihaco/pull/160))
+- Updated docs for `program-image-execution` feature flag ([#163](https://github.com/QuEraComputing/vihaco/pull/163))
+
 ## [0.6.0](https://github.com/QuEraComputing/vihaco/compare/v0.5.0...v0.6.0) - 2026-10-16
 
 ### Added
