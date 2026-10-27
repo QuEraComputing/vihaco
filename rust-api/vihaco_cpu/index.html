@@ -17,7 +17,7 @@ indices or function symbols. String constants accept indices or quoted text.
 Loaders supply <code>lower::LabelLookup</code>, <code>lower::FunctionLookup</code>, and
 <code>lower::StringIntern</code> to resolve them. <code>vihaco_stdlib::ProgramImage</code> implements
 string interning using its section string table. Heap references remain numeric.
-For explicit metadata, [<code>vihaco_module::loader::MetadataLoweringContext</code>] implements
+For explicit metadata, <a href="../vihaco_module/lowering/struct.MetadataLoweringContext.html" title="struct vihaco_module::lowering::MetadataLoweringContext"><code>vihaco_module::loader::MetadataLoweringContext</code></a> implements
 all three lookup capabilities and rejects strings absent from the supplied
 table. It works with <code>ParsedModule::lower_with_metadata</code> in <code>vihaco-syntax</code>.
 <code>label @name</code> is retained in the parsed function’s label metadata without an
