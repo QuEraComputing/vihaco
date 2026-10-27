@@ -63,6 +63,105 @@ fn standard_loading_works_with_and_without_typed_declarations() -> eyre::Result<
     Ok(())
 }
 
+#[cfg(feature = "program-image-execution")]
+mod borrowed_metadata {
+    use super::*;
+
+    // Neither source instructions nor the prepared resource need to be Clone.
+    struct PoolIndex(usize);
+    struct Configuration(Box<[u32]>);
+    struct Context<'a> {
+        symbols: MetadataLoweringContext,
+        configuration: &'a Configuration,
+        entered: usize,
+    }
+
+    impl FunctionScope for Context<'_> {
+        fn enter_function<'a>(
+            &mut self,
+            name: &str,
+            labels: impl IntoIterator<Item = (&'a str, usize)>,
+        ) -> eyre::Result<()> {
+            self.entered += 1;
+            self.symbols.enter_function(name, labels)
+        }
+    }
+
+    impl Lower<Context<'_>> for PoolIndex {
+        type Runtime = u32;
+
+        fn lower(self, context: &mut Context<'_>) -> eyre::Result<u32> {
+            context
+                .configuration
+                .0
+                .get(self.0)
+                .copied()
+                .ok_or_else(|| eyre::eyre!("unknown pool index {}", self.0))
+        }
+    }
+
+    fn functions(index: usize) -> Vec<ParsedFunction<PoolIndex, Type>> {
+        vec![ParsedFunction {
+            name: Ident("main".into()),
+            params: vec![],
+            return_types: vec![],
+            body: vec![PoolIndex(index)],
+            labels: vec![],
+        }]
+    }
+
+    #[test]
+    fn context_borrows_metadata_before_it_is_moved_into_the_module() -> eyre::Result<()> {
+        let metadata = one_function_metadata().map_extra(|_| Configuration(Box::new([42])));
+        let allocation = metadata.extra.0.as_ptr();
+        let code = {
+            let mut context = Context {
+                symbols: MetadataLoweringContext::new(&metadata)?,
+                configuration: &metadata.extra,
+                entered: 0,
+            };
+            let code = lower_functions_with_metadata(functions(0), &metadata, &mut context)?;
+            assert_eq!(context.entered, 1);
+            code
+        };
+        let module = metadata.into_module(code)?;
+        assert_eq!(module.code, [42]);
+        assert_eq!(module.extra.0.as_ptr(), allocation);
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_metadata_is_rejected_before_entering_a_function() -> eyre::Result<()> {
+        let mut metadata = one_function_metadata().map_extra(|_| Configuration(Box::new([42])));
+        metadata.functions[0].end_address = 2;
+        let mut context = Context {
+            symbols: MetadataLoweringContext::new(&metadata)?,
+            configuration: &metadata.extra,
+            entered: 0,
+        };
+        assert!(lower_functions_with_metadata(functions(0), &metadata, &mut context).is_err());
+        assert_eq!(context.entered, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn instruction_failures_retain_location_and_context_mutations() -> eyre::Result<()> {
+        let metadata = one_function_metadata().map_extra(|_| Configuration(Box::new([42])));
+        let mut context = Context {
+            symbols: MetadataLoweringContext::new(&metadata)?,
+            configuration: &metadata.extra,
+            entered: 0,
+        };
+        let error =
+            lower_functions_with_metadata(functions(1), &metadata, &mut context).unwrap_err();
+        let message = format!("{error:#}");
+        assert!(message.contains("function @main, instruction 0"));
+        assert!(message.contains("unknown pool index 1"));
+        assert_eq!(context.entered, 1);
+        Ok(())
+    }
+}
+
 #[cfg(feature = "typed-declarations")]
 mod typed {
     use super::*;

@@ -51,89 +51,97 @@ impl<I, Ty: PartialEq, H> ParsedModule<I, Ty, H> {
         &self,
         metadata: &vihaco_module::module::ProgramMetadata<V, Ty, Info>,
     ) -> eyre::Result<()> {
+        validate_functions(&self.functions, metadata)
+    }
+}
+
+/// Check function declarations independently of the consumer's header shape.
+pub(crate) fn validate_functions<I, Ty: PartialEq, V, Info>(
+    functions: &[ParsedFunction<I, Ty>],
+    metadata: &vihaco_module::module::ProgramMetadata<V, Ty, Info>,
+) -> eyre::Result<()> {
+    eyre::ensure!(
+        functions.len() == metadata.functions.len(),
+        "function declarations and metadata must contain the same functions"
+    );
+    let mut seen = std::collections::BTreeSet::new();
+    let mut address = 0usize;
+    for function in functions {
+        let name = function.name.as_str();
         eyre::ensure!(
-            self.functions.len() == metadata.functions.len(),
-            "function declarations and metadata must contain the same functions"
+            seen.insert(name),
+            "duplicate function declaration `@{name}`"
         );
-        let mut seen = std::collections::BTreeSet::new();
-        let mut address = 0usize;
-        for function in &self.functions {
-            let name = function.name.as_str();
+        let mut matches = metadata.functions.iter().filter(|info| {
+            metadata
+                .strings
+                .get(info.name as usize)
+                .is_some_and(|value| value == name)
+        });
+        let info = matches
+            .next()
+            .ok_or_else(|| eyre::eyre!("function `@{name}` has no metadata"))?;
+        eyre::ensure!(
+            matches.next().is_none(),
+            "function `@{name}` has duplicate metadata"
+        );
+        let end = address
+            .checked_add(function.body.len())
+            .ok_or_else(|| eyre::eyre!("instruction count overflow"))?;
+        eyre::ensure!(
+            info.start_address as usize == address && info.end_address as usize == end,
+            "function `@{name}`: supplied range {}..{} disagrees with body range {address}..{end}",
+            info.start_address,
+            info.end_address
+        );
+        eyre::ensure!(
+            function.params.len() == info.signature.params.len(),
+            "function `@{name}`: parameter count disagrees with metadata"
+        );
+        for (parameter, declared) in function.params.iter().zip(&info.signature.params) {
             eyre::ensure!(
-                seen.insert(name),
-                "duplicate function declaration `@{name}`"
-            );
-            let mut matches = metadata.functions.iter().filter(|info| {
                 metadata
                     .strings
-                    .get(info.name as usize)
-                    .is_some_and(|value| value == name)
-            });
-            let info = matches
-                .next()
-                .ok_or_else(|| eyre::eyre!("function `@{name}` has no metadata"))?;
-            eyre::ensure!(
-                matches.next().is_none(),
-                "function `@{name}` has duplicate metadata"
+                    .get(declared.name as usize)
+                    .is_some_and(|value| value == parameter.name.as_str())
+                    && parameter.ty == declared.ty,
+                "function `@{name}`: parameter `{}` disagrees with metadata",
+                parameter.name
             );
-            let end = address
-                .checked_add(function.body.len())
-                .ok_or_else(|| eyre::eyre!("instruction count overflow"))?;
-            eyre::ensure!(
-                info.start_address as usize == address && info.end_address as usize == end,
-                "function `@{name}`: supplied range {}..{} disagrees with body range {address}..{end}",
-                info.start_address,
-                info.end_address
-            );
-            eyre::ensure!(
-                function.params.len() == info.signature.params.len(),
-                "function `@{name}`: parameter count disagrees with metadata"
-            );
-            for (parameter, declared) in function.params.iter().zip(&info.signature.params) {
+        }
+        eyre::ensure!(
+            function.return_types == info.signature.ret,
+            "function `@{name}`: return types disagree with metadata"
+        );
+        #[cfg(feature = "typed-declarations")]
+        {
+            let mut labels = std::collections::BTreeSet::new();
+            for label in &function.labels {
                 eyre::ensure!(
-                    metadata
-                        .strings
-                        .get(declared.name as usize)
-                        .is_some_and(|value| value == parameter.name.as_str())
-                        && parameter.ty == declared.ty,
-                    "function `@{name}`: parameter `{}` disagrees with metadata",
-                    parameter.name
+                    labels.insert(label.name.as_str()),
+                    "function `@{name}`: duplicate label `@{}`",
+                    label.name
+                );
+                eyre::ensure!(
+                    label.instruction_index <= function.body.len(),
+                    "function `@{name}`: label `@{}` is outside its body",
+                    label.name
+                );
+                let label_address = address + label.instruction_index;
+                eyre::ensure!(
+                    metadata.labels.iter().any(|info| {
+                        metadata
+                            .strings
+                            .get(info.name as usize)
+                            .is_some_and(|value| value == label.name.as_str())
+                            && info.address as usize == label_address
+                    }),
+                    "function `@{name}`: label `@{}` at {label_address} requires matching metadata",
+                    label.name
                 );
             }
-            eyre::ensure!(
-                function.return_types == info.signature.ret,
-                "function `@{name}`: return types disagree with metadata"
-            );
-            #[cfg(feature = "typed-declarations")]
-            {
-                let mut labels = std::collections::BTreeSet::new();
-                for label in &function.labels {
-                    eyre::ensure!(
-                        labels.insert(label.name.as_str()),
-                        "function `@{name}`: duplicate label `@{}`",
-                        label.name
-                    );
-                    eyre::ensure!(
-                        label.instruction_index <= function.body.len(),
-                        "function `@{name}`: label `@{}` is outside its body",
-                        label.name
-                    );
-                    let label_address = address + label.instruction_index;
-                    eyre::ensure!(
-                        metadata.labels.iter().any(|info| {
-                            metadata
-                                .strings
-                                .get(info.name as usize)
-                                .is_some_and(|value| value == label.name.as_str())
-                                && info.address as usize == label_address
-                        }),
-                        "function `@{name}`: label `@{}` at {label_address} requires matching metadata",
-                        label.name
-                    );
-                }
-            }
-            address = end;
         }
-        Ok(())
+        address = end;
     }
+    Ok(())
 }

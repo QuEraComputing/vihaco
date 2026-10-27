@@ -1,0 +1,11 @@
+error[E0599]: the method `execute` exists for struct `Loadable<Image<u64>, Machine>`, but its trait bounds were not satisfied
+  --> tests/compile_fail/program_image/instruction-mismatch.rs:21:12
+   |
+ 4 | struct Machine(ExecutionState);
+   | -------------- doesn't satisfy `<_ as Dispatch<LocalModule<u64, Value, Type>>>::Instruction = u64`
+...
+21 |     loaded.execute(&[]).unwrap();
+   |            ^^^^^^^ method cannot be called on `Loadable<Image<u64>, Machine>` due to unsatisfied trait bounds
+   |
+   = note: the following trait bounds were not satisfied:
+           `<Machine as Dispatch<LocalModule<u64, Value, vihaco::Type>>>::Instruction = u64`

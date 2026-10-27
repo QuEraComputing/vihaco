@@ -45,6 +45,44 @@ where
     Ok(code)
 }
 
+fn validate_program_functions<I, Ty: PartialEq, V, Info>(
+    functions: &[ParsedFunction<I, Ty>],
+    metadata: &ProgramMetadata<V, Ty, Info>,
+) -> eyre::Result<()> {
+    crate::types::validate_functions(functions, metadata)?;
+    metadata.validate(functions.iter().map(|function| function.body.len()).sum())
+}
+
+/// Validate supplied metadata and lower function bodies without consuming it.
+///
+/// Available with `program-image-execution`. The caller prepares the metadata
+/// and context independently, for example by processing individual header
+/// declarations. The context may borrow prepared configuration or the metadata
+/// itself; neither is moved or cloned by this function.
+///
+/// Function declarations and table bounds are validated before lowering starts.
+/// [`lower_functions`] prepares label scopes and preserves instruction error
+/// context. The returned code can be assembled with
+/// [`ProgramMetadata::into_module`], which also checks standard value references.
+///
+/// # Errors
+/// Returns declaration, table, or instruction-lowering errors. No partial code
+/// is returned; earlier context mutations are not rolled back.
+#[cfg(feature = "program-image-execution")]
+pub fn lower_functions_with_metadata<I, Ty, V, Info, C>(
+    functions: Vec<ParsedFunction<I, Ty>>,
+    metadata: &ProgramMetadata<V, Ty, Info>,
+    context: &mut C,
+) -> eyre::Result<Vec<I::Runtime>>
+where
+    Ty: PartialEq,
+    I: Lower<C>,
+    C: FunctionScope,
+{
+    validate_program_functions(&functions, metadata)?;
+    lower_functions(functions, context)
+}
+
 impl<I, Ty: PartialEq, H> ParsedModule<I, Ty, H> {
     /// Validate declarations and tables, lower instructions with the supplied
     /// context, and assemble a module without inventing or reordering metadata.
@@ -68,13 +106,7 @@ impl<I, Ty: PartialEq, H> ParsedModule<I, Ty, H> {
         I: Lower<C>,
         C: FunctionScope,
     {
-        self.validate_metadata(&metadata)?;
-        metadata.validate(
-            self.functions
-                .iter()
-                .map(|function| function.body.len())
-                .sum(),
-        )?;
+        validate_program_functions(&self.functions, &metadata)?;
         let code = lower_functions(self.functions, context)?;
         metadata.into_module(code)
     }

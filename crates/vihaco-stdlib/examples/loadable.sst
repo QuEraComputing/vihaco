@@ -1,0 +1,50 @@
+sst v1
+.section(root):
+    .section(controller):
+    .header(controller):
+        experiment.description "Loadable SST example: 21 * 2";
+        metadata {
+            strings: ["main", "helper", "loadable.sst", "done"],
+            // Table order is independent of executable function order.
+            functions: [
+                {
+                    name: 1, // strings[1]: helper
+                    signature: { params: [], ret: [u64] },
+                    local_count: 0,
+                    start_address: 6,
+                    end_address: 8,
+                    file: 2,
+                },
+                {
+                    name: 0, // strings[0]: main
+                    signature: { params: [], ret: [u64] },
+                    local_count: 0,
+                    start_address: 0,
+                    end_address: 6,
+                    file: 2,
+                },
+            ],
+            labels: [{ name: 3, address: 5 }],
+            constants: [],
+            main_function: 1, // functions[1], not instruction address 1.
+            source_symbols: [],
+            extra: {},
+        };
+    .header(controller).
+    .text(controller):
+        fn @main() -> u64 {
+            execution::program::call 0, @helper
+            execution::program::const_u64 2
+            cpu::cpu::mul_u64
+            execution::program::br @done
+            execution::program::const_u64 999
+            label @done
+            execution::program::ret 1
+        }
+        fn @helper() -> u64 {
+            execution::program::const_u64 21
+            execution::program::ret 1
+        }
+    .text(controller).
+    .section(controller).
+.section(root).

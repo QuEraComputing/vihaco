@@ -3,56 +3,29 @@
 
 #![cfg(feature = "program-image-execution")]
 
-use std::collections::HashMap;
-use vihaco_abi::{Type, Value, traits::Reset};
-use vihaco_bytecode::{NoContext, SstSectionView};
+use vihaco_abi::{Type, Value, traits::FromText};
+use vihaco_bytecode::{NoContext, SstFile, SstHeader, SstSectionView};
 use vihaco_cpu::CPU;
 use vihaco_module::{
-    loader::{LoadOwnSstSection, LoadSstSection},
-    module::{FunctionInfo, LocalModule, Parameter, Signature},
+    loader::MetadataLoweringContext,
+    module::{FunctionInfo, LocalModule, ProgramMetadata, Signature},
 };
 use vihaco_runtime::{
-    Apply, BuildMessage, Execute, HasInstructionSet, Lower, NoMessage, Parse, Step, component,
-    composite, dialect, field,
+    Apply, BuildMessage, Composite, Dispatch, Execute, HasInstructionSet, HasProgram, Lower,
+    NoMessage, Parse, Step, chumsky::prelude::*, composite, field,
 };
-use vihaco_stdlib::{
-    ExecutionState, Image,
-    execution_state::execute,
-    program::lower::{FunctionLookup, LabelLookup, StringIntern},
-};
+use vihaco_stdlib::{ExecutionState, Image, Loadable, program::program};
 
 type Module<M> = LocalModule<<M as HasInstructionSet>::Runtime, Value, Type>;
-
-#[dialect]
-mod control {
-    #[instruction]
-    pub struct Run;
-}
-
-#[component]
-#[instructions { control }]
-struct Control;
-
-impl Execute<control::Run> for Control {
-    type Message = NoMessage;
-    type Effect = ();
-    type Error = eyre::Report;
-
-    fn execute(&mut self, _: &control::Run, _: NoMessage) -> eyre::Result<()> {
-        Ok(())
-    }
-}
+type MachineImage<M> = Image<<M as HasInstructionSet>::Runtime>;
 
 #[composite]
 struct ControllerMachine {
     #[device(0)]
     #[program]
     execution: vihaco_stdlib::ExecutionState,
-    #[device(1)]
-    control: Control,
-    #[device(2)]
-    #[loadable]
-    sequencer: Sequencer,
+    visits: usize,
+    fail_once: bool,
 }
 
 #[composite]
@@ -64,94 +37,6 @@ struct SequencerMachine {
     cpu: vihaco_cpu::CPU,
 }
 
-struct Controller {
-    image: Option<Image<<ControllerMachine as HasInstructionSet>::Runtime>>,
-    machine: ControllerMachine,
-}
-
-struct Sequencer {
-    image: Option<Image<<SequencerMachine as HasInstructionSet>::Runtime>>,
-    machine: SequencerMachine,
-}
-
-impl LoadOwnSstSection<NoContext> for ControllerMachine {
-    type Output = Module<Self>;
-
-    fn load_own_sst_section<'src>(
-        &mut self,
-        section: SstSectionView<'src, NoContext>,
-    ) -> eyre::Result<Self::Output> {
-        lower_module::<Self>(section)
-    }
-}
-
-impl LoadOwnSstSection<NoContext> for SequencerMachine {
-    type Output = Module<Self>;
-
-    fn load_own_sst_section<'src>(
-        &mut self,
-        section: SstSectionView<'src, NoContext>,
-    ) -> eyre::Result<Self::Output> {
-        lower_module::<Self>(section)
-    }
-}
-
-impl LoadSstSection<NoContext> for Controller {
-    type Output = ();
-
-    fn load_sst_section<'src>(
-        &mut self,
-        section: SstSectionView<'src, NoContext>,
-    ) -> eyre::Result<()> {
-        eyre::ensure!(
-            self.machine.execution.is_halted(),
-            "cannot replace an active program"
-        );
-        let module = self.machine.load_sst_section(section)?;
-        self.machine.execution.reset();
-        self.image = Some(Image::new(module));
-        Ok(())
-    }
-}
-
-impl LoadSstSection<NoContext> for Sequencer {
-    type Output = ();
-
-    fn load_sst_section<'src>(
-        &mut self,
-        section: SstSectionView<'src, NoContext>,
-    ) -> eyre::Result<()> {
-        eyre::ensure!(
-            self.machine.execution.is_halted(),
-            "cannot replace an active program"
-        );
-        let module = self.machine.load_sst_section(section)?;
-        self.machine.execution.reset();
-        self.image = Some(Image::new(module));
-        Ok(())
-    }
-}
-
-impl Controller {
-    fn run(&mut self) -> eyre::Result<()> {
-        let image = self
-            .image
-            .as_ref()
-            .ok_or_else(|| eyre::eyre!("not loaded"))?;
-        execute(&image.module, &mut self.machine, &[])
-    }
-}
-
-impl Sequencer {
-    fn run(&mut self) -> eyre::Result<()> {
-        let image = self
-            .image
-            .as_ref()
-            .ok_or_else(|| eyre::eyre!("not loaded"))?;
-        execute(&image.module, &mut self.machine, &[])
-    }
-}
-
 impl<I> Step<field!(ControllerMachine::execution), I, Module<ControllerMachine>>
     for ControllerMachine
 where
@@ -159,26 +44,16 @@ where
     Self: BuildMessage<field!(ControllerMachine::execution), I, Module<Self>>,
 {
     fn step(&mut self, instruction: &I, module: &Module<Self>) -> eyre::Result<()> {
+        self.visits += 1;
+        if std::mem::take(&mut self.fail_once) {
+            eyre::bail!("injected step failure");
+        }
         let message = <Self as BuildMessage<
             field!(ControllerMachine::execution),
             I,
             Module<Self>,
         >>::build_message(self, instruction, module)?;
         self.execution.execute(instruction, message)
-    }
-}
-
-impl Step<field!(ControllerMachine::control), control::Run, Module<ControllerMachine>>
-    for ControllerMachine
-{
-    fn step(&mut self, instruction: &control::Run, module: &Module<Self>) -> eyre::Result<()> {
-        let message = <Self as BuildMessage<
-            field!(ControllerMachine::control),
-            control::Run,
-            Module<Self>,
-        >>::build_message(self, instruction, module)?;
-        self.control.execute(instruction, message)?;
-        self.sequencer.run()
     }
 }
 
@@ -216,185 +91,292 @@ where
     }
 }
 
-// Section-local loader capabilities, not a second execution engine.
-struct Symbols<I> {
-    module: LocalModule<I, Value, Type>,
-    functions: HashMap<String, (u32, u32)>,
-    labels: HashMap<String, u32>,
-}
+struct Header(ProgramMetadata);
 
-impl<I> FunctionLookup for Symbols<I> {
-    fn function_address(&self, name: &str) -> eyre::Result<u32> {
-        self.functions
-            .get(name)
-            .map(|&(_, address)| address)
-            .ok_or_else(|| eyre::eyre!("unknown function {name}"))
-    }
-    fn function_index(&self, name: &str) -> eyre::Result<u32> {
-        self.functions
-            .get(name)
-            .map(|&(index, _)| index)
-            .ok_or_else(|| eyre::eyre!("unknown function {name}"))
+impl FromText for Header {
+    fn from_text(text: &str) -> eyre::Result<Self> {
+        ProgramMetadata::parser()
+            .padded_by(vihaco_syntax::skip())
+            .then_ignore(end())
+            .parse(text)
+            .into_result()
+            .map(Self)
+            .map_err(|errors| eyre::eyre!("invalid metadata: {errors:?}"))
     }
 }
 
-impl<I> LabelLookup for Symbols<I> {
-    fn label_address(&self, name: &str) -> eyre::Result<u32> {
-        self.labels
-            .get(name)
-            .copied()
-            .ok_or_else(|| eyre::eyre!("unknown label {name}"))
-    }
-}
+impl SstHeader for Header {}
 
-impl<I> StringIntern for Symbols<I> {
-    fn intern_string(&mut self, value: &str) -> eyre::Result<u32> {
-        self.module.intern_string(value)
-    }
-}
-
-struct Header;
-
-impl vihaco_abi::traits::FromText for Header {
-    fn from_text(_: &str) -> eyre::Result<Self> {
-        Ok(Self)
-    }
-}
-
-impl vihaco_bytecode::SstHeader for Header {}
-
-fn lower_module<'src, M>(section: SstSectionView<'src, NoContext>) -> eyre::Result<Module<M>>
+fn construct_image<'src, M>(
+    section: SstSectionView<'src, NoContext>,
+) -> eyre::Result<MachineImage<M>>
 where
     M: HasInstructionSet,
-    M::Syntax: Parse<'src> + 'src + Lower<Symbols<M::Runtime>, Runtime = M::Runtime>,
+    M::Syntax: Parse<'src> + 'src + Lower<MetadataLoweringContext, Runtime = M::Runtime>,
 {
-    let parsed = vihaco_syntax::ParsedModule::<M::Syntax, Type, Header>::parse_section(section)?;
-    let mut loader = Symbols {
-        module: LocalModule::default(),
-        functions: HashMap::new(),
-        labels: HashMap::new(),
-    };
-    let mut address = 0u32;
-    for (index, function) in parsed.functions.iter().enumerate() {
-        eyre::ensure!(
-            loader
-                .functions
-                .insert(
-                    function.name.as_str().to_owned(),
-                    (u32::try_from(index)?, address)
-                )
-                .is_none(),
-            "duplicate function"
-        );
-        address = address
-            .checked_add(u32::try_from(function.body.len())?)
-            .ok_or_else(|| eyre::eyre!("program too large"))?;
+    let vihaco_syntax::ParsedModule { header, functions } =
+        vihaco_syntax::ParsedModule::<M::Syntax, Type, Header>::parse_section(section)?;
+    let metadata = header.0;
+    let mut context = MetadataLoweringContext::new(&metadata)?;
+    let module = vihaco_syntax::ParsedModule {
+        header: (),
+        functions,
     }
-    loader.module.main_function = Some(loader.function_index("main")?);
-    for function in parsed.functions {
-        let start = u32::try_from(loader.module.code.len())?;
-        loader.labels.clear();
-        for label in function.labels {
-            let address = start
-                .checked_add(u32::try_from(label.instruction_index)?)
-                .ok_or_else(|| eyre::eyre!("label overflow"))?;
-            eyre::ensure!(
-                loader
-                    .labels
-                    .insert(label.name.as_str().to_owned(), address)
-                    .is_none(),
-                "duplicate label"
-            );
-        }
-        let name = loader.intern_string(function.name.as_str())?;
-        let params = function
-            .params
-            .into_iter()
-            .map(|p| {
-                Ok(Parameter {
-                    name: loader.intern_string(p.name.as_str())?,
-                    ty: p.ty,
-                })
-            })
-            .collect::<eyre::Result<Vec<_>>>()?;
-        let local_count = u32::try_from(params.len())?;
-        for instruction in function.body {
-            let instruction = instruction.lower(&mut loader)?;
-            loader.module.code.push(instruction);
-        }
-        loader.module.functions.push(FunctionInfo {
-            name,
-            signature: Signature {
-                params,
-                ret: function.return_types,
-            },
-            local_count,
-            start_address: start,
-            end_address: u32::try_from(loader.module.code.len())?,
-            file: 0,
-        });
-    }
-    Ok(loader.module)
+    .lower_with_metadata(metadata, &mut context)?;
+    Ok(Image::new(module))
+}
+
+fn section_source(name: &str, main: &str, helper: &str) -> String {
+    let helper_start = main.lines().count();
+    let end = helper_start + helper.lines().count();
+    // Table order intentionally differs from executable function order.
+    format!(
+        r#".section({name}):
+.header({name}):
+metadata {{
+    strings: ["main", "helper", "source.sst"],
+    functions: [
+        {{ name: 1, signature: {{ params: [], ret: [u64] }}, local_count: 0,
+           start_address: {helper_start}, end_address: {end}, file: 2 }},
+        {{ name: 0, signature: {{ params: [], ret: [u64] }}, local_count: 0,
+           start_address: 0, end_address: {helper_start}, file: 2 }},
+    ],
+    labels: [], constants: [], main_function: 1, source_symbols: [], extra: {{}},
+}}
+.header({name}).
+.text({name}):
+fn @main() -> u64 {{
+{main}
+}}
+fn @helper() -> u64 {{
+{helper}
+}}
+.text({name}).
+.section({name}).
+"#
+    )
+}
+
+fn controller_image(value: u64) -> MachineImage<ControllerMachine> {
+    let source = format!(
+        "sst v{}\n{}",
+        vihaco_bytecode::VERSION,
+        section_source(
+            "root",
+            "execution::program::call 0, @helper\nexecution::program::ret 1",
+            &format!("execution::program::const_u64 {value}\nexecution::program::ret 1"),
+        )
+    );
+    let file = SstFile::<NoContext>::from_text(&source).unwrap();
+    construct_image::<ControllerMachine>(file.root()).unwrap()
+}
+
+fn controller() -> Loadable<MachineImage<ControllerMachine>, ControllerMachine> {
+    Loadable::new(
+        controller_image(11),
+        ControllerMachine {
+            execution: ExecutionState::new(),
+            visits: 0,
+            fail_once: false,
+        },
+    )
 }
 
 #[test]
-fn nested_owners_load_lower_and_execute_independent_programs() {
-    let mut controller = Controller {
-        image: None,
-        machine: ControllerMachine {
-            execution: ExecutionState::new(),
-            control: Control,
-            sequencer: Sequencer {
-                image: None,
-                machine: SequencerMachine {
-                    execution: ExecutionState::new(),
-                    cpu: CPU::default(),
-                },
-            },
-        },
-    };
-    assert!(controller.run().is_err());
-    let source = format!(
-        r#"sst v{}
-.section(root):
-.text(root):
-fn @main() {{
-    control::control::run
-    execution::program::call 0, @helper
-    execution::program::ret 1
-}}
-fn @helper() {{
-    execution::program::const_u64 11
-    execution::program::ret 1
-}}
-.text(root).
-.section(sequencer):
-.text(sequencer):
-fn @main() {{
-    execution::program::call 0, @helper
-    execution::program::const_u64 2
-    cpu::cpu::mul_u64
-    execution::program::ret 1
-}}
-fn @helper() {{
-    execution::program::const_u64 21
-    execution::program::ret 1
-}}
-.text(sequencer).
-.section(sequencer).
-.section(root).
-"#,
-        vihaco_bytecode::VERSION
+fn sibling_loadables_construct_and_execute_independent_programs() {
+    struct Runtime {
+        controller: Loadable<MachineImage<ControllerMachine>, ControllerMachine>,
+        sequencer: Loadable<MachineImage<SequencerMachine>, SequencerMachine>,
+    }
+    let child = section_source(
+        "sequencer",
+        "execution::program::call 0, @helper\nexecution::program::const_u64 2\ncpu::cpu::mul_u64\nexecution::program::ret 1",
+        "execution::program::const_u64 21\nexecution::program::ret 1",
     );
-    let file = vihaco_bytecode::SstFile::<NoContext>::from_text(&source).unwrap();
-    controller.load_sst_section(file.root()).unwrap();
-    // Loaded artifacts own their code and metadata independently of the source file.
+    let root = section_source(
+        "root",
+        "execution::program::call 0, @helper\nexecution::program::ret 1",
+        "execution::program::const_u64 11\nexecution::program::ret 1",
+    );
+    let source = format!(
+        "sst v{}\n{}",
+        vihaco_bytecode::VERSION,
+        root.replace(".section(root).", &format!("{child}.section(root).")),
+    );
+    let file = SstFile::<NoContext>::from_text(&source).unwrap();
+    let controller_program = construct_image::<ControllerMachine>(file.root()).unwrap();
+    let sequencer_image =
+        construct_image::<SequencerMachine>(file.root().child("sequencer").unwrap()).unwrap();
+    let mut runtime = Runtime {
+        controller: Loadable::new(
+            controller_program,
+            ControllerMachine {
+                execution: ExecutionState::new(),
+                visits: 0,
+                fail_once: false,
+            },
+        ),
+        sequencer: Loadable::new(
+            sequencer_image,
+            SequencerMachine {
+                execution: ExecutionState::new(),
+                cpu: CPU::default(),
+            },
+        ),
+    };
     drop(file);
     drop(source);
-    controller.run().unwrap();
-    assert_eq!(controller.machine.execution.stack(), &[11]);
-    assert_eq!(
-        controller.machine.sequencer.machine.execution.stack(),
-        &[42]
+    assert_eq!(runtime.controller.image().module.main_function, Some(1));
+    runtime.controller.execute(&[]).unwrap();
+    runtime.sequencer.execute(&[]).unwrap();
+    assert_eq!(runtime.controller.machine().execution.stack(), &[11]);
+    assert_eq!(runtime.sequencer.machine().execution.stack(), &[42]);
+    runtime
+        .controller
+        .replace_image(controller_image(17))
+        .unwrap();
+    runtime.controller.execute(&[]).unwrap();
+    assert_eq!(runtime.controller.machine().execution.stack(), &[17]);
+    assert_eq!(runtime.sequencer.machine().execution.stack(), &[42]);
+}
+
+#[test]
+fn construction_resets_previous_invocation_without_resetting_machine_state() {
+    let image = controller_image(11);
+    let mut machine = ControllerMachine {
+        execution: ExecutionState::new(),
+        visits: 7,
+        fail_once: false,
+    };
+    machine.execution.start(&image.module, &[]).unwrap();
+    assert!(!machine.execution.is_halted());
+    let loaded = Loadable::new(image, machine);
+    assert!(loaded.machine().execution.is_halted());
+    assert!(loaded.machine().execution.frames().is_empty());
+    assert_eq!(loaded.machine().visits, 7);
+}
+
+#[test]
+fn active_replacement_is_rejected_and_faulted_invocation_can_resume() {
+    let mut loaded = controller();
+    loaded.machine_mut().fail_once = true;
+    assert!(
+        loaded
+            .execute(&[])
+            .unwrap_err()
+            .to_string()
+            .contains("injected")
     );
+    let image = loaded.image().module.code.as_ptr();
+    let pc = loaded.machine().execution.pc();
+    let frames = loaded.machine().execution.frames().len();
+    let visits = loaded.machine().visits;
+    assert!(loaded.replace_image(controller_image(17)).is_err());
+    assert_eq!(loaded.image().module.code.as_ptr(), image);
+    assert_eq!(loaded.machine().execution.pc(), pc);
+    assert_eq!(loaded.machine().execution.frames().len(), frames);
+    assert_eq!(loaded.machine().visits, visits);
+    loaded.resume().unwrap();
+    assert_eq!(loaded.machine().execution.stack(), &[11]);
+
+    loaded.replace_image(controller_image(17)).unwrap();
+    assert!(loaded.machine().execution.stack().is_empty());
+    assert!(loaded.machine().execution.frames().is_empty());
+    assert_eq!(loaded.machine().execution.pc(), 0);
+    assert!(loaded.machine().visits > visits);
+    loaded.execute(&[]).unwrap();
+    assert_eq!(loaded.machine().execution.stack(), &[17]);
+}
+
+#[test]
+fn explicit_reset_abandons_invocation_and_extraction_preserves_parts() {
+    let mut loaded = controller();
+    loaded.machine_mut().fail_once = true;
+    assert!(loaded.execute(&[]).is_err());
+    loaded.reset();
+    assert!(loaded.machine().execution.is_halted());
+    assert!(loaded.machine().execution.frames().is_empty());
+    assert_eq!(loaded.machine().visits, 1);
+    loaded.replace_image(controller_image(17)).unwrap();
+    loaded.execute(&[]).unwrap();
+    let image_pointer = loaded.image().module.code.as_ptr();
+    let visits = loaded.machine().visits;
+    let (image, machine) = loaded.into_parts();
+    assert_eq!(image.module.code.as_ptr(), image_pointer);
+    assert_eq!(machine.visits, visits);
+    assert_eq!(machine.execution.stack(), &[17]);
+}
+
+#[test]
+fn failed_image_construction_leaves_installed_program_unchanged() {
+    let mut loaded = controller();
+    let source = format!(
+        "sst v{}\n{}",
+        vihaco_bytecode::VERSION,
+        section_source(
+            "root",
+            "execution::program::call 0, @missing\nexecution::program::ret 1",
+            "execution::program::const_u64 17\nexecution::program::ret 1",
+        )
+    );
+    let file = SstFile::<NoContext>::from_text(&source).unwrap();
+    let image_pointer = loaded.image().module.code.as_ptr();
+    assert!(construct_image::<ControllerMachine>(file.root()).is_err());
+    assert_eq!(loaded.image().module.code.as_ptr(), image_pointer);
+    assert_eq!(loaded.machine().visits, 0);
+    loaded.execute(&[]).unwrap();
+    assert_eq!(loaded.machine().execution.stack(), &[11]);
+}
+
+#[test]
+fn execution_borrows_non_clone_instructions_from_the_paired_image() {
+    struct Instruction(Box<u64>);
+    type Program = LocalModule<Instruction, Value, Type>;
+    struct Machine {
+        execution: ExecutionState,
+        observed: u64,
+    }
+    impl Composite for Machine {}
+    impl HasProgram for Machine {
+        type Program = ExecutionState;
+        fn program(&self) -> &ExecutionState {
+            &self.execution
+        }
+        fn program_mut(&mut self) -> &mut ExecutionState {
+            &mut self.execution
+        }
+    }
+    impl Dispatch<Program> for Machine {
+        type Instruction = Instruction;
+        fn dispatch(&mut self, instruction: &Instruction, module: &Program) -> eyre::Result<()> {
+            assert!(std::ptr::eq(instruction, &module.code[0]));
+            self.observed = *instruction.0;
+            self.execution.execute(&program::Halt, NoMessage::new())
+        }
+    }
+    let image = Image::new(Program {
+        code: vec![Instruction(Box::new(42))],
+        main_function: Some(0),
+        functions: vec![FunctionInfo {
+            name: 0,
+            signature: Signature {
+                params: vec![],
+                ret: vec![],
+            },
+            local_count: 0,
+            start_address: 0,
+            end_address: 1,
+            file: 0,
+        }],
+        ..Default::default()
+    });
+    let mut loaded = Loadable::new(
+        image,
+        Machine {
+            execution: ExecutionState::new(),
+            observed: 0,
+        },
+    );
+    loaded.execute(&[]).unwrap();
+    assert_eq!(loaded.machine().observed, 42);
 }

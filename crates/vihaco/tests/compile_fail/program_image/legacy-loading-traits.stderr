@@ -1,0 +1,9 @@
+error[E0432]: unresolved imports `vihaco::loader::LoadBytecodeSection`, `vihaco::loader::LoadOwnBytecodeSection`, `vihaco::loader::LoadOwnSstSection`, `vihaco::loader::LoadSstSection`
+ --> tests/compile_fail/program_image/legacy-loading-traits.rs:2:5
+  |
+2 |     LoadBytecodeSection, LoadOwnBytecodeSection, LoadOwnSstSection, LoadSstSection,
+  |     ^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^ no `LoadSstSection` in `loader`
+  |     |                    |                       |
+  |     |                    |                       no `LoadOwnSstSection` in `loader`
+  |     |                    no `LoadOwnBytecodeSection` in `loader`
+  |     no `LoadBytecodeSection` in `loader`

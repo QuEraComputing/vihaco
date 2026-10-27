@@ -7,6 +7,19 @@ description: Load compiler-produced SST metadata and function bodies through gen
 
 # Module Parsing and Loading
 
+With `program-image-execution`, construct the image explicitly and store it in a
+`Loadable` field. The runnable example at
+`crates/vihaco-stdlib/examples/loadable.rs`, with adjacent `loadable.sst`, covers
+section selection, individual header-declaration preparation, symbolic lowering, image construction,
+and execution through authored Steps:
+
+```sh
+cargo run -p vihaco-stdlib --features program-image-execution --example loadable
+```
+
+The section-hook examples below apply to the legacy configuration, with
+`program-image-execution` disabled.
+
 SST loading uses the existing section hooks. The upstream compiler supplies
 complete program metadata; Vihaco parses it, checks it against `fn` bodies,
 invokes each instruction's `Lower<C>`, and assembles the loaded image.

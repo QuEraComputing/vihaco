@@ -16,6 +16,7 @@ mod common;
 #[cfg(not(feature = "typed-declarations"))]
 mod component;
 
+#[cfg(not(feature = "program-image-execution"))]
 mod composite_loader;
 
 mod derive_message;
@@ -123,7 +124,8 @@ pub fn dialect(attr: TokenStream, item: TokenStream) -> TokenStream {
         .into()
 }
 
-/// Declare typed device fields, complete capabilities, and section boundaries.
+/// Declare typed device fields and complete capabilities.
+/// Legacy section loading is generated without `program-image-execution`.
 #[cfg(feature = "typed-declarations")]
 #[proc_macro_attribute]
 pub fn composite(attr: TokenStream, item: TokenStream) -> TokenStream {

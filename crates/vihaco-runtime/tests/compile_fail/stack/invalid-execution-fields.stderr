@@ -1,4 +1,4 @@
-error: #[program] requires a non-loadable #[device] field
+error: #[program] requires a #[device] field
  --> tests/compile_fail/stack/invalid-execution-fields.rs:6:5
   |
 6 |     state: u8,

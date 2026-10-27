@@ -5,9 +5,13 @@
 
 use std::collections::HashMap;
 use vihaco_runtime::{
-    Dispatch, Execute, HasInstructionSet, Lower, Parse, Step, Syntax,
-    chumsky::Parser,
-    component, composite, dialect, field,
+    Execute, HasInstructionSet, Lower, Parse, Step, Syntax, chumsky::Parser, component, composite,
+    dialect, field,
+};
+
+#[cfg(not(feature = "program-image-execution"))]
+use vihaco_runtime::{
+    Dispatch,
     loader::{LoadOwnSstSection, LoadSstSection},
 };
 
@@ -91,6 +95,7 @@ struct Machine {
     child: Child,
     #[device(3)]
     spare: Cpu,
+    #[cfg(not(feature = "program-image-execution"))]
     loader: Loader,
     executed: usize,
 }
@@ -139,6 +144,7 @@ impl StringIntern for Loader {
     }
 }
 
+#[cfg(not(feature = "program-image-execution"))]
 impl LoadOwnSstSection<vihaco_bytecode::NoContext> for Loader
 where
     Source: Lower<Self, Runtime = Runtime>,
@@ -167,6 +173,7 @@ where
     }
 }
 
+#[cfg(not(feature = "program-image-execution"))]
 impl LoadOwnSstSection<vihaco_bytecode::NoContext> for Machine {
     type Output = ();
 
@@ -178,6 +185,7 @@ impl LoadOwnSstSection<vihaco_bytecode::NoContext> for Machine {
     }
 }
 
+#[cfg(not(feature = "program-image-execution"))]
 #[test]
 fn section_loader_capabilities_enable_generated_composite_lowering() {
     let file = vihaco_bytecode::SstFile::<vihaco_bytecode::NoContext>::from_text(&format!(
@@ -225,8 +233,8 @@ fn syntax_is_retained_and_lowering_errors_do_not_replace_loaded_code() {
         .into_result()
         .unwrap();
     assert!(
-        loader
-            .lower_instructions([source])
+        source
+            .lower(&mut loader)
             .unwrap_err()
             .to_string()
             .contains("unknown function missing")
@@ -238,6 +246,7 @@ fn syntax_is_retained_and_lowering_errors_do_not_replace_loaded_code() {
     assert_eq!(symbolic::Halt.lower(&mut ()).unwrap(), symbolic::Halt);
 }
 
+#[cfg(not(feature = "program-image-execution"))]
 #[test]
 fn lowering_capability_diagnostics() {
     let cases = trybuild::TestCases::new();

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Typed composite fields, capabilities, and section loaders.
+//! Typed composite fields, capabilities, and legacy section loaders.
 
 use std::collections::HashSet;
 
@@ -13,6 +13,7 @@ use syn::visit::Visit;
 use syn::{Fields, Ident, ItemStruct, LitStr, Meta, Path, Result, Token, Type};
 
 use crate::common::{gates, resolve_root, strip_attrs};
+#[cfg(not(feature = "program-image-execution"))]
 use crate::composite_loader::{self, SectionLoadField};
 
 struct DeviceArgs {
@@ -56,6 +57,7 @@ struct Field {
     ty: Type,
     device: Option<DeviceArgs>,
     source: String,
+    #[cfg(not(feature = "program-image-execution"))]
     section: Option<String>,
     eligible: bool,
     program: bool,
@@ -107,11 +109,13 @@ fn parse(mut item: ItemStruct) -> Result<Composite> {
     let mut fields = Vec::with_capacity(named.named.len());
     let mut codes = HashSet::new();
     let mut sources = HashSet::new();
+    #[cfg(not(feature = "program-image-execution"))]
     let mut sections = HashSet::new();
     for field in &mut named.named {
         let ident = field.ident.clone().expect("named field");
         let source = ident.unraw().to_string();
         let mut device = None;
+        #[cfg(not(feature = "program-image-execution"))]
         let mut section = None;
         let mut program = false;
         for attr in &field.attrs {
@@ -152,10 +156,13 @@ fn parse(mut item: ItemStruct) -> Result<Composite> {
                         ));
                     }
                 });
-            } else if attr.path().is_ident("loadable") {
+            }
+            #[cfg(not(feature = "program-image-execution"))]
+            if attr.path().is_ident("loadable") {
                 if section.is_some() {
                     return Err(syn::Error::new_spanned(
                         attr,
+                        #[cfg(not(feature = "program-image-execution"))]
                         "duplicate #[loadable] helper",
                     ));
                 }
@@ -169,6 +176,7 @@ fn parse(mut item: ItemStruct) -> Result<Composite> {
                     _ => {
                         return Err(syn::Error::new_spanned(
                             attr,
+                            #[cfg(not(feature = "program-image-execution"))]
                             "expected #[loadable] or #[loadable(\"section\")]",
                         ));
                     }
@@ -188,9 +196,11 @@ fn parse(mut item: ItemStruct) -> Result<Composite> {
                 section = Some(name);
             }
         }
+        #[cfg(not(feature = "program-image-execution"))]
         if section.is_some() && device.is_none() {
             return Err(syn::Error::new(
                 ident.span(),
+                #[cfg(not(feature = "program-image-execution"))]
                 "#[loadable] requires #[device]",
             ));
         }
@@ -227,19 +237,25 @@ fn parse(mut item: ItemStruct) -> Result<Composite> {
                 )?;
             }
         }
+        #[cfg(not(feature = "program-image-execution"))]
         let eligible = device.is_some() && section.is_none();
+        #[cfg(feature = "program-image-execution")]
+        let eligible = device.is_some();
         if program && !eligible {
             return Err(syn::Error::new(
                 ident.span(),
-                "#[program] requires a non-loadable #[device] field",
+                "#[program] requires a #[device] field",
             ));
         }
-        strip_attrs(&mut field.attrs, &["device", "loadable", "program"]);
+        strip_attrs(&mut field.attrs, &["device", "program"]);
+        #[cfg(not(feature = "program-image-execution"))]
+        strip_attrs(&mut field.attrs, &["loadable"]);
         fields.push(Field {
             ident,
             ty: field.ty.clone(),
             device,
             source,
+            #[cfg(not(feature = "program-image-execution"))]
             section,
             eligible,
             program,
@@ -481,12 +497,17 @@ pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStr
             let source = &field.source;
             let aliases = &args.aliases;
             let code = args.code.expect("validated device code");
+            #[cfg(not(feature = "program-image-execution"))]
             let section = match &field.section {
                 Some(section) => quote!(::core::option::Option::Some(#section)),
                 None => quote!(::core::option::Option::None),
             };
+            #[cfg(not(feature = "program-image-execution"))]
+            let section = quote!(section: #section,);
+            #[cfg(feature = "program-image-execution")]
+            let section = TokenStream::new();
             quote! { #root::__private::CompositeDevice {
-                name: #source, code: #code, source: &[#source, #(#aliases),*], section: #section,
+                name: #source, code: #code, source: &[#source, #(#aliases),*], #section
             } }
         })
     });
@@ -500,17 +521,22 @@ pub(crate) fn expand(options: TokenStream, item: TokenStream) -> Result<TokenStr
             quote! { #root::__private::validate(<#ty as #root::__private::Capabilities>::DESCRIPTION); }
         }).collect()
     };
-    let loadables: Vec<_> = fields
-        .iter()
-        .filter_map(|f| {
-            f.section.as_ref().map(|section| SectionLoadField {
-                field: f.ident.clone(),
-                ty: f.ty.clone(),
-                section_name: section.clone(),
+    #[cfg(not(feature = "program-image-execution"))]
+    let loaders = {
+        let loadables: Vec<_> = fields
+            .iter()
+            .filter_map(|f| {
+                f.section.as_ref().map(|section| SectionLoadField {
+                    field: f.ident.clone(),
+                    ty: f.ty.clone(),
+                    section_name: section.clone(),
+                })
             })
-        })
-        .collect();
-    let loaders = composite_loader::emit(name, &item.generics, &root, &loadables, &gates)?;
+            .collect();
+        composite_loader::emit(name, &item.generics, &root, &loadables, &gates)?
+    };
+    #[cfg(feature = "program-image-execution")]
+    let loaders = TokenStream::new();
     Ok(quote! {
         #item
         #(#[#gates])*
@@ -625,7 +651,7 @@ mod tests {
     fn rejects_declaration_local_collisions_and_invalid_helpers() {
         for fields in [
             "#[device] #[device] a: u8",
-            "#[device(1)] a: u8, #[device(1)] #[loadable] b: u8",
+            "#[device(1)] a: u8, #[device(1)] b: u8",
             "#[device(1, alias = \"b\")] a: u8, #[device(2)] b: u8",
             "#[device(1, alias = \"a\")] a: u8",
             "#[device(1, alias = \"x\", alias = \"x\")] a: u8",
@@ -637,11 +663,17 @@ mod tests {
             "#[device(1, alias = \"a\\u{2003}b\")] a: u8",
             "#[device(code = 2)] a: u8",
             "#[device(256)] a: u8",
+            #[cfg(not(feature = "program-image-execution"))]
             "#[loadable] a: u8",
+            #[cfg(not(feature = "program-image-execution"))]
             "#[device(1)] #[loadable] #[loadable] a: u8",
+            #[cfg(not(feature = "program-image-execution"))]
             "#[device(1)] #[loadable(\"\")] a: u8",
+            #[cfg(not(feature = "program-image-execution"))]
             "#[device(1)] #[loadable(\"a/b\")] a: u8",
+            #[cfg(not(feature = "program-image-execution"))]
             "#[device(1)] #[loadable(\"x\")] a: u8, #[device(1)] #[loadable(\"x\")] b: u8",
+            #[cfg(not(feature = "program-image-execution"))]
             "#[device(1, alias = \"x\")] #[loadable] a: u8, #[device(1, alias = \"x\")] b: u8",
             "#[cfg(any())] #[device(1)] a: u8",
         ] {
