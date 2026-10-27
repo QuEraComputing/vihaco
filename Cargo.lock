@@ -708,10 +708,13 @@ dependencies = [
 name = "vihaco-module"
 version = "0.6.0"
 dependencies = [
+ "chumsky",
  "colored",
  "eyre",
  "vihaco-abi",
  "vihaco-bytecode",
+ "vihaco-parser",
+ "vihaco-parser-derive",
 ]
 
 [[package]]
@@ -777,7 +780,9 @@ version = "0.6.0"
 dependencies = [
  "chumsky",
  "eyre",
+ "vihaco-abi",
  "vihaco-bytecode",
+ "vihaco-module",
  "vihaco-parser",
  "vihaco-parser-derive",
 ]

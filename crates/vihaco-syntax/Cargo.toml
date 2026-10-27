@@ -11,6 +11,8 @@ authors.workspace = true
 typed-declarations = []
 
 [dependencies]
+vihaco-abi = { workspace = true }
+vihaco-module = { workspace = true }
 chumsky = { workspace = true }
 eyre = { workspace = true }
 vihaco-bytecode = { workspace = true }

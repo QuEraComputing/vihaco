@@ -163,10 +163,11 @@ where
 {
     fn parser() -> impl Parser<'src, &'src str, Self, E<'src>> {
         T::parser()
-            .padded()
-            .separated_by(just(',').padded())
+            .padded_by(trivia())
+            .separated_by(just(',').padded_by(trivia()))
+            .allow_trailing()
             .collect::<Vec<_>>()
-            .delimited_by(just('['), just(']'))
+            .delimited_by(just('[').padded_by(trivia()), just(']').padded_by(trivia()))
     }
 }
 
@@ -217,4 +218,42 @@ fn token_text<'src>(
         .repeated()
         .at_least(1)
         .collect::<String>()
+}
+
+/// Whitespace and line comments shared by metadata records and collections.
+pub fn trivia<'src>() -> impl Parser<'src, &'src str, (), E<'src>> + Clone {
+    let whitespace = any().filter(|c: &char| c.is_whitespace()).ignored();
+    let comment = just("//")
+        .then(any().and_is(just('\n').not()).repeated())
+        .ignored();
+    whitespace.or(comment).repeated().collect::<()>()
+}
+
+/// Match a bare or quoted record key, including an identifier boundary.
+pub fn metadata_key<'src>(key: &'static str) -> impl Parser<'src, &'src str, (), E<'src>> {
+    text::ascii::ident()
+        .map(str::to_owned)
+        .or(QuotedString::parser().map(|s| s.into_inner()))
+        .try_map(move |value, span| {
+            if value == key {
+                Ok(())
+            } else {
+                Err(Simple::new(None, span))
+            }
+        })
+        .padded_by(trivia())
+}
+
+impl<'src> Parse<'src> for String {
+    fn parser() -> impl Parser<'src, &'src str, Self, E<'src>> {
+        QuotedString::parser().map(|s| s.into_inner())
+    }
+}
+
+impl<'src, T: Parse<'src> + 'src> Parse<'src> for Option<T> {
+    fn parser() -> impl Parser<'src, &'src str, Self, E<'src>> {
+        text::keyword("null")
+            .map(|_| None)
+            .or(T::parser().map(Some))
+    }
 }

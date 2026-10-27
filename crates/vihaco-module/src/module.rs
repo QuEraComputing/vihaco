@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 use crate::color::Themed;
+pub use crate::program_metadata::ProgramMetadata;
 
 /// A module for a single section.
 #[derive(Debug, Clone, PartialEq)]
@@ -34,13 +35,15 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, vihaco_parser_derive::Parse)]
+#[syntax_class(metadata, open = "{", close = "}")]
 pub struct SourceSymbolInfo {
     pub index: u32,
     pub name: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
+#[syntax_class(metadata, open = "{", close = "}")]
 pub struct FunctionInfo<Type> {
     pub name: u32, // index into the string interner
     pub signature: Signature<Type>,
@@ -51,25 +54,30 @@ pub struct FunctionInfo<Type> {
     pub file: u32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
+#[syntax_class(metadata, open = "{", close = "}")]
 pub struct Signature<Ty> {
     pub params: Vec<Parameter<Ty>>,
     pub ret: Vec<Ty>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
+#[syntax_class(metadata, open = "{", close = "}")]
 pub struct Parameter<Ty> {
     pub name: u32, // index into the string interner
     pub ty: Ty,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
+#[syntax_class(metadata, open = "{", close = "}")]
 pub struct LabelInfo {
     pub address: u32,
     pub name: u32, // index into the string interner
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, vihaco_parser_derive::Parse)]
+#[syntax_class(metadata)]
+#[pattern = "`{` `}`"]
 pub struct NoInfo;
 
 impl std::fmt::Display for NoInfo {

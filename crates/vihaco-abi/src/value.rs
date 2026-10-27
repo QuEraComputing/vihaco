@@ -74,6 +74,13 @@ impl<'src> vihaco_parser::Parse<'src> for Type {
     }
 }
 
+/// Typed metadata constants use the existing SST value vocabulary.
+impl<'src> vihaco_parser::Parse<'src> for Value {
+    fn parser() -> impl Parser<'src, &'src str, Self, ValueParseExtra<'src>> {
+        value_text_parser()
+    }
+}
+
 impl AsRef<Type> for Type {
     fn as_ref(&self) -> &Type {
         self
@@ -398,8 +405,18 @@ fn type_text_parser<'src>() -> impl Parser<'src, &'src str, Type, ValueParseExtr
 }
 
 fn value_text_parser<'src>() -> impl Parser<'src, &'src str, Value, ValueParseExtra<'src>> + Clone {
+    let bits = just("f64_bits")
+        .then_ignore(text::whitespace().at_least(1))
+        .ignore_then(scalar_text::<u64>())
+        .map(|bits| Value::F64(f64::from_bits(bits)))
+        .or(just("f32_bits")
+            .then_ignore(text::whitespace().at_least(1))
+            .ignore_then(scalar_text::<u32>())
+            .map(|bits| Value::F32(f32::from_bits(bits))));
+
     let ws = one_of(" \t").repeated().at_least(1).ignored();
     choice((
+        bits,
         just("undefined").to(Value::Undefined),
         just("string")
             .or(just("str"))
@@ -450,7 +467,7 @@ where
     T: std::str::FromStr,
 {
     any()
-        .filter(|ch: &char| !ch.is_whitespace())
+        .filter(|ch: &char| !ch.is_whitespace() && !",;{}[]()/".contains(*ch))
         .repeated()
         .at_least(1)
         .to_slice()

@@ -7,6 +7,7 @@ use crate::{
     cpu,
     operand::{StringOperand, Target},
 };
+use vihaco::loader::MetadataLoweringContext;
 use vihaco::{Lower, Syntax};
 
 /// Resolve labels in the function currently being lowered.
@@ -32,6 +33,28 @@ pub trait FunctionLookup {
 /// table. Implementations report an error if the table cannot represent an index.
 pub trait StringIntern {
     fn intern_string(&mut self, value: &str) -> eyre::Result<u32>;
+}
+
+impl LabelLookup for MetadataLoweringContext {
+    fn label_address(&self, name: &str) -> eyre::Result<u32> {
+        MetadataLoweringContext::label_address(self, name)
+    }
+}
+
+impl FunctionLookup for MetadataLoweringContext {
+    fn function_address(&self, name: &str) -> eyre::Result<u32> {
+        MetadataLoweringContext::function_address(self, name)
+    }
+
+    fn function_index(&self, name: &str) -> eyre::Result<u32> {
+        MetadataLoweringContext::function_index(self, name)
+    }
+}
+
+impl StringIntern for MetadataLoweringContext {
+    fn intern_string(&mut self, value: &str) -> eyre::Result<u32> {
+        self.string_index(value)
+    }
 }
 
 impl<I, C, V, Ty, Info> StringIntern for vihaco::ProgramImage<I, C, V, Ty, Info> {
@@ -127,4 +150,73 @@ lower_literal! {
     ConstU32 => crate::word::encode_u32,
     ConstBool => crate::word::encode_bool,
     ConstHeapRef => crate::word::encode_heap_ref,
+}
+
+#[cfg(test)]
+mod metadata_context_tests {
+    use super::*;
+    use vihaco::loader::FunctionScope;
+    use vihaco::module::{FunctionInfo, NoInfo, ProgramMetadata, Signature};
+    use vihaco_parser::{Ident, QuotedString};
+
+    #[test]
+    fn metadata_context_supplies_cpu_capabilities_without_extending_strings() -> eyre::Result<()> {
+        let metadata: ProgramMetadata = ProgramMetadata {
+            strings: vec!["helper".into(), "main".into(), "hello".into()],
+            functions: vec![
+                FunctionInfo {
+                    name: 0,
+                    signature: Signature {
+                        params: vec![],
+                        ret: vec![],
+                    },
+                    local_count: 0,
+                    start_address: 5,
+                    end_address: 8,
+                    file: 0,
+                },
+                FunctionInfo {
+                    name: 1,
+                    signature: Signature {
+                        params: vec![],
+                        ret: vec![],
+                    },
+                    local_count: 0,
+                    start_address: 0,
+                    end_address: 5,
+                    file: 0,
+                },
+            ],
+            labels: vec![],
+            constants: vec![],
+            main_function: Some(1),
+            source_symbols: vec![],
+            extra: NoInfo,
+        };
+        let mut context = MetadataLoweringContext::new(&metadata)?;
+        context.enter_function("main", [("done", 4)])?;
+        let branch =
+            cpu::Branch::<Syntax>(Target::Symbol(Ident("done".into()))).lower(&mut context)?;
+        assert_eq!(branch, cpu::Branch(4));
+        let call =
+            cpu::Call::<Syntax>(0, Target::Symbol(Ident("helper".into()))).lower(&mut context)?;
+        assert_eq!(call, cpu::Call(0, 5));
+        let function = cpu::ConstFunctionRef::<Syntax>(Target::Symbol(Ident("helper".into())))
+            .lower(&mut context)?;
+        assert_eq!(
+            function,
+            cpu::ConstFunctionRef(crate::encode_function_ref(0))
+        );
+        let string =
+            cpu::ConstString::<Syntax>(StringOperand::Literal(QuotedString("hello".into())))
+                .lower(&mut context)?;
+        assert_eq!(string, cpu::ConstString(crate::encode_string_id(2)));
+        assert!(
+            cpu::ConstString::<Syntax>(StringOperand::Literal(QuotedString("missing".into())))
+                .lower(&mut context)
+                .is_err()
+        );
+        assert_eq!(metadata.strings, ["helper", "main", "hello"]);
+        Ok(())
+    }
 }

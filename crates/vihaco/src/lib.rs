@@ -49,6 +49,8 @@ pub use traits::{FromBytes, FromText, GetProgramInfo, Reset};
 pub use vihaco_abi::{Lower, Runtime, Syntax};
 pub use vihaco_parser::Parse;
 pub use vihaco_parser::SurfaceInstruction;
+#[doc(hidden)]
+pub use vihaco_parser::trivia;
 pub use vihaco_parser_derive::Parse;
 
 #[cfg(feature = "typed-declarations")]

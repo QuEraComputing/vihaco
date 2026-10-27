@@ -1,8 +1,20 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Typed parsed-module syntax built from pattern-derived instruction and type
-//! syntax.
+//! Typed SST parsing built from pattern-derived instruction and type syntax.
+//!
+//! Section owners select their header type and combine device declarations with
+//! the derived `vihaco_module::module::ProgramMetadata` record. The existing
+//! [`ParsedModule`] flow retains `fn` bodies and can validate them against supplied
+//! metadata. Instructions use their existing `Lower<C>` implementations.
+//! [`ParsedModule::lower_with_metadata`] combines validation, function-scope
+//! preparation, instruction lowering, and module assembly. Its context can use
+//! `vihaco_module::loader::MetadataLoweringContext` directly or add consumer
+//! capabilities by implementing `vihaco_module::loader::FunctionScope`.
+//!
+//! Metadata records use `#[derive(Parse)]` and
+//! `#[syntax_class(metadata, open = "{", close = "}")]` with an optional `head`.
+//! See the `metadata` example for a machine-owned section header.
 //!
 //! A [`ParsedModule`] contains [`ParsedFunction`] values whose bodies are
 //! typed instruction vectors. Unknown or malformed instructions are parse
@@ -12,7 +24,10 @@
 //! Feature-off consumers retain
 //! the separate `Resolve` bridge.
 
+mod lower;
 mod types;
+
+pub use lower::lower_functions;
 
 pub mod parse;
 #[cfg(not(feature = "typed-declarations"))]
@@ -152,7 +167,7 @@ mod tests {
             .parse(src)
             .into_result()
             .unwrap();
-        assert_eq!(f.return_ty, Some(StubType::Unit));
+        assert_eq!(f.return_types, vec![StubType::Unit]);
     }
 
     #[test]

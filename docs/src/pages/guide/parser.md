@@ -199,6 +199,6 @@ newtype, another syntax enum or struct, `Vec<T>`, or a tuple.
 ## What comes next
 
 - For section headers, functions, typed bodies, and `Resolve`, see
-  [Module Parsing and Resolution](/guide/parser-advanced).
+  [Module Parsing and Loading](/guide/parser-advanced).
 - To attach an instruction type to a component through `dispatch`, see
   [Building Components With `vihaco`](/guide/components).
