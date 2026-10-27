@@ -19,10 +19,12 @@ publish = false
 
 [features]
 typed-declarations = ["vihaco/typed-declarations", "vihaco-cpu/typed-declarations"]
+program-image-execution = ["typed-declarations", "vihaco/program-image-execution", "vihaco-stdlib/program-image-execution"]
 
 [dependencies]
 vihaco = { workspace = true }
 vihaco-cpu = { workspace = true }
+vihaco-stdlib = { workspace = true }
 vihaco-parser = { workspace = true }
 vihaco-parser-derive = { workspace = true }
 chumsky = { workspace = true }

@@ -24,6 +24,10 @@ impl vihaco_runtime::Message for BranchMessage {}
 
 impl vihaco_runtime::Message for CallMessage {}
 
+impl vihaco_runtime::AutomaticMessage for BranchMessage {}
+
+impl vihaco_runtime::AutomaticMessage for CallMessage {}
+
 impl<P, F, Code, V, Ty, Info> PrepareMessage<P, F, program::Branch, LocalModule<Code, V, Ty, Info>>
     for BranchMessage
 where

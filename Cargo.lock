@@ -704,6 +704,7 @@ dependencies = [
  "vihaco-cpu",
  "vihaco-parser",
  "vihaco-parser-derive",
+ "vihaco-stdlib",
 ]
 
 [[package]]

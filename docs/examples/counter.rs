@@ -1,41 +1,29 @@
-use eyre::Result;
-use vihaco::{component, dispatch, Effects, Message};
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
 
-// Bytecode-visible operations. Each variant becomes an opcode; tuple fields
-// become the payload bytes that follow it.
-component! {
-    #[derive(Debug, Default)]
-    pub component Counter {
-        value: i64,
-    }
+use vihaco::{Execute, NoMessage, component, dialect};
 
-    instruction {
-        Add(i64),
-        Print,
-    }
+#[dialect]
+pub mod counter {
+    #[instruction]
+    pub struct Add(pub u64);
 }
 
-use counter::runtime::Instruction as CounterInst;
+#[component]
+#[instructions { counter }]
+#[derive(Default)]
+pub struct Counter(u64);
 
-/// Resolved execution input — supplied by the runtime, not encoded in
-/// the instruction stream.
-#[derive(Debug, Clone, Message)]
-pub struct Prefix(pub String);
+impl Execute<counter::Add> for Counter {
+    type Message = NoMessage;
+    type Effect = u64;
+    type Error = eyre::Report;
 
-/// A value the component returns for the runtime or observers to consume.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Line(pub String);
-
-// One `execute` per component: (instruction, message) in, effects out.
-#[dispatch(instruction = counter::runtime::Instruction, message = Prefix, effect = Line)]
-impl counter::Counter {
-    fn execute(&mut self, inst: &CounterInst, msg: Prefix) -> Result<Effects<Line>> {
-        match inst {
-            CounterInst::Add(v) => {
-                self.value += v;
-                Ok(Effects::none())
-            }
-            CounterInst::Print => Ok(Effects::one(Line(format!("{}{}", msg.0, self.value)))),
-        }
+    fn execute(&mut self, instruction: &counter::Add, _: NoMessage) -> eyre::Result<u64> {
+        self.0 = self
+            .0
+            .checked_add(instruction.0)
+            .ok_or_else(|| eyre::eyre!("counter overflow"))?;
+        Ok(self.0)
     }
 }

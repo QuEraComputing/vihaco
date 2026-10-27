@@ -23,7 +23,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, "");
 const sections = guides.map((g) => ({
   id: g.slug,
   label: g.label,
-  href: `${base}/guide/${g.slug}`,
+  href: g.slug === "index" ? `${base}/guide` : `${base}/guide/${g.slug}`,
 }));
 
 // Right on-page TOC — the h2 headings of this guide.
@@ -39,7 +39,7 @@ const currentSection = frontmatter.slug;
   current="guide"
   sections={sections}
   currentSection={currentSection}
-  sectionsTitle="Guides"
+  sectionsTitle="Author’s guide"
   toc={toc}
 >
   <article class="shell narrow guide-body">

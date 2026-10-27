@@ -1,179 +1,65 @@
 ---
 layout: ../../layouts/Guide.astro
-title: Advanced Instruction Usage
+title: Binary formats
 slug: instructions-advanced
-description: Explicit opcode assignment, explicit instruction widths, and machine-level wrapper instructions that compose several component instruction sets.
+description: "Separate container framing, instruction encoding, and complete program metadata."
 ---
 
-# Advanced Instruction Usage
+# Binary formats
 
-This guide covers explicit opcode assignment, explicit instruction widths, and machine-level wrapper instructions.
+> **Warning:** The bytecode container and format are currently unstable and may
+> change. Don't rely on compatibility between versions.
 
-For the basics of defining instruction enums and how width inference works, see [Defining Instructions With `vihaco`](/guide/instructions).
+A binary format needs to describe both the sections in a file and the complete
+module you want to execute. Reading the container is the first part; you still
+need to construct a runnable image from its contents.
 
-## Setting An Explicit Opcode
+## Container and section data
 
-Use `#[opcode = ...]` on a variant when you want to choose the encoded opcode value yourself instead of using the default variant-order assignment.
+`BytecodeFile<C>::from_bytes(bytes)` reads the container and gives you a root
+section. Your `C` implements `BytecodeGlobalContext` to read global data and
+`SectionNameResolver` to look up child-section names stored as indices.
+Use `child(name)` or `children()` to choose independently loaded units.
 
-```rust
-use vihaco::Instruction;
+Section views expose header bytes, instruction bytes, and child sections.
+Read your header representation with `decode_header::<H>()`. If `I` implements
+the required bytecode traits, `decode_instructions::<I>()` can decode its
+instruction stream.
 
-#[derive(Debug, Clone, Instruction)]
-#[instruction(width = 16)]
-pub enum BranchInst {
-    #[opcode = 0x10]
-    Jump(u32),
-    #[opcode = 0x11]
-    Select(u32, u32),
-}
-```
+You'll need to supply any instruction codecs those helpers require. Typed
+composition and persistent encoding are separate: a composite declaration
+doesn't give you a stable hierarchical wire format.
 
-This is useful when:
+## Define instruction identities deliberately
 
-- the bytecode format needs stable numeric opcode values
-- you want specific opcode numbers for compatibility or tooling
-- you want to leave gaps for future instructions
+The ABI's `Instruction` derive and bytecode traits let you define encoded types.
+Your wire types can differ from the types you execute. Choose how to represent
+device routes, opcodes, operand widths, and payloads, then decode them into the
+module's runtime instruction type.
 
-If you do not need that control, leaving opcodes inferred from variant order is the simpler default.
+Generated inventory positions and hidden enum variant order aren't persistent
+compatibility contracts. If your codec needs access to a particular
+representation, keep that dependency in the codec, away from component execution
+and step behavior.
 
-## Setting An Explicit Width
+## Preserve the whole program
 
-Use `#[instruction(width = ...)]` when you want the encoded record size to stay fixed even if the enum could be smaller.
+Code is only part of what a program needs. Keep its function signatures and
+ranges, reserved locals, entry selection, labels, constants, strings, source
+symbols, and application configuration too. Check references and table bounds
+before pairing the decoded result with a machine. An instruction round trip
+alone doesn't show that the decoded program will behave the same way.
 
-A fixed-width device instruction type is a common case — for example a signal generator that takes a channel address and a `Play`:
+Choose a format version and decide when to change it. Reassigning an opcode,
+changing a payload, or interpreting metadata differently can break compatibility
+even when the Rust types still compile. Reject unsupported versions clearly,
+or write an explicit conversion policy.
 
-```rust
-use vihaco::Instruction;
+## Verify source and binary agreement
 
-#[derive(Debug, Clone, Instruction)]
-#[instruction(width = 8)]
-pub enum SignalInst {
-    Poly(u32),
-    Play,
-}
-```
+Load equivalent source and binary programs, then compare their results, control
+flow, and retained metadata. Include malformed lengths, bad references,
+unsupported opcodes, numeric limits, and floating-point bit patterns in your
+tests. Keep exact wire layouts with the codec's reference documentation.
 
-This says that every encoded `SignalInst` record is `8` bytes wide.
-
-Conceptually:
-
-```text
-SignalInst::Play
-=> [opcode for Play][0][0][0][0][0][0][0]
-```
-
-```text
-SignalInst::Poly(addr)
-=> [opcode for Poly][encoded address bytes...][zero padding if needed]
-```
-
-This is useful when you want a stable instruction record size at a component boundary.
-
-## When To Leave Width Inferred
-
-Leave width inferred when:
-
-- you want the enum width to naturally track its largest payload
-- the instruction type is only used as a reusable building block inside a larger wrapper enum
-- you do not need a fixed external record size
-
-Set an explicit width when:
-
-- the instruction format should always occupy a fixed number of bytes
-- you want smaller variants padded up to a known record size
-- the component already has a width contract you want to preserve as the enum evolves
-
-## Machine-Level Wrapper Instructions
-
-`vihaco` also supports instruction enums that wrap other instruction enums.
-This is how a machine can expose several component instruction sets through one outer instruction type.
-
-A machine that drives a CPU plus a signal generator can wrap both:
-
-```rust
-use vihaco::Instruction;
-use vihaco_cpu as cpu;
-# #[derive(Debug, Clone, Instruction)]
-# #[instruction(width = 8)]
-# pub enum SignalInst {
-#     Poly(u32),
-#     Play,
-# }
-
-#[derive(Debug, Clone)]
-pub enum MachineInst {
-    Cpu(cpu::RuntimeInstruction),
-    Signal(SignalInst),
-}
-```
-
-The CPU instruction set uses explicit variants for each value family. For
-example, the CPU payload can be `cpu::RuntimeInstruction::AddI64` or
-`cpu::RuntimeInstruction::ConstF32(word)`, rather than a generic operation
-carrying a separate `Type` operand.
-
-Each outer variant identifies which nested instruction family is being used.
-The nested instruction then becomes the payload of that outer variant.
-
-Conceptually:
-
-```text
-MachineInst::Signal(SignalInst::Play)
-=> [opcode for outer Signal variant][encoded SignalInst][padding if needed]
-```
-
-This keeps composition straightforward:
-
-- each component keeps its own instruction type
-- the machine exposes one outer instruction type
-- the wrapper enum handles outer dispatch without forcing every inner instruction type to be rewritten
-
-> When you use the [`#[composite]`](/guide/composites) attribute, it generates component-local runtime and syntax enums in a snake_case module. If you need one outer wrapper instruction type, write it by hand as above.
-
-## How Nested Widths Compose
-
-For wrapper enums, the outer instruction width is computed from the outer enum, not by changing the inner types.
-
-That means:
-
-- each inner instruction keeps its own width
-- a nested instruction payload contributes its full encoded width as payload
-- the outer enum width is `1` opcode byte plus the largest nested payload used by any variant
-- smaller nested payloads are padded inside the outer record
-
-For example, if the largest CPU runtime instruction payload is `W` bytes and
-`SignalInst` is `8` bytes wide, then the outer machine instruction width is
-`1 + max(W, 8)` bytes:
-
-- `1` byte for the outer machine opcode
-- the width of the largest nested payload
-
-So a smaller instruction such as `MachineInst::Signal(...)` still occupies the full outer width once encoded.
-
-Conceptually:
-
-```text
-MachineInst::Signal(signal_inst)
-=> [opcode for Signal][encoded signal instruction][zero padding...]
-```
-
-This is what makes nested instruction composition deterministic:
-
-- decoding always reads one full outer instruction record
-- the outer opcode decides which nested instruction type should decode the payload
-- the nested type decodes only the bytes it understands
-
-## Practical Guidance
-
-- Use `#[opcode = ...]` when opcode numbers are part of the bytecode contract.
-- Use `#[instruction(width = ...)]` when record size is part of the component contract.
-- Wrap inner instruction enums in an outer machine enum instead of flattening all instructions into one giant type.
-- Let the outer enum own machine-visible composition and padding behavior.
-
-## What Comes Next
-
-`#[derive(Instruction)]` covers bytecode and runtime semantics; source-text parsing is owned by an orthogonal `#[derive(vihaco_parser_derive::Parse)]` on the same enum. See [Pattern Parser Integration for Component Instructions](/guide/parser) for the parser-side workflow and [Module Parsing and Loading](/guide/parser-advanced) for section headers, typed function bodies, and module resolution.
-
-After defining an instruction type, the next step is usually to attach it to a component impl with `#[dispatch(...)]`.
-
-See [Building Components With `vihaco`](/guide/components) for the execution side of that model.
+Next, see some [patterns for larger machines](/guide/patterns).

@@ -32,10 +32,11 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      # Legacy guide examples retain a separate feature-off graph.
+      # The author guide is also checked in its program-image configuration.
       # Facade opt-in forwards through stdlib to CPU and lower framework crates.
       - run: cargo clippy --workspace --exclude vihaco-doctests --all-targets --features vihaco/typed-declarations -- -D warnings
       - run: cargo clippy --workspace --exclude vihaco-doctests --all-targets --features vihaco/program-image-execution -- -D warnings
+      - run: cargo clippy -p vihaco-doctests --all-targets --features program-image-execution -- -D warnings
 
   feature-checks:
     name: Feature checks (workspace)
@@ -92,6 +93,7 @@ jobs:
       - run: cargo test --workspace --all-targets
       - run: cargo test --workspace --exclude vihaco-doctests --all-targets --features vihaco/typed-declarations
       - run: cargo test --workspace --exclude vihaco-doctests --all-targets --features vihaco/program-image-execution
+      - run: cargo test -p vihaco-doctests --all-targets --features program-image-execution
       - run: cargo test --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-off
       - run: cargo test --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-on -p cpu-direct
       - run: cargo test --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-indirect
@@ -114,3 +116,4 @@ jobs:
       - run: cargo test --workspace --doc
       - run: cargo test --workspace --exclude vihaco-doctests --doc --features vihaco/typed-declarations
       - run: cargo test --workspace --exclude vihaco-doctests --doc --features vihaco/program-image-execution
+      - run: cargo test -p vihaco-doctests --doc --features program-image-execution

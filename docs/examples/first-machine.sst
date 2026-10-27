@@ -1,0 +1,31 @@
+sst v1
+.section(root):
+    .header(root):
+        metadata {
+            strings: ["main", "first-machine.sst"],
+            functions: [
+                {
+                    name: 0,
+                    signature: { params: [], ret: [u64] },
+                    local_count: 0,
+                    start_address: 0,
+                    end_address: 4,
+                    file: 1,
+                },
+            ],
+            labels: [],
+            constants: [],
+            main_function: 0,
+            source_symbols: [],
+            extra: {},
+        };
+    .header(root).
+    .text(root):
+        fn @main() -> u64 {
+            execution::program::const_u64 20
+            execution::program::const_u64 22
+            calculator::arithmetic::add
+            execution::program::ret 1
+        }
+    .text(root).
+.section(root).
