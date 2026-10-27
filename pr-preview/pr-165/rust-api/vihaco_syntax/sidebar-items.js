@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["lower_functions","lower_functions_with_metadata"],"mod":["parse"],"struct":["HeaderDeclarations","Param","ParsedFunction","ParsedLabel","ParsedModule"],"trait":["SurfaceInstruction"]};
