@@ -7,6 +7,13 @@ description: "Build an image from sectioned source, explicit metadata, and symbo
 
 # Loading SST programs
 
+> **SST's future:** SST may become unsupported or be superseded by a bytecode
+> format plus a disassembler. It is not a promised long-term compiler target.
+
+If you're writing a compiler, start with
+[emitting SST from a compiler](/guide/sst-reference) for the file format and
+metadata you must produce. This chapter describes the consuming loader.
+
 Loading an SST program means choosing its section, reading the declarations,
 resolving symbols, and building a module. Do this outside the mutable execution
 machine, then pair the result with the machine when it's ready.

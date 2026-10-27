@@ -47,10 +47,31 @@ their devices' full declared capabilities to the enclosing instruction set.
 
 ## Generated instruction sets and dispatch
 
+You no longer need to manually define an instruction enum for the whole machine.
+`#[composite]` lifts the subdevices' declared instructions into the parent and
+flattens them into a combined instruction set, including routes through nested
+composites. Each instruction retains its destination route, so two devices that
+support the same dialect remain distinct destinations.
+
 Use `<Machine as HasInstructionSet>::Runtime` for the combined executable
-instruction type, and `::Syntax` for its source form. This aggregate covers the
-available instructions at their field routes. Use those public associated types
-in your code so you don't have to rely on generated enum names or variants.
+instruction type, where `Machine` is your composite type, and
+`<Machine as HasInstructionSet>::Syntax` for its source form:
+
+```rust
+use vihaco::{HasInstructionSet, composite};
+
+#[composite]
+struct Machine {
+    #[device(0)]
+    execution: vihaco_stdlib::ExecutionState,
+}
+
+type Instruction = <Machine as HasInstructionSet>::Runtime;
+type SourceInstruction = <Machine as HasInstructionSet>::Syntax;
+```
+
+Use those public associated types in your code so you don't have to rely on
+generated enum names or variants.
 
 In source, routes look like `field::nested_field::dialect::mnemonic`. Aliases
 add accepted spellings for a device without creating new instruction identities.

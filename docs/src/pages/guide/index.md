@@ -39,6 +39,7 @@ dependencies.
 |---|---|
 | [The mental model](/guide/mental-model) | Meet the pieces and see how a program moves through them |
 | [Your first machine](/guide/first-machine) | Write a component and run it in a complete program |
+| [Essential concepts](/guide/essentials) | The minimum needed to define instructions, implement components, and wire a VM |
 | [Dialects and instructions](/guide/instructions) | Define the operations your components will implement |
 | [Writing components](/guide/components) | Give a device state and implement `Execute` |
 | [Preparing messages](/guide/messages) | Supply runtime input with `BuildMessage` |
@@ -50,9 +51,30 @@ dependencies.
 | [Images and Loadables](/guide/loadables) | Own programs, replace images, and reset execution |
 | [Parsing source](/guide/parser) | Give instructions a source spelling |
 | [Loading SST programs](/guide/parser-advanced) | Read sections, prepare metadata, and resolve symbols |
+| [Emitting SST from a compiler](/guide/sst-reference) | Produce the file structure, instruction syntax, and metadata a loader expects |
 | [Binary formats](/guide/instructions-advanced) | Encode programs and plan for compatibility |
 | [Larger machines](/guide/patterns) | Share message preparation and steps, and swap backends |
 | [Testing and extending](/guide/testing) | Check behavior and add new pieces |
+
+## The bare bones: instructions, components, and a VM
+
+After [your first machine](/guide/first-machine), read the short
+[essential concepts](/guide/essentials) page. The three authoring tasks are:
+
+- **Define instructions:** declare a `#[dialect]` containing `#[instruction]`
+  types for operations and their encoded operands. See
+  [dialects and instructions](/guide/instructions).
+- **Define components:** declare supported dialects with `#[component]` and
+  `#[instructions { ... }]`, then implement `Execute<I>` for each operation.
+  Choose its runtime message, effect, and error types. See
+  [writing components](/guide/components).
+- **Wire a VM:** put devices in a `#[composite]` and supply `Step` implementations
+  that prepare messages, execute operations, and handle effects. The macro
+  lifts and flattens the devices' instructions into a generated instruction set;
+  you don't manually define a machine instruction enum. Its executable type is
+  `<Machine as HasInstructionSet>::Runtime`, where `Machine` is your composite.
+  See [writing composites](/guide/composites) and
+  [executing one instruction](/guide/execution).
 
 ## Find your starting point
 
@@ -62,7 +84,8 @@ that, you can follow the chapters in order or focus on the part you're building.
 For a component, read about dialects, execution, and the messages and effects
 that connect it to a machine. For a composite, keep going through routing,
 steps, and program ownership. If you're writing a source or binary frontend,
-the parsing, metadata, and loading chapters cover that work.
+start with [emitting SST from a compiler](/guide/sst-reference) for the producer
+contract, or [binary formats](/guide/instructions-advanced) for encoded programs.
 
 Keep the [pattern reference](/guide/parser-patterns) nearby for parser grammar
 details. The [API reference](/reference) covers individual Rust types and methods.

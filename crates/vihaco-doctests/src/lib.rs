@@ -67,6 +67,12 @@ mod authors {
     #[doc = include_str!("../../../docs/src/pages/guide/first-machine.md")]
     mod first_machine {}
 
+    #[doc = include_str!("../../../docs/src/pages/guide/essentials.md")]
+    mod essentials {}
+
+    #[doc = include_str!("../../../docs/src/pages/guide/sst-reference.md")]
+    mod sst_reference {}
+
     #[doc = include_str!("../../../docs/src/pages/guide/execution.md")]
     mod execution {}
 

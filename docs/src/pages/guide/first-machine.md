@@ -16,6 +16,10 @@ Use the [dependency setup](/guide). You'll need two files: the program in
 
 ## The SST program
 
+> **SST's future:** SST may become unsupported or be superseded by a bytecode
+> format plus a disassembler. It is not a promised long-term compiler target.
+> See [emitting SST from a compiler](/guide/sst-reference) for the current contract.
+
 Save this as `src/first-machine.sst`. The `.text(root)` block contains our four
 instructions. The header describes the function and its tables so the loader
 can check the program before running it.
@@ -241,5 +245,5 @@ Finally, `Image::new` wraps the module, and `Loadable::new` pairs it with the
 machine. Calling `execute(&[])` enters the selected function with no host
 arguments.
 
-[Dialects and instructions](/guide/instructions) takes a closer look at the
-vocabulary you started with.
+[Essential concepts](/guide/essentials) summarizes the minimum needed to define
+instructions, implement components, and wire a VM before you explore each topic.
