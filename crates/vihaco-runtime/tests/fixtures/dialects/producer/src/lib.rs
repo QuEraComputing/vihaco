@@ -12,6 +12,7 @@ pub mod arithmetic {
     #[instruction]
     pub struct Halt;
 }
+
 pub use arithmetic as exported;
 
 impl<C: ?Sized> rt::Lower<C> for arithmetic::Add<rt::Syntax> {
@@ -47,6 +48,7 @@ mod private_control {
     #[instruction]
     pub struct Stop;
 }
+
 pub use private_control::Stop as PrivateStop;
 
 #[rt::component]
@@ -61,5 +63,5 @@ impl rt::Execute<PrivateStop> for PrivateDevice {
 
 impl<I> rt::Step<rt::field!(Machine::cpu), I> for Machine
 where Cpu: rt::Execute<I, Message = (), Error = std::convert::Infallible> {
-    fn step(&mut self, instruction: I) -> rt::eyre::Result<()> { rt::Execute::execute(&mut self.cpu, &instruction, ())?; Ok(()) }
+    fn step(&mut self, instruction: &I, _: &()) -> rt::eyre::Result<()> { rt::Execute::execute(&mut self.cpu, instruction, ())?; Ok(()) }
 }

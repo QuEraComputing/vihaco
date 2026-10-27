@@ -1,0 +1,10 @@
+[package]
+name = "cpu-program-image"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+host = { workspace = true, default-features = false }
+vm = { workspace = true, features = ["program-image-execution"] }
+rt = { workspace = true, default-features = false }

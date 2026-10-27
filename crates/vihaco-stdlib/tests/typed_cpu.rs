@@ -1,14 +1,11 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-#![cfg(feature = "typed-declarations")]
+#![cfg(all(
+    feature = "typed-declarations",
+    not(feature = "program-image-execution")
+))]
 
-use vihaco::{
-    Dispatch, Execute, HasInstructionSet, NoMessage, Parse, Step,
-    chumsky::Parser as _,
-    composite, field,
-    traits::{FrameMemory, StackFrame, StackMemory},
-};
 use vihaco_cpu::{
     CPU, StepOutcome, cpu, encode_f32, encode_f64, encode_function_ref, encode_i64,
     lower::{FunctionLookup, LabelLookup, StringIntern},
@@ -16,14 +13,22 @@ use vihaco_cpu::{
     operand::Target,
 };
 
+use vihaco_module::host::{FrameMemory, StackFrame, StackMemory};
+use vihaco_runtime::{
+    Dispatch, Execute, HasInstructionSet, NoMessage, Parse, Step, chumsky::Parser as _, composite,
+    field,
+};
+
 // These tests exercise resolved numeric operands. Capability methods are never
 // needed for them, but aggregate lowering still requires the complete contract.
 struct NumericContext;
+
 impl LabelLookup for NumericContext {
     fn label_address(&self, name: &str) -> eyre::Result<u32> {
         Err(eyre::eyre!("unknown label {name}"))
     }
 }
+
 impl FunctionLookup for NumericContext {
     fn function_address(&self, name: &str) -> eyre::Result<u32> {
         Err(eyre::eyre!("unknown function {name}"))
@@ -32,6 +37,7 @@ impl FunctionLookup for NumericContext {
         Err(eyre::eyre!("unknown function {name}"))
     }
 }
+
 impl StringIntern for NumericContext {
     fn intern_string(&mut self, _: &str) -> eyre::Result<u32> {
         Err(eyre::eyre!("numeric-only fixture cannot intern strings"))
@@ -86,46 +92,51 @@ macro_rules! steps {
             GeU32, GeU64, GeF32, GeF64
         );
         impl Step<$route, cpu::Call> for $machine {
-            fn step(&mut self, instruction: cpu::Call) -> eyre::Result<()> {
-                self.$($device).+.execute(&instruction, message::FunctionInfo {
+            fn step(&mut self, instruction: &cpu::Call, _: &()) -> eyre::Result<()> {
+                self.$($device).+.execute(instruction, message::FunctionInfo {
                     arity: instruction.0, start_address: instruction.1, local_count: instruction.0,
                 })?;
                 Ok(())
             }
         }
         impl Step<$route, cpu::IndirectCall> for $machine {
-            fn step(&mut self, instruction: cpu::IndirectCall) -> eyre::Result<()> {
-                self.$($device).+.execute(&instruction, message::FunctionInfo {
+            fn step(&mut self, instruction: &cpu::IndirectCall, _: &()) -> eyre::Result<()> {
+                self.$($device).+.execute(instruction, message::FunctionInfo {
                     arity: 0, start_address: 0, local_count: 0,
                 })?;
                 Ok(())
             }
         }
         impl Step<$route, cpu::Print> for $machine {
-            fn step(&mut self, instruction: cpu::Print) -> eyre::Result<()> {
-                self.$($device).+.execute(&instruction, message::Print("text".into()))?;
+            fn step(&mut self, instruction: &cpu::Print, _: &()) -> eyre::Result<()> {
+                self.$($device).+.execute(instruction, message::Print("text".into()))?;
                 Ok(())
             }
         }
     };
 }
+
 macro_rules! ordinary_steps {
     ($machine:ty, $route:ty, $device:tt; $($instruction:ident),*) => {$(
         ordinary_step!($machine, $route, $device, $instruction);
     )*};
 }
+
 macro_rules! ordinary_step {
     ($machine:ty, $route:ty, ($($device:ident).+), $instruction:ident) => {
         impl Step<$route, cpu::$instruction> for $machine {
-            fn step(&mut self, instruction: cpu::$instruction) -> eyre::Result<()> {
-                self.$($device).+.execute(&instruction, NoMessage::new())?;
+            fn step(&mut self, instruction: &cpu::$instruction, _: &()) -> eyre::Result<()> {
+                self.$($device).+.execute(instruction, NoMessage::new())?;
                 Ok(())
             }
         }
     };
 }
+
 steps!(Controller, field!(Controller::cpu), cpu);
+
 steps!(Machine, field!(Machine::controller::cpu), controller.cpu);
+
 steps!(Machine, field!(Machine::spare), spare);
 
 fn machine() -> Machine {
@@ -142,7 +153,10 @@ fn step(machine: &mut Machine, source: &str) -> eyre::Result<()> {
         .parse(source)
         .into_result()
         .unwrap();
-    machine.dispatch(vihaco::Lower::lower(instruction, &mut NumericContext)?)
+    machine.dispatch(
+        &vihaco_runtime::Lower::lower(instruction, &mut NumericContext)?,
+        &(),
+    )
 }
 
 #[test]
@@ -163,8 +177,8 @@ fn direct_runtime_parser_dispatches_to_nested_aliased_and_repeated_cpu_fields() 
 #[test]
 fn readable_constants_parse_to_encoded_runtime_words() {
     assert_eq!(
-        vihaco::Lower::lower(
-            cpu::ConstI32::<vihaco::Syntax>::parser()
+        vihaco_runtime::Lower::lower(
+            cpu::ConstI32::<vihaco_runtime::Syntax>::parser()
                 .parse("const_i32 -7")
                 .into_result()
                 .unwrap(),
@@ -174,8 +188,8 @@ fn readable_constants_parse_to_encoded_runtime_words() {
         cpu::ConstI32(vihaco_cpu::encode_i32(-7))
     );
     assert_eq!(
-        vihaco::Lower::lower(
-            cpu::ConstF32::<vihaco::Syntax>::parser()
+        vihaco_runtime::Lower::lower(
+            cpu::ConstF32::<vihaco_runtime::Syntax>::parser()
                 .parse("const_f32 -0.5")
                 .into_result()
                 .unwrap(),
@@ -185,13 +199,13 @@ fn readable_constants_parse_to_encoded_runtime_words() {
         cpu::ConstF32(encode_f32(-0.5))
     );
     assert!(
-        cpu::ConstString::<vihaco::Syntax>::parser()
+        cpu::ConstString::<vihaco_runtime::Syntax>::parser()
             .parse("const_string 4294967296")
             .has_errors()
     );
     assert_eq!(
-        vihaco::Lower::lower(
-            cpu::ConstI64::<vihaco::Syntax>::parser()
+        vihaco_runtime::Lower::lower(
+            cpu::ConstI64::<vihaco_runtime::Syntax>::parser()
                 .parse("const_i64 -42")
                 .into_result()
                 .unwrap(),
@@ -201,8 +215,8 @@ fn readable_constants_parse_to_encoded_runtime_words() {
         cpu::ConstI64(encode_i64(-42))
     );
     assert_eq!(
-        vihaco::Lower::lower(
-            cpu::ConstF64::<vihaco::Syntax>::parser()
+        vihaco_runtime::Lower::lower(
+            cpu::ConstF64::<vihaco_runtime::Syntax>::parser()
                 .parse("const_f64 -1.5")
                 .into_result()
                 .unwrap(),
@@ -212,8 +226,8 @@ fn readable_constants_parse_to_encoded_runtime_words() {
         cpu::ConstF64(encode_f64(-1.5))
     );
     assert_eq!(
-        vihaco::Lower::lower(
-            cpu::ConstBool::<vihaco::Syntax>::parser()
+        vihaco_runtime::Lower::lower(
+            cpu::ConstBool::<vihaco_runtime::Syntax>::parser()
                 .parse("const_bool true")
                 .into_result()
                 .unwrap(),
@@ -223,8 +237,8 @@ fn readable_constants_parse_to_encoded_runtime_words() {
         cpu::ConstBool(1)
     );
     assert_eq!(
-        vihaco::Lower::lower(
-            cpu::ConstString::<vihaco::Syntax>::parser()
+        vihaco_runtime::Lower::lower(
+            cpu::ConstString::<vihaco_runtime::Syntax>::parser()
                 .parse("const_string 3")
                 .into_result()
                 .unwrap(),
@@ -234,8 +248,8 @@ fn readable_constants_parse_to_encoded_runtime_words() {
         cpu::ConstString(3)
     );
     assert_eq!(
-        vihaco::Lower::lower(
-            cpu::ConstFunctionRef::<vihaco::Syntax>::parser()
+        vihaco_runtime::Lower::lower(
+            cpu::ConstFunctionRef::<vihaco_runtime::Syntax>::parser()
                 .parse("const_fn_ref 4")
                 .into_result()
                 .unwrap(),
@@ -244,7 +258,7 @@ fn readable_constants_parse_to_encoded_runtime_words() {
         .unwrap(),
         cpu::ConstFunctionRef(encode_function_ref(4))
     );
-    let branch = cpu::Branch::<vihaco::Syntax>::parser()
+    let branch = cpu::Branch::<vihaco_runtime::Syntax>::parser()
         .parse("br @later")
         .into_result()
         .unwrap();
@@ -252,15 +266,15 @@ fn readable_constants_parse_to_encoded_runtime_words() {
         branch.0,
         Target::Symbol(vihaco_parser::Ident("later".to_owned()))
     );
-    assert!(vihaco::Lower::lower(branch, &mut NumericContext).is_err());
+    assert!(vihaco_runtime::Lower::lower(branch, &mut NumericContext).is_err());
     assert!(
-        cpu::ConstI32::<vihaco::Syntax>::parser()
+        cpu::ConstI32::<vihaco_runtime::Syntax>::parser()
             .parse("const_i32 2147483648")
             .has_errors()
     );
     assert!(cpu::ConstU64::parser().parse("const_u64 -1").has_errors());
     assert!(
-        cpu::ConstString::<vihaco::Syntax>::parser()
+        cpu::ConstString::<vihaco_runtime::Syntax>::parser()
             .parse("const_string \"hello\"")
             .has_output()
     );
@@ -269,7 +283,7 @@ fn readable_constants_parse_to_encoded_runtime_words() {
 #[test]
 fn sst_labels_are_readability_metadata_and_do_not_occupy_runtime_slots() {
     type Function =
-        vihaco::syntax::ParsedFunction<<Machine as HasInstructionSet>::Syntax, vihaco::Type>;
+        vihaco_syntax::ParsedFunction<<Machine as HasInstructionSet>::Syntax, vihaco_abi::Type>;
     let parsed = Function::parser()
         .parse("fn @main() { label @entry ctl::host::cpu::br 1 label @later spare::cpu::halt }")
         .into_result()
@@ -288,7 +302,10 @@ fn sst_labels_are_readability_metadata_and_do_not_occupy_runtime_slots() {
     let mut machine = machine();
     for instruction in parsed.body {
         machine
-            .dispatch(vihaco::Lower::lower(instruction, &mut NumericContext).unwrap())
+            .dispatch(
+                &vihaco_runtime::Lower::lower(instruction, &mut NumericContext).unwrap(),
+                &(),
+            )
             .unwrap();
     }
     assert_eq!(machine.controller.cpu.take_pending_pc(), Some(1));
@@ -385,9 +402,9 @@ fn dispatch_returns_cpu_errors_and_allows_subsequent_execution() {
             __vihaco_MachineInstruction::V_spare__cpu__AddI64(cpu::AddI64),
         ),
     ] {
-        machine.dispatch(halt.clone()).unwrap();
-        assert!(machine.dispatch(failing).is_err());
-        machine.dispatch(halt).unwrap();
+        machine.dispatch(&halt, &()).unwrap();
+        assert!(machine.dispatch(&failing, &()).is_err());
+        machine.dispatch(&halt, &()).unwrap();
     }
 }
 
@@ -578,11 +595,11 @@ fn heap_push_rejects_full_allocations_and_get_item_checks_current_length() {
 fn every_executable_leaf_parses_directly_and_metadata_is_excluded() {
     fn check<T>(source: &str, expected: T)
     where
-        T: vihaco::__private::InstructionSpec + PartialEq + std::fmt::Debug,
-        T::Syntax: for<'src> Parse<'src> + vihaco::Lower<NumericContext, Runtime = T>,
+        T: vihaco_runtime::__private::InstructionSpec + PartialEq + std::fmt::Debug,
+        T::Syntax: for<'src> Parse<'src> + vihaco_runtime::Lower<NumericContext, Runtime = T>,
     {
         assert_eq!(
-            vihaco::Lower::lower(
+            vihaco_runtime::Lower::lower(
                 T::Syntax::parser()
                     .parse(source)
                     .into_result()
@@ -735,18 +752,25 @@ fn every_executable_leaf_parses_directly_and_metadata_is_excluded() {
     check("ge_u64", cpu::GeU64);
     check("ge_f32", cpu::GeF32);
     check("ge_f64", cpu::GeF64);
-    assert_eq!(vihaco::__private::capabilities::<CPU>().count(), 142);
-    assert_eq!(vihaco::__private::capabilities::<Machine>().count(), 284);
+    assert_eq!(
+        vihaco_runtime::__private::capabilities::<CPU>().count(),
+        142
+    );
+    assert_eq!(
+        vihaco_runtime::__private::capabilities::<Machine>().count(),
+        284
+    );
     assert!(
-        !vihaco::__private::capabilities::<CPU>()
+        !vihaco_runtime::__private::capabilities::<CPU>()
             .any(|leaf| matches!(leaf.instruction, "label" | "func_start" | "func_end"))
     );
 }
 
 #[test]
 fn arithmetic_shift_comparison_and_reset_semantics_are_preserved() {
-    use vihaco::{Reset, traits::StackMemory};
     use vihaco_cpu::{encode_heap_ref, encode_i32, encode_u32};
+    use vihaco_module::host::StackMemory;
+    use vihaco_runtime::Reset;
     let mut cpu = CPU::default();
     cpu.stack_mut()
         .extend([encode_i32(i32::MAX), encode_i32(1)]);
@@ -782,7 +806,7 @@ fn arithmetic_shift_comparison_and_reset_semantics_are_preserved() {
 #[test]
 fn sst_signatures_parse_runtime_types_without_surface_types() {
     type Function =
-        vihaco::syntax::ParsedFunction<<Machine as HasInstructionSet>::Syntax, vihaco::Type>;
+        vihaco_syntax::ParsedFunction<<Machine as HasInstructionSet>::Syntax, vihaco_abi::Type>;
     let parsed = Function::parser()
         .parse("fn @main(value: i64, target: fn_ref, text: str) -> bool { spare::cpu::halt }")
         .into_result()
@@ -794,23 +818,26 @@ fn sst_signatures_parse_runtime_types_without_surface_types() {
             .map(|param| param.ty)
             .collect::<Vec<_>>(),
         [
-            vihaco::Type::I64,
-            vihaco::Type::FunctionRef,
-            vihaco::Type::String
+            vihaco_abi::Type::I64,
+            vihaco_abi::Type::FunctionRef,
+            vihaco_abi::Type::String
         ]
     );
-    assert_eq!(parsed.return_types, vec![vihaco::Type::Bool]);
+    assert_eq!(parsed.return_types, vec![vihaco_abi::Type::Bool]);
     assert_eq!(parsed.body.len(), 1);
     assert_eq!(
-        vihaco::Type::parser()
+        vihaco_abi::Type::parser()
             .parse("heap_ref")
             .into_result()
             .unwrap(),
-        vihaco::Type::HeapRef
+        vihaco_abi::Type::HeapRef
     );
     assert_eq!(
-        vihaco::Type::parser().parse("undef").into_result().unwrap(),
-        vihaco::Type::Undefined
+        vihaco_abi::Type::parser()
+            .parse("undef")
+            .into_result()
+            .unwrap(),
+        vihaco_abi::Type::Undefined
     );
 }
 
@@ -820,8 +847,12 @@ fn sst_signatures_parse_runtime_types_without_surface_types() {
 struct SymbolLoader {
     labels: std::collections::HashMap<String, u32>,
     functions: std::collections::HashMap<String, (u32, u32)>,
-    image: vihaco::ProgramImage<<Machine as HasInstructionSet>::Runtime, vihaco::NoContext>,
+    image: vihaco_stdlib::ProgramImage<
+        <Machine as HasInstructionSet>::Runtime,
+        vihaco_bytecode::NoContext,
+    >,
 }
+
 impl LabelLookup for SymbolLoader {
     fn label_address(&self, name: &str) -> eyre::Result<u32> {
         self.labels
@@ -830,6 +861,7 @@ impl LabelLookup for SymbolLoader {
             .ok_or_else(|| eyre::eyre!("unknown label {name}"))
     }
 }
+
 impl FunctionLookup for SymbolLoader {
     fn function_address(&self, name: &str) -> eyre::Result<u32> {
         self.functions
@@ -844,6 +876,7 @@ impl FunctionLookup for SymbolLoader {
             .ok_or_else(|| eyre::eyre!("unknown function {name}"))
     }
 }
+
 impl StringIntern for SymbolLoader {
     fn intern_string(&mut self, text: &str) -> eyre::Result<u32> {
         self.image.intern_string(text)
@@ -851,24 +884,29 @@ impl StringIntern for SymbolLoader {
 }
 
 struct Header;
-impl vihaco::traits::FromText for Header {
+
+impl vihaco_abi::traits::FromText for Header {
     fn from_text(_: &str) -> eyre::Result<Self> {
         Ok(Self)
     }
 }
-impl vihaco::SstHeader for Header {}
-impl vihaco::LoadOwnSstSection<vihaco::NoContext> for SymbolLoader
+
+impl vihaco_bytecode::SstHeader for Header {}
+
+impl vihaco_module::loader::LoadOwnSstSection<vihaco_bytecode::NoContext> for SymbolLoader
 where
     <Machine as HasInstructionSet>::Syntax:
-        vihaco::Lower<Self, Runtime = <Machine as HasInstructionSet>::Runtime>,
+        vihaco_runtime::Lower<Self, Runtime = <Machine as HasInstructionSet>::Runtime>,
 {
+    type Output = ();
+
     fn load_own_sst_section<'src>(
         &mut self,
-        section: vihaco::SstSectionView<'src, vihaco::NoContext>,
+        section: vihaco_bytecode::SstSectionView<'src, vihaco_bytecode::NoContext>,
     ) -> eyre::Result<()> {
-        type Module = vihaco::syntax::ParsedModule<
+        type Module = vihaco_syntax::ParsedModule<
             <Machine as HasInstructionSet>::Syntax,
-            vihaco::Type,
+            vihaco_abi::Type,
             Header,
         >;
         let parsed = Module::parse_section(section)?;
@@ -914,13 +952,14 @@ where
         Ok(())
     }
 }
+
 fn load_symbolic(loader: &mut SymbolLoader, functions: &str) -> eyre::Result<()> {
-    use vihaco::LoadOwnSstSection;
+    use vihaco_module::loader::LoadOwnSstSection;
     let text = format!(
         "sst v{}\n.section(root):\n.text(root):\n{functions}\n.text(root).\n.section(root).\n",
-        vihaco::VERSION
+        vihaco_bytecode::VERSION
     );
-    let file = vihaco::SstFile::<vihaco::NoContext>::from_text(&text)?;
+    let file = vihaco_bytecode::SstFile::<vihaco_bytecode::NoContext>::from_text(&text)?;
     loader.load_own_sst_section(file.root())
 }
 
@@ -970,19 +1009,15 @@ fn @helper() {
     );
     let mut machine = machine();
     for instruction in &loader.image.module.code[..3] {
-        machine.dispatch(instruction.clone()).unwrap();
+        machine.dispatch(instruction, &()).unwrap();
     }
     assert_eq!(
         machine.controller.cpu.stack(),
         &[0, 0, encode_function_ref(1)]
     );
-    machine
-        .dispatch(loader.image.module.code[3].clone())
-        .unwrap();
+    machine.dispatch(&loader.image.module.code[3], &()).unwrap();
     assert_eq!(machine.controller.cpu.take_pending_pc(), Some(6));
-    machine
-        .dispatch(loader.image.module.code[5].clone())
-        .unwrap();
+    machine.dispatch(&loader.image.module.code[5], &()).unwrap();
     assert_eq!(machine.controller.cpu.take_pending_pc(), Some(7));
 }
 
@@ -1027,34 +1062,29 @@ fn failed_symbol_resolution_keeps_executable_code_and_rejects_duplicates() {
 fn numeric_operands_bypass_capability_calls_and_targets_reject_malformed_input() {
     for text in ["br -1", "br 4294967296", "br @", "br later", "br @ later"] {
         assert!(
-            cpu::Branch::<vihaco::Syntax>::parser()
+            cpu::Branch::<vihaco_runtime::Syntax>::parser()
                 .parse(text)
                 .has_errors(),
             "{text}"
         );
     }
-    let runtime = cpu::Branch::<vihaco::Syntax>::parser()
+    let runtime = cpu::Branch::<vihaco_runtime::Syntax>::parser()
         .parse("br 10")
         .into_result()
         .unwrap();
     assert_eq!(
-        vihaco::Lower::lower(runtime, &mut NumericContext).unwrap(),
+        vihaco_runtime::Lower::lower(runtime, &mut NumericContext).unwrap(),
         cpu::Branch(10)
     );
     let mut loader = SymbolLoader::default();
     loader.image.module.strings.push("existing".to_owned());
-    let source = cpu::ConstString::<vihaco::Syntax>::parser()
+    let source = cpu::ConstString::<vihaco_runtime::Syntax>::parser()
         .parse("const_string \"existing\"")
         .into_result()
         .unwrap();
     assert_eq!(
-        vihaco::Lower::lower(source, &mut loader).unwrap(),
+        vihaco_runtime::Lower::lower(source, &mut loader).unwrap(),
         cpu::ConstString(0)
     );
     assert_eq!(loader.image.module.strings, ["existing"]);
-}
-
-#[test]
-fn cpu_lowering_requires_loader_capabilities_at_compile_time() {
-    trybuild::TestCases::new().compile_fail("tests/compile_fail/lowering/*.rs");
 }

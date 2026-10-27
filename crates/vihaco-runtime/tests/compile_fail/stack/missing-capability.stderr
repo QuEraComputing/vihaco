@@ -1,0 +1,14 @@
+error[E0277]: the trait bound `Machine: BuildMessage<Route, Instruction, (), PopFromStack<()>>` is not satisfied
+  --> tests/compile_fail/stack/missing-capability.rs:24:14
+   |
+24 |     let _ = <Machine as BuildMessage<Route, Instruction>>::build_message(&mut Machine(Device), &Instruction, &());
+   |              ^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `HasProgram` is not implemented for `Machine`
+  --> tests/compile_fail/stack/missing-capability.rs:14:1
+   |
+14 | struct Machine(Device);
+   | ^^^^^^^^^^^^^^
+   = note: required for `Machine` to implement `HasOperandStack<Instruction>`
+   = note: required for `PopFromStack<()>` to implement `vihaco_runtime::PrepareMessage<Machine, Route, Instruction, ()>`
+   = note: required for `Machine` to implement `BuildMessage<Route, Instruction, (), PopFromStack<()>>`

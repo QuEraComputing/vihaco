@@ -20,3 +20,4 @@ vihaco-parser = { workspace = true }
 
 [dev-dependencies]
 vihaco-parser-derive = { workspace = true }
+vihaco-stdlib = { workspace = true }

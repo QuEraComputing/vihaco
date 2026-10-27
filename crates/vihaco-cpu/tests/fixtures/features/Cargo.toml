@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["cpu-off", "cpu-on", "cpu-direct", "cpu-activation", "cpu-indirect", "cpu-mixed"]
+members = ["cpu-off", "cpu-on", "cpu-direct", "cpu-activation", "cpu-indirect", "cpu-mixed", "cpu-program-image", "cpu-program-image-direct"]
 
 [workspace.dependencies]
 host = { package = "vihaco-cpu", path = "../../.." }

@@ -120,7 +120,7 @@ impl<Ty, H> Resolve<TextInst, Ty, H> for TextResolver {
 }
 
 type BytecodeProgram = ProgramImage<TestInst, TextContext>;
-type TextProgram = ProgramImage<TextInst, TextContext>;
+type TextProgram = vihaco::loader::ProgramImage<TextInst, TextContext>;
 
 fn load_bytecode_program<'bc>(
     program: &mut BytecodeProgram,
@@ -236,6 +236,8 @@ impl vihaco::HasInstructionSet for TextLoadedDevice {
 impl vihaco::Component for TextLoadedDevice {}
 
 impl LoadBytecodeSection<TextContext> for LoadedDevice {
+    type Output = ();
+
     fn load_bytecode_section<'bc>(
         &mut self,
         section: BytecodeSectionView<'bc, TextContext>,
@@ -245,6 +247,8 @@ impl LoadBytecodeSection<TextContext> for LoadedDevice {
 }
 
 impl LoadSstSection<TextContext> for TextLoadedDevice {
+    type Output = ();
+
     fn load_sst_section<'bc>(
         &mut self,
         section: SstSectionView<'bc, TextContext>,
@@ -386,6 +390,8 @@ struct TextHeaderMachine {
 }
 
 impl LoadOwnBytecodeSection<TextContext> for Machine {
+    type Output = ();
+
     fn load_own_bytecode_section<'bc>(
         &mut self,
         section: BytecodeSectionView<'bc, TextContext>,
@@ -395,6 +401,8 @@ impl LoadOwnBytecodeSection<TextContext> for Machine {
 }
 
 impl LoadOwnBytecodeSection<TextContext> for NestedMachine {
+    type Output = ();
+
     fn load_own_bytecode_section<'bc>(
         &mut self,
         section: BytecodeSectionView<'bc, TextContext>,
@@ -404,6 +412,8 @@ impl LoadOwnBytecodeSection<TextContext> for NestedMachine {
 }
 
 impl LoadOwnBytecodeSection<TextContext> for HostMachine {
+    type Output = ();
+
     fn load_own_bytecode_section<'bc>(
         &mut self,
         section: BytecodeSectionView<'bc, TextContext>,
@@ -413,6 +423,8 @@ impl LoadOwnBytecodeSection<TextContext> for HostMachine {
 }
 
 impl LoadOwnBytecodeSection<TextContext> for HeaderMachine {
+    type Output = ();
+
     fn load_own_bytecode_section<'bc>(
         &mut self,
         section: BytecodeSectionView<'bc, TextContext>,
@@ -423,6 +435,8 @@ impl LoadOwnBytecodeSection<TextContext> for HeaderMachine {
 }
 
 impl LoadOwnSstSection<TextContext> for TextMachine {
+    type Output = ();
+
     fn load_own_sst_section<'bc>(
         &mut self,
         section: SstSectionView<'bc, TextContext>,
@@ -434,6 +448,8 @@ impl LoadOwnSstSection<TextContext> for TextMachine {
 }
 
 impl LoadOwnSstSection<TextContext> for TextNestedMachine {
+    type Output = ();
+
     fn load_own_sst_section<'bc>(
         &mut self,
         section: SstSectionView<'bc, TextContext>,
@@ -445,6 +461,8 @@ impl LoadOwnSstSection<TextContext> for TextNestedMachine {
 }
 
 impl LoadOwnSstSection<TextContext> for TextHostMachine {
+    type Output = ();
+
     fn load_own_sst_section<'bc>(
         &mut self,
         section: SstSectionView<'bc, TextContext>,
@@ -456,6 +474,8 @@ impl LoadOwnSstSection<TextContext> for TextHostMachine {
 }
 
 impl LoadOwnSstSection<TextContext> for TextHeaderMachine {
+    type Output = ();
+
     fn load_own_sst_section<'bc>(
         &mut self,
         section: SstSectionView<'bc, TextContext>,

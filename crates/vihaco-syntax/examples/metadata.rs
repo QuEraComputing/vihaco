@@ -6,11 +6,9 @@
 use chumsky::prelude::*;
 use vihaco_abi::{Lower, Type, Value, traits::FromText};
 use vihaco_bytecode::{NoContext, SstFile, SstHeader};
-use vihaco_module::{
-    loader::{MetadataLoweringContext, ProgramImage},
-    module::ProgramMetadata,
-};
+use vihaco_module::{loader::MetadataLoweringContext, module::ProgramMetadata};
 use vihaco_parser::Parse as _;
+use vihaco_stdlib::ProgramImage;
 use vihaco_syntax::{ParsedModule, skip};
 
 #[derive(Debug, vihaco_parser_derive::Parse)]

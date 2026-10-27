@@ -8,6 +8,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+smallvec = { workspace = true, optional = true }
 eyre = { workspace = true }
 chumsky = { workspace = true }
 vihaco-abi = { workspace = true }
@@ -18,9 +19,15 @@ vihaco-parser-derive = { workspace = true, optional = true }
 vihaco-runtime-derive = { workspace = true, optional = true }
 
 [features]
+program-image-execution = [
+    "typed-declarations",
+    "dep:smallvec",
+    "vihaco-runtime-derive/program-image-execution",
+    "vihaco-module/program-image-execution",
+]
 default = ["derive"]
-derive = ["dep:vihaco-runtime-derive", "vihaco-abi/derive"]
-typed-declarations = ["derive", "dep:vihaco-parser-derive", "vihaco-runtime-derive/typed-declarations"]
+derive = ["dep:vihaco-runtime-derive", "dep:vihaco-parser-derive", "vihaco-abi/derive"]
+typed-declarations = ["derive", "vihaco-runtime-derive/typed-declarations"]
 
 [dev-dependencies]
 trybuild = "1.0"

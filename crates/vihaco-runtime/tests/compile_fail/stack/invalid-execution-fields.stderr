@@ -1,0 +1,17 @@
+error: #[program] requires a non-loadable #[device] field
+ --> tests/compile_fail/stack/invalid-execution-fields.rs:6:5
+  |
+6 |     state: u8,
+  |     ^^^^^
+
+error: only one #[program] field is supported
+  --> tests/compile_fail/stack/invalid-execution-fields.rs:10:1
+   |
+10 | / struct MultiplePrograms {
+11 | |     #[device(1)]
+12 | |     #[program]
+13 | |     a: u8,
+...  |
+16 | |     b: u8,
+17 | | }
+   | |_^

@@ -310,7 +310,7 @@ pub fn expand(input: TokenStream) -> TokenStream {
         quote! {
             #visibility mod syntax {
                 use super::*;
-                #[derive(Clone, Debug, PartialEq, ::vihaco::Parse)]
+                #[derive(Clone, Debug, PartialEq, #root::Parse)]
                 #[syntax_class(instruction, head = #syntax_head)]
                 #visibility enum Instruction #sig #sw {
                     #( #syntax_variants, )*

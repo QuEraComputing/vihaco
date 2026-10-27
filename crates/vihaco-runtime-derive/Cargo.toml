@@ -13,6 +13,7 @@ proc-macro = true
 [features]
 default = []
 typed-declarations = []
+program-image-execution = ["typed-declarations"]
 
 [dependencies]
 convert_case = "0.6"

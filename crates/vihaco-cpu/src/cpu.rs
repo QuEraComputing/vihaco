@@ -3,7 +3,7 @@
 
 //! CPU instruction dialect. Syntax operands are lowered by the program loader.
 
-#[vihaco::dialect]
+#[vihaco_runtime::dialect]
 pub mod cpu {
     use crate::{
         Word,

@@ -43,22 +43,22 @@ struct Machine {
 }
 
 impl Step<field!(Controller::counter), arithmetic::Add> for Controller {
-    fn step(&mut self, instruction: arithmetic::Add) -> vihaco_runtime::eyre::Result<()> {
-        self.counter.execute(&instruction, ())?;
+    fn step(&mut self, instruction: &arithmetic::Add, _: &()) -> vihaco_runtime::eyre::Result<()> {
+        self.counter.execute(instruction, ())?;
         Ok(())
     }
 }
 
 impl Step<field!(Machine::direct), arithmetic::Add> for Machine {
-    fn step(&mut self, instruction: arithmetic::Add) -> vihaco_runtime::eyre::Result<()> {
-        self.direct.execute(&instruction, ())?;
+    fn step(&mut self, instruction: &arithmetic::Add, _: &()) -> vihaco_runtime::eyre::Result<()> {
+        self.direct.execute(instruction, ())?;
         Ok(())
     }
 }
 
 impl Step<field!(Machine::controller::counter), arithmetic::Add> for Machine {
-    fn step(&mut self, instruction: arithmetic::Add) -> vihaco_runtime::eyre::Result<()> {
-        self.controller.counter.execute(&instruction, ())?;
+    fn step(&mut self, instruction: &arithmetic::Add, _: &()) -> vihaco_runtime::eyre::Result<()> {
+        self.controller.counter.execute(instruction, ())?;
         Ok(())
     }
 }
@@ -66,7 +66,7 @@ impl Step<field!(Machine::controller::counter), arithmetic::Add> for Machine {
 #[test]
 fn dispatch_selects_distinct_direct_and_nested_destinations() {
     fn dispatch<C: Dispatch>(composite: &mut C, instruction: C::Instruction) {
-        composite.dispatch(instruction).unwrap();
+        composite.dispatch(&instruction, &()).unwrap();
     }
 
     let mut machine = Machine {
@@ -180,17 +180,17 @@ mod fallible {
     macro_rules! steps {
         ($machine:ty, $route:ty, $($device:ident).+) => {
             impl Step<$route, control::Run> for $machine {
-                fn step(&mut self, instruction: control::Run) -> eyre::Result<()> {
+                fn step(&mut self, instruction: &control::Run, _: &()) -> eyre::Result<()> {
                     self.$($device).+.prepare(&instruction)?;
-                    let effect = self.$($device).+.execute(&instruction, ())?;
+                    let effect = self.$($device).+.execute(instruction, ())?;
                     self.$($device).+.handle(effect)?;
                     Ok(())
                 }
             }
 
             impl Step<$route, control::Report> for $machine {
-                fn step(&mut self, instruction: control::Report) -> eyre::Result<()> {
-                    self.$($device).+.execute(&instruction, ())?;
+                fn step(&mut self, instruction: &control::Report, _: &()) -> eyre::Result<()> {
+                    self.$($device).+.execute(instruction, ())?;
                     Ok(())
                 }
             }
@@ -230,7 +230,7 @@ mod fallible {
                 } else {
                     __vihaco_MachineInstruction::V_direct__control__Run(control::Run(value))
                 };
-                let error = machine.dispatch(instruction).unwrap_err();
+                let error = machine.dispatch(&instruction, &()).unwrap_err();
                 assert_eq!(error.downcast_ref::<Failure>(), Some(&failure));
                 let device = if nested {
                     &machine.child.device
@@ -245,7 +245,7 @@ mod fallible {
             } else {
                 __vihaco_MachineInstruction::V_direct__control__Run(control::Run(3))
             };
-            machine.dispatch(instruction).unwrap();
+            machine.dispatch(&instruction, &()).unwrap();
             let (selected, other) = if nested {
                 (&machine.child.device, &machine.direct)
             } else {
@@ -263,7 +263,7 @@ mod fallible {
             __vihaco_MachineInstruction::V_direct__control__Report(control::Report),
             __vihaco_MachineInstruction::V_child__device__control__Report(control::Report),
         ] {
-            let error = machine.dispatch(instruction).unwrap_err();
+            let error = machine.dispatch(&instruction, &()).unwrap_err();
             assert_eq!(error.to_string(), "device context");
             assert_eq!(error.downcast_ref::<Failure>(), Some(&Failure::Execute));
         }

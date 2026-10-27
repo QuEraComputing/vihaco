@@ -4,7 +4,7 @@
 //! Runtime inputs supplied by the composite for particular CPU instructions.
 
 /// Function metadata selected for a direct or indirect invocation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, vihaco::Message)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, vihaco_runtime::Message)]
 pub struct FunctionInfo {
     pub arity: u32,
     pub start_address: u32,
@@ -19,9 +19,9 @@ pub struct FunctionInfo {
 /// A print message cannot be passed to a call instruction:
 ///
 /// ```compile_fail
-/// use vihaco::Execute;
+/// use vihaco_runtime::Execute;
 /// use vihaco_cpu::{CPU, cpu, message};
 /// CPU::default().execute(&cpu::Call(0, 10), message::Print("text".into()));
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, vihaco::Message)]
+#[derive(Debug, Clone, PartialEq, Eq, vihaco_runtime::Message)]
 pub struct Print(pub String);

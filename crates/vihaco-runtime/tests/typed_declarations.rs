@@ -5,11 +5,13 @@
 
 #[path = "support/declarations.rs"]
 mod declarations;
+
 use declarations::*;
 use vihaco_runtime::__private::{
-    Capabilities, Description, Device, DialectSpec, DirectField, InstructionCapability, Leaf,
-    capabilities, require_available, require_coverage, validate,
+    Capabilities, Description, Device, DialectSpec, InstructionCapability, Leaf, capabilities,
+    require_available, require_coverage, validate,
 };
+
 use vihaco_runtime::{Composite, Effects, Execute, Field, field};
 
 // These functions are checked with the original lifetime/const bounds.
@@ -20,7 +22,9 @@ fn coverage<'a, const N: usize>(_: &'a [u8; N]) {
 }
 
 struct Inner<C>(C);
+
 impl<C> Composite for Inner<C> {}
+
 #[allow(non_snake_case, non_camel_case_types)]
 pub mod __vihaco_fields_Inner {
     pub use vihaco_runtime::__private::CheckedRoute as __CheckedRoute;
@@ -28,28 +32,41 @@ pub mod __vihaco_fields_Inner {
         pub struct cpu;
     }
 }
-impl<C> DirectField<__vihaco_fields_Inner::__markers::cpu> for Inner<C> {}
+
 impl<C> Field<__vihaco_fields_Inner::__markers::cpu> for Inner<C> {
     type Child = C;
+    fn get(&self) -> &Self::Child {
+        &self.0
+    }
+    fn get_mut(&mut self) -> &mut Self::Child {
+        &mut self.0
+    }
     const SOURCE: &'static [&'static str] = &["cpu", "p", "p_long", "λ", "!"];
 }
+
 impl<C: Capabilities> Capabilities for Inner<C> {
     const DESCRIPTION: &'static Description = &Description::Composite(&[Device {
         name: <Self as Field<field!(Inner<C>::cpu)>>::SOURCE[0],
         child: C::DESCRIPTION,
     }]);
 }
+
 trait Configuration {
     type Device: Capabilities;
 }
+
 struct Config<'a>(std::marker::PhantomData<&'a ()>);
+
 impl<'a> Configuration for Config<'a> {
     type Device = Cpu<'a>;
 }
+
 struct Outer<T: Configuration> {
     r#type: Inner<T::Device>,
 }
+
 impl<T: Configuration> Composite for Outer<T> {}
+
 #[allow(non_snake_case, non_camel_case_types)]
 pub mod __vihaco_fields_Outer {
     pub use vihaco_runtime::__private::CheckedRoute as __CheckedRoute;
@@ -61,11 +78,34 @@ pub mod __vihaco_fields_Outer {
         pub use super::super::__vihaco_fields_Inner as r#type;
     }
 }
-impl<T: Configuration> DirectField<__vihaco_fields_Outer::__markers::r#type> for Outer<T> {}
+
 impl<T: Configuration> Field<__vihaco_fields_Outer::__markers::r#type> for Outer<T> {
     type Child = Inner<T::Device>;
+    fn get(&self) -> &Self::Child {
+        &self.r#type
+    }
+    fn get_mut(&mut self) -> &mut Self::Child {
+        &mut self.r#type
+    }
     const SOURCE: &'static [&'static str] = &["type", "outer"];
 }
+
+impl<T: Configuration, Tail>
+    Field<vihaco_runtime::__private::FieldPath<__vihaco_fields_Outer::__markers::r#type, Tail>>
+    for Outer<T>
+where
+    Inner<T::Device>: Field<Tail>,
+{
+    type Child = <Inner<T::Device> as Field<Tail>>::Child;
+    const SOURCE: &'static [&'static str] = <Inner<T::Device> as Field<Tail>>::SOURCE;
+    fn get(&self) -> &Self::Child {
+        <Inner<T::Device> as Field<Tail>>::get(&self.r#type)
+    }
+    fn get_mut(&mut self) -> &mut Self::Child {
+        <Inner<T::Device> as Field<Tail>>::get_mut(&mut self.r#type)
+    }
+}
+
 impl<T: Configuration> Capabilities for Outer<T> {
     const DESCRIPTION: &'static Description = &Description::Composite(&[Device {
         name: <Self as Field<field!(Outer<T>::r#type)>>::SOURCE[0],
@@ -82,7 +122,8 @@ fn aliases_coverage_and_borrowed_associated_fields_keep_real_types() {
     };
     // Marker routes retain associations under the original generic bounds.
     type Child<'a> = <Outer<Config<'a>> as Field<field!(Outer<Config<'a>>::r#type::cpu)>>::Child;
-    let cpu: &mut Child<'_> = &mut machine.r#type.0;
+    let cpu: &mut Child<'_> =
+        <Outer<Config> as Field<field!(Outer<Config>::r#type::cpu)>>::get_mut(&mut machine);
     assert_eq!(cpu.execute(&A, 3).unwrap(), 5);
     assert_eq!(cpu.execute(&B, ()).unwrap(), Effects::one(2));
     cpu.execute(&Extra, ()).unwrap(); // Execution is not dialect membership.
@@ -114,14 +155,24 @@ fn marker_routes_resolve_nested_aliases_and_are_local_to_each_parent() {
             pub use super::super::__vihaco_fields_Inner as inner;
         }
     }
-    impl DirectField<__vihaco_fields_Reordered::__markers::inner> for Reordered {}
-    impl DirectField<__vihaco_fields_Reordered::__markers::cpu> for Reordered {}
     impl Field<__vihaco_fields_Reordered::__markers::inner> for Reordered {
         type Child = Inner<Cpu<'static>>;
+        fn get(&self) -> &Self::Child {
+            &self.inner
+        }
+        fn get_mut(&mut self) -> &mut Self::Child {
+            &mut self.inner
+        }
         const SOURCE: &'static [&'static str] = &["inner"];
     }
     impl Field<__vihaco_fields_Reordered::__markers::cpu> for Reordered {
         type Child = u32;
+        fn get(&self) -> &Self::Child {
+            &self.cpu
+        }
+        fn get_mut(&mut self) -> &mut Self::Child {
+            &mut self.cpu
+        }
         const SOURCE: &'static [&'static str] = &["cpu"];
     }
     let mut machine = Reordered {

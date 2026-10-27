@@ -1,0 +1,9 @@
+[package]
+name = "cpu-program-image-direct"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+host = { workspace = true, features = ["program-image-execution"] }
+rt = { workspace = true }

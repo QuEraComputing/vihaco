@@ -14,6 +14,7 @@ use vihaco_runtime::{
 trait FunctionLookup {
     fn function_index(&self, name: &str) -> eyre::Result<u32>;
 }
+
 trait StringIntern {
     fn intern(&mut self, text: &str) -> u32;
 }
@@ -47,6 +48,7 @@ impl<C: FunctionLookup + ?Sized> Lower<C> for symbolic::Call<Syntax> {
         ))
     }
 }
+
 impl<C: FunctionLookup + StringIntern + ?Sized> Lower<C> for symbolic::Named<Syntax> {
     type Runtime = symbolic::Named;
     fn lower(self, context: &mut C) -> eyre::Result<Self::Runtime> {
@@ -60,6 +62,7 @@ impl<C: FunctionLookup + StringIntern + ?Sized> Lower<C> for symbolic::Named<Syn
 #[component]
 #[instructions { symbolic }]
 struct Cpu;
+
 impl<I> Execute<I> for Cpu {
     type Message = ();
     type Effect = ();
@@ -74,9 +77,10 @@ struct Child {
     #[device(1, alias = "host")]
     cpu: Cpu,
 }
+
 impl<I> Step<field!(Child::cpu), I> for Child {
-    fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-        self.cpu.execute(&instruction, ())?;
+    fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+        self.cpu.execute(instruction, ())?;
         Ok(())
     }
 }
@@ -90,22 +94,25 @@ struct Machine {
     loader: Loader,
     executed: usize,
 }
+
 impl<I> Step<field!(Machine::child::cpu), I> for Machine {
-    fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-        self.child.cpu.execute(&instruction, ())?;
+    fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+        self.child.cpu.execute(instruction, ())?;
         self.executed += 1;
         Ok(())
     }
 }
+
 impl<I> Step<field!(Machine::spare), I> for Machine {
-    fn step(&mut self, instruction: I) -> vihaco_runtime::eyre::Result<()> {
-        self.spare.execute(&instruction, ())?;
+    fn step(&mut self, instruction: &I, _: &()) -> vihaco_runtime::eyre::Result<()> {
+        self.spare.execute(instruction, ())?;
         self.executed += 10;
         Ok(())
     }
 }
 
 type Source = <Machine as HasInstructionSet>::Syntax;
+
 type Runtime = <Machine as HasInstructionSet>::Runtime;
 
 #[derive(Default)]
@@ -114,6 +121,7 @@ struct Loader {
     strings: Vec<String>,
     code: Vec<Runtime>,
 }
+
 impl FunctionLookup for Loader {
     fn function_index(&self, name: &str) -> eyre::Result<u32> {
         self.functions
@@ -122,6 +130,7 @@ impl FunctionLookup for Loader {
             .ok_or_else(|| eyre::eyre!("unknown function {name}"))
     }
 }
+
 impl StringIntern for Loader {
     fn intern(&mut self, text: &str) -> u32 {
         let index = self.strings.len() as u32;
@@ -134,6 +143,8 @@ impl LoadOwnSstSection<vihaco_bytecode::NoContext> for Loader
 where
     Source: Lower<Self, Runtime = Runtime>,
 {
+    type Output = ();
+
     fn load_own_sst_section<'bc>(
         &mut self,
         section: vihaco_runtime::SstSectionView<'bc, vihaco_bytecode::NoContext>,
@@ -155,7 +166,10 @@ where
         Ok(())
     }
 }
+
 impl LoadOwnSstSection<vihaco_bytecode::NoContext> for Machine {
+    type Output = ();
+
     fn load_own_sst_section<'bc>(
         &mut self,
         section: vihaco_runtime::SstSectionView<'bc, vihaco_bytecode::NoContext>,
@@ -188,7 +202,7 @@ fn section_loader_capabilities_enable_generated_composite_lowering() {
         ]
     );
     for instruction in std::mem::take(&mut machine.loader.code) {
-        machine.dispatch(instruction).unwrap();
+        machine.dispatch(&instruction, &()).unwrap();
     }
     assert_eq!(machine.executed, 22);
 }

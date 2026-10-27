@@ -69,7 +69,9 @@ and implement `Execute<I>` for every instruction. Composites generate flat
 runtime instruction enums, direct parsers, and `Dispatch`; provide
 `Step<field!(Machine::destination), Instruction>` for every destination/leaf pair.
 Device codes are explicit u8 values, unique within each parent. Ordinary state
-and loadable subtrees do not contribute parent instructions.
+and loadable subtrees do not contribute parent instructions. Generated
+`Field<Route>::get` and `get_mut` borrow direct or nested devices, including
+devices containing borrowed data.
 
 Parsing produces runtime instructions directly, with no paired surface enum or
 separate `Resolve` pass. Composite source uses `device::nested_device::dialect::mnemonic`
@@ -78,8 +80,9 @@ the aggregate type. Renamed child imports need matching generated inventory and
 field companion reexports; named generic children are supported, while bare
 generic or associated child types cannot supply an inferred inventory.
 
-For the shipped CPU, enable **`vihaco-cpu/typed-declarations`**, which forwards the
-framework feature and selects CPU's typed implementation. Its `cpu` module
+Facade applications enable **`vihaco/typed-declarations`**, which forwards through
+stdlib to CPU and runtime. Direct CPU consumers enable
+**`vihaco-cpu/typed-declarations`**. Its `cpu` module
 exposes instruction structs whose phase defaults to runtime. Constants parse
 readable syntax literals and lower them into runtime words. Branches and calls
 accept numeric addresses or `@name` targets; function-reference constants accept
@@ -96,17 +99,107 @@ the typed dialect. Instructions use `()` or the `message::FunctionInfo` and
 CPU lowering lives outside the dialect definitions in `vihaco_cpu::lower`.
 Loaders implement `LabelLookup` for function-local labels and `FunctionLookup`
 for section function addresses and indices. `StringIntern` supplies string-table
-indices; `ProgramImage` implements it with deduplication of decoded contents.
+indices; `vihaco_stdlib::ProgramImage` implements it with deduplication of decoded contents.
 Prepare functions and label positions before calling
 `LoadOwnSstSection::lower_instructions` so forward references resolve. The
 generated composite aggregate enforces these capabilities even for programs
 using only numeric operands. Heap-reference constants continue to accept numeric IDs.
 
 Generated hierarchical bytecode codecs remain separate work. Cargo feature
-unification can activate the experimental contract indirectly. Enable CPU's
-local feature for every graph containing a typed CPU; enabling only a framework
-dependency's feature cannot activate CPU's local cfg in reverse. Legacy
+unification can activate the experimental contract indirectly. Runtime-only
+feature activation cannot select CPU's local cfg; use the facade or CPU feature
+for graphs containing a typed CPU. CPU features only activate lower crates. Legacy
 `component!` examples and guide snippets retain a separate feature-off graph.
+
+`ProgramImage` now lives in `vihaco-stdlib`; `vihaco::ProgramImage` and
+`vihaco::loader::ProgramImage` remain available. Direct users of
+`vihaco_module::loader::ProgramImage` or `vihaco_runtime::loader::ProgramImage`
+should import `vihaco_stdlib::ProgramImage` instead. Generic loader and host
+traits remain in `vihaco-module`. Direct stdlib consumers enable
+`vihaco-stdlib/typed-declarations` for CPU string interning, or
+`vihaco-stdlib/program-image-execution` for the execution protocols; these forward
+to CPU and runtime. Enabling only a CPU feature does not activate stdlib above it.
+
+The nondefault `program-image-execution` feature on `vihaco-stdlib`, `vihaco-cpu`,
+`vihaco`, or `vihaco-runtime` implies `typed-declarations`. The host owns a
+`LocalModule`; the machine contains an `ExecutionState` component marked
+`#[program]`, which supplies execution-state access and operand-storage wiring.
+Call `vihaco_stdlib::execution_state::execute(&module, &mut machine, arguments)`
+(or the facade's `execute`) to enter main. `resume(&module, &mut machine)` requires
+the same unchanged module associated with that invocation; identity is not enforced.
+
+`ExecutionState` owns call frames, locals, operands, private PC, and halt/running
+flags. It stores no module, Arc, loader context, or instruction type parameter.
+`start(&module, arguments)` creates main's frame; `reset()` clears invocation
+state while retaining allocated storage. `stack()`, `frames()`, and `pc()` provide
+read-only inspection. The legacy `ProgramImage` remains a separate loader/host API.
+
+For independently loaded programs, an ordinary outer owner holds an
+`Image<Instruction>` beside its composite machine. `Image::new(module)` stores
+only code and metadata. The owner runs with
+`execute(&self.image.module, &mut self.machine, arguments)`; the machine contains
+ExecutionState and devices. Each `#[loadable]` child is another owner with its own
+image and machine. Child instructions stay outside the parent instruction enum.
+Ordinary nested composites continue sharing their enclosing program.
+
+All four section-loading traits now require an associated `Output` type. Existing
+loaders that store data on their receiver add `type Output = ();` and retain their
+method bodies. An inner composite's own-section hook can instead return its
+`LocalModule`; generated loading returns that artifact after child loading succeeds.
+The outer owner installs `Image::new(module)` and returns `()`. Generated child
+forwarding requires `Output = ()`, ensuring the child owner stores its own image.
+Parsing, capability preparation, and lowering remain authored and section-local.
+
+An owner should reject program replacement while its invocation is active, or
+explicitly reset first. Successful replacement resets that ExecutionState; device
+state and other loaded children need not reset. Resume borrows the owner's same
+unchanged image. Loading is not transactional: earlier loader or child mutations
+remain if a later load fails. See the executable
+[nested-owner integration](crates/vihaco-stdlib/tests/loaded_owners.rs) for loading,
+forward calls, parent-driven child execution, reset, resume, and replacement.
+
+The runner captures a code reference before its loop. Instructions borrow that
+external module while Dispatch mutably borrows the machine, requiring no instruction
+clone or Arc operation. Dispatch, authored Step, and BuildMessage forward a shared
+execution context, here `&LocalModule`. Execute and Apply remain unchanged.
+The runner establishes sequential continuation before dispatch; execution-state
+instructions replace it for branches, calls, and returns. Composite authors never
+manage the PC. Halt/root return and errors retain the source instruction position.
+Earlier consumption and component mutations are not rolled back.
+
+Component authors select `PopFromStack` messages and `PushToStack` effects; standard
+builders transfer operands and resolve call/branch metadata. Authors implement Steps
+and choose effect handling; no Step or Apply policy is generated. Custom message
+builders remain available. Tuple inputs/outputs support arities 0–16 and homogeneous
+array outputs support any length. Boolean extraction treats any nonzero word as true
+and produces canonical `0`/`1` results.
+
+`StackValue::Storage` separates public computation types from their internal storage
+representation. Components receive typed values; storage can change without changing
+their message/effect shapes. `PopStack`, `PushStack`, `StackValue`, `HasOperandStack`,
+and `Apply` are framework extension contracts, not stack logic ordinary authors
+must implement. Custom value types provide storage conversions.
+
+Constants, locals, stack and control instructions live in
+`vihaco_stdlib::program::program`, with parsing/lowering helpers in `program::lower`
+and `program::operand`. Module construction and string interning happen before
+execution. CPU computes with typed operands and returns effects; it owns no stack,
+frames, or PC. Its heap exchanges operands through the same stack protocols.
+HeapAlloc and HeapPush consume available operands sequentially on underflow.
+Print belongs to a separate component; no Span or Breakpoint handling is added.
+Feature-disabled legacy and typed CPU behavior is retained.
+
+For variable input counts, use `PopFromStack<StackBatch<T>>` and implement
+`StackInputCount<I>` on the component. `InputCount::Immediate(n)` obtains the count
+from the instruction; `FromStack` consumes a word count above the values. Batches
+preserve original stack order and own their contents. Up to eight values stay
+inline; nine or more use heap storage. Components can retain a batch and use
+slices or iteration without managing storage. Mixed tuple/batch messages and
+dynamic batch outputs are not supplied.
+
+Heap state survives program restart/reset; explicitly reset CPU to clear its heap.
+Word encodings are shared in `vihaco-abi::word` and re-exported unchanged through
+`vihaco_cpu::word` and the CPU crate root.
 
 ## Workspace
 
@@ -122,7 +215,7 @@ needs; there is no umbrella crate.
 | [`vihaco-module`](crates/vihaco-module) | The loadable `Module` model, program loader, host-VM traits, and assembly-style `Display`. |
 | [`vihaco-runtime`](crates/vihaco-runtime) | The component/machine runtime: `GeneratedComponent`, effect sinks, and observation machinery. |
 | [`vihaco-runtime-derive`](crates/vihaco-runtime-derive) | `#[derive(Message)]`, `component!`, `#[composite]`, `#[observe]`, re-exported through `vihaco-runtime`'s `derive` feature. |
-| [`vihaco-stdlib`](crates/vihaco-stdlib) | Standard-library components and observers, including `StdoutObserver`. |
+| [`vihaco-stdlib`](crates/vihaco-stdlib) | Standard-library components and observers, including `ProgramImage` and `StdoutObserver`. |
 | [`vihaco-syntax`](crates/vihaco-syntax) | Typed SST parsing and module construction (`Resolve`). |
 | [`vihaco-cpu`](crates/vihaco-cpu) | A ready-made CPU/host component — a small stack machine (constants, arithmetic, branches, halt, …) with a `StepOutcome` control-flow effect. Use directly, or as a reference for writing your own. |
 | [`vihaco-parser`](crates/vihaco-parser) | The `Parse<'src>` and `SurfaceInstruction` traits plus lexical, primitive, and collection implementations shared by the parser derive. |
@@ -176,6 +269,13 @@ can't drift from the API. To preview the docs locally:
 ```bash
 cd docs && pnpm install && pnpm dev
 ```
+
+The legacy guide examples run in the default feature configuration. CI checks
+typed declarations and borrowed-program execution in separate runs, excluding the
+legacy `vihaco-doctests` crate so feature unification does not switch those examples
+to a different API. The runnable example in
+[`ExecutionState`'s documentation](crates/vihaco-stdlib/src/execution_state.rs)
+exercises an externally owned module, authored Steps, and execution.
 
 ## Contributing
 
