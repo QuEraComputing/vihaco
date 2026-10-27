@@ -12,9 +12,17 @@
 //! `vihaco_module::loader::MetadataLoweringContext` directly or add consumer
 //! capabilities by implementing `vihaco_module::loader::FunctionScope`.
 //!
+//! With `program-image-execution`, `HeaderDeclarations<D>` parses a collection
+//! of semicolon-terminated declarations. Consumers apply declarations separately
+//! to an application-owned preparation context, then call
+//! `lower_functions_with_metadata` with the completed metadata and instruction
+//! context. This supports contexts borrowing prepared configuration without
+//! reconstructing a parsed module or moving its metadata during body lowering.
+//!
 //! Metadata records use `#[derive(Parse)]` and
 //! `#[syntax_class(metadata, open = "{", close = "}")]` with an optional `head`.
-//! See the `metadata` example for a machine-owned section header.
+//! See `vihaco-stdlib/examples/loadable.rs` for header declarations, metadata
+//! validation, and execution using dialect instructions consumed by components.
 //!
 //! A [`ParsedModule`] contains [`ParsedFunction`] values whose bodies are
 //! typed instruction vectors. Unknown or malformed instructions are parse
@@ -28,6 +36,15 @@ mod lower;
 mod types;
 
 pub use lower::lower_functions;
+
+#[cfg(feature = "program-image-execution")]
+mod header;
+
+#[cfg(feature = "program-image-execution")]
+pub use header::HeaderDeclarations;
+
+#[cfg(feature = "program-image-execution")]
+pub use lower::lower_functions_with_metadata;
 
 pub mod parse;
 #[cfg(not(feature = "typed-declarations"))]

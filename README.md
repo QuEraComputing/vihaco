@@ -134,29 +134,36 @@ flags. It stores no module, Arc, loader context, or instruction type parameter.
 state while retaining allocated storage. `stack()`, `frames()`, and `pc()` provide
 read-only inspection. The legacy `ProgramImage` remains a separate loader/host API.
 
-For independently loaded programs, an ordinary outer owner holds an
-`Image<Instruction>` beside its composite machine. `Image::new(module)` stores
-only code and metadata. The owner runs with
-`execute(&self.image.module, &mut self.machine, arguments)`; the machine contains
-ExecutionState and devices. Each `#[loadable]` child is another owner with its own
-image and machine. Child instructions stay outside the parent instruction enum.
-Ordinary nested composites continue sharing their enclosing program.
+With `program-image-execution`, use `Loadable<Image<Instruction>, Machine>` to
+pair immutable program data with a composite containing `ExecutionState` and
+other devices. An ordinary outer runtime holds each independently loaded program
+as a field. Construct a module explicitly through SST parsing and lowering (or
+bytecode decoding), wrap it in `Image::new(module)`, and construct
+`Loadable::new(image, machine)`. Ordinary nested composites share the enclosing
+program's image.
 
-All four section-loading traits now require an associated `Output` type. Existing
-loaders that store data on their receiver add `type Output = ();` and retain their
-method bodies. An inner composite's own-section hook can instead return its
-`LocalModule`; generated loading returns that artifact after child loading succeeds.
-The outer owner installs `Image::new(module)` and returns `()`. Generated child
-forwarding requires `Output = ()`, ensuring the child owner stores its own image.
-Parsing, capability preparation, and lowering remain authored and section-local.
+The complete [Loadable example](crates/vihaco-stdlib/examples/loadable.rs) and its
+[SST source](crates/vihaco-stdlib/examples/loadable.sst) show section selection,
+individual header-declaration preparation, metadata validation, symbolic function/label lowering,
+image construction, authored Steps, and execution. Run it from the repository root:
 
-An owner should reject program replacement while its invocation is active, or
-explicitly reset first. Successful replacement resets that ExecutionState; device
-state and other loaded children need not reset. Resume borrows the owner's same
-unchanged image. Loading is not transactional: earlier loader or child mutations
-remain if a later load fails. See the executable
-[nested-owner integration](crates/vihaco-stdlib/tests/loaded_owners.rs) for loading,
-forward calls, parent-driven child execution, reset, resume, and replacement.
+```sh
+cargo run -p vihaco-stdlib --features program-image-execution --example loadable
+```
+
+It prints `Results: [42]`. Pass an SST file path after `--` to load another file.
+
+`Loadable::execute(arguments)` enters main and `resume()` continues an invocation
+against its paired image. `replace_image(image)` rejects replacement until the
+invocation is halted or explicitly reset; successful replacement resets execution
+state while retaining devices. Image construction happens outside the wrapper,
+so failures do not roll back mutations performed by a consumer's construction
+code.
+
+Without `program-image-execution`, the legacy `#[loadable]` attribute and four
+section-loading traits remain available. Generated routing uses each composite's
+own-section hook and forwards child sections to marked fields. These hooks and
+generated routing are unavailable with program-image execution enabled.
 
 The runner captures a code reference before its loop. Instructions borrow that
 external module while Dispatch mutably borrows the machine, requiring no instruction

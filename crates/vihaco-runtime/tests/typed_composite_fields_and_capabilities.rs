@@ -83,6 +83,7 @@ struct Inner<'a, const N: usize = 2> {
     Δ: Imported<'a, N>,
 }
 
+#[cfg(not(feature = "program-image-execution"))]
 #[composite]
 #[vihaco(crate = framework)]
 struct Outer<'a, const N: usize = 2> {
@@ -93,6 +94,18 @@ struct Outer<'a, const N: usize = 2> {
     // No capability or instruction-set contract on a section boundary.
     #[device(42, alias = "program")]
     #[loadable("code")]
+    image: Image,
+}
+
+#[cfg(feature = "program-image-execution")]
+#[composite]
+#[vihaco(crate = framework)]
+struct Outer<'a, const N: usize = 2> {
+    #[device(1, alias = "ctl")]
+    left: Inner<'a, N>,
+    #[device(2, alias = "core", alias = "core-v2")]
+    right: Cpu<'a, N>,
+    // Ordinary image state contributes no instructions or field routes.
     image: Image,
 }
 
@@ -166,11 +179,19 @@ where
     }
 }
 
+#[cfg(not(feature = "program-image-execution"))]
 #[composite]
 #[vihaco(crate = framework)]
 struct LoadOnly {
     #[device(0)]
     #[loadable]
+    image: Image,
+}
+
+#[cfg(feature = "program-image-execution")]
+#[composite]
+#[vihaco(crate = framework)]
+struct LoadOnly {
     image: Image,
 }
 
@@ -201,6 +222,7 @@ struct Image {
     calls: Vec<String>,
 }
 
+#[cfg(not(feature = "program-image-execution"))]
 impl framework::loader::LoadBytecodeSection<()> for Image {
     type Output = ();
 
@@ -213,6 +235,7 @@ impl framework::loader::LoadBytecodeSection<()> for Image {
     }
 }
 
+#[cfg(not(feature = "program-image-execution"))]
 impl framework::loader::LoadSstSection<()> for Image {
     type Output = ();
 
@@ -225,6 +248,7 @@ impl framework::loader::LoadSstSection<()> for Image {
     }
 }
 
+#[cfg(not(feature = "program-image-execution"))]
 impl framework::loader::LoadOwnBytecodeSection<()> for LoadOnly {
     type Output = ();
 
@@ -236,6 +260,7 @@ impl framework::loader::LoadOwnBytecodeSection<()> for LoadOnly {
     }
 }
 
+#[cfg(not(feature = "program-image-execution"))]
 impl framework::loader::LoadOwnSstSection<()> for LoadOnly {
     type Output = ();
 
@@ -311,13 +336,18 @@ fn typed_composite_fields_and_capabilities() {
     let rows: Vec<_> = capabilities::<Outer<'static>>().collect();
     assert_eq!(rows.len(), 8);
     let devices = <Outer<'static> as CompositeSpec>::DEVICES;
-    assert_eq!(devices.len(), 3);
     assert_eq!(devices[0].code, 1);
-    assert_eq!(devices[0].section, None);
-    assert_eq!(devices[2].name, "image");
-    assert_eq!(devices[2].code, 42);
-    assert_eq!(devices[2].source, ["image", "program"]);
-    assert_eq!(devices[2].section, Some("code"));
+    #[cfg(feature = "program-image-execution")]
+    assert_eq!(devices.len(), 2);
+    #[cfg(not(feature = "program-image-execution"))]
+    {
+        assert_eq!(devices.len(), 3);
+        assert_eq!(devices[0].section, None);
+        assert_eq!(devices[2].name, "image");
+        assert_eq!(devices[2].code, 42);
+        assert_eq!(devices[2].source, ["image", "program"]);
+        assert_eq!(devices[2].section, Some("code"));
+    }
     assert_eq!(<Inner<'static> as CompositeSpec>::DEVICES[1].code, 7);
     assert!(<State as CompositeSpec>::DEVICES.is_empty());
     let expected = [
@@ -334,11 +364,14 @@ fn typed_composite_fields_and_capabilities() {
         assert_eq!(pair[1].instruction, "extra");
     }
 
-    fn section_contracts<
-        T: framework::loader::LoadBytecodeSection<()> + framework::loader::LoadSstSection<()>,
-    >() {
+    #[cfg(not(feature = "program-image-execution"))]
+    {
+        fn section_contracts<
+            T: framework::loader::LoadBytecodeSection<()> + framework::loader::LoadSstSection<()>,
+        >() {
+        }
+        section_contracts::<LoadOnly>();
     }
-    section_contracts::<LoadOnly>();
 
     #[composite]
     #[vihaco(crate = framework)]
@@ -366,7 +399,25 @@ impl<const N: usize> Inner<'_, N> {
 
 #[test]
 fn typed_composites_reject_invalid_targets_and_capabilities() {
-    trybuild::TestCases::new().compile_fail("tests/compile_fail/composites/*.rs");
+    let cases = trybuild::TestCases::new();
+    let mut fixtures = std::fs::read_dir("tests/compile_fail/composites")
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
+        .collect::<Vec<_>>();
+    fixtures.sort();
+    for fixture in fixtures {
+        let name = fixture.file_name().unwrap().to_str().unwrap();
+        if cfg!(feature = "program-image-execution")
+            && matches!(
+                name,
+                "loadable-output.rs" | "loadable-target.rs" | "nested-loadable.rs"
+            )
+        {
+            continue;
+        }
+        cases.compile_fail(fixture);
+    }
 }
 
 #[test]

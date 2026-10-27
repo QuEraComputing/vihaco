@@ -1,6 +1,13 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+//! Program-construction capabilities and legacy section-loading hooks.
+//!
+//! With `program-image-execution`, callers construct images explicitly and the
+//! section-loading hooks are unavailable. Lowering capabilities remain available
+//! in both feature configurations.
+
+#[cfg(not(feature = "program-image-execution"))]
 use vihaco_bytecode::{BytecodeSectionView, SstSectionView};
 
 pub use crate::lowering::{FunctionScope, MetadataLoweringContext};
@@ -12,6 +19,7 @@ pub use crate::lowering::{FunctionScope, MetadataLoweringContext};
 /// make its own section behavior explicit, even when that behavior is a no-op.
 /// Return program data to an outer owner rather than storing it inside Dispatch.
 /// Existing loaders that only mutate their receiver use `type Output = ();`.
+#[cfg(not(feature = "program-image-execution"))]
 pub trait LoadOwnBytecodeSection<C> {
     /// The artifact produced for this section, or `()` for a loader that stores it.
     type Output;
@@ -29,6 +37,7 @@ pub trait LoadOwnBytecodeSection<C> {
 /// make its own section behavior explicit, even when that behavior is a no-op.
 /// Return program data to an outer owner rather than storing it inside Dispatch.
 /// Existing loaders that only mutate their receiver use `type Output = ();`.
+#[cfg(not(feature = "program-image-execution"))]
 pub trait LoadOwnSstSection<C> {
     /// The artifact produced for this section, or `()` for a loader that stores it.
     type Output;
@@ -68,6 +77,7 @@ pub trait LoadOwnSstSection<C> {
 ///
 /// Loading is not transactional. On error, no output is returned, but earlier
 /// mutations to this loader or already-loaded children are retained.
+#[cfg(not(feature = "program-image-execution"))]
 pub trait LoadBytecodeSection<C> {
     /// The artifact produced for this section, or `()` for a loader that stores it.
     type Output;
@@ -88,6 +98,7 @@ pub trait LoadBytecodeSection<C> {
 ///
 /// Loading is not transactional. On error, no output is returned, but earlier
 /// mutations to this loader or already-loaded children are retained.
+#[cfg(not(feature = "program-image-execution"))]
 pub trait LoadSstSection<C> {
     /// The artifact produced for this section, or `()` for a loader that stores it.
     type Output;

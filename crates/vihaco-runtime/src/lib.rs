@@ -148,7 +148,7 @@ pub use vihaco_abi::Instruction;
 #[cfg(feature = "derive")]
 pub use vihaco_runtime_derive::{Message, dispatch, machine, observe};
 
-/// Declare device fields, complete child capabilities, and loadable sections.
+/// Declare device fields and complete child capabilities.
 ///
 /// With `typed-declarations`, named device declarations contribute every leaf
 /// from their declared dialects to a hidden flat runtime enum exposed through
@@ -162,7 +162,12 @@ pub use vihaco_runtime_derive::{Message, dispatch, machine, observe};
 /// is called. Declaring a composite alone does not check Step coverage.
 /// Generic declarations retain their original bounds.
 /// Every device needs an explicit u8 code, unique within its parent. Ordinary
-/// state and `#[loadable]` subtrees are excluded from parent instruction sets.
+/// state is excluded from parent instruction sets.
+/// Without `program-image-execution`, `#[loadable]` devices form section boundaries
+/// and are excluded from parent instruction sets. The macro generates legacy
+/// section-loading implementations in that configuration. With the feature
+/// enabled, construct images explicitly and pair them with stdlib `Loadable`;
+/// `#[loadable]` helpers and generated section loading are unavailable.
 /// [`Field::get`] and [`Field::get_mut`] borrow eligible devices through direct or
 /// nested field routes, including devices that contain borrowed data.
 /// Named generic children are supported; bare type parameters and associated
@@ -323,7 +328,7 @@ pub use vihaco_runtime_derive::component;
 /// unchanged nominal marker type. An unused type alias may defer that check.
 /// Nested routes compose nominal markers with FieldPath and project the final
 /// child. Route SOURCE describes the final field, not the full source prefix.
-/// Ordinary state, loadable fields, and source aliases are not field targets.
+/// Ordinary state and source aliases are not field targets.
 ///
 /// Child namespaces follow their authored type paths. Alternate type spellings
 /// need matching companion namespace reexports. Inventory generation requires

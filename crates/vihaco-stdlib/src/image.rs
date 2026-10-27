@@ -3,19 +3,16 @@
 
 //! Program data owned beside a dispatchable machine.
 //!
-//! An authored loadable owner stores an `Image` and its composite in separate
-//! fields. Loading returns a module from the composite's own-section hook; the
-//! owner installs that module here after generated child loading succeeds.
-//! Execution borrows `image.module` and the machine independently. Nested
-//! loadable owners repeat the same arrangement with their own instruction types.
+//! Construct a module explicitly by parsing and lowering SST or decoding bytecode,
+//! then wrap it with [`Image::new`]. [`crate::Loadable`] pairs the image with a
+//! composite in separate fields so execution borrows code and metadata while
+//! independently mutating the machine.
 //!
 //! Keep the image outside mutable Dispatch and unchanged during an invocation.
-//! Reject replacement while execution is active, or explicitly reset that
-//! invocation first. After successful replacement, reset its ExecutionState
-//! before entering the new program. Resetting execution need not reset devices
-//! or independently loaded children. Resume always uses the paired, unchanged
-//! image. Loading failures retain earlier loader/child mutations; they do not
-//! imply rollback of an entire loadable tree.
+//! `Loadable` rejects replacement while an invocation is active and resets
+//! execution state after successful replacement. Resetting execution does not
+//! reset devices or other independently loaded programs. Image construction is
+//! outside the owner; failures do not roll back caller mutations.
 
 use vihaco_abi::{Type, Value};
 use vihaco_module::module::{LocalModule, NoInfo};

@@ -48,9 +48,10 @@ pub use instruction_syntax::{
     InstructionSugarVariantSyntax, OperandKind, SugarOperandKind,
 };
 
-pub use loader::{
-    LoadBytecodeSection, LoadOwnBytecodeSection, LoadOwnSstSection, LoadSstSection, ProgramImage,
-};
+pub use loader::ProgramImage;
+
+#[cfg(not(feature = "program-image-execution"))]
+pub use loader::{LoadBytecodeSection, LoadOwnBytecodeSection, LoadOwnSstSection, LoadSstSection};
 
 pub use macros::{Instruction, Message, component, composite, dispatch, observe};
 pub use program::{Type, Value};
@@ -109,7 +110,7 @@ pub use vihaco_runtime::HasProgram;
 
 #[cfg(feature = "program-image-execution")]
 pub use vihaco_stdlib::{
-    ExecutionState, Image,
+    ExecutionState, Image, Loadable,
     execution_state::{execute, resume},
 };
 
@@ -117,12 +118,15 @@ pub use vihaco_stdlib::{
 mod public_api_tests {
     use crate::{
         BytecodeGlobalContext, BytecodeHeader, ConstantId, EffectSink, Effects, GeneratedComponent,
-        GlobalContext, LoadBytecodeSection, LoadOwnBytecodeSection, Reset, SectionNameResolver,
-        SstGlobalContext, SstHeader, WriteBytecodeHeader,
+        GlobalContext, Reset, SectionNameResolver, SstGlobalContext, SstHeader,
+        WriteBytecodeHeader,
         instruction::{FromBytes, OpCode, WriteBytes},
         module::FunctionInfo,
         observer::stdio::StdoutEffect,
     };
+
+    #[cfg(not(feature = "program-image-execution"))]
+    use crate::{LoadBytecodeSection, LoadOwnBytecodeSection};
 
     struct PublicReset;
 
@@ -150,6 +154,7 @@ mod public_api_tests {
         }
     }
 
+    #[cfg(not(feature = "program-image-execution"))]
     impl LoadOwnBytecodeSection<PublicContext> for PublicReset {
         type Output = ();
 
@@ -161,6 +166,7 @@ mod public_api_tests {
         }
     }
 
+    #[cfg(not(feature = "program-image-execution"))]
     impl LoadBytecodeSection<PublicContext> for PublicReset {
         type Output = ();
 
@@ -194,7 +200,9 @@ mod public_api_tests {
         fn require_bytecode_global_context<T: BytecodeGlobalContext>() {}
         fn require_sst_global_context<T: SstGlobalContext>() {}
         fn require_global_context<T: GlobalContext>() {}
+        #[cfg(not(feature = "program-image-execution"))]
         fn require_load_own_bytecode_section<T: LoadOwnBytecodeSection<PublicContext>>() {}
+        #[cfg(not(feature = "program-image-execution"))]
         fn require_load_bytecode_section<T: LoadBytecodeSection<PublicContext>>() {}
         fn require_stdout_effect(_effect: StdoutEffect) {}
         fn require_metadata(_metadata: crate::CompositeMetadata) {}
@@ -210,7 +218,9 @@ mod public_api_tests {
         require_sst_global_context::<PublicContext>();
         require_sst_global_context::<crate::NoContext>();
         require_global_context::<PublicContext>();
+        #[cfg(not(feature = "program-image-execution"))]
         require_load_own_bytecode_section::<PublicReset>();
+        #[cfg(not(feature = "program-image-execution"))]
         require_load_bytecode_section::<PublicReset>();
         let _constant = ConstantId(0);
         let _function: Option<FunctionInfo<crate::Type>> = None;

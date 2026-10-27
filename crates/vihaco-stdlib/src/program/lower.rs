@@ -9,6 +9,7 @@ use super::{
 };
 
 use vihaco_abi::{Lower, Syntax};
+use vihaco_module::loader::MetadataLoweringContext;
 
 /// Resolve labels in the function currently being lowered.
 ///
@@ -33,6 +34,28 @@ pub trait FunctionLookup {
 /// table. Implementations report an error if the table cannot represent an index.
 pub trait StringIntern {
     fn intern_string(&mut self, value: &str) -> eyre::Result<u32>;
+}
+
+impl LabelLookup for MetadataLoweringContext {
+    fn label_address(&self, name: &str) -> eyre::Result<u32> {
+        MetadataLoweringContext::label_address(self, name)
+    }
+}
+
+impl FunctionLookup for MetadataLoweringContext {
+    fn function_address(&self, name: &str) -> eyre::Result<u32> {
+        MetadataLoweringContext::function_address(self, name)
+    }
+
+    fn function_index(&self, name: &str) -> eyre::Result<u32> {
+        MetadataLoweringContext::function_index(self, name)
+    }
+}
+
+impl StringIntern for MetadataLoweringContext {
+    fn intern_string(&mut self, value: &str) -> eyre::Result<u32> {
+        self.string_index(value)
+    }
 }
 
 fn label_target<C: LabelLookup + ?Sized>(target: Target, context: &C) -> eyre::Result<u32> {

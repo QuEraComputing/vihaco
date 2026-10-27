@@ -22,6 +22,7 @@ program-image-execution = [
     "typed-declarations",
     "vihaco-runtime/program-image-execution",
     "vihaco-cpu/program-image-execution",
+    "vihaco-syntax/program-image-execution",
 ]
 
 [dependencies]
@@ -38,3 +39,7 @@ vihaco-runtime = { workspace = true }
 [dev-dependencies]
 vihaco-parser = { workspace = true }
 vihaco-syntax = { workspace = true }
+
+[[example]]
+name = "loadable"
+required-features = ["program-image-execution"]

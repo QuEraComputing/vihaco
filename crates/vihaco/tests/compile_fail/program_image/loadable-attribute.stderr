@@ -1,0 +1,5 @@
+error: cannot find attribute `loadable` in this scope
+ --> tests/compile_fail/program_image/loadable-attribute.rs:5:7
+  |
+5 |     #[loadable]
+  |       ^^^^^^^^
