@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Message is the resolved execution input for a component — how a crate author defines a message type and how a composite resolves and supplies it during execution."><title>Using Messages — vihaco</title><script>
+<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Prepare runtime inputs with standard builders or explicit composite implementations."><title>Preparing messages — vihaco</title><script>
       (() => {
         // localStorage can throw when storage is blocked (hardened privacy
         // settings, sandboxed frames); fall back to "auto" so the theme still
@@ -10,345 +10,84 @@
         document.documentElement.setAttribute("data-theme", resolved);
         document.documentElement.setAttribute("data-theme-pref", stored);
       })();
-    </script><link rel="stylesheet" href="/vihaco/_astro/Base.Wd5z-zFf.css"></head> <body> <header class="masthead"> <div class="masthead-inner"> <a class="brand" href="/vihaco/"> <span class="brand-mark" aria-hidden="true"></span> <span class="brand-mono">vihaco</span> <span class="brand-sub">/ virtual ISA &amp; machine framework</span> </a> <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Open navigation menu"> <span class="nav-toggle-bars" aria-hidden="true"></span> </button> <nav class="nav-links" id="primary-nav"> <a href="/vihaco/">Overview</a><a href="/vihaco/quickstart">Quick Start</a><a href="/vihaco/guide" aria-current="page">Guides</a><a href="/vihaco/reference">Reference</a> <div class="theme-toggle" role="group" aria-label="Theme"> <button type="button" data-theme-set="light" title="Light theme" aria-label="Light theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <circle cx="12" cy="12" r="4"></circle> <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path> </svg> </button> <button type="button" data-theme-set="dark" title="Dark theme" aria-label="Dark theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path> </svg> </button> <button type="button" data-theme-set="auto" title="Match system theme" aria-label="Auto (follow system)" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <rect x="3" y="4" width="18" height="13" rx="2"></rect> <path d="M8 21h8M12 17v4"></path> </svg> </button> </div> </nav> </div> </header> <main> <div class="page-shell page-shell--3col"> <details class="page-sections side-nav" aria-label="Guides"> <summary class="page-toc-label">Guides</summary> <ol> <li> <a href="/vihaco/guide/instructions">Defining Instructions</a> </li><li> <a href="/vihaco/guide/instructions-advanced">Advanced Instruction Usage</a> </li><li> <a href="/vihaco/guide/parser">Parser Integration</a> </li><li> <a href="/vihaco/guide/parser-patterns">Pattern Parser Generator</a> </li><li> <a href="/vihaco/guide/parser-advanced">Advanced Parser Customization</a> </li><li> <a href="/vihaco/guide/messages" aria-current="page">Using Messages</a> </li><li> <a href="/vihaco/guide/components">Building Components</a> </li><li> <a href="/vihaco/guide/observers">Observing Effects</a> </li><li> <a href="/vihaco/guide/composites">Defining a Composite</a> </li> </ol> </details> <div class="page-toc-content">  <article class="shell narrow guide-body"> <h1 id="using-messages-with-vihaco">Using Messages With <code>vihaco</code></h1>
-<p><code>Message</code> is the resolved execution input for a component.</p>
-<p>This is the key logic to keep in mind:</p>
-<ul>
-<li>instructions tell a component what operation to perform</li>
-<li>messages provide execution input that the composite runtime resolves or generates</li>
-<li>effects are returned after execution and later interpreted by the runtime or delivered to observers</li>
-</ul>
-<p>That means:</p>
-<ul>
-<li>components consume <code>Message</code></li>
-<li>composites resolve or build <code>Message</code></li>
-<li>observers do not consume <code>Message</code></li>
-<li>observers do not receive a separate delivery context; any extra data should be staged into effects or owned locally</li>
-</ul>
-<p>This guide focuses on both sides of that contract:</p>
-<ul>
-<li>how a crate author defines a message type</li>
-<li>how a composite author resolves and supplies messages during execution</li>
-</ul>
-<p>If you have not read the instruction guide yet, start with <a href="/vihaco/guide/instructions">Defining Instructions With <code>vihaco</code></a>.</p>
-<h2 id="what-a-message-is-for">What A Message Is For</h2>
-<p>Use a message when a component needs step-local execution input that should not live directly in the instruction encoding.</p>
-<p>For example, a composite runtime may need to:</p>
-<ul>
-<li>look up runtime state</li>
-<li>pop values from a stack</li>
-<li>derive timing information</li>
-<li>validate access to a device before execution</li>
-</ul>
-<p>The composite can do that work first, then pass the result into the component as a message.</p>
-<p>That keeps responsibilities clean:</p>
-<ul>
-<li><code>Instruction</code> is the bytecode-visible request</li>
-<li><code>Message</code> is the resolved input to execute that request</li>
-<li><code>Effect</code> is the value returned after execution</li>
-</ul>
-<h2 id="instructions-without-runtime-input">Instructions Without Runtime Input</h2>
-<p>Use <code>NoMessage</code> when an instruction needs no runtime-supplied input. It is a
-named type distinct from <code>()</code>, available from both <code>vihaco</code> and <code>vihaco-runtime</code>.
-Construct it with <code>NoMessage::new()</code> or <code>NoMessage::default()</code>.</p>
-<pre><code class="language-rust">use vihaco::NoMessage;
+    </script><link rel="stylesheet" href="/vihaco/_astro/Base.Wd5z-zFf.css"></head> <body> <header class="masthead"> <div class="masthead-inner"> <a class="brand" href="/vihaco/"> <span class="brand-mark" aria-hidden="true"></span> <span class="brand-mono">vihaco</span> <span class="brand-sub">/ virtual ISA &amp; machine framework</span> </a> <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Open navigation menu"> <span class="nav-toggle-bars" aria-hidden="true"></span> </button> <nav class="nav-links" id="primary-nav"> <a href="/vihaco/">Overview</a><a href="/vihaco/quickstart">Quick Start</a><a href="/vihaco/guide" aria-current="page">Author’s Guide</a><a href="/vihaco/reference">Reference</a> <div class="theme-toggle" role="group" aria-label="Theme"> <button type="button" data-theme-set="light" title="Light theme" aria-label="Light theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <circle cx="12" cy="12" r="4"></circle> <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path> </svg> </button> <button type="button" data-theme-set="dark" title="Dark theme" aria-label="Dark theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path> </svg> </button> <button type="button" data-theme-set="auto" title="Match system theme" aria-label="Auto (follow system)" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <rect x="3" y="4" width="18" height="13" rx="2"></rect> <path d="M8 21h8M12 17v4"></path> </svg> </button> </div> </nav> </div> </header> <main> <div class="page-shell page-shell--3col"> <details class="page-sections side-nav" aria-label="Author’s guide"> <summary class="page-toc-label">Author’s guide</summary> <ol> <li> <a href="/vihaco/guide">Start here</a> </li><li> <a href="/vihaco/guide/mental-model">The mental model</a> </li><li> <a href="/vihaco/guide/first-machine">Your first machine</a> </li><li> <a href="/vihaco/guide/essentials">Essential concepts</a> </li><li> <a href="/vihaco/guide/instructions">Dialects and instructions</a> </li><li> <a href="/vihaco/guide/components">Writing components</a> </li><li> <a href="/vihaco/guide/messages" aria-current="page">Preparing messages</a> </li><li> <a href="/vihaco/guide/stack">Stack inputs and outputs</a> </li><li> <a href="/vihaco/guide/composites">Writing composites</a> </li><li> <a href="/vihaco/guide/execution">Executing one instruction</a> </li><li> <a href="/vihaco/guide/effects">Handling effects</a> </li><li> <a href="/vihaco/guide/program-execution">Running programs</a> </li><li> <a href="/vihaco/guide/loadables">Images and Loadables</a> </li><li> <a href="/vihaco/guide/parser">Parsing source</a> </li><li> <a href="/vihaco/guide/parser-advanced">Loading SST programs</a> </li><li> <a href="/vihaco/guide/sst-reference">Emitting SST from a compiler</a> </li><li> <a href="/vihaco/guide/instructions-advanced">Binary formats</a> </li><li> <a href="/vihaco/guide/patterns">Patterns for larger machines</a> </li><li> <a href="/vihaco/guide/testing">Testing and extending</a> </li><li> <a href="/vihaco/guide/parser-patterns">Pattern parser reference</a> </li> </ol> </details> <div class="page-toc-content">  <article class="shell narrow guide-body"> <h1 id="preparing-messages">Preparing messages</h1>
+<p>A component knows what input it needs, but it doesn’t need to know where that
+input comes from. A message can hold operands, values from an instruction field,
+information from program metadata, or data from another device. The component’s
+<code>Execute&#x3C;I>::Message</code> tells the caller which type to supply.</p>
+<h2 id="standard-preparation">Standard preparation</h2>
+<p><code>BuildMessage&#x3C;F, I, Context, M></code> prepares that input for instruction <code>I</code> at field
+route <code>F</code>. Usually you can leave <code>M</code> at its default, the child’s message type.
+<code>Context</code> defaults to <code>()</code>; the program runner passes the borrowed module instead.</p>
+<p>For standard messages, vihaco already knows how to prepare the input.
+<code>NoMessage</code> needs nothing, and <code>PopFromStack&#x3C;(A, B)></code> takes typed operands from
+the composite’s program storage. Choose the message type on the component;
+you don’t need to implement the internal preparation hook.</p>
+<p>Your step can call <code>build_message(instruction, context)</code> before calling the
+device. The builder takes <code>&#x26;mut self</code> because it may consume operands. Its job
+ends when the message is ready: your step still needs to execute the operation
+and handle the result. Implementing a builder doesn’t create that step.</p>
+<h2 id="custom-messages">Custom messages</h2>
+<p>When preparation needs something specific to your application, give it a distinct
+message type. Here the builder reads a prefix from the composite:</p>
+<pre><code class="language-rust">use vihaco::{BuildMessage, Execute, component, composite, dialect, field};
 
-let input = NoMessage::new();
-assert_eq!(input, NoMessage::default());
-</code></pre>
-<p>Typed CPU instructions that require no runtime input use <code>Message = NoMessage</code>.
-Their encoded operands and returned effects are independent of that choice.</p>
-<h2 id="a-small-message-type">A Small Message Type</h2>
-<p>Message types are usually plain Rust types annotated with <code>#[derive(Message)]</code>.</p>
-<pre><code class="language-rust">use vihaco::Message;
-
-#[derive(Debug, Clone, Message)]
-pub struct PlayMsg {
-    pub when_ns: u64,
-    pub channel_id: u32,
-}
-</code></pre>
-<p>A component can then declare that message type in its <code>#[dispatch(...)]</code> impl:</p>
-<pre><code class="language-rust">use eyre::Result;
-use vihaco::{dispatch, Effects, Instruction, Message};
-
-#[derive(Debug, Clone, Instruction)]
-pub enum WaveInst {
-    SetAmplitude(f64),
-    Play,
+#[dialect]
+mod display {
+    #[instruction]
+    pub struct Show;
 }
 
-#[derive(Debug, Clone, Message)]
-pub struct PlayMsg {
-    pub when_ns: u64,
-    pub channel_id: u32,
-}
+struct Prefix(String);
 
-#[derive(Debug, Clone)]
-pub struct ChannelSample {
-    pub when_ns: u64,
-    pub channel_id: u32,
-    pub value: f64,
-}
+#[component]
+#[instructions { display }]
+struct Display;
 
-#[derive(Debug, Default)]
-pub struct WaveGenerator {
-    amplitude: f64,
-}
-
-#[dispatch(instruction = WaveInst, message = PlayMsg, effect = ChannelSample)]
-impl WaveGenerator {
-    fn execute(&#x26;mut self, inst: &#x26;WaveInst, msg: PlayMsg) -> Result&#x3C;Effects&#x3C;ChannelSample>> {
-        match inst {
-            WaveInst::SetAmplitude(v) => {
-                self.amplitude = v;
-                Ok(Effects::none())
-            }
-            WaveInst::Play => Ok(Effects::one(ChannelSample {
-                when_ns: msg.when_ns,
-                channel_id: msg.channel_id,
-                value: self.amplitude,
-            })),
-        }
+impl Execute&#x3C;display::Show> for Display {
+    type Message = Prefix;
+    type Effect = String;
+    type Error = eyre::Report;
+    fn execute(&#x26;mut self, _: &#x26;display::Show, prefix: Prefix) -> eyre::Result&#x3C;String> {
+        Ok(prefix.0)
     }
 }
-</code></pre>
-<p>The important thing is that <code>WaveGenerator</code> does not decide <code>when_ns</code> or <code>channel_id</code>.
-It just consumes the already-resolved <code>PlayMsg</code>.</p>
-<h2 id="why-the-composite-owns-message-resolution">Why The Composite Owns Message Resolution</h2>
-<p>The composite runtime is the right place to build messages because it owns the broader execution context.</p>
-<p>That often includes:</p>
-<ul>
-<li>cross-component state</li>
-<li>scheduler or runtime state</li>
-<li>stacks, clocks, frames, or device metadata</li>
-<li>validation and access control</li>
-</ul>
-<p>The component should not have to reconstruct that context on its own.</p>
-<p>So the execution flow usually looks like this:</p>
-<ol>
-<li>the composite receives or dispatches an instruction</li>
-<li>the composite inspects runtime state and the instruction</li>
-<li>the composite builds the message</li>
-<li>the composite executes the component with <code>(instruction, message)</code></li>
-</ol>
-<p>That is the mental model to keep throughout the rest of this guide.</p>
-<h2 id="a-small-composite-author-example">A Small Composite-Author Example</h2>
-<p><code>#[composite]</code> generates component instruction types, but message resolution is plain Rust that you write next to the composite: build the message from runtime context, then hand <code>(instruction, message)</code> to the component via the generated <code>execute_generated</code> method.</p>
-<pre><code class="language-rust">use eyre::Result;
-use vihaco::{dispatch, Component, Effects, GeneratedComponent, HasInstructionSet, Instruction, Message, Parse, composite};
-
-#[derive(Debug, Clone, Instruction)]
-enum DeviceInst {
-    Pulse,
-}
-
-#[derive(Debug, Clone, PartialEq, Parse)]
-#[syntax_class(instruction, head = "device")]
-enum DeviceSyntax { #[pattern = "'pulse"] Pulse }
-
-#[derive(Message)]
-struct DeviceMsg(&#x26;'static str);
-
-#[derive(Default)]
-struct Device {
-    seen: Vec&#x3C;&#x26;'static str>,
-}
-
-#[dispatch(instruction = DeviceInst, message = DeviceMsg)]
-impl Device {
-    fn execute(&#x26;mut self, inst: &#x26;DeviceInst, msg: DeviceMsg) -> Result&#x3C;Effects&#x3C;()>> {
-        match inst {
-            DeviceInst::Pulse => {
-                self.seen.push(msg.0);
-                Ok(Effects::none())
-            }
-        }
-    }
-}
-
-impl HasInstructionSet for Device {
-    type Runtime = DeviceInst;
-    type Syntax = DeviceSyntax;
-}
-
-impl Component for Device {}
 
 #[composite]
-#[derive(Default)]
-struct Pilot {
-    #[device(0x02, alias = "pulse")]
-    device: Device,
+struct Machine {
+    #[device(1)]
+    display: Display,
+    prefix: String,
 }
 
-impl Pilot {
-    // The composite owns message resolution, then executes the component.
-    fn step(&#x26;mut self, inst: DeviceInst) -> Result&#x3C;Effects&#x3C;()>> {
-        let msg = self.resolve_device(&#x26;inst)?;
-        self.device.execute_generated(inst, msg)
-    }
-
-    fn resolve_device(&#x26;mut self, _inst: &#x26;DeviceInst) -> Result&#x3C;DeviceMsg> {
-        Ok(DeviceMsg("resolved"))
+impl BuildMessage&#x3C;field!(Machine::display), display::Show, (), Prefix> for Machine {
+    fn build_message(&#x26;mut self, _: &#x26;display::Show, _: &#x26;()) -> eyre::Result&#x3C;Prefix> {
+        Ok(Prefix(self.prefix.clone()))
     }
 }
-</code></pre>
-<p>This is the core composite-author contract:</p>
-<ul>
-<li>the component says which message type it needs</li>
-<li>the composite provides a resolver for that instruction family</li>
-<li>the resolver returns the message value the component will consume</li>
-</ul>
-<p>In other words, the component defines the input shape, but the composite decides the actual input value for that step.</p>
-<h2 id="a-richer-example-resolving-a-signal-message">A Richer Example: Resolving A Signal Message</h2>
-<p>A real runtime shows a richer version of the same idea. A signal-generator component expects a <code>SignalMessage</code>:</p>
-<pre><code class="language-rust">use vihaco::{dispatch, Effects, Message};
 
-#[derive(Debug, Clone, Copy, PartialEq, Message)]
-pub enum SignalMessage {
-    None,
-    Poly4([f64; 4]),
-    Duration(u64),
-}
-
-#[dispatch(instruction = SignalInst, message = SignalMessage)]
-impl SignalGenerator {
-    fn execute(&#x26;mut self, inst: &#x26;SignalInst, msg: SignalMessage) -> eyre::Result&#x3C;Effects&#x3C;()>> {
-        // component consumes a resolved message here
-        let _ = (inst, msg);
-        Ok(Effects::none())
-    }
+fn main() -> eyre::Result&#x3C;()> {
+    let mut machine = Machine { display: Display, prefix: "result: ".into() };
+    let message = machine.build_message(&#x26;display::Show, &#x26;())?;
+    assert_eq!(machine.display.execute(&#x26;display::Show, message)?, "result: ");
+    Ok(())
 }
 </code></pre>
-<p>But the component does not know how to create <code>Poly4([f64; 4])</code> or <code>Duration(u64)</code> on its own.
-That comes from composite-owned runtime state. The composite resolves the message first
-(the exact accessors — a stack, a clock — depend on your runtime; the shape is what matters):</p>
-<pre><code class="language-rust">use vihaco_cpu::{decode_f64, decode_u64};
-
-fn resolve_signal(&#x26;mut self, inst: &#x26;SignalInst) -> eyre::Result&#x3C;SignalMessage> {
-    match inst {
-        SignalInst::Poly(_addr) => {
-            let p3 = decode_f64(self.cpu.stack_pop()?);
-            let p2 = decode_f64(self.cpu.stack_pop()?);
-            let p1 = decode_f64(self.cpu.stack_pop()?);
-            let p0 = decode_f64(self.cpu.stack_pop()?);
-            Ok(SignalMessage::Poly4([p0, p1, p2, p3]))
-        }
-        SignalInst::Play if self.signal.is_idle() => {
-            let cycles = decode_u64(self.cpu.stack_pop()?);
-            let duration_ns = cycles
-                .checked_mul(self.clock.resolution_ns())
-                .ok_or_else(|| eyre::eyre!("play duration overflow"))?;
-            Ok(SignalMessage::Duration(duration_ns))
-        }
-        SignalInst::Play => Ok(SignalMessage::None),
-    }
-}
-</code></pre>
-<p>Then the runtime executes the component with that resolved value:</p>
-<pre><code class="language-rust">use vihaco::GeneratedComponent;
-
-let msg = self.resolve_signal(&#x26;signal_inst)?;
-let effects = self.signal.execute_generated(signal_inst, msg)?;
-assert_eq!(effects, Effects::one(()));
-</code></pre>
-<p>This example shows why composites own message resolution:</p>
-<ul>
-<li>the message depends on host stack state</li>
-<li>the message depends on clock resolution</li>
-<li>the message depends on whether the generator is idle</li>
-<li>the component can stay focused on execution once the message is ready</li>
-</ul>
-<p>When a component returns a non-unit effect, hand-written runtimes normally either:</p>
-<ul>
-<li>extract exactly one control/data effect with <code>expect_exactly_one_effect(...)</code>, or</li>
-<li>lift the returned values into a runtime-local sum-effect enum and continue that effect set explicitly</li>
-</ul>
-<h2 id="when-to-use-message--">When To Use <code>message = ()</code></h2>
-<p>Use <code>message = ()</code> when the component can execute directly from:</p>
-<ul>
-<li>the instruction itself</li>
-<li>the component’s own local state</li>
-</ul>
-<p>For example:</p>
-<pre><code class="language-rust">use eyre::Result;
-use vihaco::{dispatch, Effects, Instruction};
-
-#[derive(Debug, Clone, Instruction)]
-pub enum LampInst {
-    On,
-    Off,
-}
-
-#[derive(Debug, Default)]
-pub struct Lamp {
-    on: bool,
-}
-
-#[dispatch(instruction = LampInst, message = ())]
-impl Lamp {
-    fn execute(&#x26;mut self, inst: &#x26;LampInst, _msg: ()) -> Result&#x3C;Effects&#x3C;()>> {
-        self.on = matches!(inst, LampInst::On);
-        Ok(Effects::none())
-    }
-}
-</code></pre>
-<p>In this case there is nothing meaningful for the composite to resolve, so a unit message is the right fit.</p>
-<h2 id="composite-message-types">Composite Message Types</h2>
-<p>When an outer composite wraps inner components, it can also wrap their message types.</p>
-<pre><code class="language-rust">use vihaco::Message;
-
-#[derive(Message)]
-struct DemoMsg;
-
-#[derive(Message)]
-enum CompositeMsg {
-    Inner(DemoMsg),
-}
-</code></pre>
-<p>This pattern keeps the outer component or composite boundary explicit:</p>
-<ul>
-<li>outer instructions wrap inner instructions</li>
-<li>outer messages wrap inner messages</li>
-<li>routing stays visible in the outer type signatures</li>
-</ul>
-<p>The same design rule applies here too: the outer composite layer decides which inner message variant to construct.</p>
-<h2 id="instruction-vs-message-vs-effect"><code>Instruction</code> Vs <code>Message</code> Vs <code>Effect</code></h2>
-<p>A simple way to choose the right type is:</p>
-<ul>
-<li>use <code>Instruction</code> for bytecode-visible operations</li>
-<li>use <code>Message</code> for resolved execution input produced by the composite</li>
-<li>use <code>Effect</code> for returned values consumed after execution</li>
-</ul>
-<p>Good candidates for <code>Message</code>:</p>
-<ul>
-<li>timing data derived from a runtime clock</li>
-<li>values popped from a stack before execution</li>
-<li>validated handles or resolved addresses</li>
-<li>execution-local context that should not be part of source syntax</li>
-</ul>
-<p>Usually not a good fit for <code>Message</code>:</p>
-<ul>
-<li>the main operation being requested</li>
-<li>long-lived component state</li>
-<li>broadcast or runtime follow-up values that belong in the effect stream</li>
-</ul>
-<h2 id="practical-guidance">Practical Guidance</h2>
-<ul>
-<li>Start with <code>message = ()</code> unless execution genuinely needs resolved input.</li>
-<li>If a component needs context from the wider runtime, prefer resolving that context into a message.</li>
-<li>Keep message types plain and specific to execution needs.</li>
-<li>Let composites do lookups, stack access, timing derivation, and validation before calling component execution.</li>
-<li>Keep effects separate from messages so post-execution output stays explicit.</li>
-</ul>
-<h2 id="what-comes-next">What Comes Next</h2>
-<p>Messages make the most sense alongside the surrounding component and composite model.</p>
-<p>Continue with:</p>
-<ul>
-<li><a href="/vihaco/guide/components">Building Components With <code>vihaco</code></a></li>
-<li><a href="/vihaco/guide/observers">Observing Effects With <code>#[observe]</code></a></li>
-<li><a href="/vihaco/guide/composites">Defining A Composite With <code>vihaco</code></a></li>
-</ul> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/guide/parser-advanced" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Advanced Parser Customization</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/guide/components" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Building Components</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#what-a-message-is-for" data-toc-link="#what-a-message-is-for">What A Message Is For</a></li><li><a href="#instructions-without-runtime-input" data-toc-link="#instructions-without-runtime-input">Instructions Without Runtime Input</a></li><li><a href="#a-small-message-type" data-toc-link="#a-small-message-type">A Small Message Type</a></li><li><a href="#why-the-composite-owns-message-resolution" data-toc-link="#why-the-composite-owns-message-resolution">Why The Composite Owns Message Resolution</a></li><li><a href="#a-small-composite-author-example" data-toc-link="#a-small-composite-author-example">A Small Composite-Author Example</a></li><li><a href="#a-richer-example-resolving-a-signal-message" data-toc-link="#a-richer-example-resolving-a-signal-message">A Richer Example: Resolving A Signal Message</a></li><li><a href="#when-to-use-message--" data-toc-link="#when-to-use-message--">When To Use message = ()</a></li><li><a href="#composite-message-types" data-toc-link="#composite-message-types">Composite Message Types</a></li><li><a href="#instruction-vs-message-vs-effect" data-toc-link="#instruction-vs-message-vs-effect">Instruction Vs Message Vs Effect</a></li><li><a href="#practical-guidance" data-toc-link="#practical-guidance">Practical Guidance</a></li><li><a href="#what-comes-next" data-toc-link="#what-comes-next">What Comes Next</a></li> </ol> </details> </div> </main> <script>
+<p>Name <code>M</code> explicitly in a custom impl, as this example does with <code>Prefix</code>. That
+keeps the impl’s trait identity separate from standard preparation. <code>M</code> must
+still match the child’s execution message; it can’t change the associated type.</p>
+<h2 id="context-and-validation">Context and validation</h2>
+<p>If your builder needs read-only information from outside the machine, such as
+function metadata or strings, give it a context type. <code>Dispatch</code> passes that
+context to the step, and the step can pass it to the builder. The component
+receives the prepared message.</p>
+<p>The builder is also a place to check references and input requirements that
+depend on how the runtime is organized. Pay attention to when you consume input:
+an error won’t restore earlier changes. Add error context when it helps identify
+the operation or reference that failed.</p>
+<p>Several instructions can share preparation through the
+<a href="/vihaco/guide/patterns">message-kind pattern</a>. For input that comes straight from
+operands, start with the <a href="/vihaco/guide/stack">standard stack protocols</a>.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/guide/components" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Writing components</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/guide/stack" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Stack inputs and outputs</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#standard-preparation" data-toc-link="#standard-preparation">Standard preparation</a></li><li><a href="#custom-messages" data-toc-link="#custom-messages">Custom messages</a></li><li><a href="#context-and-validation" data-toc-link="#context-and-validation">Context and validation</a></li> </ol> </details> </div> </main> <script>
         // Scroll-spy: mark the TOC link for the section currently in view.
         (() => {
           const links = Array.from(document.querySelectorAll(".page-toc [data-toc-link]"));
@@ -500,7 +239,7 @@ enum CompositeMsg {
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-10-26</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-10-27</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

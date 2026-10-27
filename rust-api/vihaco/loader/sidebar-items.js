@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["ProgramImage"],"trait":["LoadBytecodeSection","LoadOwnBytecodeSection","LoadOwnSstSection","LoadSstSection"]};
+window.SIDEBAR_ITEMS = {"struct":["MetadataLoweringContext","ProgramImage"],"trait":["FunctionScope"]};

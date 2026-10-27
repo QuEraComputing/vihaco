@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Explicit opcode assignment, explicit instruction widths, and machine-level wrapper instructions that compose several component instruction sets."><title>Advanced Instruction Usage — vihaco</title><script>
+<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Separate container framing, instruction encoding, and complete program metadata."><title>Binary formats — vihaco</title><script>
       (() => {
         // localStorage can throw when storage is blocked (hardened privacy
         // settings, sandboxed frames); fall back to "auto" so the theme still
@@ -10,133 +10,51 @@
         document.documentElement.setAttribute("data-theme", resolved);
         document.documentElement.setAttribute("data-theme-pref", stored);
       })();
-    </script><link rel="stylesheet" href="/vihaco/_astro/Base.Wd5z-zFf.css"></head> <body> <header class="masthead"> <div class="masthead-inner"> <a class="brand" href="/vihaco/"> <span class="brand-mark" aria-hidden="true"></span> <span class="brand-mono">vihaco</span> <span class="brand-sub">/ virtual ISA &amp; machine framework</span> </a> <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Open navigation menu"> <span class="nav-toggle-bars" aria-hidden="true"></span> </button> <nav class="nav-links" id="primary-nav"> <a href="/vihaco/">Overview</a><a href="/vihaco/quickstart">Quick Start</a><a href="/vihaco/guide" aria-current="page">Guides</a><a href="/vihaco/reference">Reference</a> <div class="theme-toggle" role="group" aria-label="Theme"> <button type="button" data-theme-set="light" title="Light theme" aria-label="Light theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <circle cx="12" cy="12" r="4"></circle> <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path> </svg> </button> <button type="button" data-theme-set="dark" title="Dark theme" aria-label="Dark theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path> </svg> </button> <button type="button" data-theme-set="auto" title="Match system theme" aria-label="Auto (follow system)" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <rect x="3" y="4" width="18" height="13" rx="2"></rect> <path d="M8 21h8M12 17v4"></path> </svg> </button> </div> </nav> </div> </header> <main> <div class="page-shell page-shell--3col"> <details class="page-sections side-nav" aria-label="Guides"> <summary class="page-toc-label">Guides</summary> <ol> <li> <a href="/vihaco/guide/instructions">Defining Instructions</a> </li><li> <a href="/vihaco/guide/instructions-advanced" aria-current="page">Advanced Instruction Usage</a> </li><li> <a href="/vihaco/guide/parser">Parser Integration</a> </li><li> <a href="/vihaco/guide/parser-patterns">Pattern Parser Generator</a> </li><li> <a href="/vihaco/guide/parser-advanced">Advanced Parser Customization</a> </li><li> <a href="/vihaco/guide/messages">Using Messages</a> </li><li> <a href="/vihaco/guide/components">Building Components</a> </li><li> <a href="/vihaco/guide/observers">Observing Effects</a> </li><li> <a href="/vihaco/guide/composites">Defining a Composite</a> </li> </ol> </details> <div class="page-toc-content">  <article class="shell narrow guide-body"> <h1 id="advanced-instruction-usage">Advanced Instruction Usage</h1>
-<p>This guide covers explicit opcode assignment, explicit instruction widths, and machine-level wrapper instructions.</p>
-<p>For the basics of defining instruction enums and how width inference works, see <a href="/vihaco/guide/instructions">Defining Instructions With <code>vihaco</code></a>.</p>
-<h2 id="setting-an-explicit-opcode">Setting An Explicit Opcode</h2>
-<p>Use <code>#[opcode = ...]</code> on a variant when you want to choose the encoded opcode value yourself instead of using the default variant-order assignment.</p>
-<pre><code class="language-rust">use vihaco::Instruction;
-
-#[derive(Debug, Clone, Instruction)]
-#[instruction(width = 16)]
-pub enum BranchInst {
-    #[opcode = 0x10]
-    Jump(u32),
-    #[opcode = 0x11]
-    Select(u32, u32),
-}
-</code></pre>
-<p>This is useful when:</p>
-<ul>
-<li>the bytecode format needs stable numeric opcode values</li>
-<li>you want specific opcode numbers for compatibility or tooling</li>
-<li>you want to leave gaps for future instructions</li>
-</ul>
-<p>If you do not need that control, leaving opcodes inferred from variant order is the simpler default.</p>
-<h2 id="setting-an-explicit-width">Setting An Explicit Width</h2>
-<p>Use <code>#[instruction(width = ...)]</code> when you want the encoded record size to stay fixed even if the enum could be smaller.</p>
-<p>A fixed-width device instruction type is a common case — for example a signal generator that takes a channel address and a <code>Play</code>:</p>
-<pre><code class="language-rust">use vihaco::Instruction;
-
-#[derive(Debug, Clone, Instruction)]
-#[instruction(width = 8)]
-pub enum SignalInst {
-    Poly(u32),
-    Play,
-}
-</code></pre>
-<p>This says that every encoded <code>SignalInst</code> record is <code>8</code> bytes wide.</p>
-<p>Conceptually:</p>
-<pre><code class="language-text">SignalInst::Play
-=> [opcode for Play][0][0][0][0][0][0][0]
-</code></pre>
-<pre><code class="language-text">SignalInst::Poly(addr)
-=> [opcode for Poly][encoded address bytes...][zero padding if needed]
-</code></pre>
-<p>This is useful when you want a stable instruction record size at a component boundary.</p>
-<h2 id="when-to-leave-width-inferred">When To Leave Width Inferred</h2>
-<p>Leave width inferred when:</p>
-<ul>
-<li>you want the enum width to naturally track its largest payload</li>
-<li>the instruction type is only used as a reusable building block inside a larger wrapper enum</li>
-<li>you do not need a fixed external record size</li>
-</ul>
-<p>Set an explicit width when:</p>
-<ul>
-<li>the instruction format should always occupy a fixed number of bytes</li>
-<li>you want smaller variants padded up to a known record size</li>
-<li>the component already has a width contract you want to preserve as the enum evolves</li>
-</ul>
-<h2 id="machine-level-wrapper-instructions">Machine-Level Wrapper Instructions</h2>
-<p><code>vihaco</code> also supports instruction enums that wrap other instruction enums.
-This is how a machine can expose several component instruction sets through one outer instruction type.</p>
-<p>A machine that drives a CPU plus a signal generator can wrap both:</p>
-<pre><code class="language-rust">use vihaco::Instruction;
-use vihaco_cpu as cpu;
-
-#[derive(Debug, Clone)]
-pub enum MachineInst {
-    Cpu(cpu::RuntimeInstruction),
-    Signal(SignalInst),
-}
-</code></pre>
-<p>The CPU instruction set uses explicit variants for each value family. For
-example, the CPU payload can be <code>cpu::RuntimeInstruction::AddI64</code> or
-<code>cpu::RuntimeInstruction::ConstF32(word)</code>, rather than a generic operation
-carrying a separate <code>Type</code> operand.</p>
-<p>Each outer variant identifies which nested instruction family is being used.
-The nested instruction then becomes the payload of that outer variant.</p>
-<p>Conceptually:</p>
-<pre><code class="language-text">MachineInst::Signal(SignalInst::Play)
-=> [opcode for outer Signal variant][encoded SignalInst][padding if needed]
-</code></pre>
-<p>This keeps composition straightforward:</p>
-<ul>
-<li>each component keeps its own instruction type</li>
-<li>the machine exposes one outer instruction type</li>
-<li>the wrapper enum handles outer dispatch without forcing every inner instruction type to be rewritten</li>
-</ul>
+    </script><link rel="stylesheet" href="/vihaco/_astro/Base.Wd5z-zFf.css"></head> <body> <header class="masthead"> <div class="masthead-inner"> <a class="brand" href="/vihaco/"> <span class="brand-mark" aria-hidden="true"></span> <span class="brand-mono">vihaco</span> <span class="brand-sub">/ virtual ISA &amp; machine framework</span> </a> <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Open navigation menu"> <span class="nav-toggle-bars" aria-hidden="true"></span> </button> <nav class="nav-links" id="primary-nav"> <a href="/vihaco/">Overview</a><a href="/vihaco/quickstart">Quick Start</a><a href="/vihaco/guide" aria-current="page">Author’s Guide</a><a href="/vihaco/reference">Reference</a> <div class="theme-toggle" role="group" aria-label="Theme"> <button type="button" data-theme-set="light" title="Light theme" aria-label="Light theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <circle cx="12" cy="12" r="4"></circle> <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path> </svg> </button> <button type="button" data-theme-set="dark" title="Dark theme" aria-label="Dark theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path> </svg> </button> <button type="button" data-theme-set="auto" title="Match system theme" aria-label="Auto (follow system)" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <rect x="3" y="4" width="18" height="13" rx="2"></rect> <path d="M8 21h8M12 17v4"></path> </svg> </button> </div> </nav> </div> </header> <main> <div class="page-shell page-shell--3col"> <details class="page-sections side-nav" aria-label="Author’s guide"> <summary class="page-toc-label">Author’s guide</summary> <ol> <li> <a href="/vihaco/guide">Start here</a> </li><li> <a href="/vihaco/guide/mental-model">The mental model</a> </li><li> <a href="/vihaco/guide/first-machine">Your first machine</a> </li><li> <a href="/vihaco/guide/essentials">Essential concepts</a> </li><li> <a href="/vihaco/guide/instructions">Dialects and instructions</a> </li><li> <a href="/vihaco/guide/components">Writing components</a> </li><li> <a href="/vihaco/guide/messages">Preparing messages</a> </li><li> <a href="/vihaco/guide/stack">Stack inputs and outputs</a> </li><li> <a href="/vihaco/guide/composites">Writing composites</a> </li><li> <a href="/vihaco/guide/execution">Executing one instruction</a> </li><li> <a href="/vihaco/guide/effects">Handling effects</a> </li><li> <a href="/vihaco/guide/program-execution">Running programs</a> </li><li> <a href="/vihaco/guide/loadables">Images and Loadables</a> </li><li> <a href="/vihaco/guide/parser">Parsing source</a> </li><li> <a href="/vihaco/guide/parser-advanced">Loading SST programs</a> </li><li> <a href="/vihaco/guide/sst-reference">Emitting SST from a compiler</a> </li><li> <a href="/vihaco/guide/instructions-advanced" aria-current="page">Binary formats</a> </li><li> <a href="/vihaco/guide/patterns">Patterns for larger machines</a> </li><li> <a href="/vihaco/guide/testing">Testing and extending</a> </li><li> <a href="/vihaco/guide/parser-patterns">Pattern parser reference</a> </li> </ol> </details> <div class="page-toc-content">  <article class="shell narrow guide-body"> <h1 id="binary-formats">Binary formats</h1>
 <blockquote>
-<p>When you use the <a href="/vihaco/guide/composites"><code>#[composite]</code></a> attribute, it generates component-local runtime and syntax enums in a snake_case module. If you need one outer wrapper instruction type, write it by hand as above.</p>
+<p><strong>Warning:</strong> The bytecode container and format are currently unstable and may
+change. Don’t rely on compatibility between versions.</p>
 </blockquote>
-<h2 id="how-nested-widths-compose">How Nested Widths Compose</h2>
-<p>For wrapper enums, the outer instruction width is computed from the outer enum, not by changing the inner types.</p>
-<p>That means:</p>
-<ul>
-<li>each inner instruction keeps its own width</li>
-<li>a nested instruction payload contributes its full encoded width as payload</li>
-<li>the outer enum width is <code>1</code> opcode byte plus the largest nested payload used by any variant</li>
-<li>smaller nested payloads are padded inside the outer record</li>
-</ul>
-<p>For example, if the largest CPU runtime instruction payload is <code>W</code> bytes and
-<code>SignalInst</code> is <code>8</code> bytes wide, then the outer machine instruction width is
-<code>1 + max(W, 8)</code> bytes:</p>
-<ul>
-<li><code>1</code> byte for the outer machine opcode</li>
-<li>the width of the largest nested payload</li>
-</ul>
-<p>So a smaller instruction such as <code>MachineInst::Signal(...)</code> still occupies the full outer width once encoded.</p>
-<p>Conceptually:</p>
-<pre><code class="language-text">MachineInst::Signal(signal_inst)
-=> [opcode for Signal][encoded signal instruction][zero padding...]
-</code></pre>
-<p>This is what makes nested instruction composition deterministic:</p>
-<ul>
-<li>decoding always reads one full outer instruction record</li>
-<li>the outer opcode decides which nested instruction type should decode the payload</li>
-<li>the nested type decodes only the bytes it understands</li>
-</ul>
-<h2 id="practical-guidance">Practical Guidance</h2>
-<ul>
-<li>Use <code>#[opcode = ...]</code> when opcode numbers are part of the bytecode contract.</li>
-<li>Use <code>#[instruction(width = ...)]</code> when record size is part of the component contract.</li>
-<li>Wrap inner instruction enums in an outer machine enum instead of flattening all instructions into one giant type.</li>
-<li>Let the outer enum own machine-visible composition and padding behavior.</li>
-</ul>
-<h2 id="what-comes-next">What Comes Next</h2>
-<p><code>#[derive(Instruction)]</code> covers bytecode and runtime semantics; source-text parsing is owned by an orthogonal <code>#[derive(vihaco_parser_derive::Parse)]</code> on the same enum. See <a href="/vihaco/guide/parser">Pattern Parser Integration for Component Instructions</a> for the parser-side workflow and <a href="/vihaco/guide/parser-advanced">Module Parsing and Resolution</a> for section headers, typed function bodies, and module resolution.</p>
-<p>After defining an instruction type, the next step is usually to attach it to a component impl with <code>#[dispatch(...)]</code>.</p>
-<p>See <a href="/vihaco/guide/components">Building Components With <code>vihaco</code></a> for the execution side of that model.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/guide/instructions" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Defining Instructions</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/guide/parser" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Parser Integration</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#setting-an-explicit-opcode" data-toc-link="#setting-an-explicit-opcode">Setting An Explicit Opcode</a></li><li><a href="#setting-an-explicit-width" data-toc-link="#setting-an-explicit-width">Setting An Explicit Width</a></li><li><a href="#when-to-leave-width-inferred" data-toc-link="#when-to-leave-width-inferred">When To Leave Width Inferred</a></li><li><a href="#machine-level-wrapper-instructions" data-toc-link="#machine-level-wrapper-instructions">Machine-Level Wrapper Instructions</a></li><li><a href="#how-nested-widths-compose" data-toc-link="#how-nested-widths-compose">How Nested Widths Compose</a></li><li><a href="#practical-guidance" data-toc-link="#practical-guidance">Practical Guidance</a></li><li><a href="#what-comes-next" data-toc-link="#what-comes-next">What Comes Next</a></li> </ol> </details> </div> </main> <script>
+<p>A binary format needs to describe both the sections in a file and the complete
+module you want to execute. Reading the container is the first part; you still
+need to construct a runnable image from its contents.</p>
+<h2 id="container-and-section-data">Container and section data</h2>
+<p><code>BytecodeFile&#x3C;C>::from_bytes(bytes)</code> reads the container and gives you a root
+section. Your <code>C</code> implements <code>BytecodeGlobalContext</code> to read global data and
+<code>SectionNameResolver</code> to look up child-section names stored as indices.
+Use <code>child(name)</code> or <code>children()</code> to choose independently loaded units.</p>
+<p>Section views expose header bytes, instruction bytes, and child sections.
+Read your header representation with <code>decode_header::&#x3C;H>()</code>. If <code>I</code> implements
+the required bytecode traits, <code>decode_instructions::&#x3C;I>()</code> can decode its
+instruction stream.</p>
+<p>You’ll need to supply any instruction codecs those helpers require. Typed
+composition and persistent encoding are separate: a composite declaration
+doesn’t give you a stable hierarchical wire format.</p>
+<h2 id="define-instruction-identities-deliberately">Define instruction identities deliberately</h2>
+<p>The ABI’s <code>Instruction</code> derive and bytecode traits let you define encoded types.
+Your wire types can differ from the types you execute. Choose how to represent
+device routes, opcodes, operand widths, and payloads, then decode them into the
+module’s runtime instruction type.</p>
+<p>Generated inventory positions and hidden enum variant order aren’t persistent
+compatibility contracts. If your codec needs access to a particular
+representation, keep that dependency in the codec, away from component execution
+and step behavior.</p>
+<h2 id="preserve-the-whole-program">Preserve the whole program</h2>
+<p>Code is only part of what a program needs. Keep its function signatures and
+ranges, reserved locals, entry selection, labels, constants, strings, source
+symbols, and application configuration too. Check references and table bounds
+before pairing the decoded result with a machine. An instruction round trip
+alone doesn’t show that the decoded program will behave the same way.</p>
+<p>Choose a format version and decide when to change it. Reassigning an opcode,
+changing a payload, or interpreting metadata differently can break compatibility
+even when the Rust types still compile. Reject unsupported versions clearly,
+or write an explicit conversion policy.</p>
+<h2 id="verify-source-and-binary-agreement">Verify source and binary agreement</h2>
+<p>Load equivalent source and binary programs, then compare their results, control
+flow, and retained metadata. Include malformed lengths, bad references,
+unsupported opcodes, numeric limits, and floating-point bit patterns in your
+tests. Keep exact wire layouts with the codec’s reference documentation.</p>
+<p>Next, see some <a href="/vihaco/guide/patterns">patterns for larger machines</a>.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/guide/sst-reference" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Emitting SST from a compiler</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/guide/patterns" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Patterns for larger machines</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#container-and-section-data" data-toc-link="#container-and-section-data">Container and section data</a></li><li><a href="#define-instruction-identities-deliberately" data-toc-link="#define-instruction-identities-deliberately">Define instruction identities deliberately</a></li><li><a href="#preserve-the-whole-program" data-toc-link="#preserve-the-whole-program">Preserve the whole program</a></li><li><a href="#verify-source-and-binary-agreement" data-toc-link="#verify-source-and-binary-agreement">Verify source and binary agreement</a></li> </ol> </details> </div> </main> <script>
         // Scroll-spy: mark the TOC link for the section currently in view.
         (() => {
           const links = Array.from(document.querySelectorAll(".page-toc [data-toc-link]"));
@@ -288,7 +206,7 @@ The nested instruction then becomes the payload of that outer variant.</p>
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-10-26</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-10-27</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {
