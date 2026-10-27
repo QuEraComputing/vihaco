@@ -1,51 +1,122 @@
-use eyre::Result;
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
 use vihaco::{
-    component, dispatch, Effects, GeneratedComponent, Message, expect_exactly_one_effect,
+    Apply, BuildMessage, Execute, ExecutionState, HasInstructionSet, Image, Loadable, NoContext,
+    PopFromStack, PushToStack, SstFile, Step, Type, Value, component, composite, dialect, field,
+    loader::MetadataLoweringContext,
+    module::{LocalModule, ProgramMetadata},
+    syntax::{HeaderDeclarations, ParsedModule, lower_functions_with_metadata},
 };
 
-component! {
-    #[derive(Debug, Default)]
-    pub component Counter {
-        value: i64,
-    }
+#[dialect]
+pub mod arithmetic {
+    #[instruction]
+    pub struct Add;
+}
 
-    instruction {
-        Add(i64),
-        Print,
+#[component]
+#[instructions { arithmetic }]
+#[derive(Default)]
+pub struct Calculator {
+    additions: usize,
+}
+
+impl Execute<arithmetic::Add> for Calculator {
+    type Message = PopFromStack<(u64, u64)>;
+    type Effect = PushToStack<(u64,)>;
+    type Error = eyre::Report;
+
+    fn execute(
+        &mut self,
+        _: &arithmetic::Add,
+        PopFromStack((lhs, rhs)): Self::Message,
+    ) -> eyre::Result<Self::Effect> {
+        let sum = lhs
+            .checked_add(rhs)
+            .ok_or_else(|| eyre::eyre!("addition overflow"))?;
+        self.additions += 1;
+        Ok(PushToStack((sum,)))
     }
 }
 
-use counter::runtime::Instruction as CounterInst;
+#[composite]
+pub struct Machine {
+    #[device(0)]
+    #[program]
+    execution: vihaco_stdlib::ExecutionState,
+    #[device(1)]
+    calculator: Calculator,
+}
 
-#[derive(Debug, Clone, Message)]
-pub struct Prefix(pub String);
+type Instruction = <Machine as HasInstructionSet>::Runtime;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Line(pub String);
+type SourceInstruction = <Machine as HasInstructionSet>::Syntax;
 
-#[dispatch(instruction = counter::runtime::Instruction, message = Prefix, effect = Line)]
-impl counter::Counter {
-    fn execute(&mut self, inst: &CounterInst, msg: Prefix) -> Result<Effects<Line>> {
-        match inst {
-            CounterInst::Add(v) => {
-                self.value += v;
-                Ok(Effects::none())
-            }
-            CounterInst::Print => Ok(Effects::one(Line(format!("{}{}", msg.0, self.value)))),
-        }
+type Program = LocalModule<Instruction, Value, Type>;
+
+impl<I> Step<field!(Machine::execution), I, Program> for Machine
+where
+    ExecutionState: Execute<I, Effect = (), Error = eyre::Report>,
+    Self: BuildMessage<field!(Machine::execution), I, Program>,
+{
+    fn step(&mut self, instruction: &I, module: &Program) -> eyre::Result<()> {
+        let message =
+            <Self as BuildMessage<field!(Machine::execution), I, Program>>::build_message(
+                self,
+                instruction,
+                module,
+            )?;
+        self.execution.execute(instruction, message)
     }
 }
 
-fn main() -> Result<()> {
-    let mut counter = counter::Counter::default();
+impl<I> Step<field!(Machine::calculator), I, Program> for Machine
+where
+    Calculator: Execute<I, Error = eyre::Report>,
+    Self: BuildMessage<field!(Machine::calculator), I, Program>,
+    ExecutionState: Apply<<Calculator as Execute<I>>::Effect>,
+{
+    fn step(&mut self, instruction: &I, module: &Program) -> eyre::Result<()> {
+        let message =
+            <Self as BuildMessage<field!(Machine::calculator), I, Program>>::build_message(
+                self,
+                instruction,
+                module,
+            )?;
+        let effect = self.calculator.execute(instruction, message)?;
+        self.execution.apply(effect);
+        Ok(())
+    }
+}
 
-    // `Add` ignores its message and returns no effects.
-    counter.execute_generated(&CounterInst::Add(2), Prefix(String::new()))?;
-    counter.execute_generated(&CounterInst::Add(3), Prefix(String::new()))?;
+pub fn main() -> eyre::Result<()> {
+    let source = include_str!("first-machine.sst");
+    let file = SstFile::<NoContext>::from_text(source)?;
+    let ParsedModule { header, functions } = ParsedModule::<
+        SourceInstruction,
+        Type,
+        HeaderDeclarations<ProgramMetadata>,
+    >::parse_section(file.root())?;
 
-    // `Print` returns exactly one `Line` effect.
-    let effects = counter.execute_generated(&CounterInst::Print, Prefix("total = ".into()))?;
-    let line = expect_exactly_one_effect(effects)?;
-    assert_eq!(line, Line("total = 5".into()));
+    let mut declarations = header.into_iter();
+    let metadata = declarations
+        .next()
+        .ok_or_else(|| eyre::eyre!("missing program metadata"))?;
+    eyre::ensure!(
+        declarations.next().is_none(),
+        "expected one metadata declaration"
+    );
+    let mut context = MetadataLoweringContext::new(&metadata)?;
+    let code = lower_functions_with_metadata(functions, &metadata, &mut context)?;
+    let module = metadata.into_module(code)?;
+    let machine = Machine {
+        execution: ExecutionState::new(),
+        calculator: Calculator::default(),
+    };
+    let mut loaded = Loadable::new(Image::new(module), machine);
+    loaded.execute(&[])?;
+    assert_eq!(loaded.machine().execution.stack(), &[42]);
+    assert_eq!(loaded.machine().calculator.additions, 1);
     Ok(())
 }

@@ -1,7 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
 import counterSrc from "../../examples/counter.rs?raw";
-import observeSrc from "../../examples/observe.rs?raw";
 const base = import.meta.env.BASE_URL.replace(/\/$/, "");
 ---
 <Base title="Overview" current="home">
@@ -45,7 +44,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, "");
 
     <section class="hero">
       <div class="hero-text">
-        <p class="eyebrow">QuEra Computing · Rust · v0.1</p>
+        <p class="eyebrow">QuEra Computing · Rust</p>
         <h1>vihaco</h1>
         <p class="byline">
           A virtual ISA and machine framework for orchestrating hybrid
@@ -65,32 +64,17 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, "");
         </div>
       </div>
 
-      <figure class="hero-code" data-example-active="counter">
+      <figure class="hero-code">
         <figcaption>
-          <div class="hero-code-tabs" role="tablist" aria-label="Example">
-            <button type="button" role="tab" id="hero-tab-counter" aria-controls="hero-panel-counter" aria-selected="true" tabindex="0" data-example-set="counter" class="hero-code-tab">A component</button>
-            <button type="button" role="tab" id="hero-tab-observe" aria-controls="hero-panel-observe" aria-selected="false" tabindex="-1" data-example-set="observe" class="hero-code-tab">An observer</button>
-          </div>
-          <span class="hero-code-file">
-            <code data-example-pane="counter">counter.rs</code><code data-example-pane="observe" hidden>observe.rs</code>
-          </span>
+          <span>A component</span>
+          <span class="hero-code-file"><code>counter.rs</code></span>
         </figcaption>
-        <div role="tabpanel" id="hero-panel-counter" aria-labelledby="hero-tab-counter" data-example-pane="counter">
-          <pre><code class="language-rust">{counterSrc}</code></pre>
-          <p class="hero-code-note">
-            A component is an execution unit: it takes a typed instruction plus
-            a resolved message and returns typed <em>effects</em>. The derives
-            handle opcodes, encoding, and the runtime glue.
-          </p>
-        </div>
-        <div role="tabpanel" id="hero-panel-observe" aria-labelledby="hero-tab-observe" data-example-pane="observe" hidden>
-          <pre><code class="language-rust">{observeSrc}</code></pre>
-          <p class="hero-code-note">
-            Execution and effect delivery are separate. Anything can
-            <code>#[observe]</code> an effect type — a log sink, a recorder, or
-            another component reacting to what its neighbours produced.
-          </p>
-        </div>
+        <pre><code class="language-rust">{counterSrc}</code></pre>
+        <p class="hero-code-note">
+          A component is an execution unit: it takes a typed instruction plus
+          a resolved message and returns a typed result. Dialects declare
+          the vocabulary; composites supply execution policy.
+        </p>
       </figure>
     </section>
   </div>
@@ -99,21 +83,20 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, "");
     <section class="triptych" aria-label="What vihaco is for">
       <div class="panel">
         <span class="num">i. Instruction sets</span>
-        <h2>Bytecode as Rust enums</h2>
+        <h2>A vocabulary shared by devices</h2>
         <p>
-          <code>#[derive(Instruction)]</code> turns an enum into an opcode
-          set with inferred (or fixed) encoding width. Nest enums to compose
-          several component instruction families under one machine type.
+          <code>#[dialect]</code> defines typed instructions. Components declare
+          whole dialects and implement their operations; composites route those
+          operations to direct or nested devices.
         </p>
       </div>
       <div class="panel">
         <span class="num">ii. Components &amp; effects</span>
-        <h2>Execute, then observe</h2>
+        <h2>Execute and handle results</h2>
         <p>
-          Components consume a resolved <code>Message</code> and return typed
-          <code>Effects</code>. Observers react to those effects with
-          <code>#[observe]</code>, keeping execution and delivery cleanly
-          separated.
+          Components execute through <code>Execute</code>. Authored steps prepare
+          messages, call devices, and apply results. Each machine makes that
+          continuation policy explicit.
         </p>
       </div>
       <div class="panel">
@@ -123,8 +106,8 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, "");
           <code>#[derive(Parse)]</code> generates a
           <a href="https://github.com/zesterer/chumsky">chumsky</a> parser for
           your instruction syntax from declarative, compile-time-checked
-          patterns. Module parsing produces typed function bodies for your
-          resolver.
+          patterns. Parsing and symbolic lowering build a module, which an
+          image owns beside its mutable execution machine.
         </p>
       </div>
     </section>
@@ -132,14 +115,10 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, "");
     <section class="install-tabs" aria-label="Install vihaco">
       <h2 class="section-h"><span class="section-h-num">§</span>Install</h2>
       <p>
-        vihaco is a Cargo workspace of focused crates. <code>vihaco</code> is
-        the foundation — add the others as your project needs them. There is no
-        umbrella crate and no published release yet, so depend on the git repo:
+        <code>vihaco</code> is the facade for declarations and execution.
+        The <a href={`${base}/guide`}>author’s guide setup</a> selects the version
+        and dependencies used throughout the examples.
       </p>
-<pre><code class="language-toml">[dependencies]
-vihaco        = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}
-vihaco-cpu    = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}  # optional: a ready-made CPU component
-vihaco-parser = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}  # optional: #[derive(Parse)] for source text</code></pre>
       <p class="install-pane-note">Requires Rust edition 2024.</p>
       <a class="install-pane-link" href={`${base}/quickstart`}>Continue to the Quick Start →</a>
     </section>
@@ -152,43 +131,4 @@ vihaco-parser = {`{ git = "https://github.com/QuEraComputing/vihaco" }`}  # opti
     </p>
   </article>
 
-  <script is:inline>
-    (() => {
-      const figure = document.querySelector(".hero-code");
-      if (!figure) return;
-      const tabs = Array.from(figure.querySelectorAll('[role="tab"][data-example-set]'));
-      const panes = figure.querySelectorAll("[data-example-pane]");
-      if (tabs.length === 0) return;
-      const activate = (tab, { focus } = { focus: false }) => {
-        const target = tab.getAttribute("data-example-set");
-        figure.setAttribute("data-example-active", target);
-        tabs.forEach((t) => {
-          const selected = t === tab;
-          t.setAttribute("aria-selected", selected ? "true" : "false");
-          t.setAttribute("tabindex", selected ? "0" : "-1");
-        });
-        panes.forEach((p) => {
-          const match = p.getAttribute("data-example-pane") === target;
-          if (match) p.removeAttribute("hidden");
-          else p.setAttribute("hidden", "");
-        });
-        if (focus) tab.focus();
-      };
-      tabs.forEach((tab, i) => {
-        tab.addEventListener("click", () => activate(tab));
-        tab.addEventListener("keydown", (e) => {
-          let next = null;
-          switch (e.key) {
-            case "ArrowRight":
-            case "ArrowDown": next = tabs[(i + 1) % tabs.length]; break;
-            case "ArrowLeft":
-            case "ArrowUp": next = tabs[(i - 1 + tabs.length) % tabs.length]; break;
-            case "Home": next = tabs[0]; break;
-            case "End": next = tabs[tabs.length - 1]; break;
-          }
-          if (next) { e.preventDefault(); activate(next, { focus: true }); }
-        });
-      });
-    })();
-  </script>
 </Base>

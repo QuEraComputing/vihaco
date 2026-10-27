@@ -70,11 +70,23 @@ pub trait PrepareMessage<Parent, Route, I, Context: ?Sized>: Sized {
     fn prepare(parent: &mut Parent, instruction: &I, context: &Context) -> eyre::Result<Self>;
 }
 
+/// Internal eligibility marker for framework-provided message preparation.
+///
+/// Keeping this marker free of instruction parameters lets Rust distinguish
+/// custom messages from automatic preparation when checking generic builders.
+#[doc(hidden)]
+pub trait AutomaticMessage {}
+
+impl AutomaticMessage for NoMessage {}
+
+#[cfg(feature = "program-image-execution")]
+impl<Values> AutomaticMessage for crate::PopFromStack<Values> {}
+
 impl<C, F, I, Context: ?Sized, M> BuildMessage<F, I, Context, M> for C
 where
     C: Field<F>,
     C::Child: Execute<I, Message = M>,
-    M: PrepareMessage<C, F, I, Context>,
+    M: AutomaticMessage + PrepareMessage<C, F, I, Context>,
 {
     #[inline(always)]
     fn build_message(&mut self, instruction: &I, context: &Context) -> eyre::Result<M> {

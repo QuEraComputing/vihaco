@@ -97,6 +97,10 @@ pub mod __private;
 pub use build_message::{BuildMessage, PrepareMessage};
 
 #[cfg(feature = "typed-declarations")]
+#[doc(hidden)]
+pub use build_message::AutomaticMessage;
+
+#[cfg(feature = "typed-declarations")]
 pub use dispatch::Dispatch;
 
 #[cfg(feature = "typed-declarations")]

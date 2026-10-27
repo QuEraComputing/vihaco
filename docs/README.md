@@ -53,9 +53,23 @@ The code shown on the site is compiled (and, where runnable, executed) by the
 
 - `docs/examples/*.rs` — the exact files the landing/quick-start pages import
   via `?raw` — are `include!`d and compiled; the runnable ones run as `#[test]`s.
+  The quick-start machine loads its companion `docs/examples/first-machine.sst`
+  with `include_str!`, so those tests also parse, lower, and execute the SST file.
 - Every fenced ` ```rust ` block in `docs/src/pages/guide/*.md` is a rustdoc
-  doctest. Run them all with `cargo test --doc -p vihaco-doctests`. CI runs both
-  `cargo test --workspace --all-targets` (examples) and `--doc` (guides).
+  doctest. The author guide and its examples use the program-image configuration:
+
+  ```sh
+  cargo test -p vihaco-doctests --all-targets --features program-image-execution
+  cargo test -p vihaco-doctests --doc --features program-image-execution
+  ```
+
+  CI runs both commands separately from the workspace's other configurations.
+  Hosted rustdoc is built with the same protocols enabled.
+
+- The guide starts at `guide/index.md`. Keep `src/guides.ts`, chapter links, and
+  the `include_str!` modules in `vihaco-doctests/src/lib.rs` in sync when adding
+  a chapter. Version/dependency selection belongs at the guide's beginning;
+  individual chapters teach the selected APIs directly.
 
 Conventions for guide code blocks (standard rustdoc):
 

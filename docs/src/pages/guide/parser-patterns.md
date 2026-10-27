@@ -2,118 +2,143 @@
 layout: ../../layouts/Guide.astro
 title: Pattern Parser
 slug: parser-patterns
-description: "Generate Parse implementations from declarative syntax patterns for instruction, value, and type enums and structs."
+description: "Define dialect instruction patterns, lower parsed operands, and derive parsers for metadata, values, and types."
 ---
 
-# Pattern Parser
+# Pattern parser
 
-The pattern parser derives source parsers for syntax types. A pattern
-describes the concrete spelling of a value and binds parts of that spelling to
-Rust fields. The derive validates the description at compile time, then emits
-a `vihaco_parser::Parse` implementation. Instruction-class enums also
-receive a `vihaco_parser::SurfaceInstruction` implementation.
+A pattern describes how a value is written in source and which parts become
+Rust fields. For instructions, declare a `#[dialect]` and mark its instruction
+structs with `#[instruction]`. The dialect generates their parsing support;
+you can customize each spelling with `#[pattern]`.
 
-Use two attributes:
+Use `#[dialect]` rather than independent `#[syntax_class(instruction)]` enums.
+For other syntax, such as metadata, values, and types, derive `Parse` and choose
+the appropriate `#[syntax_class]` yourself.
 
-- `#[syntax_class(...)]` on the enum or struct selects the role of the syntax.
-- `#[pattern = "..."]` on an enum variant, or on a struct itself, overrides the
-  generated pattern.
+Composite parsers add the device route and dialect name to each instruction's
+local spelling. See [parsing source](/guide/parser) for how these parsers fit into
+loading a program.
 
 ## A complete instruction example
 
-```rust
-use chumsky::Parser as _;
-use vihaco_parser_derive::Parse;
-use vihaco_parser::Parse as ParseTrait;
+This dialect gives us three instructions. Each leaf parser recognizes its local
+mnemonic; a composite handles the qualified source name.
 
-#[derive(Debug, PartialEq, Parse)]
-#[syntax_class(instruction, head = "memory")]
-enum MemoryInstruction {
-    Halt,
+```rust
+use vihaco::{Parse, chumsky::Parser as _, dialect};
+
+#[dialect]
+pub mod memory {
+    #[instruction]
+    pub struct Halt;
+
+    #[instruction]
     #[pattern = "'load $0"]
-    Load(u32),
+    pub struct Load(pub u32);
+
+    #[instruction]
     #[pattern = "'store $0 `,` $1"]
-    Store(u32, i64),
+    pub struct Store(pub u32, pub i64);
 }
 
-let halt = MemoryInstruction::parser()
-    .parse("memory.halt")
-    .into_result();
-assert_eq!(halt, Ok(MemoryInstruction::Halt));
-
-let load = MemoryInstruction::parser()
-    .parse("memory.load 4")
-    .into_result();
-assert_eq!(load, Ok(MemoryInstruction::Load(4)));
-
-let store = MemoryInstruction::parser()
-    .parse("memory.store 7, -2")
-    .into_result();
-assert_eq!(
-    store,
-    Ok(MemoryInstruction::Store(7, -2)),
-);
+fn main() {
+    assert_eq!(memory::Halt::parser().parse("halt").into_result(), Ok(memory::Halt));
+    assert_eq!(memory::Load::parser().parse("load 4").into_result(), Ok(memory::Load(4)));
+    assert_eq!(
+        memory::Store::parser().parse("store 7, -2").into_result(),
+        Ok(memory::Store(7, -2)),
+    );
+}
 ```
 
-The `head` is a dialect namespace. The derive appends `.`, so
-`head = "memory"` combines with the pattern token `'load` to accept
-`memory.load`.
+Put `#[pattern]` on the instruction struct inside the dialect. You don't need
+a separate parser enum or a manual instruction syntax class.
 
-Unannotated bindings use the corresponding field type's
-`vihaco_parser::Parse::parser()`. An annotation selects the retained operand
-type. A standalone `Parse` derive requires that type to match the field; it
-performs no implicit conversion. Typed dialects generate a syntax phase when
-the annotated type differs from the runtime field type, and instruction-owned
-`Lower` implementations convert those values using loader capabilities.
+## Bindings and lowering
+
+Without an annotation, a binding calls its field type's `Parse::parser()`.
+An annotation such as `$1:u64` keeps a different source operand type until
+`Lower` converts it to the runtime field type:
 
 ```rust
-use chumsky::Parser as _;
-use vihaco_parser::Parse as _;
+use vihaco::{Lower, Parse, Syntax, chumsky::Parser as _, dialect};
 
-#[derive(Debug, PartialEq, vihaco_parser_derive::Parse)]
-#[syntax_class(instruction, head = "cpu")]
-#[pattern = "'call $0 `,` $1:u64"]
-struct Call(u32, u64);
+#[dialect]
+pub mod control {
+    #[instruction]
+    #[pattern = "'call $0 `,` $1:u64"]
+    pub struct Call(pub u32, pub u32);
+}
 
-assert_eq!(Call::parser().parse("cpu.call 2, 10").into_result(), Ok(Call(2, 10)));
-assert_eq!(Call::parser().parse("cpu.call 2, 4294967296").into_result(), Ok(Call(2, 4294967296)));
+impl<C: ?Sized> Lower<C> for control::Call<Syntax> {
+    type Runtime = control::Call;
+
+    fn lower(self, _: &mut C) -> eyre::Result<Self::Runtime> {
+        Ok(control::Call(self.0, self.1.try_into()?))
+    }
+}
+
+fn main() -> eyre::Result<()> {
+    let source = control::Call::<Syntax>::parser()
+        .parse("call 2, 10").into_result().unwrap();
+    assert_eq!(source.lower(&mut ())?, control::Call(2, 10));
+
+    let too_large = control::Call::<Syntax>::parser()
+        .parse("call 2, 4294967296").into_result().unwrap();
+    assert!(too_large.lower(&mut ()).is_err());
+    Ok(())
+}
 ```
 
-Here `$0` uses `u32::parser()` directly, while `$1` retains the output of
-`u64::parser()`. Binding indices identify fields even when a
-pattern changes capture order. Named bindings support annotations too, such as
-`$address:u64`. Type aliases, qualified paths, and nested generic arguments keep
-normal Rust scope. Parenthesize types needing whitespace outside delimiters.
+Here `$0` uses `u32::parser()`, and `$1:u64` parses a `u64`. The conversion
+happens in `Lower`, where it can reject a value that won't fit the runtime
+`u32`. Write that impl outside the dialect module, in the same crate. If an
+operand needs no conversion, generated lowering carries it through for you.
 
-For typed dialects, give encoded literals a local newtype implementing `Parse`.
-The syntax instruction retains that newtype; its `Lower` implementation encodes
-the runtime field. For example, an `I64Literal` can retain a signed integer until
-lowering encodes it into a CPU `Word`, preserving negative bit patterns. Such
-local conversions can implement lowering for any context without capability
-bounds.
+The `Syntax` spelling in the impl selects the parsed input to `Lower`; the
+plain instruction type is its executable output. You don't need to manage the
+generated representation behind those types.
+
+Binding indices always identify constructor fields, even if you change capture
+order. Named bindings for value and metadata structs can have annotations too,
+such as `$address:u64`. A standalone `Parse` derive expects the annotated type
+to match the field; it doesn't insert a conversion.
+
+Type aliases, qualified paths, and nested generic arguments use normal Rust
+scope. If a type needs whitespace outside delimiters, put it in parentheses.
+
+For an encoded literal, you can give a local newtype a `Parse` implementation.
+The parsed instruction keeps that value until `Lower` encodes it. For example,
+`I64Literal` can hold a signed integer until lowering turns it into a CPU `Word`,
+preserving negative bit patterns. Local conversions can work with any context;
+symbol lookup and similar work can require capabilities on the loading context.
 
 ## Syntax classes
 
-Every type using pattern generation must declare a syntax class.
+Instruction declarations get their syntax support from `#[dialect]`. Use the
+other syntax classes when deriving parsers for the values and headers around
+those instructions:
 
-| Attribute | Meaning | Additional rules |
+| Declaration | What it parses | Pattern rules |
 |---|---|---|
-| `#[syntax_class(instruction, head = "dialect")]` | An instruction in the `dialect::` namespace. | Every pattern starts with an instruction token such as `'load`. |
-| `#[syntax_class(metadata, head = "device")]` | Metadata lines in the `device ` namespace. | Patterns use bare names such as `module.setting`; instruction tokens are not required. |
-| `#[syntax_class(value)]` | A value expression. | Instruction tokens are forbidden. Simple defaults are available. |
-| `#[syntax_class(type)]` | A type expression. | Instruction tokens are forbidden and every variant or struct needs an explicit pattern. |
+| `#[instruction]` inside `#[dialect]` | An instruction's local spelling | Start with an instruction token such as `'load`. |
+| `#[syntax_class(metadata, head = "device")]` | Metadata in the `device ` namespace | Use bare names such as `module.setting`; instruction tokens aren't required. |
+| `#[syntax_class(value)]` | A value expression | No instruction tokens. Simple defaults are available. |
+| `#[syntax_class(type)]` | A type expression | No instruction tokens. Every variant or struct needs an explicit pattern. |
 
-Put `#[syntax_class]` on the enum or struct definition, never on a variant or
-field. An instruction head is optional. Metadata heads are also optional, allowing
-nested metadata records without a repeated declaration prefix. Heads are written
-without their separator: instruction heads use `.` and metadata heads use one
-ASCII space.
+Put `#[syntax_class]` on the value, type, or metadata enum or struct, rather than
+on a variant or field. A metadata `head` is optional. Leaving it off is useful
+for nested records, where you don't want to repeat a declaration prefix.
+Write the head without a separator; the parser adds one ASCII space.
 
-Metadata patterns are useful for line-oriented headers:
+For a header made up of lines, you can write a metadata pattern like this:
 
 ```rust
 use chumsky::Parser as _;
+
 use vihaco_parser::Parse as ParseTrait;
+
 use vihaco_parser_derive::Parse;
 
 #[derive(Debug, PartialEq, Parse)]
@@ -131,34 +156,35 @@ assert_eq!(
 
 ## Generated patterns
 
-You can omit `#[pattern]` when the conventional syntax is sufficient. Names
-are the lowercase Rust variant or struct name; acronym boundaries are not
-split (`HttpServer` becomes `httpserver`).
+If the default spelling fits, leave out `#[pattern]`. The parser uses the
+lowercase Rust name without splitting acronyms: `HttpServer` becomes
+`httpserver`.
 
-| Rust shape | Generated pattern | Accepted source |
+| Rust declaration | Generated pattern | Local source spelling |
 |---|---|---|
-| instruction `Halt` | `'halt` | `dialect.halt` |
-| instruction `Move(i64, bool)` | <code>'move $0 `,` $1</code> | `dialect.move 3, true` |
-| instruction struct `Set { x: i64, enabled: bool }` | <code>'set $x `,` $enabled</code> | `dialect.set 3, true` |
-| value `Nothing` | `` `nothing` `` | `nothing` |
-| value `Number(i64)` | `$0` | `3` |
-| value `Wrapper { value: i64 }` | `$value` | `3` |
+| Instruction struct `Halt` | `'halt` | `halt` |
+| Instruction struct `Move(i64, bool)` | <code>'move $0 `,` $1</code> | `move 3, true` |
+| Value variant `Nothing` | `` `nothing` `` | `nothing` |
+| Value variant `Number(i64)` | `$0` | `3` |
+| Value struct `Wrapper { value: i64 }` | `$value` | `3` |
 
-Defaults intentionally stop there:
+Dialect instructions use unit or tuple structs. Use value or metadata types
+for richer nested operands and records.
 
-- A value with more than one field must spell out how those fields are
-  separated.
-- A type always requires an explicit pattern.
-- A unit value or metadata variant defaults to its lowercase name, while a
-  unit instruction defaults to its lowercase instruction token.
+For the other cases, supply a little more information:
 
-Explicit patterns may reorder fields. Bindings identify constructor fields,
-not capture order, so <code>#[pattern = "$right `,` $left"]</code> still constructs a
-named type using the correct field names.
+- A value with several fields needs a pattern showing how to separate them.
+- A type always needs an explicit pattern.
+- Unit values and metadata variants default to their lowercase names. A unit
+  instruction defaults to its lowercase instruction token.
+
+You can reorder fields in an explicit pattern. Bindings refer to constructor
+fields, not capture order, so <code>#[pattern = "$right `,` $left"]</code> still
+puts values in the correct fields of a named value or metadata struct.
 
 ## Pattern grammar
 
-The complete grammar is small:
+A pattern consists of atoms separated by spaces:
 
 ```text
 pattern       = atom, { " ", atom } ;
@@ -169,7 +195,7 @@ binding       = "$", (ascii-identifier | decimal-index) ;
 literal       = "`", (ascii-identifier | "," | "@" | ":" | ";" | "{" | "}" | "[" | "]" | "(" | ")"), "`" ;
 ```
 
-The atoms mean:
+Each atom has a specific job:
 
 | Form | Purpose | Example |
 |---|---|---|
@@ -182,39 +208,39 @@ The atoms mean:
 | `` `@` `` | Match an at sign with punctuation-aware spacing. | <code>$0 `@` $1</code> |
 
 Punctuation literals support commas, at signs, colons, semicolons, braces,
-brackets, and parentheses. Metadata names may additionally contain dots without
-backticks. Other punctuation and quoted strings are not pattern literals;
-quoted source strings are parsed through `String` or `QuotedString` fields.
+brackets, and parentheses. Metadata names can also contain dots without
+backticks. Other punctuation and quoted strings aren't pattern literals.
+To parse a quoted source string, use a `String` or `QuotedString` field.
 
 ## Whitespace is part of the grammar
 
-Pattern atoms must be separated by exactly one ASCII space inside the Rust
-string. Leading spaces, trailing spaces, repeated spaces, and tab separators
-are compile-time errors.
+There are two sets of spacing rules to keep in mind: how you write the pattern
+in Rust, and what the parser accepts in source.
 
-In source text, a normal boundary between atoms accepts one or more ASCII
-spaces—not tabs or newlines. Symbol literals adjust just one boundary so common
-punctuation looks natural:
+Inside the Rust string, separate pattern atoms with exactly one ASCII space.
+Leading, trailing, or repeated spaces and tab separators are compile-time errors.
 
-- `` `,` `` suppresses whitespace before itself but still requires whitespace
-  after itself: <code>$0 `,` $1</code> accepts `1, true`, not `1 , true` or `1,true`.
-- `` `@` `` still requires whitespace before itself but suppresses whitespace
-  after itself: <code>$0 `@` $1</code> accepts `1 @target`, not `1@target` or
+In source, an ordinary boundary accepts one or more ASCII spaces, but no tabs
+or newlines. Commas and at signs adjust one side of that boundary:
+
+- `` `,` `` removes the space before itself but requires whitespace after it.
+  <code>$0 `,` $1</code> accepts `1, true`, but rejects `1 , true` and `1,true`.
+- `` `@` `` requires whitespace before itself but removes it after itself.
+  <code>$0 `@` $1</code> accepts `1 @target`, but rejects `1@target` and
   `1 @ target`.
 
-Keywords and symbols match exactly. Ordinary pattern boundaries do not consume
-indentation, line endings, or comments; the surrounding module/list parser is
-responsible for those boundaries. Delimited metadata records and the new
-punctuation literals use the whitespace/comment rules below.
+Keywords and symbols match exactly. Ordinary pattern boundaries don't consume
+indentation, line endings, or comments; the surrounding module or list parser
+handles those.
 
-New punctuation literals (`:`, `;`, `{`, `}`, `[`, `]`, `(`, `)`) accept
-optional whitespace and line comments on either side. The existing comma and
-at-sign spacing rules remain unchanged.
+The punctuation literals `:`, `;`, `{`, `}`, `[`, `]`, `(`, and `)` accept
+optional whitespace and line comments on either side. Delimited metadata
+records use these rules too. Commas and at signs keep the spacing rules above.
 
 ## Delimited metadata records
 
-Named structs can generate key/value record parsers instead of supplying a
-pattern:
+For a named struct, you can generate a key/value record parser without writing
+a pattern:
 
 ```text
 #[derive(Parse)]
@@ -232,39 +258,42 @@ struct FunctionMetadata {
 }
 ```
 
-`head` is optional for nested records. `open` and `close` must appear together,
-be nonempty, and differ. Delimited records require named structs and cannot
-also specify `#[pattern]`.
+You can omit `head` for nested records. Supply `open` and `close` together;
+they must be nonempty and different. This form requires a named struct and
+can't also have a `#[pattern]`.
 
-Rust field names become bare or double-quoted keys, followed by `:` and the
-field type's `Parse` implementation. Fields may appear in any order; commas
-separate entries and trailing commas and `//` comments are accepted. Unknown,
-duplicate, and missing keys are errors. Every field is required, including
-`Option<T>` fields: `null` represents `None`, while omitting the key is an error.
-Arrays use brackets and also accept comments and trailing commas.
+Each Rust field becomes a bare or double-quoted key, followed by `:` and a value
+parsed with the field type's `Parse` impl. Fields can appear in any order.
+Commas separate entries, and the parser accepts trailing commas and `//` comments.
+Arrays use brackets and accept comments and trailing commas too.
 
-The record parser does not consume a terminating semicolon. The surrounding
-header-declaration parser consumes `;`, allowing metadata and existing
-`device ...;` declarations in the same header.
+Unknown, duplicate, and missing keys are errors. That includes `Option<T>` fields:
+write `null` for `None`. Leaving the key out is still an error.
+
+The record parser leaves a terminating semicolon to the surrounding
+header-declaration parser. That lets metadata records and `device ...;`
+declarations share a header.
 
 ## Field-shape invariants
 
-The derive treats a pattern as a checked mapping from source captures to a
-Rust constructor:
+The derive checks that each capture has a clear destination in the Rust
+constructor:
 
-- Tuple structs and tuple variants use only numeric bindings.
-- Named structs use only named bindings.
-- A pattern cannot mix numeric and named bindings.
-- Every field appears exactly once. Missing and duplicate bindings are errors.
-- Numeric bindings must be in bounds; named bindings must name a real field.
-- Unit structs and variants cannot contain bindings.
+- Tuple structs and tuple variants use numeric bindings only.
+- Named structs use named bindings only.
+- A pattern can't mix the two styles.
+- Every field must appear exactly once; missing or duplicate bindings are errors.
+- Numeric indices must be in bounds, and named bindings must name real fields.
+- Unit structs and variants can't have bindings.
 
-These rules allow fields to appear in any source order without making
-construction ambiguous.
+You can change the source order of fields while keeping their destinations
+unambiguous:
 
 ```rust
 use chumsky::Parser as _;
+
 use vihaco_parser_derive::Parse;
+
 use vihaco_parser::Parse as ParseTrait;
 
 #[derive(Debug, PartialEq, Parse)]
@@ -286,49 +315,46 @@ assert_eq!(
 
 ## Enums, structs, and dispatch
 
-Pattern generation supports both enums and structs:
+For instructions, use the unit and tuple structs declared in your dialect.
+Let the composite generate the parser that selects among its available
+instructions.
 
-- On an enum, put `#[pattern]` on each variant that needs an override.
+For value, type, and metadata parsers, you can derive `Parse` on enums or structs:
+
+- On an enum, put `#[pattern]` on each variant whose pattern you want to override.
 - On a struct, put its single `#[pattern]` on the struct definition.
-- Enum variants may be unit, tuple, or struct-style variants. Tuple variants
-  use numeric bindings, while struct-style variants use named bindings.
-- Generic types and types that already use a lifetime named similarly to the
-  derive's internal lifetime are supported.
+- Enum variants can be unit, tuple, or struct-style. Tuple variants use numeric
+  bindings; struct-style variants use named bindings.
+- Generic types work too.
 
-For instruction enums, alternatives are ordered by mnemonic length before
-emission. This prevents a short token such as `v2` from consuming the prefix of
-`v25`. Pattern-generated enums also support more than chumsky's 26-element
-tuple-choice limit; the derive groups large enums into shallow nested choices.
-Alternatives with equal-length instruction tokens, and value/type alternatives
-without instruction tokens, retain declaration order.
+Value and type alternatives keep their declaration order, so order matters when
+several alternatives can parse the same input.
 
 ## Compile-time validation
 
-Errors point at the `#[pattern = "..."]` literal when possible. Validation runs
-in stages, so failures tend to describe the earliest broken contract:
+Where possible, errors point to the `#[pattern = "..."]` string. Validation
+happens in stages, so the first error usually describes the earliest rule that
+needs attention:
 
 | Stage | Examples of rejected input |
 |---|---|
 | Pattern syntax | Empty patterns; leading, trailing, or repeated spaces; tabs; malformed bindings; unsupported symbols; unterminated literals; indices larger than `u32`. |
-| Syntax class | Missing `#[syntax_class]`; instruction pattern not beginning with `'name`; instruction tokens in value/type patterns; implicit type patterns; implicit multi-field value patterns. |
+| Syntax class | Missing `#[syntax_class]` on a standalone value/type/metadata derive; an instruction pattern not beginning with `'name`; instruction tokens in value/type patterns; implicit type patterns; implicit multi-field value patterns. |
 | Field mapping | Mixed binding styles; named bindings on tuple fields; indexed bindings on named fields; missing, duplicate, unknown, or out-of-bounds fields; bindings on unit forms. |
-| Attribute placement | `#[pattern]` used without a syntax class; `#[syntax_class]` placed on a variant or field instead of the type definition. |
+| Attribute placement | Instruction helpers outside a dialect's marked structs; `#[pattern]` without its owning derive or declaration; `#[syntax_class]` on a variant or field instead of a value/type/metadata definition. |
 
-The generated parser then relies on Rust's type checker to verify that every
-captured field type implements `Parse<'src>`.
+Rust's type checker then checks that every captured field type implements
+`Parse<'src>`.
 
 ## Compose nested syntax
 
-Patterns cover exact mnemonics and keywords, typed field parsers, comma, and
-`@`. They keep the source grammar visible in one string and checked against the
-Rust constructor.
+Patterns let you keep exact mnemonics, keywords, typed field parsers, commas,
+and `@` in one string, checked against the Rust constructor.
 
-Represent richer field grammar with another pattern-derived local enum or
-struct. Use `Ident`, `BareToken`, and `QuotedString` for lexical leaves, and
-use `Vec<T>` or tuples for collection shapes. Each binding composes the parser
-of its field type, keeping the complete source grammar typed and
-pattern-derived.
+When a field needs a richer grammar, give it another local enum or struct with
+its own pattern derive. `Ident`, `BareToken`, and `QuotedString` cover lexical
+leaves; `Vec<T>` and tuples cover collections. Each binding uses its field's
+parser, so the complete grammar stays typed and pattern-derived.
 
 For module parsing, typed function bodies, resolution, and explicit source
-sugar, continue to
-[Module Parsing and Loading](/guide/parser-advanced).
+sugar, see [loading SST programs](/guide/parser-advanced).
