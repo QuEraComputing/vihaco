@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["ClockFault"],"struct":["GlobalClock","GlobalDuration","GlobalTick","GlobalTicksPerLocalCycle","LocalCycles","Schedule"],"trait":["ClockedComponent","TimedInstruction"]};
