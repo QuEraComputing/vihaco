@@ -24,6 +24,23 @@ impl ExecutionState {
         self.halted
     }
 
+    /// True after a `breakpoint` suspended a still-active invocation.
+    ///
+    /// [`resume`](super::resume) clears the flag and continues at [`Self::pc()`],
+    /// the instruction following the breakpoint. A paused invocation is not
+    /// halted: it cannot be restarted or replaced until it finishes or is reset.
+    pub fn is_paused(&self) -> bool {
+        self.paused
+    }
+
+    /// Source span `(file, start, end)` most recently recorded by `span` in the
+    /// current frame, or `None` without an active frame.
+    ///
+    /// Each call starts with `(0, 0, 0)`; returning restores the caller's span.
+    pub fn span(&self) -> Option<(u32, u32, u32)> {
+        self.frames.last().map(|frame| frame.span)
+    }
+
     /// Enter main using its module metadata and host-supplied arguments.
     ///
     /// Entry creates the outermost frame, zeroes non-argument locals, selects
@@ -59,14 +76,14 @@ impl ExecutionState {
         self.frames.push(Frame {
             base: 0,
             local_count: locals,
-            // Frame's shared record retains this legacy field; this path does
-            // not track source spans or implement a Span instruction.
+            // Recorded by the `span` instruction for the frame it executes in.
             span: (0, 0, 0),
             function: Some(function as usize),
             ret_pc: 0,
         });
         self.pc = target;
         self.halted = false;
+        self.paused = false;
         Ok(())
     }
 
@@ -133,6 +150,7 @@ impl Reset for ExecutionState {
         self.frames.clear();
         self.pc = 0;
         self.halted = true;
+        self.paused = false;
     }
 }
 

@@ -442,6 +442,37 @@ impl Execute<program::Halt> for ExecutionState {
     }
 }
 
+impl Execute<program::Breakpoint> for ExecutionState {
+    type Message = NoMessage;
+    type Effect = ();
+    type Error = eyre::Report;
+
+    #[inline]
+    fn execute(&mut self, _instruction: &program::Breakpoint, _: NoMessage) -> eyre::Result<()> {
+        self.ensure_running()?;
+        // The fetched continuation is retained, so resuming skips the breakpoint.
+        self.paused = true;
+        Ok(())
+    }
+}
+
+impl Execute<program::Span> for ExecutionState {
+    type Message = NoMessage;
+    type Effect = ();
+    type Error = eyre::Report;
+
+    #[inline]
+    fn execute(&mut self, instruction: &program::Span, _: NoMessage) -> eyre::Result<()> {
+        self.ensure_running()?;
+        let frame = self
+            .frames
+            .last_mut()
+            .ok_or_else(|| eyre::eyre!("no current frame"))?;
+        frame.span = (instruction.0, instruction.1, instruction.2);
+        Ok(())
+    }
+}
+
 impl Execute<program::Branch> for ExecutionState {
     type Message = BranchMessage;
     type Effect = ();

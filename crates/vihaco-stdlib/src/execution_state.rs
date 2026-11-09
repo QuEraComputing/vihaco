@@ -103,6 +103,7 @@ pub struct ExecutionState {
     frames: Vec<Frame>,
     pc: u32,
     halted: bool,
+    paused: bool,
     executing: bool,
 }
 
@@ -113,6 +114,7 @@ impl Default for ExecutionState {
             frames: Vec::new(),
             pc: 0,
             halted: true,
+            paused: false,
             executing: false,
         }
     }
@@ -131,6 +133,7 @@ impl Clone for ExecutionState {
             frames: self.frames.clone(),
             pc: self.pc,
             halted: self.halted,
+            paused: self.paused,
             executing: false,
         }
     }
