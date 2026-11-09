@@ -67,8 +67,8 @@ where
     ///
     /// # Errors
     ///
-    /// Rejects replacement while an invocation is active, including one that
-    /// could resume after an execution error. Call [`Self::reset`] to abandon
+    /// Rejects replacement while an invocation is active, including one paused
+    /// at a breakpoint or one that could resume after an execution error. Call [`Self::reset`] to abandon
     /// that invocation first. Rejection leaves the current image and execution
     /// state unchanged.
     pub fn replace_image(&mut self, image: Image<Inst, V, Ty, Info>) -> eyre::Result<()> {
@@ -106,6 +106,10 @@ where
     }
 
     /// Continue the existing invocation against the same paired image.
+    ///
+    /// This also continues past a `breakpoint`; check
+    /// [`ExecutionState::is_paused`] after either call to tell a pause apart
+    /// from completion.
     ///
     /// # Errors
     ///

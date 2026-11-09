@@ -242,6 +242,77 @@ fn recursive_execution_preserves_continuations_and_multiple_results() {
 }
 
 #[test]
+fn breakpoint_pauses_and_resume_continues_after_it() {
+    let (module, mut vm) = machine(&[
+        "program::program::const_u64 20",
+        "program::program::breakpoint",
+        "program::program::const_u64 22",
+        "cpu::cpu::add_u64",
+        "program::program::breakpoint",
+        "program::program::ret 1",
+    ]);
+    execute(&module, &mut vm, &[]).unwrap();
+    assert!(vm.program.is_paused());
+    assert!(!vm.program.is_halted());
+    assert_eq!(vm.program.pc(), 2);
+    assert_eq!(vm.program.stack(), &[0, 20]);
+    // A paused invocation is still active.
+    assert!(execute(&module, &mut vm, &[]).is_err());
+    resume(&module, &mut vm).unwrap();
+    assert!(vm.program.is_paused());
+    assert_eq!(vm.program.pc(), 5);
+    assert_eq!(vm.program.stack(), &[0, 42]);
+    resume(&module, &mut vm).unwrap();
+    assert!(!vm.program.is_paused());
+    assert!(vm.program.is_halted());
+    assert_eq!(vm.program.stack(), &[42]);
+    // Reset clears a pause so the invocation can be restarted.
+    execute(&module, &mut vm, &[]).unwrap();
+    assert!(vm.program.is_paused());
+    vm.program.reset();
+    assert!(!vm.program.is_paused());
+    execute(&module, &mut vm, &[]).unwrap();
+    assert_eq!(vm.program.pc(), 2);
+}
+
+#[test]
+fn span_is_recorded_per_frame_and_restored_on_return() {
+    let (mut module, mut vm) = machine(&[
+        "program::program::span 1 10 20",
+        "program::program::call 0, 4",
+        "program::program::breakpoint",
+        "program::program::ret 0",
+        "program::program::breakpoint",
+        "program::program::span 2 30 40",
+        "program::program::breakpoint",
+        "program::program::ret 0",
+    ]);
+    module.functions[0].local_count = 0;
+    module.functions[0].end_address = 4;
+    module.functions.push(FunctionInfo {
+        name: 0,
+        signature: Signature {
+            params: vec![],
+            ret: vec![],
+        },
+        local_count: 0,
+        start_address: 4,
+        end_address: 8,
+        file: 0,
+    });
+    assert_eq!(vm.program.span(), None);
+    execute(&module, &mut vm, &[]).unwrap();
+    assert_eq!(vm.program.span(), Some((0, 0, 0))); // Fresh callee frame.
+    resume(&module, &mut vm).unwrap();
+    assert_eq!(vm.program.span(), Some((2, 30, 40)));
+    resume(&module, &mut vm).unwrap();
+    assert_eq!(vm.program.span(), Some((1, 10, 20))); // Caller's span restored.
+    resume(&module, &mut vm).unwrap();
+    assert!(vm.program.is_halted());
+    assert_eq!(vm.program.span(), None);
+}
+
+#[test]
 fn execution_failures_preserve_consumption_and_faulting_pc() {
     let (module, mut vm) = machine(&[
         "program::program::const_u64 4",

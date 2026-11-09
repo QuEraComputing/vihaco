@@ -28,11 +28,15 @@ where
     resume(module, machine)
 }
 
-/// Continue an invocation until Halt/root return or an error.
+/// Continue an invocation until Halt/root return, a breakpoint, or an error.
 ///
 /// Fetch establishes the sequential continuation before the Step runs. Program
 /// instructions can replace that continuation. A fault or terminal instruction
 /// leaves its original position available through [`ExecutionState::pc()`].
+///
+/// A `breakpoint` returns `Ok(())` with [`ExecutionState::is_paused()`] set and
+/// the PC at the following instruction. Calling `resume` again clears the pause
+/// and continues from there.
 ///
 /// The caller must supply the same unchanged module used to start the active
 /// invocation. This checked API validates accesses, but does not enforce module
@@ -56,6 +60,7 @@ where
         "program execution is already in progress"
     );
     program.executing = true;
+    program.paused = false;
     // Capture code once from the independent module borrow.
     let code = &module.code;
     let result = (|| {
@@ -76,6 +81,9 @@ where
                 program.pc = position;
             }
             result?;
+            if program.paused {
+                break;
+            }
         }
         Ok(())
     })();

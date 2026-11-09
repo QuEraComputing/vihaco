@@ -193,7 +193,11 @@ and `program::operand`. Module construction and string interning happen before
 execution. CPU computes with typed operands and returns effects; it owns no stack,
 frames, or PC. Its heap exchanges operands through the same stack protocols.
 HeapAlloc and HeapPush consume available operands sequentially on underflow.
-Print belongs to a separate component; no Span or Breakpoint handling is added.
+Print belongs to a separate component. `breakpoint` suspends the invocation after
+that instruction: `execute`/`resume` return `Ok(())` with `is_paused()` set, and
+the next `resume` continues at the following instruction. `span file start end`
+records a source span on the current frame, readable through `span()`; each call
+starts at `(0, 0, 0)` and returning restores the caller's span.
 Feature-disabled legacy and typed CPU behavior is retained.
 
 For variable input counts, use `PopFromStack<StackBatch<T>>` and implement

@@ -34,6 +34,16 @@ pub mod program {
     #[pattern = "'halt"]
     pub struct Halt;
 
+    /// Suspend the invocation after this instruction; `resume` continues it.
+    #[instruction]
+    #[pattern = "'breakpoint"]
+    pub struct Breakpoint;
+
+    /// Record the current frame's source span as `(file, start, end)`.
+    #[instruction]
+    #[pattern = "'span $0 $1 $2"]
+    pub struct Span(pub u32, pub u32, pub u32);
+
     #[instruction]
     #[pattern = "'load_i32 $0"]
     pub struct LoadI32(pub u32);
