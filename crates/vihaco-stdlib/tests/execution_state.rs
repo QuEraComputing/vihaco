@@ -14,6 +14,7 @@ use vihaco_stdlib::ExecutionState;
 fn module() -> LocalModule<(), (), (), ()> {
     LocalModule {
         code: vec![()],
+        structs: vec![],
         functions: vec![FunctionInfo {
             name: 0,
             signature: Signature {

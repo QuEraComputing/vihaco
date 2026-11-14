@@ -8,6 +8,7 @@
 
 use vihaco_cpu::{
     CPU, StepOutcome, cpu, encode_f32, encode_f64, encode_function_ref, encode_i64,
+    field::StructLookup,
     lower::{FunctionLookup, LabelLookup, StringIntern},
     message,
     operand::Target,
@@ -41,6 +42,12 @@ impl FunctionLookup for NumericContext {
 impl StringIntern for NumericContext {
     fn intern_string(&mut self, _: &str) -> eyre::Result<u32> {
         Err(eyre::eyre!("numeric-only fixture cannot intern strings"))
+    }
+}
+
+impl StructLookup for NumericContext {
+    fn field_index(&self, struct_name: &str, field: &str) -> eyre::Result<u32> {
+        Err(eyre::eyre!("unknown field {struct_name}.{field}"))
     }
 }
 
@@ -882,6 +889,14 @@ impl FunctionLookup for SymbolLoader {
 impl StringIntern for SymbolLoader {
     fn intern_string(&mut self, text: &str) -> eyre::Result<u32> {
         self.image.intern_string(text)
+    }
+}
+
+impl StructLookup for SymbolLoader {
+    fn field_index(&self, struct_name: &str, field: &str) -> eyre::Result<u32> {
+        Err(eyre::eyre!(
+            "fixture declares no struct {struct_name}.{field}"
+        ))
     }
 }
 

@@ -40,6 +40,7 @@ sst v1
                     file: 1,
                 },
             ],
+            structs: [],
             labels: [],
             constants: [],
             main_function: 0,

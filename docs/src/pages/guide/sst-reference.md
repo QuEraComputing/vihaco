@@ -41,6 +41,7 @@ sst v1
                     file: 1,
                 },
             ],
+            structs: [],
             labels: [],
             constants: [],
             main_function: 0,
@@ -107,6 +108,7 @@ comma-separated lists; trailing commas are accepted. The standard schema is
 |---|---|
 | `strings` | An ordered array of quoted strings, including function names, parameter names, filenames, label names, and literals needed by lowering. String indices are zero-based. |
 | `functions` | An ordered array of function records, described below. Array position is the function index; this order may differ from function-body order. |
+| `structs` | An ordered array of struct declarations, described below. Array position is the struct index that `struct N` types refer to. Emit `[]` when the program declares none. |
 | `labels` | Records `{ name: string_index, address: instruction_address }`. Every source label needs a matching name and absolute section-local address. |
 | `constants` | An ordered array of values parsed by the target's value parser. Constant indices are array positions. |
 | `main_function` | The entry function's table index, or `null` when no entry is selected. It is not an instruction address. |
@@ -123,6 +125,30 @@ Each function record contains:
 | `start_address` | Index of the first instruction in this function's body in the concatenated code vector. |
 | `end_address` | Exclusive end of that body's instruction range. |
 | `file` | Index of the source filename in `strings`. |
+
+Each struct record is `{ name: string_index, fields: [{ name: string_index, ty: type }, ...] }`.
+Struct names must be unique, and field names must be unique within a struct.
+Field order defines the slot layout: field `i` is slot `i` of the heap object,
+so a struct is allocated with `heap_alloc N` (N = field count, fields pushed in
+order) and accessed with `get_field i` / `set_field i`. Typed CPU dialects also
+accept `get_field @Point.y`, resolved through this table during lowering.
+
+Types in signatures and fields may name a struct as `struct N`, its index in
+`structs`. At runtime such a value is an ordinary heap reference; the type is
+checked only when the module is assembled, which rejects `struct N` indices
+outside the table. Structs may refer to themselves or to each other, for
+example a linked node with a `next: struct 0` field.
+
+```text
+metadata {
+    strings: ["main", "test.sst", "Point", "x", "y"],
+    functions: [/* ... */],
+    structs: [
+        { name: 2, fields: [{ name: 3, ty: f64 }, { name: 4, ty: i64 }] },
+    ],
+    // ... remaining tables
+};
+```
 
 Addresses and table references use `u32`. Count decoded instructions, not bytes,
 source lines, or labels. In the example, `main` covers `0..2`. In a two-function

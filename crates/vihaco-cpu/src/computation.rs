@@ -5,6 +5,8 @@
 
 #[vihaco_runtime::dialect]
 pub mod cpu {
+    use crate::field::FieldOperand;
+
     #[instruction]
     #[pattern = "'heap_alloc $0"]
     pub struct HeapAlloc(pub u32);
@@ -439,12 +441,12 @@ pub mod cpu {
 
     /// Pop a heap reference and push the word stored in field `$0`.
     #[instruction]
-    #[pattern = "'get_field $0"]
+    #[pattern = "'get_field $0:FieldOperand"]
     pub struct GetField(pub u32);
 
     /// Pop a value and a heap reference (reference pushed first) and overwrite
     /// field `$0` with the value. Pushes nothing.
     #[instruction]
-    #[pattern = "'set_field $0"]
+    #[pattern = "'set_field $0:FieldOperand"]
     pub struct SetField(pub u32);
 }

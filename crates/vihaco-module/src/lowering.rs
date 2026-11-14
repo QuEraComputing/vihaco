@@ -30,6 +30,8 @@ pub trait FunctionScope {
 pub struct MetadataLoweringContext {
     strings: HashMap<String, u32>,
     functions: HashMap<String, (u32, u32)>,
+    /// Struct name to (struct-table index, field name to slot index).
+    structs: HashMap<String, (u32, HashMap<String, u32>)>,
     labels: HashMap<String, u32>,
 }
 
@@ -66,11 +68,60 @@ impl MetadataLoweringContext {
                 "function `@{name}` has duplicate metadata"
             );
         }
+        let name_at = |index: u32, what: &dyn Fn() -> String| {
+            metadata
+                .strings
+                .get(index as usize)
+                .ok_or_else(|| eyre::eyre!("{}: invalid string index {index}", what()))
+        };
+        let mut structs = HashMap::new();
+        for (index, info) in metadata.structs.iter().enumerate() {
+            let name = name_at(info.name, &|| format!("metadata.structs[{index}].name"))?;
+            let mut fields = HashMap::new();
+            for (slot, field) in info.fields.iter().enumerate() {
+                let field_name = name_at(field.name, &|| {
+                    format!("metadata.structs[{index}].fields[{slot}].name")
+                })?;
+                eyre::ensure!(
+                    fields
+                        .insert(field_name.clone(), u32::try_from(slot)?)
+                        .is_none(),
+                    "struct `{name}` has duplicate field `{field_name}`"
+                );
+            }
+            eyre::ensure!(
+                structs
+                    .insert(name.clone(), (u32::try_from(index)?, fields))
+                    .is_none(),
+                "struct `{name}` has duplicate metadata"
+            );
+        }
         Ok(Self {
             strings,
             functions,
+            structs,
             labels: HashMap::new(),
         })
+    }
+
+    /// Look up a struct's index in the supplied metadata struct table.
+    pub fn struct_index(&self, name: &str) -> eyre::Result<u32> {
+        self.structs
+            .get(name)
+            .map(|info| info.0)
+            .ok_or_else(|| eyre::eyre!("undefined struct `{name}`"))
+    }
+
+    /// Look up a field's slot index within a struct.
+    pub fn field_index(&self, struct_name: &str, field: &str) -> eyre::Result<u32> {
+        let (_, fields) = self
+            .structs
+            .get(struct_name)
+            .ok_or_else(|| eyre::eyre!("undefined struct `{struct_name}`"))?;
+        fields
+            .get(field)
+            .copied()
+            .ok_or_else(|| eyre::eyre!("struct `{struct_name}` has no field `{field}`"))
     }
 
     /// Look up a function's executable start address.
@@ -131,7 +182,8 @@ impl FunctionScope for MetadataLoweringContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::module::{FunctionInfo, NoInfo, Signature};
+    use crate::module::{FieldInfo, FunctionInfo, NoInfo, Parameter, Signature, StructInfo};
+    use vihaco_abi::Type;
 
     fn metadata() -> ProgramMetadata {
         ProgramMetadata {
@@ -140,7 +192,23 @@ mod tests {
                 "first".into(),
                 "hello".into(),
                 "hello".into(),
+                "Point".into(),
+                "x".into(),
+                "y".into(),
             ],
+            structs: vec![StructInfo {
+                name: 4,
+                fields: vec![
+                    FieldInfo {
+                        name: 5,
+                        ty: Type::F64,
+                    },
+                    FieldInfo {
+                        name: 6,
+                        ty: Type::I64,
+                    },
+                ],
+            }],
             functions: vec![
                 FunctionInfo {
                     name: 0,
@@ -188,8 +256,76 @@ mod tests {
         assert_eq!(context.label_address("done")?, 8);
         assert!(context.label_address("only_first").is_err());
         assert!(context.string_index("missing").is_err());
-        assert_eq!(metadata.strings.len(), 4);
+        assert_eq!(metadata.strings.len(), 7);
         Ok(())
+    }
+
+    #[test]
+    fn struct_lookups_resolve_table_and_field_slot_indices() -> eyre::Result<()> {
+        let mut metadata = metadata();
+        let context = MetadataLoweringContext::new(&metadata)?;
+        assert_eq!(context.struct_index("Point")?, 0);
+        assert_eq!(context.field_index("Point", "x")?, 0);
+        assert_eq!(context.field_index("Point", "y")?, 1);
+        let err = context.field_index("Point", "z").unwrap_err();
+        assert!(err.to_string().contains("no field `z`"), "{err}");
+        assert!(context.struct_index("Line").is_err());
+        assert!(context.field_index("Line", "x").is_err());
+
+        metadata.structs.push(metadata.structs[0].clone());
+        let err = MetadataLoweringContext::new(&metadata).unwrap_err();
+        assert!(err.to_string().contains("duplicate"), "{err}");
+        metadata.structs.pop();
+        metadata.structs[0].fields[1].name = 5;
+        let err = MetadataLoweringContext::new(&metadata).unwrap_err();
+        assert!(err.to_string().contains("duplicate field `x`"), "{err}");
+        metadata.structs[0].fields[1].name = 99;
+        assert!(MetadataLoweringContext::new(&metadata).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn struct_tables_are_validated_at_module_assembly() {
+        let into_module = |metadata: ProgramMetadata| metadata.into_module(vec![(); 9]);
+        assert!(into_module(metadata()).is_ok());
+
+        // Struct types in signatures and fields must name a struct-table entry.
+        let mut bad = metadata();
+        bad.functions[0].signature.ret.push(Type::Struct(1));
+        let err = into_module(bad).unwrap_err();
+        assert!(err.to_string().contains("signature.ret[0]"), "{err}");
+        let mut bad = metadata();
+        bad.functions[0].signature.params.push(Parameter {
+            name: 0,
+            ty: Type::Struct(1),
+        });
+        let err = into_module(bad).unwrap_err();
+        assert!(err.to_string().contains("signature.params[0].ty"), "{err}");
+        let mut bad = metadata();
+        bad.structs[0].fields[0].ty = Type::Struct(1);
+        let err = into_module(bad).unwrap_err();
+        assert!(err.to_string().contains("structs[0].fields[0].ty"), "{err}");
+
+        // Self-reference (a linked node) is allowed.
+        let mut linked = metadata();
+        linked.structs[0].fields[0].ty = Type::Struct(0);
+        assert!(into_module(linked).is_ok());
+
+        // Names are string-table indices, unique per table and per struct.
+        let mut bad = metadata();
+        bad.structs[0].name = 99;
+        assert!(into_module(bad).is_err());
+        let mut bad = metadata();
+        bad.structs[0].fields[1].name = 5;
+        let err = into_module(bad).unwrap_err();
+        assert!(err.to_string().contains("duplicate field `x`"), "{err}");
+        let mut bad = metadata();
+        bad.structs.push(bad.structs[0].clone());
+        let err = into_module(bad).unwrap_err();
+        assert!(
+            err.to_string().contains("duplicate struct `Point`"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -221,6 +357,7 @@ mod tests {
         let converted = converted.map_extra(|extra| extra.0.len());
         assert_eq!(converted.extra, 6);
         assert_eq!(converted.functions, original.functions);
+        assert_eq!(converted.structs, original.structs);
         assert_eq!(converted.labels, original.labels);
         assert_eq!(converted.strings, original.strings);
         assert_eq!(converted.constants, original.constants);

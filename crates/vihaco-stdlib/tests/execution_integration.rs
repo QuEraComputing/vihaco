@@ -123,6 +123,12 @@ impl vihaco_stdlib::program::lower::StringIntern for NumericContext {
     }
 }
 
+impl vihaco_cpu::field::StructLookup for NumericContext {
+    fn field_index(&self, _: &str, _: &str) -> eyre::Result<u32> {
+        Err(eyre::eyre!("numeric fixture"))
+    }
+}
+
 fn machine(code: &[&str]) -> (Program, Machine) {
     let module = LocalModule {
         code: code
@@ -136,6 +142,7 @@ fn machine(code: &[&str]) -> (Program, Machine) {
                     .unwrap()
             })
             .collect::<Vec<Instruction>>(),
+        structs: vec![],
         main_function: Some(0),
         functions: vec![FunctionInfo {
             name: 0,

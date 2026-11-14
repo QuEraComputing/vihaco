@@ -9,6 +9,7 @@ pub use crate::program_metadata::ProgramMetadata;
 pub struct LocalModule<I, V, Ty, Info = NoInfo> {
     pub code: Vec<I>,
     pub functions: Vec<FunctionInfo<Ty>>,
+    pub structs: Vec<StructInfo<Ty>>,
     pub labels: Vec<LabelInfo>,
     pub constants: Vec<V>,
     pub strings: Vec<String>,
@@ -25,6 +26,7 @@ where
         Self {
             code: Vec::new(),
             functions: Vec::new(),
+            structs: Vec::new(),
             labels: Vec::new(),
             constants: Vec::new(),
             strings: Vec::new(),
@@ -66,6 +68,38 @@ pub struct Signature<Ty> {
 pub struct Parameter<Ty> {
     pub name: u32, // index into the string interner
     pub ty: Ty,
+}
+
+/// A struct type declaration. `Type::Struct(i)` refers to entry `i` of the
+/// struct table. At runtime a struct is a heap object with one word slot per
+/// field, in declaration order; `get_field`/`set_field` take that slot index.
+#[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
+#[syntax_class(metadata, open = "{", close = "}")]
+pub struct StructInfo<Ty> {
+    pub name: u32, // index into the string interner
+    pub fields: Vec<FieldInfo<Ty>>,
+}
+
+#[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
+#[syntax_class(metadata, open = "{", close = "}")]
+pub struct FieldInfo<Ty> {
+    pub name: u32, // index into the string interner
+    pub ty: Ty,
+}
+
+/// Exposes the struct-table reference carried by a type, if any, so module
+/// assembly can check `Type::Struct` indices against the struct table.
+pub trait StructTypeRef {
+    fn struct_index(&self) -> Option<u32>;
+}
+
+impl StructTypeRef for vihaco_abi::Type {
+    fn struct_index(&self) -> Option<u32> {
+        match self {
+            vihaco_abi::Type::Struct(index) => Some(*index),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
@@ -123,6 +157,25 @@ where
         }
 
         writeln!(f)?;
+        if !self.structs.is_empty() {
+            writeln!(f)?;
+            ".struct".keyword().fmt(f)?;
+            writeln!(f)?;
+            let name = |index: u32| {
+                self.strings
+                    .get(index as usize)
+                    .map_or_else(|| format!("#{index}"), Clone::clone)
+            };
+            for (struct_idx, info) in self.structs.iter().enumerate() {
+                write!(f, "0x{:04X} {} {{", struct_idx, name(info.name))?;
+                for (field_idx, field) in info.fields.iter().enumerate() {
+                    let sep = if field_idx == 0 { " " } else { ", " };
+                    write!(f, "{sep}{}: {}", name(field.name), field.ty)?;
+                }
+                let close = if info.fields.is_empty() { "}" } else { " }" };
+                writeln!(f, "{close}")?;
+            }
+        }
         if !self.source_symbols.is_empty() {
             ".machine".keyword().fmt(f)?;
             writeln!(f, " symbols {{")?;
@@ -178,5 +231,29 @@ mod tests {
         module.strings.push("hello".to_string());
         module.strings.push("world".to_string());
         println!("{:#}", module);
+    }
+
+    #[test]
+    fn display_lists_struct_table_with_field_names() {
+        let module: LocalModule<MockInst, u64, &str> = LocalModule {
+            strings: vec!["Point".into(), "x".into(), "y".into()],
+            structs: vec![
+                StructInfo {
+                    name: 0,
+                    fields: vec![
+                        FieldInfo { name: 1, ty: "f64" },
+                        FieldInfo { name: 2, ty: "i64" },
+                    ],
+                },
+                StructInfo {
+                    name: 0,
+                    fields: vec![],
+                },
+            ],
+            ..LocalModule::default()
+        };
+        let text = module.to_string();
+        assert!(text.contains("0x0000 Point { x: f64, y: i64 }\n"), "{text}");
+        assert!(text.contains("0x0001 Point {}\n"), "{text}");
     }
 }

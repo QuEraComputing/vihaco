@@ -7,7 +7,7 @@ use crate::{ParsedFunction, ParsedModule};
 use eyre::WrapErr;
 use vihaco_abi::{Lower, Value};
 use vihaco_module::loader::FunctionScope;
-use vihaco_module::module::{LocalModule, ProgramMetadata};
+use vihaco_module::module::{LocalModule, ProgramMetadata, StructTypeRef};
 
 /// Lower functions in source order, preparing each function's complete label
 /// scope before lowering its first instruction.
@@ -83,7 +83,7 @@ where
     lower_functions(functions, context)
 }
 
-impl<I, Ty: PartialEq, H> ParsedModule<I, Ty, H> {
+impl<I, Ty: PartialEq + StructTypeRef, H> ParsedModule<I, Ty, H> {
     /// Validate declarations and tables, lower instructions with the supplied
     /// context, and assemble a module without inventing or reordering metadata.
     ///

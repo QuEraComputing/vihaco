@@ -65,6 +65,9 @@ pub enum Type {
     F32,
     FunctionRef,
     HeapRef,
+    /// A heap reference to a struct, by index into the module's struct table.
+    /// At runtime the value is an ordinary heap reference.
+    Struct(u32),
 }
 
 /// Parse type syntax directly into the runtime type vocabulary.
@@ -166,6 +169,7 @@ impl std::fmt::Display for Type {
             Type::F32 => write!(f, "f32"),
             Type::FunctionRef => write!(f, "fn"),
             Type::HeapRef => write!(f, "heap"),
+            Type::Struct(index) => write!(f, "struct {}", index),
         }
     }
 }
@@ -229,6 +233,7 @@ impl crate::traits::FromBytes for Type {
             0x08 => Ok(Type::HeapRef),
             0x09 => Ok(Type::I32),
             0x0A => Ok(Type::F32),
+            0x0B => Ok(Type::Struct(bytes.read_u32::<LittleEndian>()?)),
             _ => Err(eyre::eyre!("Unknown type byte: {}", type_byte)),
         }
     }
@@ -261,8 +266,12 @@ impl crate::traits::WriteBytes for Type {
             Type::HeapRef => 0x08,
             Type::I32 => 0x09,
             Type::F32 => 0x0A,
+            Type::Struct(_) => 0x0B,
         };
         io.write_u8(type_byte)?;
+        if let Type::Struct(index) = self {
+            io.write_u32::<LittleEndian>(*index)?;
+        }
         Ok(())
     }
 }
@@ -385,7 +394,13 @@ impl crate::traits::WriteBytes for Value {
 }
 
 fn type_text_parser<'src>() -> impl Parser<'src, &'src str, Type, ValueParseExtra<'src>> + Clone {
+    // `struct` must precede `str`, which would otherwise match its prefix.
+    let struct_type = just("struct")
+        .then_ignore(text::whitespace().at_least(1))
+        .ignore_then(scalar_text::<u32>())
+        .map(Type::Struct);
     choice((
+        struct_type,
         just("undefined").to(Type::Undefined),
         just("undef").to(Type::Undefined),
         just("string").to(Type::String),

@@ -54,6 +54,21 @@ fn new_values_parse_and_display() {
 }
 
 #[test]
+fn struct_types_round_trip_through_text_and_bytes() {
+    let ty = Type::Struct(258);
+    assert_eq!(encoded(&ty), vec![0x0B, 0x02, 0x01, 0x00, 0x00]);
+    let decoded = Type::from_bytes(&mut std::io::Cursor::new(encoded(&ty))).unwrap();
+    assert_eq!(decoded, ty);
+
+    assert_eq!(ty.to_string(), "struct 258");
+    assert_eq!(Type::from_text("struct 258").unwrap(), ty);
+    // `struct` shares a prefix with `str`; both must still parse.
+    assert_eq!(Type::from_text("str").unwrap(), Type::String);
+    assert!(Type::from_text("struct").is_err());
+    assert!(Type::from_text("struct x").is_err());
+}
+
+#[test]
 fn scalar_instruction_traits_use_narrow_widths() {
     assert_eq!(i32::width(), 4);
     assert_eq!(f32::width(), 4);

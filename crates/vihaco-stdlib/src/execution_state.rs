@@ -57,6 +57,7 @@
 //!         Instruction::V_execution__program__Return(program::Return(1)),
 //!     ],
 //!     main_function: Some(0),
+//!     structs: vec![],
 //!     functions: vec![FunctionInfo {
 //!         name: 0, signature: Signature { params: vec![], ret: vec![Type::U64] },
 //!         local_count: 0, start_address: 0, end_address: 4, file: 0,
