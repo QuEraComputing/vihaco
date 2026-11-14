@@ -32,7 +32,7 @@
 //! With `program-image-execution`, `HeaderDeclarations<D>` parses a collection
 //! of semicolon-terminated declarations. Consumers apply declarations separately
 //! to an application-owned preparation context, then call
-//! [`lower_code_with_metadata`] with the completed metadata and instruction
+//! `lower_code_with_metadata` with the completed metadata and instruction
 //! context. This supports contexts borrowing prepared configuration without
 //! moving the metadata during lowering.
 //!
