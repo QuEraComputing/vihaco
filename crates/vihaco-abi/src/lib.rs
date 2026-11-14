@@ -11,6 +11,7 @@ pub mod metadata;
 pub mod program;
 #[doc(hidden)]
 pub mod traits;
+pub mod verify;
 pub mod word;
 
 /// Bytecode-instruction traits, mounted at a stable `instruction` path so that
@@ -23,6 +24,7 @@ pub mod instruction {
 pub use effect::Effects;
 pub use lower::{Lower, Runtime, Syntax};
 pub use program::{Type, Value};
+pub use verify::{Flow, Verify};
 
 #[cfg(feature = "derive")]
 pub use vihaco_abi_derive::Instruction;

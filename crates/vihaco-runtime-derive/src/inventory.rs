@@ -600,6 +600,38 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
         .iter()
         .map(|ty| quote!(<#ty as #root::__private::InstructionSpec>::Syntax))
         .collect();
+    // Verification uses runtime instructions. Like lowering, the aggregate
+    // implements `Verify<C>` exactly when every instruction it contains does.
+    let verification = if entries.is_empty() {
+        quote! {
+            impl<#context_parameter: ?Sized> #root::Verify<#context_parameter> for #runtime {
+                fn flow(&self) -> #root::Flow {
+                    match *self {}
+                }
+                fn verify(&self, _: &mut #context_parameter) -> #root::eyre::Result<()> {
+                    match *self {}
+                }
+            }
+        }
+    } else {
+        let flow_arms = variants.iter().zip(&types).map(|(variant, ty)| {
+            quote!(Self::#variant(instruction) => <#ty as #root::Verify<#context_parameter>>::flow(instruction))
+        });
+        let verify_arms = variants.iter().zip(&types).map(|(variant, ty)| {
+            quote!(Self::#variant(instruction) => <#ty as #root::Verify<#context_parameter>>::verify(instruction, context))
+        });
+        quote! {
+            impl<#context_parameter: ?Sized> #root::Verify<#context_parameter> for #runtime
+            where #(#types: #root::Verify<#context_parameter>),* {
+                fn flow(&self) -> #root::Flow {
+                    match self { #(#flow_arms),* }
+                }
+                fn verify(&self, context: &mut #context_parameter) -> #root::eyre::Result<()> {
+                    match self { #(#verify_arms),* }
+                }
+            }
+        }
+    };
     let (declaration, syntax, parser_impl, lowering) = if entries.is_empty() {
         (
             quote!(pub enum #runtime {}),
@@ -686,6 +718,7 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
         }
         #parser_impl
         #lowering
+        #verification
         impl #root::SurfaceInstruction for #syntax {}
 
         impl #dispatch_impl_generics #root::Dispatch<#execution_context> for #name #type_generics #dispatch_where_clause {

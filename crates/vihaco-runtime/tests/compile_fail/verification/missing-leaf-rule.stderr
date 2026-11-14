@@ -1,0 +1,28 @@
+error[E0599]: the method `verify` exists for enum `__vihaco_MachineInstruction<_>`, but its trait bounds were not satisfied
+  --> tests/compile_fail/verification/missing-leaf-rule.rs:27:25
+   |
+11 |     pub struct Unverified;
+   |     --------------------- doesn't satisfy `Unverified: Verify<_>`
+...
+21 | #[composite] struct Machine { #[device(1)] cpu: Cpu }
+   | ------------ method `verify` not found for this enum because it doesn't satisfy `__vihaco_MachineInstruction: Verify<_>`
+...
+27 |     let _ = instruction.verify(&mut ());
+   |                         ^^^^^^ method cannot be called on `__vihaco_MachineInstruction<_>` due to unsatisfied trait bounds
+   |
+note: trait bound `Unverified: Verify<_>` was not satisfied
+  --> tests/compile_fail/verification/missing-leaf-rule.rs:21:1
+   |
+21 | #[composite] struct Machine { #[device(1)] cpu: Cpu }
+   | -^^^^^^^^^^^        -------
+   | |
+   | unsatisfied trait bound introduced here
+note: the trait `Verify` must be implemented
+  --> $WORKSPACE/crates/vihaco-abi/src/verify.rs
+   |
+   | pub trait Verify<C: ?Sized> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: items from traits can only be used if the trait is implemented and in scope
+   = note: the following trait defines an item `verify`, perhaps you need to implement it:
+           candidate #1: `Verify`
+   = note: this error originates in the attribute macro `composite` (in Nightly builds, run with -Z macro-backtrace for more info)
