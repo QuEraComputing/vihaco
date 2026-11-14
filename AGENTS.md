@@ -21,9 +21,9 @@ Tasks are also wrapped by [mise](https://mise.jdx.dev) (`mise run <task>`), but
 the plain `cargo`/tool commands are equivalent:
 
 ```bash
-cargo test --workspace --all-targets   # All tests EXCEPT doctests (mise run test)
+cargo nextest run --workspace --all-targets   # All tests EXCEPT doctests (mise run test)
 cargo test --workspace --doc            # Guide + example doctests (mise run doctest)
-cargo test test_name                    # Single test by name
+cargo nextest run test_name             # Tests whose name contains test_name
 cargo fmt --all                         # Format
 cargo clippy --workspace --all-targets -- -D warnings   # Lint (mise run lint)
 hawkeye check                           # SPDX license-header check (mise run license)
@@ -31,8 +31,11 @@ hawkeye format                          # Add/repair SPDX headers (mise run lice
 cd docs && pnpm install && pnpm dev     # Preview the docs site (Astro; prefer pnpm)
 ```
 
-`--all-targets` deliberately **excludes** doctests — run `--doc` separately to
-exercise the documentation (see `vihaco-doctests` under Architecture).
+Tests run with [cargo-nextest](https://nexte.st) (`cargo install cargo-nextest`
+or `mise install`; configuration in `.config/nextest.toml`, where CI uses the
+`ci` profile). nextest does not run doctests, so run `cargo test --doc`
+separately to exercise the documentation (see `vihaco-doctests` under
+Architecture). Plain `cargo test --workspace --all-targets` still works.
 
 ## Pre-commit Checklist
 
@@ -42,7 +45,7 @@ committing. Tests run on Linux/macOS/Windows, so avoid platform-specific code.
 ```bash
 cargo fmt --all -- --check                              # 1. Format
 cargo clippy --workspace --all-targets -- -D warnings   # 2. Lint (warnings are errors)
-cargo test --workspace --all-targets                    # 3. Test
+cargo nextest run --workspace --all-targets             # 3. Test
 cargo test --workspace --doc                            # 4. Doctests (docs can't drift)
 hawkeye check                                            # 5. SPDX license headers
 ```
@@ -134,7 +137,7 @@ self-contained component you can use directly or copy as a starting point.
   trybuild fixtures (`crates/vihaco/tests/ui/`,
   `crates/vihaco-parser-derive/tests/compile_errors/`). These are line-sensitive; when
   you change a diagnostic, update the matching `.stderr` (`TRYBUILD=overwrite
-  cargo test`).
+  cargo nextest run`, or `cargo test`).
 
 ## Repository Tooling (ion)
 
