@@ -14,13 +14,13 @@
 //!
 //! Comments come in two kinds:
 //!
-//! - `//` comments are the user's. Each one is kept, attached to the item it
-//!   annotates: a comment on its own line stays above the next item, and a
-//!   trailing comment stays at the end of its item's line.
-//! - `//!` comments are generated. The formatter removes every `//!` comment
-//!   (and the `//!` tail of any `//` comment) and writes fresh ones, so
-//!   formatting is idempotent. Turn them off with
+//! - Own-line comments starting with `//!` are generated. The formatter
+//!   removes them and writes fresh ones, one line per note directly above the
+//!   item it describes, so formatting is idempotent. Turn them off with
 //!   [`FormatOptions::generated_comments`].
+//! - Every other comment is the user's. Each one is kept in its block,
+//!   attached to the item it annotates: a comment on its own line stays above
+//!   the next item, and a trailing comment stays at the end of its item's line.
 //!
 //! The layout rules are described in the "Formatting SST files" section of the
 //! SST reference guide.
@@ -51,10 +51,10 @@ use crate::source::{SourceFile, Span};
 /// Formatter settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormatOptions {
-    /// Write generated `//!` comments. Existing `//!` comments are removed
-    /// either way. Default: `true`.
+    /// Write generated `//!` comments. Existing own-line `//!` comments are
+    /// removed either way. Default: `true`.
     pub generated_comments: bool,
-    /// The line width that header records are broken to fit. Default: `100`.
+    /// The line width that header records are broken to fit. Default: `80`.
     pub max_width: usize,
     /// The furthest column at which trailing comments are aligned; lines
     /// longer than this put their comment two spaces after the code.
@@ -66,7 +66,7 @@ impl Default for FormatOptions {
     fn default() -> Self {
         Self {
             generated_comments: true,
-            max_width: 100,
+            max_width: 80,
             comment_column: 60,
         }
     }
@@ -312,7 +312,9 @@ fn directive_comment(text: &str, directive: Span) -> Option<String> {
         .find('\n')
         .map_or(text.len(), |index| directive.end + index);
     let rest = text[directive.end..end].trim();
-    rest.starts_with("//").then(|| user_part(rest)).flatten()
+    rest.starts_with("//")
+        .then(|| user_part(rest, false))
+        .flatten()
 }
 
 /// The `.global` body as lines without trailing whitespace or trailing blank
@@ -359,10 +361,10 @@ fn collect<T>(
             );
         }
         for raw in scan.comments {
-            let Some(user) = user_part(&text[raw.clone()]) else {
+            let own_line = starts_line(text, raw.start);
+            let Some(user) = user_part(&text[raw.clone()], own_line) else {
                 continue;
             };
-            let own_line = starts_line(text, raw.start);
             if !own_line && let Some(entry) = entries.last_mut() {
                 entry.trailing.push(user);
                 continue;
@@ -396,11 +398,12 @@ fn collect<T>(
         let scan = comments::scan(text, span.range(), true, &[]);
         let mut found = Vec::new();
         for raw in &scan.comments {
-            if let Some(user) = user_part(&text[raw.clone()]) {
+            let own_line = starts_line(text, raw.start);
+            if let Some(user) = user_part(&text[raw.clone()], own_line) {
                 found.push(Comment {
                     text: user,
                     start: raw.start,
-                    own_line: starts_line(text, raw.start),
+                    own_line,
                     blank_before: false,
                 });
             }
@@ -617,17 +620,19 @@ struct Writer<'w, 'src, I> {
     out: &'w mut Diagnostics<'src>,
 }
 
-/// Render a trailing comment: user comment first, then the generated notes.
+/// Render a line's trailing user comment.
 fn trailing_text(line: &Line) -> String {
-    let mut text = line.trailing.join(" ");
-    if !line.notes.is_empty() {
-        if !text.is_empty() {
-            text.push(' ');
-        }
-        text.push_str("//! ");
-        text.push_str(&line.notes.join("; "));
+    line.trailing.join(" ")
+}
+
+/// Write the generated notes of `line`, one `//!` line each, above it.
+fn push_notes(line: &Line, output: &mut String) {
+    for note in &line.notes {
+        output.push_str(&" ".repeat(line.indent));
+        output.push_str("//! ");
+        output.push_str(note);
+        output.push('\n');
     }
-    text
 }
 
 /// Lines of one block, with trailing comments aligned to a common column.
@@ -639,6 +644,7 @@ fn emit_block(lines: &[Line], options: &FormatOptions, output: &mut String) {
         .filter(|column| *column <= options.comment_column)
         .max();
     for line in lines {
+        push_notes(line, output);
         let mut text = String::new();
         if !line.code.is_empty() {
             text.push_str(&" ".repeat(line.indent));
@@ -677,19 +683,6 @@ fn push_comments(lines: &mut Vec<Line>, comments: &[Comment], indent: usize) {
     }
 }
 
-/// Split a block's tail into comments kept in the block and comments that
-/// introduce the next directive (those after a blank line).
-fn split_tail(tail: &[Comment], has_next: bool) -> (&[Comment], &[Comment]) {
-    let split = if has_next {
-        tail.iter()
-            .position(|comment| comment.blank_before)
-            .unwrap_or(tail.len())
-    } else {
-        tail.len()
-    };
-    tail.split_at(split)
-}
-
 impl<I> Writer<'_, '_, I>
 where
     for<'src> I: Parse<'src>,
@@ -712,19 +705,13 @@ where
                 output.push('\n');
             }
         }
-        // Comments that introduce the next directive.
-        let mut introduction: Vec<Comment> = Vec::new();
-        let block_count: usize = model.sections.iter().map(|s| s.blocks.len() + 1).sum();
-        let mut position = 0;
         for section in &model.sections {
             output.push('\n');
-            push_introduction(&mut introduction, &mut output);
             directive_line(
                 &format!(".section {}", section.name),
                 &section.comment,
                 &mut output,
             );
-            position += 1;
             let metadata = section.blocks.iter().find_map(|block| match block {
                 Block::Header(block) => block
                     .entries
@@ -747,34 +734,23 @@ where
                 .collect();
             let info = SectionInfo::new(&symbols, metadata);
             for block in &section.blocks {
-                if !introduction.is_empty() {
-                    output.push('\n');
-                    push_introduction(&mut introduction, &mut output);
-                }
-                position += 1;
-                let has_next = position < block_count;
-                let (directive, comment, lines, tail) = match block {
+                // Comments after the last item stay in their block.
+                let (directive, comment, lines) = match block {
                     Block::Header(block) => {
-                        let (kept, next) = split_tail(&block.tail, has_next);
                         let mut lines = self.header(block, metadata);
-                        push_comments(&mut lines, kept, INDENT);
-                        (".header", &block.comment, lines, next)
+                        push_comments(&mut lines, &block.tail, INDENT);
+                        (".header", &block.comment, lines)
                     }
                     Block::Text(block) => {
-                        let (kept, next) = split_tail(&block.tail, has_next);
                         let mut lines = self.text(&section.name, block, &info);
-                        push_comments(&mut lines, kept, INDENT);
-                        (".text", &block.comment, lines, next)
+                        push_comments(&mut lines, &block.tail, INDENT);
+                        (".text", &block.comment, lines)
                     }
                 };
                 directive_line(directive, comment, &mut output);
                 emit_block(&lines, self.options, &mut output);
-                introduction.extend(tail.iter().cloned());
             }
         }
-        // Without a next directive, introduction comments are never split
-        // off, so nothing is pending here.
-        debug_assert!(introduction.is_empty());
         output
     }
 
@@ -960,16 +936,6 @@ where
     }
 }
 
-fn push_introduction(introduction: &mut Vec<Comment>, output: &mut String) {
-    for (index, comment) in introduction.drain(..).enumerate() {
-        if index > 0 && comment.blank_before {
-            output.push('\n');
-        }
-        output.push_str(&comment.text);
-        output.push('\n');
-    }
-}
-
 /// Whether `own` is the section's metadata (the one notes describe).
 fn own_metadata<T>(own: &T, metadata: Option<&T>) -> bool {
     metadata.is_some_and(|metadata| std::ptr::eq(own, metadata))
@@ -1037,6 +1003,7 @@ where
 {
     let mut text = String::new();
     for line in lines {
+        push_notes(line, &mut text);
         text.push_str(&line.code);
         if line.has_comment() {
             text.push_str("  ");

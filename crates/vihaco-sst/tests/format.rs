@@ -55,10 +55,14 @@ fn parsed(text: &str) -> Parsed {
     sections
 }
 
-/// The user part of every `//` comment, outside string literals.
+/// Every user `//` comment, outside string literals: all comments except
+/// the generated own-line `//!` ones.
 fn user_comments(text: &str) -> Vec<String> {
     let mut comments = Vec::new();
     for line in text.lines() {
+        if line.trim_start().starts_with("//!") {
+            continue;
+        }
         let mut in_string = false;
         let mut escaped = false;
         for (index, c) in line.char_indices() {
@@ -72,13 +76,7 @@ fn user_comments(text: &str) -> Vec<String> {
             } else if c == '"' {
                 in_string = true;
             } else if line[index..].starts_with("//") {
-                let comment = line[index..].trim_end();
-                if !comment.starts_with("//!") {
-                    let user = comment[2..]
-                        .find("//!")
-                        .map_or(comment, |end| &comment[..2 + end]);
-                    comments.push(user.trim_end().to_owned());
-                }
+                comments.push(line[index..].trim_end().to_owned());
                 break;
             }
         }
@@ -105,7 +103,8 @@ fn assert_properties(text: &str) -> String {
         assert!(!output.contains('\r'));
         assert!(output.lines().all(|line| line.trim_end() == line));
         if !options.generated_comments {
-            assert!(!output.contains("//!"), "{output}");
+            let generated = |line: &str| line.trim_start().starts_with("//!");
+            assert!(!output.lines().any(generated), "{output}");
         }
     }
     formatted
@@ -120,23 +119,28 @@ metadata { strings: ["main", "helper", "f.sst", "hi"],
 "#;
 
 const FORMATTED_HEADER: &str = r#"    metadata {
+        strings: ["main", "helper", "f.sst", "hi"],
         functions: [
             {
-                name: 0,   //! "main"
+                //! "main"
+                name: 0,
                 signature: { params: [], ret: [] },
                 local_count: 0,
-                file: 2,   //! "f.sst"
+                //! "f.sst"
+                file: 2,
             },
             {
-                name: 1,   //! "helper"
+                //! "helper"
+                name: 1,
                 signature: { params: [], ret: [] },
                 local_count: 0,
-                file: 2,   //! "f.sst"
+                //! "f.sst"
+                file: 2,
             },
         ],
         constants: [],
-        strings: ["main", "helper", "f.sst", "hi"],
-        main_function: 0,  //! @main
+        //! @main
+        main_function: 0,
         source_symbols: [],
         extra: {},
     };
@@ -154,13 +158,19 @@ fn messy_text_is_one_item_per_line() {
     );
     let expected = format!(
         "sst v2\n\n.section main\n.header\n{FORMATTED_HEADER}.text\n\
-@main:                 //! fn main(), locals 0, functions[0]
-    t.call 0, @helper  //! @helper = 0x0004 (functions[1])
-    t.print \"hi\"       //! \"hi\" = strings[3]
-    t.br @done         //! @done = 0x0003
-@done:                 //! 0x0003
+//! fn main(), locals 0, functions[0]
+@main:
+    //! @helper = 0x0004 (functions[1])
+    t.call 0, @helper
+    //! \"hi\" = strings[3]
+    t.print \"hi\"
+    //! @done = 0x0003
+    t.br @done
+//! 0x0003
+@done:
     t.halt
-@helper:               //! fn helper(), locals 0, functions[1]
+//! fn helper(), locals 0, functions[1]
+@helper:
     t.push 21
     t.halt
 "
@@ -208,27 +218,31 @@ fn comments_everywhere_stay_with_their_items() {
 .header  // header directive
     // before metadata
     metadata {                       // after metadata brace
+        // before strings
+        strings: ["main", "f.sst"],  // after strings
         functions: [                 // after functions bracket
             {
-                name: 0,             //! "main"
+                //! "main"
+                name: 0,
                 signature: { params: [], ret: [] },
                 local_count: 0,
-                file: 1,             //! "f.sst"
+                //! "f.sst"
+                file: 1,
             },                       // after function
             // end of functions
         ],
         constants: [],
-        // before strings
-        strings: ["main", "f.sst"],  // after strings
-        main_function: 0,            //! @main
+        //! @main
+        main_function: 0,
         source_symbols: [],
         extra: {},
     };                               // after metadata
 
-// end of header
+    // end of header
 .text  // text directive
 // before main
-@main:        // on main //! fn main(), locals 0, functions[0]
+//! fn main(), locals 0, functions[0]
+@main:        // on main
     t.push 1  // on push
 
     // before halt, after blank lines
@@ -239,46 +253,67 @@ fn comments_everywhere_stay_with_their_items() {
 }
 
 #[test]
-fn comments_after_a_blank_line_introduce_the_next_directive() {
+fn comments_at_the_end_of_a_block_stay_in_it() {
     let text = format!(
-        "sst v2\n.section main\n.header{HEADER}.text\n@main: t.halt\n@helper: t.halt\n\n\
+        "sst v2\n.section main\n.header{HEADER}\n// End of header.\n.text\n@main: t.halt\n@helper: t.halt\n\n\
          // The second section.\n.section other\n.header{HEADER}.text\n// Code.\n@main: t.halt\n@helper: t.halt\n"
     );
     let formatted = assert_properties(&text);
     assert!(
-        formatted.contains("    t.halt\n\n// The second section.\n.section other\n.header\n"),
+        formatted.contains("    };\n\n    // End of header.\n.text\n"),
         "{formatted}"
     );
-    assert!(formatted.contains(".text\n// Code.\n@main:"), "{formatted}");
+    assert!(
+        formatted.contains("    t.halt\n\n    // The second section.\n\n.section other\n.header\n"),
+        "{formatted}"
+    );
+    assert!(
+        formatted.contains(".text\n// Code.\n//! fn main()"),
+        "{formatted}"
+    );
 }
 
 #[test]
 fn stale_generated_comments_are_replaced() {
     let text = program(
-        "//! a stale own-line note\n@main: //! fn wrong()\n  t.br @done // jump //! @done = 0x9999\n\
-         @done: t.halt\n@helper: t.halt //! stale\n",
+        "//! a stale own-line note\n//! fn wrong()\n@main:\n  //! @done = 0x9999\n  t.br @done // jump\n\
+         @done: t.halt\n@helper: t.halt // see //! this is the user's\n",
     );
     let formatted = assert_properties(&text);
     assert!(!formatted.contains("stale") && !formatted.contains("wrong"));
     assert!(!formatted.contains("0x9999"));
     assert!(
-        formatted.contains("    t.br @done  // jump //! @done = 0x0001\n"),
+        formatted.contains("    //! @done = 0x0001\n    t.br @done  // jump\n"),
+        "{formatted}"
+    );
+    assert!(
+        formatted.contains("    t.halt      // see //! this is the user's\n"),
         "{formatted}"
     );
 }
 
 #[test]
 fn generated_comments_can_be_turned_off() {
-    let text = program("@main: t.br @done //! @done = 0x0001\n@done: t.halt\n@helper: t.halt\n");
+    let text = program("@main:\n//! @done = 0x0001\nt.br @done\n@done: t.halt\n@helper: t.halt\n");
     let formatted = format_with(&text, FormatOptions::without_generated_comments());
     let expected = "\
     metadata {
+        strings: [\"main\", \"helper\", \"f.sst\", \"hi\"],
         functions: [
-            { name: 0, signature: { params: [], ret: [] }, local_count: 0, file: 2 },
-            { name: 1, signature: { params: [], ret: [] }, local_count: 0, file: 2 },
+            {
+                name: 0,
+                signature: { params: [], ret: [] },
+                local_count: 0,
+                file: 2,
+            },
+            {
+                name: 1,
+                signature: { params: [], ret: [] },
+                local_count: 0,
+                file: 2,
+            },
         ],
         constants: [],
-        strings: [\"main\", \"helper\", \"f.sst\", \"hi\"],
         main_function: 0,
         source_symbols: [],
         extra: {},
@@ -325,11 +360,10 @@ metadata { strings: ["main", "x", "f.sst"],
 "#;
     let formatted = assert_properties(text);
     for expected in [
-        "            str 2,         //! \"f.sst\"\n",
-        "            fn 0,          //! @main\n",
-        "            u64 7,\n",
-        "signature: { params: [{ name: 1, ty: u64 }], ret: [u64, bool] },  //! fn main(x: u64) -> (u64, bool)\n",
-        "@main:  //! fn main(x: u64) -> (u64, bool), locals 2, functions[0]\n",
+        "            //! \"f.sst\"\n            str 2,\n",
+        "            //! @main\n            fn 0,\n            u64 7,\n",
+        "                //! fn main(x: u64) -> (u64, bool)\n                signature: { params: [{ name: 1, ty: u64 }], ret: [u64, bool] },\n",
+        "//! fn main(x: u64) -> (u64, bool), locals 2, functions[0]\n@main:\n",
     ] {
         assert!(formatted.contains(expected), "{expected}\n{formatted}");
     }
@@ -371,7 +405,7 @@ fn machine_specific_annotations_are_added_by_hooks() {
         .format(&source(&text))
         .unwrap();
     assert!(
-        formatted.contains("    t.push 1  //! 1 at 0\n"),
+        formatted.contains("    //! 1 at 0\n    t.push 1\n"),
         "{formatted}"
     );
 }

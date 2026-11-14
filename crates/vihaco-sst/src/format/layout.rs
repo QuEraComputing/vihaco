@@ -41,7 +41,7 @@ pub(crate) struct Item {
     pub leading: Vec<String>,
     /// User comments printed after the item on its last line.
     pub trailing: Vec<String>,
-    /// Generated notes printed after the item on its last line.
+    /// Generated notes, printed as `//!` lines above the item.
     pub notes: Vec<String>,
 }
 
@@ -509,7 +509,7 @@ pub(crate) struct Line {
     pub code: String,
     /// User comments after the code.
     pub trailing: Vec<String>,
-    /// Generated notes after the code, printed as one `//!` comment.
+    /// Generated notes, printed as one `//!` line each above the code.
     pub notes: Vec<String>,
 }
 
@@ -529,7 +529,7 @@ impl Line {
     }
 
     pub fn has_comment(&self) -> bool {
-        !self.trailing.is_empty() || !self.notes.is_empty()
+        !self.trailing.is_empty()
     }
 }
 
@@ -629,10 +629,11 @@ impl Renderer<'_> {
             for comment in &item.leading {
                 self.lines.push(Line::new(inner, comment.clone()));
             }
+            // Notes go above the item's first line.
+            self.current.notes.extend(item.notes.iter().cloned());
             self.nodes(item, inner, 1)?;
             self.push(",");
             self.current.trailing.extend(item.trailing.iter().cloned());
-            self.current.notes.extend(item.notes.iter().cloned());
             self.flush(inner);
         }
         for comment in &group.dangling {

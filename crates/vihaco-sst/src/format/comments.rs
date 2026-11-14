@@ -20,22 +20,14 @@ pub(crate) struct Comment {
     pub blank_before: bool,
 }
 
-/// The user part of a raw comment (`//` to end of line), or `None` when the
-/// comment is entirely generated.
+/// A raw comment (`//` to end of line) without trailing whitespace, or `None`
+/// when it is generated.
 ///
-/// `//!` starts a generated comment wherever it appears, so the user part of
-/// `// note //! generated` is `// note`.
-pub(crate) fn user_part(raw: &str) -> Option<String> {
+/// Generated comments are exactly the own-line comments starting with `//!`;
+/// a trailing `//!` comment, or a `//!` inside a `//` comment, is the user's.
+pub(crate) fn user_part(raw: &str, own_line: bool) -> Option<String> {
     let raw = raw.trim_end();
-    let body = raw.strip_prefix("//")?;
-    if body.starts_with('!') {
-        return None;
-    }
-    let user = match body.find("//!") {
-        Some(index) => &raw[..2 + index],
-        None => raw,
-    };
-    Some(user.trim_end().to_owned())
+    (!(own_line && raw.starts_with("//!"))).then(|| raw.to_owned())
 }
 
 /// What a scan of a source range found besides comments.
@@ -122,14 +114,18 @@ mod tests {
 
     #[test]
     fn user_parts_drop_generated_comments() {
-        assert_eq!(user_part("// hello  "), Some("// hello".to_owned()));
-        assert_eq!(user_part("//! generated"), None);
+        assert_eq!(user_part("// hello  ", true), Some("// hello".to_owned()));
+        assert_eq!(user_part("//! generated", true), None);
         assert_eq!(
-            user_part("// note //! generated"),
-            Some("// note".to_owned())
+            user_part("//! trailing", false),
+            Some("//! trailing".to_owned())
         );
-        assert_eq!(user_part("/// doc"), Some("/// doc".to_owned()));
-        assert_eq!(user_part("//"), Some("//".to_owned()));
+        assert_eq!(
+            user_part("// note //! kept", true),
+            Some("// note //! kept".to_owned())
+        );
+        assert_eq!(user_part("/// doc", true), Some("/// doc".to_owned()));
+        assert_eq!(user_part("//", true), Some("//".to_owned()));
     }
 
     #[test]
