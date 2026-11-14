@@ -12,7 +12,7 @@ impl StackInputCount<cpu::HeapAlloc> for CPU {
 
 impl Execute<cpu::HeapAlloc> for CPU {
     type Message = PopFromStack<StackBatch<Word>>;
-    type Effect = PushToStack<(u32,)>;
+    type Effect = PushToStack<(u64,)>;
     type Error = eyre::Report;
     fn execute(
         &mut self,
@@ -27,7 +27,7 @@ impl Execute<cpu::HeapAlloc> for CPU {
 }
 
 impl Execute<cpu::GetItem> for CPU {
-    type Message = PopFromStack<(u32, u64)>;
+    type Message = PopFromStack<(u64, u64)>;
     type Effect = PushToStack<(Word,)>;
     type Error = eyre::Report;
     fn execute(
@@ -46,7 +46,7 @@ impl Execute<cpu::GetItem> for CPU {
 }
 
 impl Execute<cpu::HeapDealloc> for CPU {
-    type Message = PopFromStack<(u32,)>;
+    type Message = PopFromStack<(u64,)>;
     type Effect = PushToStack<()>;
     type Error = eyre::Report;
     fn execute(
@@ -61,7 +61,7 @@ impl Execute<cpu::HeapDealloc> for CPU {
 
 impl Execute<cpu::HeapReserve> for CPU {
     type Message = PopFromStack<(u64,)>;
-    type Effect = PushToStack<(u32,)>;
+    type Effect = PushToStack<(u64,)>;
     type Error = eyre::Report;
     fn execute(
         &mut self,
@@ -89,7 +89,7 @@ impl Execute<cpu::HeapPush> for CPU {
 }
 
 impl Execute<cpu::HeapLen> for CPU {
-    type Message = PopFromStack<(u32,)>;
+    type Message = PopFromStack<(u64,)>;
     type Effect = PushToStack<(u64,)>;
     type Error = eyre::Report;
     fn execute(
@@ -111,7 +111,7 @@ impl StackInputCount<cpu::StructNew> for CPU {
 
 impl Execute<cpu::StructNew> for CPU {
     type Message = PopFromStack<StackBatch<Word>>;
-    type Effect = PushToStack<(u32,)>;
+    type Effect = PushToStack<(u64,)>;
     type Error = eyre::Report;
     fn execute(
         &mut self,
@@ -126,7 +126,7 @@ impl Execute<cpu::StructNew> for CPU {
 }
 
 impl Execute<cpu::GetField> for CPU {
-    type Message = PopFromStack<(u32,)>;
+    type Message = PopFromStack<(u64,)>;
     type Effect = PushToStack<(Word,)>;
     type Error = eyre::Report;
     fn execute(
@@ -139,7 +139,7 @@ impl Execute<cpu::GetField> for CPU {
 }
 
 impl Execute<cpu::SetField> for CPU {
-    type Message = PopFromStack<(u32, Word)>;
+    type Message = PopFromStack<(u64, Word)>;
     type Effect = PushToStack<()>;
     type Error = eyre::Report;
     fn execute(

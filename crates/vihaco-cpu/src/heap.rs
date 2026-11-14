@@ -1,8 +1,15 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+//! CPU heap: kind-tagged objects behind generational references.
+//!
+//! References are `slotmap` keys packed into a 64-bit word (32-bit slot index,
+//! 32-bit version). Freeing an object bumps its slot's version, so a stale
+//! reference can never reach the object that later reuses the slot.
+
 use crate::Word;
 use crate::layout::{FieldSlot, StructLayout};
+use slotmap::{DefaultKey, Key, KeyData, SlotMap};
 
 /// What a heap object is. Every access checks the kind before touching slots,
 /// so struct and array operations cannot be applied to the wrong object.
@@ -50,21 +57,35 @@ impl Clone for HeapObject {
     }
 }
 
-#[derive(Debug, Clone)]
-enum HeapSlot {
-    Alive(HeapObject),
-    Deallocated,
-}
+/// A heap reference as it appears in a word: the packed generational key.
+pub(crate) type HeapRef = u64;
 
+/// Cloning preserves every key, so references stay valid in the clone.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Heap {
-    slots: Vec<HeapSlot>,
-    free_list: Vec<u32>,
+    objects: SlotMap<DefaultKey, HeapObject>,
+}
+
+/// Decode a reference word into a key, or `None` if no live object could have it.
+///
+/// Issued references always carry an odd version in their high 32 bits.
+/// `KeyData::from_ffi` would silently force an even version odd, turning a
+/// forged small number such as `1` into a key for the first object allocated
+/// in that slot, so such words are rejected here instead. This relies on the
+/// slotmap 1.x key layout; `slot_index_alone_never_reaches_a_first_generation_object`
+/// fails if that layout changes.
+fn key(reference: HeapRef) -> Option<DefaultKey> {
+    let version = (reference >> 32) as u32;
+    (version & 1 == 1).then(|| KeyData::from_ffi(reference).into())
+}
+
+fn invalid(reference: HeapRef) -> eyre::Report {
+    eyre::eyre!("heap reference {reference:#x} is invalid or has been deallocated")
 }
 
 impl Heap {
     /// Allocate a full array; spare Vec capacity does not permit appending.
-    pub(crate) fn alloc(&mut self, values: impl Into<Vec<Word>>) -> u32 {
+    pub(crate) fn alloc(&mut self, values: impl Into<Vec<Word>>) -> HeapRef {
         let values = values.into();
         let capacity = values.len();
         self.insert(HeapObject {
@@ -80,7 +101,7 @@ impl Heap {
         &mut self,
         layout: StructLayout,
         values: impl Into<Vec<Word>>,
-    ) -> eyre::Result<u32> {
+    ) -> eyre::Result<HeapRef> {
         let values = values.into();
         eyre::ensure!(
             values.len() == layout.field_count as usize,
@@ -99,7 +120,7 @@ impl Heap {
 
     /// Allocate an empty array with an exact, fixed element limit.
     /// Returns an error if its storage cannot be allocated.
-    pub(crate) fn reserve(&mut self, capacity: usize) -> eyre::Result<u32> {
+    pub(crate) fn reserve(&mut self, capacity: usize) -> eyre::Result<HeapRef> {
         let mut values = Vec::new();
         values.try_reserve_exact(capacity)?;
         Ok(self.insert(HeapObject {
@@ -111,12 +132,11 @@ impl Heap {
 
     /// Append to an array without reallocating or overwriting existing elements.
     /// Returns an error for invalid, deallocated, full, or struct objects.
-    pub(crate) fn push(&mut self, id: u32, value: Word) -> eyre::Result<()> {
-        let object = self.array_mut(id)?;
+    pub(crate) fn push(&mut self, reference: HeapRef, value: Word) -> eyre::Result<()> {
+        let object = self.array_mut(reference)?;
         eyre::ensure!(
             object.values.len() < object.capacity,
-            "heap object {} is full (capacity {})",
-            id,
+            "heap object {reference:#x} is full (capacity {})",
             object.capacity
         );
         object.values.push(value);
@@ -124,107 +144,91 @@ impl Heap {
     }
 
     /// Read a field of a struct object.
-    /// Returns an error unless `id` is a live struct of type `field.struct_id`
-    /// with a field at `field.slot`.
-    pub(crate) fn field(&self, id: u32, field: FieldSlot) -> eyre::Result<Word> {
-        let object = self.object(id)?;
-        check_struct(id, object, field)?;
+    /// Returns an error unless `reference` is a live struct of type
+    /// `field.struct_id` with a field at `field.slot`.
+    pub(crate) fn field(&self, reference: HeapRef, field: FieldSlot) -> eyre::Result<Word> {
+        let object = self.object(reference)?;
+        check_struct(reference, object, field)?;
         Ok(object.values[field.slot as usize])
     }
 
     /// Overwrite a field of a struct object, with the same checks as [`Self::field`].
-    pub(crate) fn set_field(&mut self, id: u32, field: FieldSlot, value: Word) -> eyre::Result<()> {
-        let object = self.object_mut(id)?;
-        check_struct(id, object, field)?;
+    pub(crate) fn set_field(
+        &mut self,
+        reference: HeapRef,
+        field: FieldSlot,
+        value: Word,
+    ) -> eyre::Result<()> {
+        let object = self.object_mut(reference)?;
+        check_struct(reference, object, field)?;
         object.values[field.slot as usize] = value;
         Ok(())
     }
 
-    fn insert(&mut self, object: HeapObject) -> u32 {
-        if let Some(id) = self.free_list.pop() {
-            self.slots[id as usize] = HeapSlot::Alive(object);
-            id
-        } else {
-            let id = self.slots.len() as u32;
-            self.slots.push(HeapSlot::Alive(object));
-            id
-        }
+    fn insert(&mut self, object: HeapObject) -> HeapRef {
+        self.objects.insert(object).data().as_ffi()
     }
 
-    /// Free an object of either kind.
-    pub(crate) fn dealloc(&mut self, id: u32) -> eyre::Result<()> {
-        match self.slots.get_mut(id as usize) {
-            Some(slot @ HeapSlot::Alive(_)) => {
-                *slot = HeapSlot::Deallocated;
-                self.free_list.push(id);
-                Ok(())
-            }
-            Some(HeapSlot::Deallocated) => Err(eyre::eyre!(
-                "double-free: heap object {} already deallocated",
-                id
-            )),
-            None => Err(eyre::eyre!("invalid heap object id {}", id)),
-        }
+    /// Free an object of either kind. Freeing twice, or freeing through a
+    /// reference whose slot has since been reused, is an error.
+    pub(crate) fn dealloc(&mut self, reference: HeapRef) -> eyre::Result<()> {
+        key(reference)
+            .and_then(|key| self.objects.remove(key))
+            .map(drop)
+            .ok_or_else(|| invalid(reference))
     }
 
     /// The elements of an array object. Struct objects are rejected: their
     /// fields are only reachable through checked field access.
-    pub(crate) fn array(&self, id: u32) -> eyre::Result<&[Word]> {
-        let object = self.object(id)?;
-        check_array(id, object)?;
+    pub(crate) fn array(&self, reference: HeapRef) -> eyre::Result<&[Word]> {
+        let object = self.object(reference)?;
+        check_array(reference, object)?;
         Ok(&object.values)
     }
 
-    fn array_mut(&mut self, id: u32) -> eyre::Result<&mut HeapObject> {
-        let object = self.object_mut(id)?;
-        check_array(id, object)?;
+    fn array_mut(&mut self, reference: HeapRef) -> eyre::Result<&mut HeapObject> {
+        let object = self.object_mut(reference)?;
+        check_array(reference, object)?;
         Ok(object)
     }
 
-    fn object(&self, id: u32) -> eyre::Result<&HeapObject> {
-        match self.slots.get(id as usize) {
-            Some(HeapSlot::Alive(object)) => Ok(object),
-            Some(HeapSlot::Deallocated) => {
-                Err(eyre::eyre!("heap object {} has been deallocated", id))
-            }
-            None => Err(eyre::eyre!("invalid heap object id {}", id)),
-        }
+    fn object(&self, reference: HeapRef) -> eyre::Result<&HeapObject> {
+        key(reference)
+            .and_then(|key| self.objects.get(key))
+            .ok_or_else(|| invalid(reference))
     }
 
-    fn object_mut(&mut self, id: u32) -> eyre::Result<&mut HeapObject> {
-        match self.slots.get_mut(id as usize) {
-            Some(HeapSlot::Alive(object)) => Ok(object),
-            Some(HeapSlot::Deallocated) => {
-                Err(eyre::eyre!("heap object {} has been deallocated", id))
-            }
-            None => Err(eyre::eyre!("invalid heap object id {}", id)),
-        }
+    fn object_mut(&mut self, reference: HeapRef) -> eyre::Result<&mut HeapObject> {
+        key(reference)
+            .and_then(|key| self.objects.get_mut(key))
+            .ok_or_else(|| invalid(reference))
     }
 
+    /// Free every object. Slot versions keep advancing, so references from
+    /// before the clear stay invalid.
     pub(crate) fn clear(&mut self) {
-        self.slots.clear();
-        self.free_list.clear();
+        self.objects.clear();
     }
 
     #[cfg(all(test, not(feature = "program-image-execution")))]
     pub fn is_empty(&self) -> bool {
-        self.slots.is_empty()
+        self.objects.is_empty()
     }
 }
 
-fn check_array(id: u32, object: &HeapObject) -> eyre::Result<()> {
+fn check_array(reference: HeapRef, object: &HeapObject) -> eyre::Result<()> {
     eyre::ensure!(
         object.kind == ObjectKind::Array,
-        "type error: heap object {id} is {}, expected an array",
+        "type error: heap object {reference:#x} is {}, expected an array",
         object.kind
     );
     Ok(())
 }
 
-fn check_struct(id: u32, object: &HeapObject, field: FieldSlot) -> eyre::Result<()> {
+fn check_struct(reference: HeapRef, object: &HeapObject, field: FieldSlot) -> eyre::Result<()> {
     eyre::ensure!(
         object.kind == ObjectKind::Struct(field.struct_id),
-        "type error: heap object {id} is {}, expected struct {}",
+        "type error: heap object {reference:#x} is {}, expected struct {}",
         object.kind,
         field.struct_id
     );
@@ -311,14 +315,57 @@ mod heap_tests {
     }
 
     #[test]
-    fn freed_struct_slots_are_reused_with_their_new_kind() {
+    fn stale_references_never_reach_an_object_that_reuses_their_slot() {
         let mut heap = Heap::default();
-        let point = heap.alloc_struct(POINT, vec![1, 2]).unwrap();
-        heap.dealloc(point).unwrap();
-        let array = heap.alloc(vec![1, 2]);
-        assert_eq!(array, point);
-        assert!(heap.field(array, field(0, 0)).is_err());
-        assert_eq!(heap.array(array).unwrap(), &[1, 2]);
+        let old = heap.alloc_struct(POINT, vec![1, 2]).unwrap();
+        heap.dealloc(old).unwrap();
+        // Same kind, same layout: only the generation tells them apart.
+        let new = heap.alloc_struct(POINT, vec![3, 4]).unwrap();
+        assert_ne!(old, new);
+        assert_eq!(old as u32, new as u32, "the slot itself is reused");
+        let err = heap.field(old, field(0, 0)).unwrap_err().to_string();
+        assert!(err.contains("invalid or has been deallocated"), "{err}");
+        assert!(heap.set_field(old, field(0, 0), 9).is_err());
+        assert!(heap.dealloc(old).is_err());
+        assert_eq!(heap.field(new, field(0, 0)).unwrap(), 3);
+    }
+
+    #[test]
+    fn double_free_and_forged_references_are_rejected() {
+        let mut heap = Heap::default();
+        let array = heap.alloc(vec![1]);
+        heap.dealloc(array).unwrap();
+        let err = heap.dealloc(array).unwrap_err().to_string();
+        assert!(err.contains("invalid or has been deallocated"), "{err}");
+        // Small literal numbers are not valid references.
+        let live = heap.alloc(vec![1]);
+        for forged in [0, 1, live as u32 as u64, u64::MAX] {
+            assert!(heap.array(forged).is_err(), "{forged:#x}");
+        }
+    }
+
+    #[test]
+    fn slot_index_alone_never_reaches_a_first_generation_object() {
+        // The first object in a fresh heap has the lowest version; a forged
+        // word holding only its slot index must still be rejected.
+        let mut heap = Heap::default();
+        let first = heap.alloc(vec![7]);
+        let slot_only = first & 0xffff_ffff;
+        assert_ne!(first, slot_only);
+        assert!(heap.array(slot_only).is_err());
+        assert!(heap.field(slot_only, field(0, 0)).is_err());
+        assert!(heap.dealloc(slot_only).is_err());
+        assert_eq!(heap.array(first).unwrap(), &[7]);
+    }
+
+    #[test]
+    fn references_from_before_a_clear_stay_invalid() {
+        let mut heap = Heap::default();
+        let old = heap.alloc(vec![1]);
+        heap.clear();
+        let new = heap.alloc(vec![2]);
+        assert!(heap.array(old).is_err());
+        assert_eq!(heap.array(new).unwrap(), &[2]);
     }
 
     #[test]
@@ -338,7 +385,7 @@ mod heap_tests {
     }
 
     #[test]
-    fn cloned_heap_preserves_object_kinds() {
+    fn cloned_heap_preserves_object_kinds_and_references() {
         let mut heap = Heap::default();
         let point = heap.alloc_struct(POINT, vec![1, 2]).unwrap();
         let cloned = heap.clone();

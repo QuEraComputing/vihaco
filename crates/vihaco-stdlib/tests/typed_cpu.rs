@@ -546,28 +546,25 @@ fn heap_append_instructions_reject_invalid_and_deallocated_objects() {
     cpu.execute(&cpu::HeapReserve, NoMessage::new()).unwrap();
     let heap_ref = *cpu.stack_top().unwrap();
     cpu.execute(&cpu::HeapDealloc, NoMessage::new()).unwrap();
-    for (reference, message) in [
-        (heap_ref, "deallocated"),
-        (vihaco_cpu::encode_heap_ref(42), "invalid heap object id"),
-    ] {
+    for reference in [heap_ref, vihaco_cpu::encode_heap_ref(42)] {
         cpu.stack_push(reference);
         assert!(
             cpu.execute(&cpu::HeapLen, NoMessage::new())
                 .unwrap_err()
                 .to_string()
-                .contains(message)
+                .contains("invalid or has been deallocated")
         );
         cpu.stack_mut().extend([reference, 7]);
         assert!(
             cpu.execute(&cpu::HeapPush, NoMessage::new())
                 .unwrap_err()
                 .to_string()
-                .contains(message)
+                .contains("invalid or has been deallocated")
         );
     }
     cpu.stack_push(1_u64);
     cpu.execute(&cpu::HeapReserve, NoMessage::new()).unwrap();
-    assert_eq!(*cpu.stack_top().unwrap(), heap_ref);
+    assert_ne!(*cpu.stack_top().unwrap(), heap_ref); // reused slot, new generation
     cpu.stack_push(7_u64);
     cpu.execute(&cpu::HeapPush, NoMessage::new()).unwrap();
     cpu.execute(&cpu::HeapLen, NoMessage::new()).unwrap();
@@ -793,7 +790,7 @@ fn every_executable_leaf_parses_directly_and_metadata_is_excluded() {
 
 #[test]
 fn arithmetic_shift_comparison_and_reset_semantics_are_preserved() {
-    use vihaco_cpu::{encode_heap_ref, encode_i32, encode_u32};
+    use vihaco_cpu::{encode_i32, encode_u32};
     use vihaco_module::host::StackMemory;
     use vihaco_runtime::Reset;
     let mut cpu = CPU::default();
@@ -815,7 +812,8 @@ fn arithmetic_shift_comparison_and_reset_semantics_are_preserved() {
     assert!(cpu.execute(&cpu::DivI64, NoMessage::new()).is_err());
     cpu.stack_push(7_u64);
     cpu.execute(&cpu::HeapAlloc(1), NoMessage::new()).unwrap();
-    assert_eq!(cpu.stack_pop().unwrap(), encode_heap_ref(0));
+    let reference = cpu.stack_pop().unwrap();
+    assert!(cpu.stack().is_empty());
     cpu.execute(&cpu::Branch(99), NoMessage::new()).unwrap();
     cpu.execute(&cpu::ConstU64(1), NoMessage::new()).unwrap();
     assert_eq!(cpu.take_pending_pc(), None);
@@ -824,7 +822,8 @@ fn arithmetic_shift_comparison_and_reset_semantics_are_preserved() {
     assert!(cpu.stack().is_empty());
     assert!(cpu.get_frame().is_err());
     assert_eq!(cpu.take_pending_pc(), None);
-    cpu.stack_mut().extend([encode_heap_ref(0), 0]);
+    // Reset frees the heap; the reference from before it stays invalid.
+    cpu.stack_mut().extend([reference, 0]);
     assert!(cpu.execute(&cpu::GetItem, NoMessage::new()).is_err());
 }
 

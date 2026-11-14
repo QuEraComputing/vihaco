@@ -724,9 +724,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(outcome, StepOutcome::Continue);
-        assert_eq!(cpu.stack(), &vec![encode_heap_ref(0)]);
+        assert_eq!(cpu.stack().len(), 1);
+        let reference = decode_heap_ref(cpu.stack()[0]);
         assert_eq!(
-            cpu.heap_object(0).unwrap(),
+            cpu.heap_object(reference).unwrap(),
             &[encode_i64(10), encode_i64(20), encode_i64(30)]
         );
     }
@@ -741,8 +742,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(outcome, StepOutcome::Continue);
-        assert_eq!(cpu.stack(), &vec![encode_heap_ref(0)]);
-        assert_eq!(cpu.heap_object(0).unwrap(), &[] as &[Word]);
+        assert_eq!(cpu.stack().len(), 1);
+        let reference = decode_heap_ref(cpu.stack()[0]);
+        assert_eq!(cpu.heap_object(reference).unwrap(), &[] as &[Word]);
     }
 
     #[test]
@@ -835,12 +837,12 @@ mod tests {
         let mut cpu = CPU::default();
         let heap_id = cpu.push_heap_object(vec![]);
         cpu.dealloc_heap_object(heap_id).unwrap();
-        for (id, message) in [(heap_id, "deallocated"), (42, "invalid heap object id")] {
+        for id in [heap_id, 42] {
             cpu.stack_push(encode_heap_ref(id));
             let err = cpu
                 .execute_instruction(RuntimeInstruction::HeapLen)
                 .unwrap_err();
-            assert!(err.to_string().contains(message));
+            assert!(err.to_string().contains("invalid or has been deallocated"));
         }
     }
 
@@ -892,24 +894,27 @@ mod tests {
         cpu.stack_push(encode_u64(1));
         cpu.execute_instruction(RuntimeInstruction::HeapReserve)
             .unwrap();
+        let freed = decode_heap_ref(*cpu.stack_top().unwrap());
         cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
             .unwrap();
-        for (id, message) in [(0, "deallocated"), (42, "invalid heap object id")] {
+        for id in [freed, 42] {
             cpu.stack_push(encode_heap_ref(id));
             cpu.stack_push(encode_i64(1));
             let err = cpu
                 .execute_instruction(RuntimeInstruction::HeapPush)
                 .unwrap_err();
-            assert!(err.to_string().contains(message));
+            assert!(err.to_string().contains("invalid or has been deallocated"));
         }
+        // A new reservation reuses the slot under a new generation.
         cpu.stack_push(encode_u64(1));
         cpu.execute_instruction(RuntimeInstruction::HeapReserve)
             .unwrap();
-        assert_eq!(cpu.stack(), &[encode_heap_ref(0)]);
+        let reused = decode_heap_ref(*cpu.stack_top().unwrap());
+        assert_ne!(reused, freed);
         cpu.stack_push(encode_i64(7));
         cpu.execute_instruction(RuntimeInstruction::HeapPush)
             .unwrap();
-        assert_eq!(cpu.heap_object(0).unwrap(), &[encode_i64(7)]);
+        assert_eq!(cpu.heap_object(reused).unwrap(), &[encode_i64(7)]);
     }
 
     #[test]
@@ -1173,13 +1178,14 @@ mod tests {
         cpu.stack_push(encode_i64(42));
         cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
             .unwrap();
-        cpu.stack_push(encode_heap_ref(0));
+        let reference = decode_heap_ref(*cpu.stack_top().unwrap());
 
         cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
             .unwrap();
 
+        assert!(cpu.stack().is_empty());
         assert!(
-            cpu.heap_object(0)
+            cpu.heap_object(reference)
                 .unwrap_err()
                 .to_string()
                 .contains("deallocated")
@@ -1188,20 +1194,31 @@ mod tests {
 
     #[test]
     #[cfg(not(feature = "typed-declarations"))]
-    fn op_heap_dealloc_slot_is_reused_on_next_alloc() {
+    fn op_heap_dealloc_slot_is_reused_under_a_new_generation() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_i64(1));
         cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
             .unwrap();
+        let old = decode_heap_ref(*cpu.stack_top().unwrap());
         cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
             .unwrap();
 
         cpu.stack_push(encode_i64(2));
         cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
             .unwrap();
+        let new = decode_heap_ref(*cpu.stack_top().unwrap());
 
-        assert_eq!(cpu.stack(), &vec![encode_heap_ref(0)]);
-        assert_eq!(cpu.heap_object(0).unwrap(), &[encode_i64(2)]);
+        // Same slot, new generation: the stale reference cannot see the new object.
+        assert_eq!(old as u32, new as u32);
+        assert_ne!(old, new);
+        assert_eq!(cpu.heap_object(new).unwrap(), &[encode_i64(2)]);
+        assert!(cpu.heap_object(old).is_err());
+        cpu.stack_push(encode_heap_ref(old));
+        cpu.stack_push(encode_u32(0));
+        let err = cpu
+            .execute_instruction(RuntimeInstruction::GetItem)
+            .unwrap_err();
+        assert!(err.to_string().contains("deallocated"), "{err}");
     }
 
     #[test]
@@ -1211,16 +1228,16 @@ mod tests {
         cpu.stack_push(encode_i64(1));
         cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
             .unwrap();
-        cpu.stack_push(encode_heap_ref(0));
+        let reference = *cpu.stack_top().unwrap();
         cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
             .unwrap();
 
-        cpu.stack_push(encode_heap_ref(0));
+        cpu.stack_push(reference);
         let err = cpu
             .execute_instruction(RuntimeInstruction::HeapDealloc)
             .unwrap_err();
 
-        assert!(err.to_string().contains("double-free"));
+        assert!(err.to_string().contains("invalid or has been deallocated"));
     }
 
     #[test]
@@ -1233,22 +1250,21 @@ mod tests {
             .execute_instruction(RuntimeInstruction::HeapDealloc)
             .unwrap_err();
 
-        assert!(err.to_string().contains("invalid heap object id"));
+        assert!(err.to_string().contains("invalid or has been deallocated"));
     }
 
     #[test]
-    fn reset_clears_free_list() {
+    fn reset_clears_heap_and_invalidates_old_references() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_i64(1));
         cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
             .unwrap();
-        cpu.stack_push(encode_heap_ref(0));
-        cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
-            .unwrap();
+        let reference = decode_heap_ref(cpu.stack_pop().unwrap());
 
         cpu.reset();
 
         assert!(cpu.heap_is_empty());
+        assert!(cpu.heap_object(reference).is_err());
     }
 
     #[test]

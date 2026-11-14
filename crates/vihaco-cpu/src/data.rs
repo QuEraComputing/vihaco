@@ -527,12 +527,12 @@ impl CPU {
             .ok_or_else(|| eyre::eyre!("local address overflow"))
     }
 
-    pub(crate) fn push_heap_object(&mut self, values: impl Into<Vec<Word>>) -> u32 {
+    pub(crate) fn push_heap_object(&mut self, values: impl Into<Vec<Word>>) -> u64 {
         self.heap.alloc(values)
     }
 
     /// The elements of an array object; struct objects are rejected.
-    pub(crate) fn heap_object(&self, id: u32) -> eyre::Result<&[Word]> {
+    pub(crate) fn heap_object(&self, id: u64) -> eyre::Result<&[Word]> {
         self.heap.array(id)
     }
 
@@ -540,34 +540,34 @@ impl CPU {
         &mut self,
         layout: crate::StructLayout,
         values: impl Into<Vec<Word>>,
-    ) -> eyre::Result<u32> {
+    ) -> eyre::Result<u64> {
         self.heap.alloc_struct(layout, values)
     }
 
-    pub(crate) fn heap_field(&self, id: u32, field: crate::FieldSlot) -> eyre::Result<Word> {
+    pub(crate) fn heap_field(&self, id: u64, field: crate::FieldSlot) -> eyre::Result<Word> {
         self.heap.field(id, field)
     }
 
     #[cfg(feature = "typed-declarations")]
-    pub(crate) fn reserve_heap_object(&mut self, capacity: usize) -> eyre::Result<u32> {
+    pub(crate) fn reserve_heap_object(&mut self, capacity: usize) -> eyre::Result<u64> {
         self.heap.reserve(capacity)
     }
 
     #[cfg(feature = "typed-declarations")]
-    pub(crate) fn append_heap_object(&mut self, id: u32, value: Word) -> eyre::Result<()> {
+    pub(crate) fn append_heap_object(&mut self, id: u64, value: Word) -> eyre::Result<()> {
         self.heap.push(id, value)
     }
 
     pub(crate) fn set_heap_field(
         &mut self,
-        id: u32,
+        id: u64,
         field: crate::FieldSlot,
         value: Word,
     ) -> eyre::Result<()> {
         self.heap.set_field(id, field, value)
     }
 
-    pub(crate) fn dealloc_heap_object(&mut self, id: u32) -> eyre::Result<()> {
+    pub(crate) fn dealloc_heap_object(&mut self, id: u64) -> eyre::Result<()> {
         self.heap.dealloc(id)
     }
 

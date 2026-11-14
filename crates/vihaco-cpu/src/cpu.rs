@@ -168,7 +168,7 @@ pub mod cpu {
     pub struct ConstFunctionRef(pub Word);
 
     #[instruction]
-    #[pattern = "'const_heap_ref $0:u32"]
+    #[pattern = "'const_heap_ref $0:u64"]
     pub struct ConstHeapRef(pub Word);
 
     #[instruction]

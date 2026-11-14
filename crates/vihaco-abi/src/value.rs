@@ -30,8 +30,8 @@ pub enum Value {
     F32(f32),
     /// a reference to a function by its index in the function table
     FunctionRef(u32),
-    /// a reference to an immutable heap object by its index in the heap table
-    HeapRef(u32),
+    /// a heap reference: an opaque 64-bit key issued by the heap
+    HeapRef(u64),
 }
 
 impl Value {
@@ -43,7 +43,7 @@ impl Value {
         }
     }
 
-    pub fn get_heap_ref(&self) -> Result<u32> {
+    pub fn get_heap_ref(&self) -> Result<u64> {
         if let Value::HeapRef(addr) = self {
             Ok(*addr)
         } else {
@@ -313,7 +313,7 @@ impl crate::traits::FromBytes for Value {
                 Ok(Value::FunctionRef(addr))
             }
             0x08 => {
-                let addr = bytes.read_u32::<LittleEndian>()?;
+                let addr = bytes.read_u64::<LittleEndian>()?;
                 Ok(Value::HeapRef(addr))
             }
             0x09 => {
@@ -472,7 +472,7 @@ fn value_text_parser<'src>() -> impl Parser<'src, &'src str, Value, ValueParseEx
             .map(Value::FunctionRef),
         just("heap")
             .ignore_then(ws)
-            .ignore_then(scalar_text::<u32>())
+            .ignore_then(scalar_text::<u64>())
             .map(Value::HeapRef),
     ))
 }

@@ -318,14 +318,20 @@ fn heap_transfers_use_program_operands_and_preserve_device_state() {
         "program::program::const_u64 7",
         "program::program::const_u64 9",
         "cpu::cpu::heap_alloc 2",
+        "program::program::dup",
         "program::program::const_u64 1",
         "cpu::cpu::get_item",
-        "program::program::ret 1",
+        "program::program::ret 2",
     ]);
     execute(&module, &mut vm, &[]).unwrap();
-    assert_eq!(vm.program.stack(), &[9]);
+    let [reference, item] = vm.program.stack()[..] else {
+        panic!("expected [reference, item], got {:?}", vm.program.stack());
+    };
+    assert_eq!(item, 9);
+    // A later program receives the issued reference (as a host would pass it).
+    let readback_ref = format!("program::program::const_heap_ref {reference}");
     let (readback, _) = machine(&[
-        "program::program::const_heap_ref 0",
+        &readback_ref,
         "program::program::const_u64 0",
         "cpu::cpu::get_item",
         "program::program::ret 1",
@@ -337,17 +343,35 @@ fn heap_transfers_use_program_operands_and_preserve_device_state() {
     vm.cpu.reset();
     vm.program.reset();
     assert!(execute(&module, &mut vm, &[]).is_err()); // CPU reset clears it.
+    // References use all 64 bits (slot + generation) and pass through locals intact.
     let (module, mut raw) = machine(&[
         "program::program::const_u64 1",
         "cpu::cpu::heap_reserve",
         "program::program::store_u64 0",
-        "program::program::const_u64 4294967296",
+        "program::program::load_u64 0",
         "program::program::const_u64 7",
         "cpu::cpu::heap_push",
+        "cpu::cpu::heap_len",
         "program::program::ret 1",
     ]);
     execute(&module, &mut raw, &[]).unwrap();
-    assert_eq!(raw.program.stack(), &[1_u64 << 32]); // Decode the id without rewriting the reference.
+    assert_eq!(raw.program.stack(), &[1]);
+    // A number that only matches the slot index is not a reference.
+    let (module, mut raw) = machine(&[
+        "program::program::const_u64 1",
+        "cpu::cpu::heap_reserve",
+        "program::program::store_u64 0",
+        "program::program::const_u64 1",
+        "program::program::const_u64 7",
+        "cpu::cpu::heap_push",
+    ]);
+    let error = execute(&module, &mut raw, &[]).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("invalid or has been deallocated"),
+        "{error:#}"
+    );
     for operation in ["heap_alloc 2", "heap_push"] {
         let operation = format!("cpu::cpu::{operation}");
         let (module, mut vm) = machine(&["program::program::const_u64 7", &operation]);
@@ -360,10 +384,11 @@ fn heap_transfers_use_program_operands_and_preserve_device_state() {
         "program::program::const_u64 9",
         "cpu::cpu::heap_alloc 2",
         "program::program::dup",
+        "program::program::dup",
         "cpu::cpu::heap_len",
         "program::program::store_u64 0",
         "cpu::cpu::heap_dealloc",
-        "program::program::const_heap_ref 0",
+        // The remaining copy of the reference is now stale.
         "program::program::const_u64 0",
         "cpu::cpu::get_item",
     ]);
