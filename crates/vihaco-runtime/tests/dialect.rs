@@ -208,6 +208,11 @@ impl<'src, T: Parse<'src>> Parse<'src> for Wrapper<T> {
         T::parser().map(Self)
     }
 }
+impl<T: vihaco_runtime::Print> vihaco_runtime::Print for Wrapper<T> {
+    fn print(&self, out: &mut dyn std::fmt::Write) -> std::fmt::Result {
+        self.0.print(out)
+    }
+}
 
 #[dialect]
 #[cfg_attr(all(), allow(dead_code))]
@@ -351,6 +356,11 @@ mod operand_identity {
         > {
             use vihaco_runtime::chumsky::Parser as _;
             <u32 as vihaco_runtime::Parse>::parser().map(Self)
+        }
+    }
+    impl vihaco_runtime::Print for Value {
+        fn print(&self, out: &mut dyn std::fmt::Write) -> std::fmt::Result {
+            vihaco_runtime::Print::print(&self.0, out)
         }
     }
     #[instruction]

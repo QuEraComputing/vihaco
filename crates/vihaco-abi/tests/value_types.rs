@@ -60,3 +60,91 @@ fn scalar_instruction_traits_use_narrow_widths() {
     assert_eq!(encoded(&1.0_f32), 1.0_f32.to_le_bytes());
     assert_eq!(encoded(&-7_i32), (-7_i32).to_le_bytes());
 }
+
+/// Bitwise equality, so NaN payloads and signed zeros are compared exactly.
+fn same_value(left: Value, right: Value) -> bool {
+    match (left, right) {
+        (Value::F64(l), Value::F64(r)) => l.to_bits() == r.to_bits(),
+        (Value::F32(l), Value::F32(r)) => l.to_bits() == r.to_bits(),
+        (l, r) => l == r,
+    }
+}
+
+fn reparse_value(value: Value) -> (String, Value) {
+    use chumsky::Parser as _;
+    use vihaco_parser::{Parse, Print};
+    let source = value.to_source().unwrap();
+    let parsed = Value::parser()
+        .parse(source.as_str())
+        .into_result()
+        .unwrap();
+    (source, parsed)
+}
+
+#[test]
+fn values_print_as_source_that_reparses_bitwise() {
+    let values = [
+        Value::Undefined,
+        Value::String(3),
+        Value::Bool(true),
+        Value::Bool(false),
+        Value::I64(i64::MIN),
+        Value::I64(-1),
+        Value::I32(i32::MIN),
+        Value::U32(u32::MAX),
+        Value::U64(u64::MAX),
+        Value::F64(-0.0),
+        Value::F64(1.5),
+        Value::F64(-1.9999999999998004e-6),
+        Value::F64(1e300),
+        Value::F64(f64::INFINITY),
+        Value::F64(f64::NEG_INFINITY),
+        Value::F64(f64::from_bits(0x7ff8_0000_dead_beef)),
+        Value::F32(-0.0),
+        Value::F32(3.25e-12),
+        Value::F32(f32::INFINITY),
+        Value::F32(f32::from_bits(0x7fc0_1234)),
+        Value::FunctionRef(7),
+        Value::HeapRef(0),
+    ];
+    for value in values {
+        let (source, parsed) = reparse_value(value);
+        assert!(same_value(value, parsed), "{source}: {parsed:?}");
+        assert!(!source.contains("  ") && source.trim() == source);
+    }
+    assert_eq!(reparse_value(Value::U64(3)).0, "u64 3");
+    assert_eq!(reparse_value(Value::F64(-0.5)).0, "f64 -0.5");
+    assert_eq!(
+        reparse_value(Value::F32(f32::from_bits(0x7fc0_1234))).0,
+        format!("f32_bits {}", 0x7fc0_1234_u32)
+    );
+}
+
+#[test]
+fn types_print_their_canonical_spelling() {
+    use chumsky::Parser as _;
+    use vihaco_parser::{Parse, Print};
+    let types = [
+        (Type::Undefined, "undefined"),
+        (Type::String, "str"),
+        (Type::Bool, "bool"),
+        (Type::I64, "i64"),
+        (Type::I32, "i32"),
+        (Type::U32, "u32"),
+        (Type::U64, "u64"),
+        (Type::F64, "f64"),
+        (Type::F32, "f32"),
+        (Type::FunctionRef, "fn"),
+        (Type::HeapRef, "heap"),
+    ];
+    for (ty, spelling) in types {
+        assert_eq!(ty.to_source().unwrap(), spelling);
+        assert_eq!(Type::parser().parse(spelling).into_result(), Ok(ty));
+    }
+    let list = vec![Type::U64, Type::FunctionRef];
+    assert_eq!(list.to_source().unwrap(), "[u64, fn]");
+    assert_eq!(
+        <Vec<Type>>::parser().parse("[u64, fn]").into_result(),
+        Ok(list)
+    );
+}

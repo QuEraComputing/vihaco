@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: MIT
 
 pub mod impls;
+pub mod print;
 
 pub use impls::{bare_token, ident, metadata_key, trivia, BareToken, Ident, QuotedString};
+pub use print::{print_quoted, Print};
 
 use chumsky::error::Simple;
 use chumsky::extra;
@@ -18,7 +20,8 @@ pub trait SurfaceInstruction {}
 /// A parser whose input is `&'src str` (char stream) and whose error type is `Simple<char>`.
 ///
 /// The lifetime `'src` is the input lifetime. Output type `Self` is owned and does not borrow
-/// from the input.
+/// from the input. [`Print`] is the inverse: it writes a value in the spelling this parser
+/// accepts, and `#[derive(Parse)]` generates both from the same pattern.
 pub trait Parse<'src>: Sized {
     fn parser() -> impl chumsky::Parser<'src, &'src str, Self, extra::Err<Simple<'src, char>>>;
 }

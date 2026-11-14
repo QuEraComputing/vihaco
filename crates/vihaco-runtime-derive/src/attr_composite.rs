@@ -288,6 +288,24 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
         })
         .collect();
 
+    // Print the field name, never an alias, so output is canonical.
+    let syntax_print_arms: Vec<_> = devices
+        .iter()
+        .map(|(field, field_ty, _)| {
+            let variant_ident = pascal_case(field);
+            let prefix = format!("{field}::");
+            quote! {
+                Self::#variant_ident(instruction) => {
+                    out.write_str(#prefix)?;
+                    <<#field_ty as #root::HasInstructionSet>::Syntax as #root::Print>::print(
+                        instruction,
+                        out,
+                    )
+                }
+            }
+        })
+        .collect();
+
     if syntax_parser_alternatives.is_empty() {
         return Err(syn::Error::new(
             ident.span(),
@@ -328,6 +346,17 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
                     > {
                         use #root::chumsky::Parser as _;
                         #syntax_parser
+                    }
+                }
+
+                impl #enum_impl_generics #root::Print for Instruction #enum_ty_generics
+                    #enum_where_clause
+                {
+                    fn print(
+                        &self,
+                        out: &mut dyn ::core::fmt::Write,
+                    ) -> ::core::fmt::Result {
+                        match self { #( #syntax_print_arms ),* }
                     }
                 }
 

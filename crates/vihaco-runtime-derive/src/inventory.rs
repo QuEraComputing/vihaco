@@ -600,6 +600,44 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
         .iter()
         .map(|ty| quote!(<#ty as #root::__private::InstructionSpec>::Syntax))
         .collect();
+    // Print the canonical route: each segment's field name (never an alias),
+    // then the dialect, then the leaf's own spelling.
+    let print_impl = if entries.is_empty() {
+        quote! {
+            impl #root::Print for #runtime {
+                fn print(&self, _: &mut dyn ::core::fmt::Write) -> ::core::fmt::Result {
+                    match *self {}
+                }
+            }
+        }
+    } else {
+        let arms = entries.iter().zip(&variants).map(|(entry, variant)| {
+            let mut route = String::new();
+            for segment in &entry.record.segments {
+                match segment.source.first() {
+                    Some(source) => route.push_str(&source.value()),
+                    None => route.push_str(&segment.name.unraw().to_string()),
+                }
+                route.push_str("::");
+            }
+            route.push_str(&entry.record.dialect.unraw().to_string());
+            route.push_str("::");
+            quote! {
+                Self::#variant(instruction) => {
+                    out.write_str(#route)?;
+                    #root::Print::print(instruction, out)
+                }
+            }
+        });
+        quote! {
+            impl<#phase_parameter: #phase> #root::Print for #runtime<#phase_parameter>
+            where #(#phase_parameter::#members: #root::Print),* {
+                fn print(&self, out: &mut dyn ::core::fmt::Write) -> ::core::fmt::Result {
+                    match self { #(#arms),* }
+                }
+            }
+        }
+    };
     let (declaration, syntax, parser_impl, lowering) = if entries.is_empty() {
         (
             quote!(pub enum #runtime {}),
@@ -688,6 +726,7 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
         #inspection
 
         #parser_impl
+        #print_impl
         #lowering
         impl #root::SurfaceInstruction for #syntax {}
 

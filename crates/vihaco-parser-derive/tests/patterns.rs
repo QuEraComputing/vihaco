@@ -4,7 +4,7 @@
 use std::marker::PhantomData;
 
 use chumsky::{primitive::just, IterParser, Parser};
-use vihaco_parser::{Ident, Parse as ParseTrait, SurfaceInstruction};
+use vihaco_parser::{Ident, Parse as ParseTrait, Print, SurfaceInstruction};
 use vihaco_parser_derive::Parse;
 
 fn parse<'src, T>(source: &'src str) -> Result<T, Vec<chumsky::error::Simple<'src, char>>>
@@ -26,6 +26,12 @@ impl<'src> ParseTrait<'src> for Operand {
     ) -> impl Parser<'src, &'src str, Self, chumsky::extra::Err<chumsky::error::Simple<'src, char>>>
     {
         vihaco_parser::ident().map(Operand)
+    }
+}
+
+impl Print for Operand {
+    fn print(&self, out: &mut dyn std::fmt::Write) -> std::fmt::Result {
+        Ident(self.0.clone()).print(out)
     }
 }
 
@@ -362,6 +368,12 @@ impl<'src, 'a> ParseTrait<'src> for Marker<'a> {
     ) -> impl Parser<'src, &'src str, Self, chumsky::extra::Err<chumsky::error::Simple<'src, char>>>
     {
         just("marker").to(Marker(PhantomData))
+    }
+}
+
+impl Print for Marker<'_> {
+    fn print(&self, out: &mut dyn std::fmt::Write) -> std::fmt::Result {
+        out.write_str("marker")
     }
 }
 

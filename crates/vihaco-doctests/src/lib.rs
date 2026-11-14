@@ -35,6 +35,51 @@ mod ex_quickstart {
     fn runs() {
         main().expect("quickstart example should run");
     }
+
+    /// Printing is the inverse of parsing for the quick-start section.
+    #[test]
+    fn first_machine_sst_prints_back_to_its_source() {
+        use vihaco::chumsky::Parser as _;
+        use vihaco::{Parse, Print};
+
+        let source = include_str!("../../../docs/examples/first-machine.sst");
+        let file = SSTFile::<NoContext>::from_text(source).unwrap();
+        let parsed =
+            ParsedModule::<SourceInstruction, HeaderDeclarations<ProgramMetadata>>::parse_section(
+                file.section("main").unwrap(),
+            )
+            .unwrap();
+
+        for metadata in &parsed.header.0 {
+            let printed = metadata.to_source().unwrap();
+            let reparsed = ProgramMetadata::parser()
+                .parse(printed.as_str())
+                .into_result()
+                .unwrap();
+            assert_eq!(&reparsed, metadata, "{printed}");
+        }
+
+        let text = source.split(".text").nth(1).unwrap();
+        let lines: Vec<_> = text
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('@'))
+            .collect();
+        let printed: Vec<_> = parsed
+            .code
+            .iter()
+            .map(|instruction| {
+                let printed = instruction.to_source().unwrap();
+                let reparsed = SourceInstruction::parser()
+                    .parse(printed.as_str())
+                    .into_result()
+                    .unwrap();
+                assert_eq!(&reparsed, instruction, "{printed}");
+                printed
+            })
+            .collect();
+        assert_eq!(printed, lines);
+    }
 }
 
 #[cfg(feature = "program-image-execution")]
