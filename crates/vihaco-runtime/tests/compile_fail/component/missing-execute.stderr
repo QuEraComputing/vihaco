@@ -5,12 +5,12 @@ error[E0277]: the trait bound `Cpu: Execute<NewlyAdded>` is not satisfied
    |                  ^^^^^^^ unsatisfied trait bound
    |
 help: the trait `Execute<NewlyAdded>` is not implemented for `Cpu`
-      but trait `Execute<Halt>` is implemented for it
+      but trait `Execute<control::Halt>` is implemented for it
   --> tests/compile_fail/component/missing-execute.rs:11:1
    |
 11 | impl vihaco_runtime::Execute<control::Halt> for Cpu {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   = help: for that trait implementation, expected `Halt`, found `NewlyAdded`
+   = help: for that trait implementation, expected `control::Halt`, found `NewlyAdded`
 note: required for `__VihacoDialect` to implement `vihaco_runtime::__private::Coverage<Cpu>`
   --> tests/compile_fail/component/missing-execute.rs:1:1
    |
