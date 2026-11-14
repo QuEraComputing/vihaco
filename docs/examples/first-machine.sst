@@ -2,21 +2,9 @@ sst v2
 
 .section main
 .header
-    metadata {
-        strings: ["main", "first-machine.sst"],
-        functions: [
-            {
-                name: 0,
-                signature: { params: [], ret: [u64] },
-                local_count: 0,
-                file: 1,
-            },
-        ],
-        constants: [],
-        main_function: 0,
-        source_symbols: [],
-        extra: {},
-    }
+.file "first-machine.sst"
+.func @main() -> u64, locals 0
+.entry @main
 .text
 @main:
     execution::program::const_u64 20

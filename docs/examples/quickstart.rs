@@ -5,7 +5,7 @@ use vihaco::{
     Apply, BuildMessage, Execute, ExecutionState, HasInstructionSet, Image, Loadable, NoContext,
     PopFromStack, PushToStack, SSTFile, Step, Type, Value, component, composite, dialect, field,
     loader::MetadataLoweringContext,
-    module::{LocalModule, ProgramMetadata},
+    module::{LocalModule, NoInfo, ProgramDirective, ProgramHeader},
     syntax::{HeaderDeclarations, ParsedModule, lower_code_with_metadata},
 };
 
@@ -102,19 +102,13 @@ pub fn main() -> eyre::Result<()> {
         symbols,
     } = ParsedModule::<
         SourceInstruction,
-        HeaderDeclarations<ProgramMetadata>,
+        HeaderDeclarations<ProgramDirective>,
     >::parse_section(section)?;
 
-    let mut declarations = header.into_iter();
-    let metadata = declarations
-        .next()
-        .ok_or_else(|| eyre::eyre!("missing program metadata"))?;
-    eyre::ensure!(
-        declarations.next().is_none(),
-        "expected one metadata declaration"
-    );
+    let mut metadata = header.into_iter().collect::<ProgramHeader>().finish(NoInfo)?;
     let mut context = MetadataLoweringContext::new(&metadata, &symbols)?;
     let code = lower_code_with_metadata(code, &symbols, &metadata, &mut context)?;
+    metadata.strings = context.into_strings();
     let module = metadata.into_module(code, symbols)?;
     let machine = Machine {
         execution: ExecutionState::new(),

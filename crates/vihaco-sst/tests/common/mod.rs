@@ -68,18 +68,13 @@ pub fn source(text: &str) -> SourceFile {
     SourceFile::new("test.sst", text)
 }
 
-/// A standard metadata header around `functions`, with strings `strings`.
-pub fn header(strings: &str, functions: &str, main: &str) -> String {
-    format!(
-        "    metadata {{\n        strings: [{strings}],\n        functions: [{functions}],\n        \
-         constants: [],\n        main_function: {main},\n        source_symbols: [],\n        \
-         extra: {{}},\n    }}\n"
-    )
-}
-
-/// A function record with no parameters.
-pub fn function(name: u32, file: u32) -> String {
-    format!(
-        "{{ name: {name}, signature: {{ params: [], ret: [] }}, local_count: 0, file: {file} }}"
-    )
+/// A standard header in `f.sst` declaring parameterless `functions`, with
+/// `@main` as the entry.
+pub fn header(functions: &[&str]) -> String {
+    let mut header = String::from(".file \"f.sst\"\n");
+    for function in functions {
+        header.push_str(&format!(".func @{function}(), locals 0\n"));
+    }
+    header.push_str(".entry @main\n");
+    header
 }

@@ -34,17 +34,19 @@ use std::marker::PhantomData;
 use vihaco_abi::Lower;
 use vihaco_bytecode::NoContext;
 use vihaco_module::loader::MetadataLoweringContext;
-use vihaco_module::module::{ProgramMetadata, Symbol};
+use vihaco_module::module::{
+    ConstantValue, NoInfo, ProgramDirective, ProgramHeader, StandardDirective, Symbol,
+};
 use vihaco_parser::{Parse, Print};
 use vihaco_runtime::HasInstructionSet;
 
 use self::comments::{Comment, blank_line_between, starts_line, user_part};
 use self::layout::{INDENT, Line};
 use self::notes::SectionInfo;
-use crate::check::{
-    self, ConstantReferences, Declarations, MetadataDeclaration, MetadataLowering, ProgramChecker,
-    SectionChecker,
-};
+use crate::check::{self, Declarations, MetadataLowering, ProgramChecker, SectionChecker};
+
+/// Indentation of header directives: none, like the block directives.
+const HEADER_INDENT: usize = 0;
 use crate::diagnostic::{Diagnostics, Report};
 use crate::source::{SourceFile, Span};
 
@@ -91,7 +93,8 @@ pub struct InstructionContext<'a> {
     pub address: u32,
     /// The section's symbol table, in definition order.
     pub symbols: &'a [Symbol],
-    /// The section's `metadata.strings`, or empty without metadata.
+    /// The section's string table as lowering builds it: the strings the
+    /// header derives, then the string literals of `.text` in address order.
     pub strings: &'a [String],
 }
 
@@ -119,7 +122,7 @@ where
 /// The checker that gates formatting is a [`ProgramChecker`] with header
 /// `Declarations<D>`, lowering `L`, and global context `C`; replace it with
 /// [`with_checker`](Self::with_checker).
-pub struct Formatter<M, D = ProgramMetadata, L = MetadataLowering, C = NoContext>
+pub struct Formatter<M, D = ProgramDirective, L = MetadataLowering, C = NoContext>
 where
     M: HasInstructionSet,
 {
@@ -130,7 +133,7 @@ where
 }
 
 impl<M: HasInstructionSet> Formatter<M> {
-    /// The standard formatter: `metadata { ... }` headers, checked with
+    /// The standard formatter: standard directive headers, checked with
     /// `ProgramChecker::<M>::new()`, and default options.
     pub fn new() -> Self {
         Self::with_checker(ProgramChecker::new())
@@ -179,9 +182,9 @@ where
         for<'src> M::Syntax: Parse<'src>,
         M::Syntax: Print + 'static,
         for<'src> D: Parse<'src>,
-        D: Print + MetadataDeclaration + 'static,
-        D::Type: Print,
-        D::Value: ConstantReferences,
+        D: Print + StandardDirective + 'static,
+        D::Type: Print + Clone,
+        D::Value: ConstantValue + Clone,
         ProgramChecker<M, Declarations<D>, L, C>: SectionChecker,
     {
         let report = self.checker.check(source);
@@ -227,7 +230,7 @@ where
 }
 
 /// Format every section of `source` as a program for machine `M` with the
-/// standard `metadata { ... }` header.
+/// standard directive header.
 pub fn format_program<M>(source: &SourceFile, options: FormatOptions) -> Result<String, Report>
 where
     M: HasInstructionSet,
@@ -245,9 +248,9 @@ where
     for<'src> M::Syntax: Parse<'src>,
     M::Syntax: Print + Lower<MetadataLoweringContext> + 'static,
     for<'src> D: Parse<'src>,
-    D: Print + MetadataDeclaration + 'static,
+    D: Print + StandardDirective + 'static,
     D::Type: Print + Clone,
-    D::Value: ConstantReferences,
+    D::Value: ConstantValue + Clone,
 {
     Formatter::with_checker(ProgramChecker::<M>::new().with_header::<Declarations<D>>())
         .options(options)
@@ -691,9 +694,9 @@ where
     fn file<D>(&mut self, model: &FileModel<I, D>) -> String
     where
         for<'src> D: Parse<'src>,
-        D: Print + MetadataDeclaration + 'static,
-        D::Type: Print,
-        D::Value: ConstantReferences,
+        D: Print + StandardDirective + 'static,
+        D::Type: Print + Clone,
+        D::Value: ConstantValue + Clone,
     {
         let mut output = String::new();
         directive_line("sst v2", &model.version_comment, &mut output);
@@ -712,14 +715,17 @@ where
                 &section.comment,
                 &mut output,
             );
-            let metadata = section.blocks.iter().find_map(|block| match block {
-                Block::Header(block) => block
-                    .entries
-                    .iter()
-                    .find_map(|entry| entry.value.value.as_metadata()),
-                Block::Text(_) => None,
-            });
-            let symbols: Vec<Symbol> = section
+            let standard: Vec<&ProgramDirective<D::Value, D::Type>> = section
+                .blocks
+                .iter()
+                .filter_map(|block| match block {
+                    Block::Header(block) => Some(block),
+                    Block::Text(_) => None,
+                })
+                .flat_map(|block| &block.entries)
+                .filter_map(|entry| entry.value.value.as_standard())
+                .collect();
+            let text_items: Vec<&TextItem<I>> = section
                 .blocks
                 .iter()
                 .filter_map(|block| match block {
@@ -727,18 +733,45 @@ where
                     Block::Header(_) => None,
                 })
                 .flat_map(|block| &block.entries)
-                .filter_map(|entry| match &entry.value {
+                .map(|entry| &entry.value)
+                .collect();
+            let symbols: Vec<Symbol> = text_items
+                .iter()
+                .filter_map(|item| match item {
                     TextItem::Symbol(symbol) => Some(symbol.clone()),
                     TextItem::Instruction(_) => None,
                 })
                 .collect();
-            let info = SectionInfo::new(&symbols, metadata);
+            let printed: Vec<String> = text_items
+                .iter()
+                .filter_map(|item| match item {
+                    TextItem::Instruction(instruction) => instruction.to_source().ok(),
+                    TextItem::Symbol(_) => None,
+                })
+                .collect();
+            let metadata = standard
+                .iter()
+                .map(|directive| (*directive).clone())
+                .collect::<ProgramHeader<_, _>>()
+                .assemble(NoInfo)
+                .ok();
+            let header_notes = match &metadata {
+                Some(metadata) if self.options.generated_comments => {
+                    notes::header_notes(&standard, metadata, &symbols, printed.len())
+                }
+                _ => vec![Vec::new(); standard.len()],
+            };
+            let strings = notes::lowered_strings(
+                metadata.as_ref().map_or(&[][..], |m| m.strings.as_slice()),
+                printed.iter().map(String::as_str),
+            );
+            let info = SectionInfo::new(&symbols, metadata.as_ref(), &strings);
             for block in &section.blocks {
                 // Comments after the last item stay in their block.
                 let (directive, comment, lines) = match block {
                     Block::Header(block) => {
-                        let mut lines = self.header(block, metadata);
-                        push_comments(&mut lines, &block.tail, INDENT);
+                        let mut lines = self.header(block, &header_notes);
+                        push_comments(&mut lines, &block.tail, HEADER_INDENT);
                         (".header", &block.comment, lines)
                     }
                     Block::Text(block) => {
@@ -754,33 +787,37 @@ where
         output
     }
 
-    fn header<D>(
-        &mut self,
-        block: &BlockModel<Declaration<D>>,
-        metadata: Option<&ProgramMetadata<D::Value, D::Type, D::Info>>,
-    ) -> Vec<Line>
+    /// Lay out a header block. `notes` holds the generated notes of each
+    /// standard directive of the section, in order.
+    fn header<D>(&mut self, block: &BlockModel<Declaration<D>>, notes: &[Vec<String>]) -> Vec<Line>
     where
         for<'src> D: Parse<'src>,
-        D: Print + MetadataDeclaration + 'static,
-        D::Type: Print,
-        D::Value: ConstantReferences,
+        D: Print + StandardDirective + 'static,
     {
         let mut lines = Vec::new();
+        let mut notes = notes.iter();
         for entry in &block.entries {
-            push_comments(&mut lines, &entry.leading, INDENT);
+            let own = match entry.value.value.as_standard() {
+                Some(_) => notes.next().cloned().unwrap_or_default(),
+                None => Vec::new(),
+            };
+            push_comments(&mut lines, &entry.leading, HEADER_INDENT);
             if entry.blank_before && !lines.is_empty() {
                 lines.push(Line::default());
             }
-            let Some(mut declaration) = self.declaration(entry, metadata) else {
+            let Some(mut declaration) = self.declaration(entry) else {
                 continue;
             };
+            if let Some(first) = declaration.lines.first_mut() {
+                first.notes = own;
+            }
             let mut trailing = declaration.trailing;
             trailing.extend(entry.trailing.iter().cloned());
             let mut trailing = trailing.into_iter();
             let first = trailing.next();
             // One trailing comment per line; the others move above.
             for comment in trailing.chain(declaration.leading) {
-                lines.push(Line::new(INDENT, comment));
+                lines.push(Line::new(HEADER_INDENT, comment));
             }
             if let Some(last) = declaration.lines.last_mut() {
                 last.trailing.extend(first);
@@ -791,16 +828,10 @@ where
     }
 
     /// Lay out one declaration, or report why it cannot be printed.
-    fn declaration<D>(
-        &mut self,
-        entry: &Entry<Declaration<D>>,
-        metadata: Option<&ProgramMetadata<D::Value, D::Type, D::Info>>,
-    ) -> Option<LaidOut>
+    fn declaration<D>(&mut self, entry: &Entry<Declaration<D>>) -> Option<LaidOut>
     where
         for<'src> D: Parse<'src>,
-        D: Print + MetadataDeclaration + 'static,
-        D::Type: Print,
-        D::Value: ConstantReferences,
+        D: Print + 'static,
     {
         let value = &entry.value.value;
         let printed = match faithful_declaration(value) {
@@ -822,7 +853,7 @@ where
         let one_line = LaidOut {
             leading: hoisted(),
             trailing: Vec::new(),
-            lines: vec![Line::new(INDENT, printed.clone())],
+            lines: vec![Line::new(HEADER_INDENT, printed.clone())],
         };
 
         let source_text = self.source.slice(entry.span);
@@ -841,17 +872,6 @@ where
         ) else {
             return Some(one_line);
         };
-
-        // The standard metadata record is always broken, one field per line.
-        if let Some(own) = value.as_metadata()
-            && let Some(group) = layout::metadata_record(&mut printed_tree, &printed)
-        {
-            group.forced = true;
-            if self.options.generated_comments && own_metadata(own, metadata) {
-                notes::header_notes(own, group, &printed);
-            }
-        }
-
         let placement = layout::attach_comments(
             &source_tree,
             source_text,
@@ -859,8 +879,12 @@ where
             &printed,
             &relative,
         );
-        let Ok(lines) = layout::render(&printed_tree, &printed, INDENT, self.options.max_width)
-        else {
+        let Ok(lines) = layout::render(
+            &printed_tree,
+            &printed,
+            HEADER_INDENT,
+            self.options.max_width,
+        ) else {
             return Some(one_line);
         };
         if !reparses_as::<D>(&lines, &printed) {
@@ -934,11 +958,6 @@ where
         }
         lines
     }
-}
-
-/// Whether `own` is the section's metadata (the one notes describe).
-fn own_metadata<T>(own: &T, metadata: Option<&T>) -> bool {
-    metadata.is_some_and(|metadata| std::ptr::eq(own, metadata))
 }
 
 /// A laid-out declaration and its declaration-level comments.

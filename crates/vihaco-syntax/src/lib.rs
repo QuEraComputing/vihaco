@@ -20,10 +20,10 @@
 //! an instruction, or `@name:` followed by an instruction) ends at the end of
 //! its line and continues onto the next line only inside an open bracket; see
 //! [`statements`]. Indentation carries no meaning and `;` starts a comment.
-//! What a symbol *is* lives in the header: a function is a symbol with
-//! a matching declaration in `vihaco_module::module::ProgramMetadata`, which
-//! supplies its signature and locals. Its executable range runs from its symbol
-//! to the next function symbol.
+//! What a symbol *is* lives in the header: a function is a symbol with a
+//! matching `.func @name(...)` directive, which supplies its signature and
+//! locals. Its executable range runs from its symbol to the next function
+//! symbol.
 //!
 //! [`ParsedModule::parse_section`] yields the header, the code stream, and the
 //! symbol table. [`ParsedModule::lower_with_metadata`] validates them against
@@ -33,17 +33,19 @@
 //! consumer capabilities.
 //!
 //! With `program-image-execution`, `HeaderDeclarations<D>` parses a collection
-//! of declarations, one per line. Consumers apply declarations separately
-//! to an application-owned preparation context, then call
-//! `lower_code_with_metadata` with the completed metadata and instruction
-//! context. This supports contexts borrowing prepared configuration without
-//! moving the metadata during lowering.
+//! of declarations, one per line. The standard directives
+//! (`vihaco_module::module::ProgramDirective`: `.file`, `.func`, `.entry`,
+//! `.const`, `.source_symbol`) are pushed into a
+//! `vihaco_module::module::ProgramHeader`, which assembles the metadata;
+//! consumers apply their own declarations to an application-owned preparation
+//! context, then call `lower_code_with_metadata` with the completed metadata
+//! and instruction context. This supports contexts borrowing prepared
+//! configuration without moving the metadata during lowering.
 //!
-//! Metadata records use `#[derive(Parse)]` and
-//! `#[syntax_class(metadata, open = "{", close = "}")]` with an optional `head`.
-//! See `vihaco-stdlib/examples/loadable.rs` for header declarations, metadata
-//! validation, and execution using dialect instructions consumed by components.
-//! Feature-off consumers retain the separate `Resolve` bridge.
+//! See `vihaco-stdlib/examples/loadable.rs` for standard and application
+//! directives in one header, metadata validation, and execution using dialect
+//! instructions consumed by components. Feature-off consumers retain the
+//! separate `Resolve` bridge.
 
 mod lower;
 mod types;

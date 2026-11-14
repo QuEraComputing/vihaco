@@ -2,18 +2,17 @@
 // SPDX-License-Identifier: MIT
 
 //! Generated `;;` notes: facts looked up in a section's metadata and symbol
-//! table, attached to the header fields and `.text` items they explain.
+//! table, attached to the header directives and `.text` items they explain.
 //!
 //! Each note is produced by one small function, so adding an annotation means
 //! adding a function and calling it from [`header_notes`] or [`SectionInfo`].
 
 use std::collections::HashMap;
 
-use vihaco_module::module::{ProgramMetadata, Signature, Symbol};
+use vihaco_module::module::{
+    ConstantDirective, ConstantValue, ProgramDirective, ProgramMetadata, Signature, Symbol,
+};
 use vihaco_parser::{Print, print_quoted};
-
-use super::layout::{Group, field, value_group};
-use crate::check::ConstantReferences;
 
 fn quoted(text: &str) -> String {
     let mut out = String::new();
@@ -53,6 +52,26 @@ pub(crate) fn address(address: u32) -> String {
     format!("0x{address:04x}")
 }
 
+/// The string table after lowering: `base`, then every string literal of the
+/// printed instructions in address order, each once.
+///
+/// This mirrors `MetadataLoweringContext`, which interns string operands as
+/// instructions lower in address order.
+pub(crate) fn lowered_strings<'a>(
+    base: &[String],
+    instructions: impl Iterator<Item = &'a str>,
+) -> Vec<String> {
+    let mut strings = base.to_vec();
+    for instruction in instructions {
+        for literal in literals(instruction) {
+            if !strings.contains(&literal) {
+                strings.push(literal);
+            }
+        }
+    }
+    strings
+}
+
 /// What notes need to know about one section.
 pub(crate) struct SectionInfo<'a> {
     pub symbols: &'a [Symbol],
@@ -64,9 +83,11 @@ pub(crate) struct SectionInfo<'a> {
 }
 
 impl<'a> SectionInfo<'a> {
+    /// `strings` is the table after lowering (see [`lowered_strings`]).
     pub fn new<V, Ty: Print, Info>(
         symbols: &'a [Symbol],
         metadata: Option<&'a ProgramMetadata<V, Ty, Info>>,
+        strings: &'a [String],
     ) -> Self {
         let mut addresses = HashMap::new();
         for symbol in symbols {
@@ -75,15 +96,14 @@ impl<'a> SectionInfo<'a> {
                 .or_insert(symbol.address);
         }
         let mut functions = HashMap::new();
-        let strings = metadata.map_or(&[][..], |metadata| metadata.strings.as_slice());
         if let Some(metadata) = metadata {
             for (index, function) in metadata.functions.iter().enumerate() {
-                let Some(name) = strings.get(function.name as usize) else {
+                let Some(name) = metadata.strings.get(function.name as usize) else {
                     continue;
                 };
                 let note = format!(
                     "{}, locals {}, functions[{index}]",
-                    signature(name, &function.signature, strings),
+                    signature(name, &function.signature, &metadata.strings),
                     function.local_count
                 );
                 functions.entry(name.as_str()).or_insert((index, note));
@@ -125,8 +145,8 @@ impl<'a> SectionInfo<'a> {
         notes
     }
 
-    /// Notes for the string literals in a printed instruction that appear in
-    /// `metadata.strings`: the index lowering resolves them to.
+    /// Notes for the string literals in a printed instruction: the index
+    /// lowering interns them at.
     pub fn literal_notes(&self, printed: &str) -> Vec<String> {
         literals(printed)
             .into_iter()
@@ -136,6 +156,70 @@ impl<'a> SectionInfo<'a> {
             })
             .collect()
     }
+}
+
+/// The notes of each standard directive of a section, in order:
+///
+/// - `.func`: `functions[i], @name = 0x0000..0x0006` (its table index and
+///   executable range).
+/// - `.entry`: `functions[i]`.
+/// - `.file`: `strings[i]`.
+/// - `.const`: `constants[i]`, with `= strings[j]` for a string and
+///   `= functions[j]` for a function reference.
+pub(crate) fn header_notes<V: ConstantValue, Ty: Clone, Info>(
+    directives: &[&ProgramDirective<V, Ty>],
+    metadata: &ProgramMetadata<V, Ty, Info>,
+    symbols: &[Symbol],
+    instructions: usize,
+) -> Vec<Vec<String>> {
+    let ranges = metadata.resolve_functions(symbols, instructions).ok();
+    let string = |text: &str| metadata.strings.iter().position(|entry| entry == text);
+    let mut function = 0usize;
+    let mut constant = 0usize;
+    directives
+        .iter()
+        .map(|directive| match directive {
+            ProgramDirective::Function(declared) => {
+                let index = function;
+                function += 1;
+                let range = ranges
+                    .as_ref()
+                    .and_then(|ranges| ranges.get(index))
+                    .map(|info| {
+                        format!(
+                            " = {}..{}",
+                            address(info.start_address),
+                            address(info.end_address)
+                        )
+                    })
+                    .unwrap_or_default();
+                vec![format!("functions[{index}], @{}{range}", declared.name)]
+            }
+            ProgramDirective::Entry(_) => metadata
+                .main_function
+                .map(|index| vec![format!("functions[{index}]")])
+                .unwrap_or_default(),
+            ProgramDirective::File(path) => string(path)
+                .map(|index| vec![format!("strings[{index}]")])
+                .unwrap_or_default(),
+            ProgramDirective::Const(kind) => {
+                let index = constant;
+                constant += 1;
+                let value = metadata.constants.get(index);
+                let target = match kind {
+                    ConstantDirective::Str(_) => value
+                        .and_then(ConstantValue::string_index)
+                        .map(|id| format!(" = strings[{id}]")),
+                    ConstantDirective::Function(_) => value
+                        .and_then(ConstantValue::function_index)
+                        .map(|id| format!(" = functions[{id}]")),
+                    ConstantDirective::Value(_) => None,
+                };
+                vec![format!("constants[{index}]{}", target.unwrap_or_default())]
+            }
+            ProgramDirective::SourceSymbol(_) => Vec::new(),
+        })
+        .collect()
 }
 
 /// The unescaped contents of the `"…"` literals in printed text.
@@ -207,61 +291,6 @@ fn symbol_name_char(c: char) -> bool {
         )
 }
 
-/// Attach notes to the fields of a printed `metadata { ... }` record.
-pub(crate) fn header_notes<V: ConstantReferences, Ty: Print, Info>(
-    metadata: &ProgramMetadata<V, Ty, Info>,
-    record: &mut Group,
-    text: &str,
-) {
-    let strings = &metadata.strings;
-    let string = |index: u32| strings.get(index as usize).map(|text| quoted(text));
-    let function = |index: u32| {
-        metadata
-            .function_name(index as usize)
-            .ok()
-            .map(|name| format!("@{name}"))
-    };
-
-    if let Some(functions) = field(record, text, "functions").and_then(value_group) {
-        for (decl, item) in metadata.functions.iter().zip(&mut functions.items) {
-            let Some(fields) = value_group(item) else {
-                continue;
-            };
-            if let (Some(item), Some(note)) = (field(fields, text, "name"), string(decl.name)) {
-                item.notes.push(note);
-            }
-            if !decl.signature.params.is_empty()
-                && let Some(item) = field(fields, text, "signature")
-            {
-                let name = strings.get(decl.name as usize).map_or("_", String::as_str);
-                item.notes.push(signature(name, &decl.signature, strings));
-            }
-            if let (Some(item), Some(note)) = (field(fields, text, "file"), string(decl.file)) {
-                item.notes.push(note);
-            }
-        }
-    }
-
-    if let (Some(item), Some(note)) = (
-        field(record, text, "main_function"),
-        metadata.main_function.and_then(function),
-    ) {
-        item.notes.push(note);
-    }
-
-    if let Some(constants) = field(record, text, "constants").and_then(value_group) {
-        for (constant, item) in metadata.constants.iter().zip(&mut constants.items) {
-            let note = constant
-                .string_index()
-                .and_then(string)
-                .or_else(|| constant.function_index().and_then(function));
-            if let Some(note) = note {
-                item.notes.push(note);
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -272,5 +301,15 @@ mod tests {
         assert_eq!(references("t.print \"@no\" @yes"), ["yes"]);
         assert!(references("t.halt").is_empty());
         assert_eq!(literals(r#"t.print "a\"b\n" "c""#), ["a\"b\n", "c"]);
+    }
+
+    #[test]
+    fn lowered_strings_append_new_literals_in_order() {
+        let base = vec!["main".to_owned(), "hi".to_owned()];
+        let strings = lowered_strings(
+            &base,
+            ["t.print \"hi\"", "t.print \"new\"", "t.print \"new\""].into_iter(),
+        );
+        assert_eq!(strings, ["main", "hi", "new"]);
     }
 }

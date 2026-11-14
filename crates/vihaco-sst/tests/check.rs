@@ -6,30 +6,28 @@
 
 mod common;
 
-use common::{Machine, function, header, source, summary};
+use common::{Machine, header, source, summary};
 use vihaco_module::loader::MetadataLoweringContext;
-use vihaco_module::module::ProgramMetadata;
-use vihaco_sst::check::MetadataDeclaration;
+use vihaco_module::module::{ProgramDirective, ProgramMetadata, StandardDirective};
 use vihaco_sst::{Declarations, ProgramChecker, check_framing, check_program};
 
 fn check(text: &str) -> Vec<String> {
     summary(&check_program::<Machine>(&source(text)))
 }
 
-/// A one-section file whose header declares `main` (and, if given, more
-/// functions) with strings `strings`. The `.text` block starts on line 13.
-fn program(strings: &str, functions: &[String], text: &str) -> String {
+/// A one-section file whose header declares `functions` (the first is the
+/// entry `main`). `.text` starts on line `6 + functions.len()`.
+fn program(functions: &[&str], text: &str) -> String {
     format!(
         "sst v2\n.section main\n.header\n{}.text\n{text}",
-        header(strings, &functions.join(", "), "0")
+        header(functions)
     )
 }
 
 #[test]
 fn a_well_formed_program_checks_clean() {
     let text = program(
-        r#""main", "helper", "f.sst", "hi""#,
-        &[function(0, 2), function(1, 2)],
+        &["main", "helper"],
         "@main:\n    t.call 0, @helper\n    t.print \"hi\"\n    t.br @done\n@done: t.halt\n\
          @helper:\n    t.push 21 ; the answer, halved\n    t.halt\n",
     );
@@ -92,13 +90,17 @@ fn version_line_problems() {
 
 #[test]
 fn header_syntax_errors_are_all_reported() {
-    let text = "sst v2\n.section main\n.header\n    metadata {\n        strings: [\"main\"],\n        \
-                functins: [],\n    }\n    bogus ; was terminated\n.text\n@main:\n    t.halt\n";
+    let text = "sst v2\n.section main\n.header\n.func @main(), locals 0\n.fnc @x(), locals 0\n\
+                .func @y() -> u64\nbogus ; old terminator\n.func @z(\n.entry @main .entry @main\n\
+                .text\n@main:\n    t.halt\n";
     assert_eq!(
         check(text),
         [
-            "6:9: unexpected `functins` in `metadata` declaration",
-            "8:5: expected a header declaration, found `bogus`",
+            "5:1: unknown directive `.fnc`",
+            "6:18: expected the rest of the `.func` declaration, found end of line",
+            "7:1: expected a header declaration, found `bogus`",
+            "8:9: unclosed `(` opened at line 8",
+            "9:14: expected end of line after the declaration `.entry @main`, found `.entry`",
         ]
     );
 }
@@ -106,21 +108,22 @@ fn header_syntax_errors_are_all_reported() {
 #[test]
 fn text_syntax_errors_are_all_reported() {
     let text = program(
-        r#""main", "f.sst""#,
-        &[function(0, 1)],
+        &["main"],
         "@main:\n    t.push x\n    t.jump 3\n    @done\n    t.call 0,\n    @: t.halt\n    \
-         t.push 99999999999999999999\n    t.halt t.halt\n    t.br @done\n",
+         t.push 99999999999999999999\n    t.halt t.halt\n    t.push\n    1\n    t.br @done\n",
     );
     assert_eq!(
         check(&text),
         [
-            "14:12: unexpected `x` in operands of `t.push`",
-            "15:5: expected an instruction, found `t.jump`",
-            "16:5: expected `:` after symbol name `@done`",
-            "17:14: expected more operands for `t.call`, found end of line",
-            "18:5: expected a symbol name after `@`",
-            "19:12: invalid operand `99999999999999999999` for `t.push`",
-            "20:12: expected end of line after the instruction `t.halt`, found `t.halt`",
+            "9:12: unexpected `x` in operands of `t.push`",
+            "10:5: expected an instruction, found `t.jump`",
+            "11:5: expected `:` after symbol name `@done`",
+            "12:14: expected more operands for `t.call`, found end of line",
+            "13:5: expected a symbol name after `@`",
+            "14:12: invalid operand `99999999999999999999` for `t.push`",
+            "15:12: expected end of line after the instruction `t.halt`, found `t.halt`",
+            "16:11: expected more operands for `t.push`, found end of line",
+            "17:5: expected an instruction, found `1`",
         ]
     );
 }
@@ -128,8 +131,7 @@ fn text_syntax_errors_are_all_reported() {
 #[test]
 fn symbols_bindings_and_lowering_are_checked_together() {
     let text = program(
-        r#""main", "helper", "f.sst", "hi""#,
-        &[function(0, 2), function(1, 2)],
+        &["main", "helper"],
         "@main:\n    t.call 0, @helper\n    t.br @done\n    t.print \"hi\"\n    t.print \"bye\"\n\
          @main:\n    t.halt\n",
     );
@@ -137,11 +139,10 @@ fn symbols_bindings_and_lowering_are_checked_together() {
     assert_eq!(
         summary(&report),
         [
-            "6:103: function `@helper` (metadata.functions[1]) has no `@helper:` symbol definition",
-            "14:15: function `@helper` has no `@helper:` symbol definition",
-            "15:10: undefined symbol `@done`",
-            "17:13: string literal `bye` is missing from metadata.strings",
-            "18:1: duplicate symbol `@main`",
+            "6:7: function `@helper` (functions[1]) has no `@helper:` symbol definition",
+            "10:15: function `@helper` has no `@helper:` symbol definition",
+            "11:10: undefined symbol `@done`",
+            "14:1: duplicate symbol `@main`",
         ]
     );
     let duplicate = report.diagnostics.last().unwrap();
@@ -150,85 +151,57 @@ fn symbols_bindings_and_lowering_are_checked_together() {
         source(&text)
             .location(duplicate.secondary[0].span.start)
             .to_string(),
-        "13:1"
+        "9:1"
     );
 }
 
 #[test]
-fn metadata_table_errors_are_all_reported() {
+fn header_directive_errors_are_all_reported() {
     let text = r#"sst v2
 .section main
 .header
-    metadata {
-        strings: ["main", "f.sst"],
-        functions: [
-            { name: 0, signature: { params: [{ name: 7, ty: u64 }], ret: [] }, local_count: 0, file: 5 },
-            { name: 9, signature: { params: [], ret: [] }, local_count: 0, file: 1 },
-            { name: 0, signature: { params: [], ret: [] }, local_count: 0, file: 1 },
-        ],
-        constants: [string 4, fn 8, u64 1],
-        main_function: 3,
-        source_symbols: [{ index: 1, name: "a" }, { index: 1, name: "b" }],
-        extra: {},
-    }
+.file "f.sst"
+.func @main(x: u64) -> u64, locals 0
+.func @main(), locals 0
+.entry @nowhere
+.entry @main
+.const str 4
+.const fn @nope
+.const u64 1
+.source_symbol 1 "a"
+.source_symbol 1 "b"
 .text
-@main: t.halt
+@main: t.br @missing
 "#;
+    let report = check_program::<Machine>(&source(text));
     assert_eq!(
-        check(text),
+        summary(&report),
         [
-            "7:54: metadata.functions[0].signature.params[0].name: string index 7 is out of \
-             range (metadata.strings has 2 entries)",
-            "7:93: metadata.functions[0].local_count: 0 local slots cannot hold 1 parameters",
-            "7:102: metadata.functions[0].file: string index 5 is out of range \
-             (metadata.strings has 2 entries)",
-            "8:21: metadata.functions[1].name: string index 9 is out of range \
-             (metadata.strings has 2 entries)",
-            "9:21: function `@main` is declared by both metadata.functions[0] and \
-             metadata.functions[2]",
-            "11:21: metadata.constants[0]: string index 4 is out of range (metadata.strings \
-             has 2 entries)",
-            "11:31: metadata.constants[1]: function index 8 is out of range \
-             (metadata.functions has 3 entries)",
-            "12:24: metadata.main_function: function index 3 is out of range \
-             (metadata.functions has 3 entries)",
-            "13:60: metadata.source_symbols[1]: duplicate index 1",
+            "5:29: `@main` reserves 0 local slots but has 1 parameters",
+            "6:7: function `@main` is declared more than once",
+            "7:8: `.entry @nowhere` names no `.func` directive",
+            "8:1: the entry function is selected more than once",
+            "9:8: string constants name their text: write `.const str \"...\"`",
+            "10:11: `.const fn @nope` names no `.func` directive",
+            "13:16: duplicate source symbol index 1",
+            // `.text` is still checked against the directives that were fine.
+            "15:13: undefined symbol `@missing`",
         ]
     );
+    let source = source(text);
+    let secondary: Vec<_> = report
+        .iter()
+        .flat_map(|diagnostic| &diagnostic.secondary)
+        .map(|label| source.location(label.span.start).to_string())
+        .collect();
+    assert_eq!(secondary, ["5:7", "7:1", "12:16"]);
 }
 
 #[test]
-fn duplicate_function_is_reported_at_the_redeclaration() {
-    let text = program(
-        r#""main", "f.sst""#,
-        &[function(0, 1), function(0, 1)],
-        "@main: t.halt\n",
-    );
-    let report = check_program::<Machine>(&source(&text));
-    let [diagnostic] = report.diagnostics.as_slice() else {
-        panic!("{:?}", summary(&report));
-    };
-    assert_eq!(diagnostic.location.to_string(), "6:103");
+fn sections_without_functions_are_valid() {
     assert_eq!(
-        source(&text)
-            .location(diagnostic.secondary[0].span.start)
-            .to_string(),
-        "6:29"
-    );
-}
-
-#[test]
-fn missing_and_duplicate_metadata_declarations() {
-    assert_eq!(
-        check("sst v2\n.section main\n.text\n@main: t.halt\n"),
-        ["2:1: section `main` has no program metadata declaration"]
-    );
-    let metadata = header(r#""main", "f.sst""#, &function(0, 1), "0");
-    let text =
-        format!("sst v2\n.section main\n.header\n{metadata}{metadata}.text\n@main: t.halt\n");
-    assert_eq!(
-        check(&text),
-        ["12:5: section `main` declares program metadata more than once"]
+        check("sst v2\n.section main\n.text\n@start: t.halt\n"),
+        Vec::<String>::new()
     );
 }
 
@@ -236,7 +209,7 @@ fn missing_and_duplicate_metadata_declarations() {
 fn global_context_and_required_sections() {
     let text = format!(
         ".global\n    unexpected\n{}",
-        program(r#""main", "f.sst""#, &[function(0, 1)], "@main: t.halt\n")
+        program(&["main"], "@main: t.halt\n")
     )
     .replacen("sst v2\n", "", 1);
     let text = format!("sst v2\n{text}");
@@ -258,7 +231,7 @@ fn every_section_is_checked() {
     let section = |name: &str, text: &str| {
         format!(
             ".section {name}\n.header\n{}.text\n{text}",
-            header(r#""main", "f.sst""#, &function(0, 1), "0")
+            header(&["main"])
         )
     };
     let text = format!(
@@ -269,19 +242,15 @@ fn every_section_is_checked() {
     assert_eq!(
         check(&text),
         [
-            "13:15: unexpected `x` in operands of `t.push`",
-            "25:13: undefined symbol `@nowhere`",
+            "8:15: unexpected `x` in operands of `t.push`",
+            "15:13: undefined symbol `@nowhere`",
         ]
     );
 }
 
 #[test]
 fn lowering_can_be_disabled_or_customized() {
-    let text = program(
-        r#""main", "f.sst""#,
-        &[function(0, 1)],
-        "@main:\n    t.br @nowhere\n",
-    );
+    let text = program(&["main"], "@main:\n    t.br @nowhere\n");
     let source = source(&text);
     let report = ProgramChecker::<Machine>::new()
         .without_lowering()
@@ -293,28 +262,27 @@ fn lowering_can_be_disabled_or_customized() {
             MetadataLoweringContext::new(metadata, symbols)
         })
         .check(&source);
-    assert_eq!(summary(&report), ["14:10: undefined symbol `@nowhere`"]);
+    assert_eq!(summary(&report), ["9:10: undefined symbol `@nowhere`"]);
 }
 
-/// An application header: program metadata plus a description.
+/// An application header: the standard directives plus a description.
 #[allow(dead_code)] // The description is only parsed.
 #[derive(Debug, vihaco_parser_derive::Parse)]
 #[syntax_class(metadata)]
 enum Declaration {
     #[pattern = "$0"]
-    Metadata(ProgramMetadata),
+    Standard(ProgramDirective),
     #[pattern = "experiment.description $0"]
     Description(String),
 }
 
-impl MetadataDeclaration for Declaration {
+impl StandardDirective for Declaration {
     type Value = vihaco_abi::Value;
     type Type = vihaco_abi::Type;
-    type Info = vihaco_module::module::NoInfo;
 
-    fn as_metadata(&self) -> Option<&ProgramMetadata> {
+    fn as_standard(&self) -> Option<&ProgramDirective> {
         match self {
-            Self::Metadata(metadata) => Some(metadata),
+            Self::Standard(directive) => Some(directive),
             Self::Description(_) => None,
         }
     }
@@ -322,10 +290,9 @@ impl MetadataDeclaration for Declaration {
 
 #[test]
 fn custom_header_declarations() {
-    let metadata = header(r#""main", "f.sst""#, &function(0, 1), "0");
     let text = format!(
-        "sst v2\n.section main\n.header\n    experiment.description \"x\"\n{metadata}.text\n\
-         @main: t.halt\n"
+        "sst v2\n.section main\n.header\nexperiment.description \"x\"\n{}.text\n@main: t.halt\n",
+        header(&["main"])
     );
     let report = ProgramChecker::<Machine>::new()
         .with_header::<Declarations<Declaration>>()
@@ -338,37 +305,38 @@ fn custom_header_declarations() {
     assert_eq!(
         summary(&report),
         [
-            "4:32: expected end of line after the declaration `experiment.description \"x\"`, \
+            "4:28: expected end of line after the declaration `experiment.description \"x\"`, \
              found `experiment.description`"
         ]
+    );
+    // The standard header does not know the application directive.
+    assert_eq!(
+        check(&text),
+        ["4:1: expected a header declaration, found `experiment.description`"]
     );
 }
 
 #[test]
 fn rendered_output_shows_source_lines_and_carets() {
-    let text = program(
-        r#""main", "f.sst""#,
-        &[function(0, 1)],
-        "@main:\n    t.push x\n@main: t.halt\n",
-    );
+    let text = program(&["main"], "@main:\n    t.push x\n@main: t.halt\n");
     let source = source(&text);
     let report = check_program::<Machine>(&source);
     assert_eq!(
         report.render(&source),
         "\
 error: unexpected `x` in operands of `t.push`
-   --> test.sst:14:12
-   |
-14 |     t.push x
-   |            ^ unexpected operand
+  --> test.sst:9:12
+  |
+9 |     t.push x
+  |            ^ unexpected operand
 
 error: duplicate symbol `@main`
-   --> test.sst:15:1
+   --> test.sst:10:1
    |
-13 | @main:
+ 8 | @main:
    | ------ first defined here
-14 |     t.push x
-15 | @main: t.halt
+ 9 |     t.push x
+10 | @main: t.halt
    | ^^^^^^ redefined here
    |
    = symbol names must be unique within a section
@@ -378,6 +346,6 @@ error: `test.sst` has 2 errors
     );
     assert_eq!(
         report.diagnostics[0].to_string(),
-        "14:12: error: unexpected `x` in operands of `t.push`"
+        "9:12: error: unexpected `x` in operands of `t.push`"
     );
 }

@@ -168,6 +168,12 @@ mod symbols {
         multiplier: u32,
     }
 
+    impl vihaco_module::loader::InternedStrings for CustomContext {
+        fn take_strings(&mut self) -> Vec<String> {
+            self.symbols.take_strings()
+        }
+    }
+
     #[derive(Clone)]
     enum Instruction {
         Address(&'static str),
@@ -274,6 +280,7 @@ mod symbols {
             [(0, 3, 3, 7), (1, 2, 0, 3)]
         );
         assert_eq!(module.symbols, super::symbols::parsed().symbols);
+        // `"hello"` was already in the table, so nothing was appended.
         assert_eq!(module.strings, metadata.strings);
         assert_eq!(module.constants, metadata.constants);
         assert_eq!(module.source_symbols, metadata.source_symbols);
@@ -297,24 +304,34 @@ mod symbols {
             });
         assert!(parsed.lower_with_metadata(metadata, &mut context).is_err());
 
-        for instruction in [
-            Instruction::Label("missing"),
-            Instruction::String("missing"),
-        ] {
-            let metadata = super::symbols::metadata();
-            let mut parsed = super::symbols::parsed();
-            let mut context = super::symbols::context(&metadata, &parsed.symbols)?;
-            parsed.code[4] = instruction;
-            let error = parsed
-                .lower_with_metadata(metadata, &mut context)
-                .unwrap_err();
-            let message = format!("{error:#}");
-            assert!(
-                message.contains("lowering instruction 4 (@main+1)"),
-                "{message}"
-            );
-            assert!(message.contains("missing"));
-        }
+        let metadata = super::symbols::metadata();
+        let mut parsed = super::symbols::parsed();
+        let mut context = super::symbols::context(&metadata, &parsed.symbols)?;
+        parsed.code[4] = Instruction::Label("missing");
+        let error = parsed
+            .lower_with_metadata(metadata, &mut context)
+            .unwrap_err();
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("lowering instruction 4 (@main+1)"),
+            "{message}"
+        );
+        assert!(message.contains("missing"));
+        Ok(())
+    }
+
+    #[test]
+    fn lowering_interns_new_string_literals_after_the_header_strings() -> eyre::Result<()> {
+        let metadata = metadata();
+        let mut parsed = parsed();
+        parsed.code[2] = Instruction::String("world");
+        parsed.code[6] = Instruction::String("hello");
+        let mut context = context(&metadata, &parsed.symbols)?;
+        let module = parsed.lower_with_metadata(metadata.clone(), &mut context)?;
+        assert_eq!(module.code[1..3], [3, 4]);
+        assert_eq!(module.code[6], 3);
+        assert_eq!(module.strings[..4], metadata.strings[..]);
+        assert_eq!(module.strings[4..], ["world"]);
         Ok(())
     }
 

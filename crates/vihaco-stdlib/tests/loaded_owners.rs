@@ -8,11 +8,14 @@ use vihaco_bytecode::{NoContext, SSTFile, SSTHeader, SSTSectionView};
 use vihaco_cpu::CPU;
 use vihaco_module::{
     loader::MetadataLoweringContext,
-    module::{FunctionInfo, LocalModule, ProgramMetadata, Signature},
+    module::{
+        FunctionInfo, LocalModule, NoInfo, ProgramDirective, ProgramHeader, ProgramMetadata,
+        Signature,
+    },
 };
 use vihaco_runtime::{
     Apply, BuildMessage, Composite, Dispatch, Execute, HasInstructionSet, HasProgram, Lower,
-    NoMessage, Parse, Step, chumsky::prelude::*, composite, field,
+    NoMessage, Parse, Step, composite, field,
 };
 use vihaco_stdlib::{ExecutionState, Image, Loadable, program::program};
 
@@ -95,13 +98,11 @@ struct Header(ProgramMetadata);
 
 impl FromText for Header {
     fn from_text(text: &str) -> eyre::Result<Self> {
-        ProgramMetadata::parser()
-            .padded_by(vihaco_syntax::skip())
-            .then_ignore(end())
-            .parse(text)
-            .into_result()
+        vihaco_syntax::HeaderDeclarations::<ProgramDirective>::from_text(text)?
+            .into_iter()
+            .collect::<ProgramHeader>()
+            .finish(NoInfo)
             .map(Self)
-            .map_err(|errors| eyre::eyre!("invalid metadata: {errors:?}"))
     }
 }
 
@@ -135,14 +136,10 @@ fn section_source(name: &str, main: &str, helper: &str) -> String {
     format!(
         r#".section {name}
 .header
-metadata {{
-    strings: ["main", "helper", "source.sst"],
-    functions: [
-        {{ name: 1, signature: {{ params: [], ret: [u64] }}, local_count: 0, file: 2 }},
-        {{ name: 0, signature: {{ params: [], ret: [u64] }}, local_count: 0, file: 2 }},
-    ],
-    constants: [], main_function: 1, source_symbols: [], extra: {{}},
-}}
+.file "source.sst"
+.func @helper() -> u64, locals 0
+.func @main() -> u64, locals 0
+.entry @main
 .text
 @main:
 {main}

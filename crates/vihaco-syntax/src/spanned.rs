@@ -206,6 +206,11 @@ fn statement_error<'s>(
                 span: head,
                 label: "unknown instruction".to_owned(),
             },
+            Kind::Declaration if head_text.starts_with('.') => SyntaxError {
+                message: format!("unknown directive `{head_text}`"),
+                span: head,
+                label: "not a header directive".to_owned(),
+            },
             Kind::Declaration => SyntaxError {
                 message: format!("expected a header declaration, found `{head_text}`"),
                 span: head,

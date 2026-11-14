@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: MIT
 
 use crate::color::Themed;
+pub use crate::program_header::{
+    ConstantDirective, ConstantValue, Focus, FunctionDirective, HeaderError, ProgramDirective,
+    ProgramHeader, StandardDirective,
+};
 pub use crate::program_metadata::ProgramMetadata;
 
 /// A module for a single section.
@@ -36,8 +40,8 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, vihaco_parser_derive::Parse)]
-#[syntax_class(metadata, open = "{", close = "}")]
+/// A source-level symbol, declared by `.source_symbol <index> "<name>"`.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceSymbolInfo {
     pub index: u32,
     pub name: String,
@@ -58,13 +62,12 @@ pub struct FunctionInfo<Type> {
     pub file: u32,
 }
 
-/// A function declaration in a section header.
+/// A function declaration, assembled from a `.func` header directive.
 ///
 /// It carries everything about a function except where it is: the executable
 /// range comes from the `@name:` symbol definition with the same name in the
 /// section's `.text`.
-#[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
-#[syntax_class(metadata, open = "{", close = "}")]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FunctionDecl<Type> {
     pub name: u32, // index into the string interner
     pub signature: Signature<Type>,
@@ -73,15 +76,13 @@ pub struct FunctionDecl<Type> {
     pub file: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
-#[syntax_class(metadata, open = "{", close = "}")]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Signature<Ty> {
     pub params: Vec<Parameter<Ty>>,
     pub ret: Vec<Ty>,
 }
 
-#[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
-#[syntax_class(metadata, open = "{", close = "}")]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Parameter<Ty> {
     pub name: u32, // index into the string interner
     pub ty: Ty,

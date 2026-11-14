@@ -14,7 +14,7 @@
 //!   [`parse_opaque_header`], [`check_global_context`]) turn the standard
 //!   parsers' errors into diagnostics for custom checkers.
 //! - [`ProgramChecker`] is the typed checker for a `#[composite]` machine `M`:
-//!   header and `.text` syntax, symbols, metadata tables, function bindings,
+//!   header and `.text` syntax, symbols, header directives, function bindings,
 //!   and (by default) lowering with `MetadataLoweringContext`. The
 //!   conveniences [`check_program`] and [`check_machine`] run it over every
 //!   section. Nothing is executed.
@@ -31,9 +31,8 @@ pub use parse::{
     check_global_context, parse_declarations, parse_instructions, parse_opaque_header,
 };
 pub use program::{
-    CheckHeader, ConstantReferences, ContextLowering, Declarations, LocatedMetadata, Lowering,
-    MetadataDeclaration, MetadataLowering, NoLowering, ProgramChecker, StandardHeader,
-    check_machine, check_program,
+    CheckHeader, CheckedMetadata, ContextLowering, Declarations, Lowering, MetadataLowering,
+    NoLowering, ProgramChecker, StandardHeader, check_machine, check_program,
 };
 
 use crate::diagnostic::{Diagnostics, Report};

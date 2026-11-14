@@ -28,8 +28,6 @@ pub(crate) struct Group {
     pub open_trailing: Vec<String>,
     /// Own-line comments after the last item.
     pub dangling: Vec<String>,
-    /// Always break this group, even if it would fit.
-    pub forced: bool,
 }
 
 /// One item of a group: everything between two commas.
@@ -174,7 +172,6 @@ fn parse_group(
                 items,
                 open_trailing: Vec::new(),
                 dangling: Vec::new(),
-                forced: false,
             });
         };
         *position += 1;
@@ -203,7 +200,6 @@ fn parse_group(
                     items,
                     open_trailing: Vec::new(),
                     dangling: Vec::new(),
-                    forced: false,
                 });
             }
         }
@@ -461,47 +457,6 @@ fn follow_mut<'b>(
     Some(printed)
 }
 
-/// The record of the first `metadata { ... }` in the tree, searching
-/// depth-first.
-pub(crate) fn metadata_record<'g>(group: &'g mut Group, text: &str) -> Option<&'g mut Group> {
-    let position = group.items.iter().enumerate().find_map(|(index, item)| {
-        item.nodes
-            .windows(2)
-            .position(|pair| {
-                matches!(pair, [Node::Atom(head), Node::Group(record)]
-                    if &text[head.clone()] == "metadata" && record.open == Some('{'))
-            })
-            .map(|node| (index, node + 1))
-    });
-    if let Some((index, node)) = position {
-        let Node::Group(record) = &mut group.items[index].nodes[node] else {
-            unreachable!("matched above");
-        };
-        return Some(record);
-    }
-    group
-        .items
-        .iter_mut()
-        .flat_map(|item| item.nodes.iter_mut())
-        .find_map(|node| match node {
-            Node::Group(inner) => metadata_record(inner, text),
-            Node::Atom(_) => None,
-        })
-}
-
-/// The item of `group` with record key `name`.
-pub(crate) fn field<'g>(group: &'g mut Group, text: &str, name: &str) -> Option<&'g mut Item> {
-    group
-        .items
-        .iter_mut()
-        .find(|item| key(item, text).as_deref() == Some(name))
-}
-
-/// The first nested group of `item`, such as the value of `key: [ ... ]`.
-pub(crate) fn value_group(item: &mut Item) -> Option<&mut Group> {
-    nested_mut(item, 0)
-}
-
 /// One output line: indentation, code, and trailing comments.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Line {
@@ -537,8 +492,7 @@ impl Line {
 pub(crate) const INDENT: usize = 4;
 
 fn must_break(group: &Group) -> bool {
-    group.forced
-        || !group.open_trailing.is_empty()
+    !group.open_trailing.is_empty()
         || !group.dangling.is_empty()
         || group.items.iter().any(|item| {
             !item.leading.is_empty()

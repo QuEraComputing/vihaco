@@ -25,8 +25,8 @@
 //! `lower::StringIntern` to resolve them. `vihaco_stdlib::ProgramImage` implements
 //! string interning using its section string table. Heap references remain numeric.
 //! For explicit metadata, [`vihaco_module::loader::MetadataLoweringContext`] implements
-//! all three lookup capabilities and rejects strings absent from the supplied
-//! table. It works with `ParsedModule::lower_with_metadata` in `vihaco-syntax`.
+//! all three lookup capabilities and interns strings after the header's table.
+//! It works with `ParsedModule::lower_with_metadata` in `vihaco-syntax`.
 //! `@name:` symbol definitions in `.text` occupy no executable slot. Symbols,
 //! `function_start`, and `function_end` have no runtime instruction leaves.
 //! Composite source uses `device::dialect::mnemonic`, for example

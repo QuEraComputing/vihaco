@@ -3,14 +3,14 @@
 
 //! Formatter tests: pinned outputs for messy inputs, and the properties every
 //! formatted file must have (idempotence, unchanged meaning, every user
-//! comment kept, `//!` comments regenerated).
+//! comment kept, `;;` comments regenerated).
 
 // Shared with the checker tests, which use the helpers this file does not.
 #[allow(dead_code)]
 mod common;
 
 use common::{Inst, Machine, source, summary};
-use vihaco_module::module::{ProgramMetadata, Symbol};
+use vihaco_module::module::{ProgramDirective, Symbol};
 use vihaco_sst::check::{parse_declarations, parse_instructions, scan};
 use vihaco_sst::{Diagnostics, FormatOptions, Formatter, ProgramChecker, format_program};
 
@@ -26,7 +26,7 @@ fn format(text: &str) -> String {
     format_with(text, FormatOptions::default())
 }
 
-type Parsed = Vec<(String, Vec<ProgramMetadata>, Vec<Inst>, Vec<Symbol>)>;
+type Parsed = Vec<(String, Vec<ProgramDirective>, Vec<Inst>, Vec<Symbol>)>;
 
 /// Every section's parsed header, code, and symbols.
 fn parsed(text: &str) -> Parsed {
@@ -37,7 +37,7 @@ fn parsed(text: &str) -> Parsed {
         .sections
         .iter()
         .map(|section| {
-            let header = parse_declarations::<ProgramMetadata>(section.header(), &mut out)
+            let header = parse_declarations::<ProgramDirective>(section.header(), &mut out)
                 .unwrap()
                 .into_iter()
                 .map(|spanned| spanned.value)
@@ -55,12 +55,18 @@ fn parsed(text: &str) -> Parsed {
     sections
 }
 
-/// Every user `//` comment, outside string literals: all comments except
-/// the generated own-line `//!` ones.
+/// Whether an own-line comment is generated.
+fn generated(line: &str) -> bool {
+    let line = line.trim_start();
+    line.starts_with(";;") && !line.starts_with(";;;")
+}
+
+/// Every user `;` comment, outside string literals: all comments except the
+/// generated own-line `;;` ones.
 fn user_comments(text: &str) -> Vec<String> {
     let mut comments = Vec::new();
     for line in text.lines() {
-        if line.trim_start().starts_with(";;") {
+        if generated(line) {
             continue;
         }
         let mut in_string = false;
@@ -75,7 +81,7 @@ fn user_comments(text: &str) -> Vec<String> {
                 }
             } else if c == '"' {
                 in_string = true;
-            } else if line[index..].starts_with(";") {
+            } else if c == ';' {
                 comments.push(line[index..].trim_end().to_owned());
                 break;
             }
@@ -103,48 +109,15 @@ fn assert_properties(text: &str) -> String {
         assert!(!output.contains('\r'));
         assert!(output.lines().all(|line| line.trim_end() == line));
         if !options.generated_comments {
-            let generated = |line: &str| line.trim_start().starts_with(";;");
             assert!(!output.lines().any(generated), "{output}");
         }
     }
     formatted
 }
 
-/// A metadata header for `main` and `helper` in `f.sst`, with string `hi`.
-const HEADER: &str = r#"
-metadata { strings: ["main", "helper", "f.sst", "hi"],
-  functions: [{ name: 0, signature: { params: [], ret: [] }, local_count: 0, file: 2 },
-              { name: 1, signature: { params: [], ret: [] }, local_count: 0, file: 2 }],
-  constants: [], main_function: 0, source_symbols: [], extra: {} }
-"#;
-
-const FORMATTED_HEADER: &str = r#"    metadata {
-        strings: ["main", "helper", "f.sst", "hi"],
-        functions: [
-            {
-                ;; "main"
-                name: 0,
-                signature: { params: [], ret: [] },
-                local_count: 0,
-                ;; "f.sst"
-                file: 2,
-            },
-            {
-                ;; "helper"
-                name: 1,
-                signature: { params: [], ret: [] },
-                local_count: 0,
-                ;; "f.sst"
-                file: 2,
-            },
-        ],
-        constants: [],
-        ;; @main
-        main_function: 0,
-        source_symbols: [],
-        extra: {},
-    }
-"#;
+/// A messy header for `main` and `helper` in `f.sst`.
+const HEADER: &str = "\n  .file   \"f.sst\"\n.func @main( ) , locals 0\n   .func @helper(),locals 0\n\
+                      .entry   @main\n";
 
 fn program(text: &str) -> String {
     format!("sst v2\n.section main\n.header{HEADER}.text\n{text}")
@@ -156,8 +129,19 @@ fn messy_text_is_one_item_per_line() {
         "      @main:   t.call 0,   @helper\n t.print \"hi\"\n\
          \t\tt.br @done\n\n\n @done:t.halt\n@helper: t.push 21    \n\tt.halt",
     );
-    let expected = format!(
-        "sst v2\n\n.section main\n.header\n{FORMATTED_HEADER}.text\n\
+    let expected = "sst v2
+
+.section main
+.header
+;; strings[2]
+.file \"f.sst\"
+;; functions[0], @main = 0x0000..0x0004
+.func @main(), locals 0
+;; functions[1], @helper = 0x0004..0x0006
+.func @helper(), locals 0
+;; functions[0]
+.entry @main
+.text
 ;; fn main(), locals 0, functions[0]
 @main:
     ;; @helper = 0x0004 (functions[1])
@@ -174,8 +158,7 @@ fn messy_text_is_one_item_per_line() {
 @helper:
     t.push 21
     t.halt
-"
-    );
+";
     assert_eq!(assert_properties(&text), expected);
 }
 
@@ -191,17 +174,12 @@ fn comments_everywhere_stay_with_their_items() {
     let text = r#"sst v2 ; version line
 .section main   ; section directive
 .header ; header directive
-  ; before metadata
-  metadata { ; after metadata brace
-    ; before strings
-    strings: ["main", "f.sst"], ; after strings
-    functions: [ ; after functions bracket
-      { name: 0, signature: { params: [], ret: [] }, local_count: 0, file: 1 }, ; after function
-      ; end of functions
-    ],
-    constants: [], main_function: 0, source_symbols: [], extra: {}
-  }  ; after metadata
+  ; before file
+  .file "f.sst" ; on file
 
+  ;;; a heading is a user comment
+  .func @main(), locals 0 ; on main
+  .entry @main
   ; end of header
 .text ; text directive
 ; before main
@@ -217,29 +195,16 @@ fn comments_everywhere_stay_with_their_items() {
 
 .section main  ; section directive
 .header  ; header directive
-    ; before metadata
-    metadata {                       ; after metadata brace
-        ; before strings
-        strings: ["main", "f.sst"],  ; after strings
-        functions: [                 ; after functions bracket
-            {
-                ;; "main"
-                name: 0,
-                signature: { params: [], ret: [] },
-                local_count: 0,
-                ;; "f.sst"
-                file: 1,
-            },                       ; after function
-            ; end of functions
-        ],
-        constants: [],
-        ;; @main
-        main_function: 0,
-        source_symbols: [],
-        extra: {},
-    }                                ; after metadata
+; before file
+;; strings[1]
+.file "f.sst"            ; on file
 
-    ; end of header
+;;; a heading is a user comment
+;; functions[0], @main = 0x0000..0x0002
+.func @main(), locals 0  ; on main
+;; functions[0]
+.entry @main
+; end of header
 .text  ; text directive
 ; before main
 ;; fn main(), locals 0, functions[0]
@@ -261,7 +226,7 @@ fn comments_at_the_end_of_a_block_stay_in_it() {
     );
     let formatted = assert_properties(&text);
     assert!(
-        formatted.contains("    }\n\n    ; End of header.\n.text\n"),
+        formatted.contains(".entry @main\n\n; End of header.\n.text\n"),
         "{formatted}"
     );
     assert!(
@@ -279,7 +244,8 @@ fn stale_generated_comments_are_replaced() {
     let text = program(
         ";; a stale own-line note\n;; fn wrong()\n@main:\n  ;; @done = 0x9999\n  t.br @done ; jump\n\
          @done: t.halt\n@helper: t.halt ; see ;; this is the user's\n",
-    );
+    )
+    .replace(".entry   @main\n", ";; stale header note\n.entry   @main\n");
     let formatted = assert_properties(&text);
     assert!(!formatted.contains("stale") && !formatted.contains("wrong"));
     assert!(!formatted.contains("0x9999"));
@@ -298,27 +264,11 @@ fn generated_comments_can_be_turned_off() {
     let text = program("@main:\n;; @done = 0x0001\nt.br @done\n@done: t.halt\n@helper: t.halt\n");
     let formatted = format_with(&text, FormatOptions::without_generated_comments());
     let expected = "\
-    metadata {
-        strings: [\"main\", \"helper\", \"f.sst\", \"hi\"],
-        functions: [
-            {
-                name: 0,
-                signature: { params: [], ret: [] },
-                local_count: 0,
-                file: 2,
-            },
-            {
-                name: 1,
-                signature: { params: [], ret: [] },
-                local_count: 0,
-                file: 2,
-            },
-        ],
-        constants: [],
-        main_function: 0,
-        source_symbols: [],
-        extra: {},
-    }
+.header
+.file \"f.sst\"
+.func @main(), locals 0
+.func @helper(), locals 0
+.entry @main
 .text
 @main:
     t.br @done
@@ -331,40 +281,32 @@ fn generated_comments_can_be_turned_off() {
 }
 
 #[test]
-fn records_break_to_fit_the_width() {
-    let text = program("@main: t.halt\n@helper: t.halt\n");
-    let narrow = FormatOptions {
-        max_width: 40,
-        ..FormatOptions::without_generated_comments()
-    };
-    let formatted = format_with(&text, narrow.clone());
-    assert!(
-        formatted.contains(
-            "        strings: [\n            \"main\",\n            \"helper\",\n            \
-             \"f.sst\",\n            \"hi\",\n        ],\n"
-        ),
-        "{formatted}"
-    );
-    assert_eq!(format_with(&formatted, narrow), formatted);
-}
-
-#[test]
 fn constants_and_parameters_are_resolved() {
     let text = r#"sst v2
 .section main
 .header
-metadata { strings: ["main", "x", "f.sst"],
-  functions: [{ name: 0, signature: { params: [{ name: 1, ty: u64 }], ret: [u64, bool] }, local_count: 2, file: 2 }],
-  constants: [str 2, fn 0, u64 7], main_function: 0, source_symbols: [], extra: {} }
+.file "f.sst"
+.func @main(x: u64) -> (u64, bool), locals 2
+.entry @main
+.const u64 7
+.const str "f.sst"
+.const fn @main
+.const str "new"
+.source_symbol 3 "loop"
 .text
-@main: t.halt
+@main: t.print "hi"
 "#;
     let formatted = assert_properties(text);
     for expected in [
-        "            ;; \"f.sst\"\n            str 2,\n",
-        "            ;; @main\n            fn 0,\n            u64 7,\n",
-        "                ;; fn main(x: u64) -> (u64, bool)\n                signature: { params: [{ name: 1, ty: u64 }], ret: [u64, bool] },\n",
+        ";; functions[0], @main = 0x0000..0x0001\n.func @main(x: u64) -> (u64, bool), locals 2\n",
+        ";; constants[0]\n.const u64 7\n",
+        ";; constants[1] = strings[2]\n.const str \"f.sst\"\n",
+        ";; constants[2] = functions[0]\n.const fn @main\n",
+        ";; constants[3] = strings[3]\n.const str \"new\"\n",
+        "\n.source_symbol 3 \"loop\"\n",
         ";; fn main(x: u64) -> (u64, bool), locals 2, functions[0]\n@main:\n",
+        // Names, parameters, files, string constants, then `.text` literals.
+        "    ;; \"hi\" = strings[4]\n    t.print \"hi\"\n",
     ] {
         assert!(formatted.contains(expected), "{expected}\n{formatted}");
     }
@@ -374,8 +316,7 @@ metadata { strings: ["main", "x", "f.sst"],
 fn trailing_comments_align_up_to_the_cap() {
     let text = program(
         "@main: t.halt ; a\n@helper: t.print \"a much longer literal that passes the comment column\" ; b\n",
-    )
-    .replace(r#""hi""#, r#""hi", "a much longer literal that passes the comment column""#);
+    );
     let formatted = format_with(&text, FormatOptions::without_generated_comments());
     assert!(
         formatted.ends_with(
@@ -489,7 +430,7 @@ mod unprintable {
 
 #[test]
 fn values_without_a_faithful_spelling_are_reported() {
-    let text = program("@main: s.halt\n@helper: s.keep 7\n").replace("t.", "s.");
+    let text = program("@main: s.halt\n@helper: s.keep 7\n");
     let report = format_program::<unprintable::Machine>(&source(&text), FormatOptions::default())
         .unwrap_err();
     assert_eq!(
@@ -499,39 +440,41 @@ fn values_without_a_faithful_spelling_are_reported() {
 }
 
 mod declarations {
-    use vihaco_module::module::{NoInfo, ProgramMetadata};
-    use vihaco_sst::check::MetadataDeclaration;
+    use vihaco_module::module::{ProgramDirective, StandardDirective};
 
-    /// An application header: program metadata plus a pattern declaration
-    /// whose `,` must stay on one line.
+    /// An application header: the standard directives plus a list that may
+    /// break across lines and a pattern declaration whose `,` must stay on
+    /// one line.
     #[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
     #[syntax_class(metadata)]
     pub enum Declaration {
         #[pattern = "$0"]
-        Metadata(ProgramMetadata),
+        Standard(ProgramDirective),
         #[pattern = "range `{` $0 `,` $1 `}`"]
         Range(u64, u64),
+        #[pattern = "sites $0"]
+        Sites(Vec<u64>),
     }
 
-    impl MetadataDeclaration for Declaration {
+    impl StandardDirective for Declaration {
         type Value = vihaco_abi::Value;
         type Type = vihaco_abi::Type;
-        type Info = NoInfo;
 
-        fn as_metadata(&self) -> Option<&ProgramMetadata> {
+        fn as_standard(&self) -> Option<&ProgramDirective> {
             match self {
-                Self::Metadata(metadata) => Some(metadata),
-                Self::Range(..) => None,
+                Self::Standard(directive) => Some(directive),
+                Self::Range(..) | Self::Sites(_) => None,
             }
         }
     }
 }
 
 #[test]
-fn declarations_that_cannot_break_stay_on_one_line() {
+fn application_directives_keep_their_place_and_break_only_inside_brackets() {
     let text = program("@main: t.halt\n@helper: t.halt\n").replace(
         ".text\n",
-        "; The valid range.\nrange { 1000000000000, 2000000000000 } ; inclusive\n.text\n",
+        "; The valid range.\nrange { 1000000000000, 2000000000000 } ; inclusive\n\
+         sites [1, ; first\n  2000000000, 3000000000]\n.text\n",
     );
     let options = FormatOptions {
         max_width: 30,
@@ -543,7 +486,8 @@ fn declarations_that_cannot_break_stay_on_one_line() {
     let formatted = formatter.format(&source(&text)).unwrap();
     assert!(
         formatted.contains(
-            "    ; The valid range.\n    range{1000000000000, 2000000000000}  ; inclusive\n"
+            ".entry @main\n; The valid range.\nrange{1000000000000, 2000000000000}  ; inclusive\n\
+             sites [\n    1,                               ; first\n    2000000000,\n    3000000000,\n]\n.text\n"
         ),
         "{formatted}"
     );

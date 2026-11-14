@@ -5,15 +5,18 @@
 
 use std::marker::PhantomData;
 
-use vihaco_abi::{Lower, Value};
+use vihaco_abi::Lower;
 use vihaco_bytecode::{NoContext, SSTGlobalContext};
 use vihaco_module::loader::MetadataLoweringContext;
-use vihaco_module::module::{ProgramMetadata, Symbol};
+use vihaco_module::module::{
+    ConstantValue, NoInfo, ProgramDirective, ProgramHeader, ProgramMetadata, StandardDirective,
+    Symbol,
+};
 use vihaco_parser::Parse;
 use vihaco_runtime::HasInstructionSet;
 use vihaco_syntax::Spanned;
 
-use super::metadata::{self, Site};
+use super::metadata;
 use super::{
     Framing, Section, SectionChecker, check_file, check_global_context, parse_declarations,
     parse_instructions,
@@ -21,107 +24,55 @@ use super::{
 use crate::diagnostic::{Diagnostics, Report};
 use crate::source::{SourceFile, Span};
 
-/// Table references held by a constant value, checked against the metadata
-/// tables. Custom value types without references can use the defaults.
-pub trait ConstantReferences {
-    /// The `metadata.strings` index this constant refers to, if any.
-    fn string_index(&self) -> Option<u32> {
-        None
-    }
-
-    /// The `metadata.functions` index this constant refers to, if any.
-    fn function_index(&self) -> Option<u32> {
-        None
-    }
+/// A section's assembled program metadata, with the file span of each
+/// function's `.func` directive (in table order) for locating problems.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CheckedMetadata<V, Ty> {
+    pub metadata: ProgramMetadata<V, Ty>,
+    pub functions: Vec<Span>,
 }
 
-impl ConstantReferences for Value {
-    fn string_index(&self) -> Option<u32> {
-        match self {
-            Value::String(id) => Some(*id),
-            _ => None,
-        }
-    }
-
-    fn function_index(&self) -> Option<u32> {
-        match self {
-            Value::FunctionRef(id) => Some(*id),
-            _ => None,
-        }
-    }
-}
-
-/// A header declaration that may carry the section's program metadata.
-///
-/// Implemented for `ProgramMetadata` itself; implement it for an application
-/// declaration enum by returning the metadata variant.
-pub trait MetadataDeclaration {
-    type Value;
-    type Type;
-    type Info;
-
-    fn as_metadata(&self) -> Option<&ProgramMetadata<Self::Value, Self::Type, Self::Info>>;
-}
-
-impl<V, Ty, Info> MetadataDeclaration for ProgramMetadata<V, Ty, Info> {
-    type Value = V;
-    type Type = Ty;
-    type Info = Info;
-
-    fn as_metadata(&self) -> Option<&ProgramMetadata<V, Ty, Info>> {
-        Some(self)
-    }
-}
-
-/// How a [`ProgramChecker`] parses a section header and finds its metadata.
+/// How a [`ProgramChecker`] parses a section header and assembles its
+/// metadata.
 pub trait CheckHeader: Sized {
     type Value;
     type Type;
-    type Info;
 
     /// Parse the section's `.header` block, reporting syntax errors. Return
     /// `None` if the header is unusable.
     fn parse(section: &Section<'_>, out: &mut Diagnostics<'_>) -> Option<Self>;
 
-    /// The section's program metadata and the file span of the declaration
-    /// that supplied it, reporting header-level rules such as a missing or
-    /// duplicate declaration. Field problems are located inside that span.
+    /// Assemble the section's program metadata, reporting every header-level
+    /// problem. Return `None` if the metadata cannot be assembled.
     fn metadata(
         &self,
         section: &Section<'_>,
         out: &mut Diagnostics<'_>,
-    ) -> Option<LocatedMetadata<'_, Self>>;
+    ) -> Option<CheckedMetadata<Self::Value, Self::Type>>;
 }
-
-/// A header's program metadata and the file span of its declaration.
-pub type LocatedMetadata<'h, H> = (
-    &'h ProgramMetadata<
-        <H as CheckHeader>::Value,
-        <H as CheckHeader>::Type,
-        <H as CheckHeader>::Info,
-    >,
-    Span,
-);
 
 /// Located header declarations, one per line: the grammar of
 /// `vihaco_syntax::HeaderDeclarations<D>`, with spans.
 ///
-/// As a [`CheckHeader`], exactly one declaration must carry program metadata.
+/// As a [`CheckHeader`], the standard directives among them (see
+/// [`StandardDirective`]) are assembled with `ProgramHeader`; the other
+/// declarations are only parsed.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Declarations<D>(pub Vec<Spanned<D>>);
 
-/// The standard header: `HeaderDeclarations<ProgramMetadata>` syntax, with
-/// one `metadata { ... }` declaration.
-pub type StandardHeader = Declarations<ProgramMetadata>;
+/// The standard header: only standard directives (`.file`, `.func`,
+/// `.entry`, `.const`, `.source_symbol`).
+pub type StandardHeader = Declarations<ProgramDirective>;
 
 impl<D> CheckHeader for Declarations<D>
 where
     for<'src> D: Parse<'src>,
-    D: MetadataDeclaration + 'static,
+    D: StandardDirective + 'static,
+    D::Value: ConstantValue + Clone,
+    D::Type: Clone,
 {
     type Value = D::Value;
     type Type = D::Type;
-    type Info = D::Info;
 
     fn parse(section: &Section<'_>, out: &mut Diagnostics<'_>) -> Option<Self> {
         parse_declarations::<D>(section.header(), out).map(Declarations)
@@ -129,62 +80,57 @@ where
 
     fn metadata(
         &self,
-        section: &Section<'_>,
+        _section: &Section<'_>,
         out: &mut Diagnostics<'_>,
-    ) -> Option<LocatedMetadata<'_, Self>> {
-        let mut found: Option<(&ProgramMetadata<_, _, _>, Span)> = None;
-        for declaration in &self.0 {
-            let Some(metadata) = declaration.value.as_metadata() else {
-                continue;
-            };
-            let span = Span::from(declaration.span.clone());
-            match &found {
-                None => found = Some((metadata, span)),
-                Some((_, first)) => {
-                    let head = |span: Span| Site::new(out.source(), span).head();
-                    let diagnostic = out
-                        .build_error(
-                            head(span),
-                            format!(
-                                "section `{}` declares program metadata more than once",
-                                section.name()
-                            ),
-                        )
-                        .with_label("declared again here")
-                        .with_secondary(head(*first), "first declared here");
-                    out.push(diagnostic);
+    ) -> Option<CheckedMetadata<D::Value, D::Type>> {
+        type Located<'d, V, Ty> = (Span, &'d ProgramDirective<V, Ty>);
+        let standard: Vec<Located<'_, D::Value, D::Type>> = self
+            .0
+            .iter()
+            .filter_map(|declaration| {
+                let directive = declaration.value.as_standard()?;
+                Some((Span::from(declaration.span.clone()), directive))
+            })
+            .collect();
+        let assemble = |skip: &[usize]| {
+            let mut functions = Vec::new();
+            let mut header = ProgramHeader::new();
+            for (position, (span, directive)) in standard.iter().enumerate() {
+                if skip.contains(&position) {
+                    continue;
                 }
+                if matches!(directive, ProgramDirective::Function(_)) {
+                    functions.push(*span);
+                }
+                header.push((*directive).clone());
+            }
+            header.assemble(NoInfo).map(|metadata| CheckedMetadata {
+                metadata,
+                functions,
+            })
+        };
+        match assemble(&[]) {
+            Ok(checked) => Some(checked),
+            Err(errors) => {
+                let spans: Vec<Span> = standard.iter().map(|(span, _)| *span).collect();
+                metadata::report_header_errors(&errors, &spans, out);
+                // Keep checking `.text` against the directives that were
+                // fine, so one bad directive does not hide other problems.
+                let bad: Vec<usize> = errors.iter().map(|error| error.directive).collect();
+                assemble(&bad).ok()
             }
         }
-        if found.is_none() {
-            let span = section.block_anchor(section.header());
-            let diagnostic = out
-                .build_error(
-                    span,
-                    format!(
-                        "section `{}` has no program metadata declaration",
-                        section.name()
-                    ),
-                )
-                .with_label("expected `metadata { ... }` in this header")
-                .with_note(
-                    "every loadable section declares its strings, functions, constants, \
-                     entry function, source symbols, and extra metadata",
-                );
-            out.push(diagnostic);
-        }
-        found
     }
 }
 
 /// Lowers a section's instructions during checking, reporting failures per
 /// instruction. Nothing is executed and the lowered code is discarded.
-pub trait Lowering<I, V, Ty, Info> {
+pub trait Lowering<I, V, Ty> {
     /// Lower every instruction in `code`, returning the index and error of
     /// each one that failed. An outer error means no context could be built.
     fn lower_all(
         &mut self,
-        metadata: &ProgramMetadata<V, Ty, Info>,
+        metadata: &ProgramMetadata<V, Ty>,
         symbols: &[Symbol],
         code: Vec<I>,
     ) -> eyre::Result<Vec<(usize, eyre::Report)>>;
@@ -201,10 +147,10 @@ fn lower_each<I: Lower<C>, C>(code: Vec<I>, context: &mut C) -> Vec<(usize, eyre
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NoLowering;
 
-impl<I, V, Ty, Info> Lowering<I, V, Ty, Info> for NoLowering {
+impl<I, V, Ty> Lowering<I, V, Ty> for NoLowering {
     fn lower_all(
         &mut self,
-        _: &ProgramMetadata<V, Ty, Info>,
+        _: &ProgramMetadata<V, Ty>,
         _: &[Symbol],
         _: Vec<I>,
     ) -> eyre::Result<Vec<(usize, eyre::Report)>> {
@@ -213,18 +159,17 @@ impl<I, V, Ty, Info> Lowering<I, V, Ty, Info> for NoLowering {
 }
 
 /// Lower with [`MetadataLoweringContext`], the standard loading path: catches
-/// unresolved `@name` operands and string literals missing from
-/// `metadata.strings`.
+/// unresolved `@name` operands and other lowering failures.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MetadataLowering;
 
-impl<I, V, Ty, Info> Lowering<I, V, Ty, Info> for MetadataLowering
+impl<I, V, Ty> Lowering<I, V, Ty> for MetadataLowering
 where
     I: Lower<MetadataLoweringContext>,
 {
     fn lower_all(
         &mut self,
-        metadata: &ProgramMetadata<V, Ty, Info>,
+        metadata: &ProgramMetadata<V, Ty>,
         symbols: &[Symbol],
         code: Vec<I>,
     ) -> eyre::Result<Vec<(usize, eyre::Report)>> {
@@ -249,14 +194,14 @@ impl<F, C> ContextLowering<F, C> {
     }
 }
 
-impl<I, V, Ty, Info, F, C> Lowering<I, V, Ty, Info> for ContextLowering<F, C>
+impl<I, V, Ty, F, C> Lowering<I, V, Ty> for ContextLowering<F, C>
 where
-    F: FnMut(&ProgramMetadata<V, Ty, Info>, &[Symbol]) -> eyre::Result<C>,
+    F: FnMut(&ProgramMetadata<V, Ty>, &[Symbol]) -> eyre::Result<C>,
     I: Lower<C>,
 {
     fn lower_all(
         &mut self,
-        metadata: &ProgramMetadata<V, Ty, Info>,
+        metadata: &ProgramMetadata<V, Ty>,
         symbols: &[Symbol],
         code: Vec<I>,
     ) -> eyre::Result<Vec<(usize, eyre::Report)>> {
@@ -268,12 +213,13 @@ where
 /// The typed checker for machine `M`'s source syntax, `M::Syntax`.
 ///
 /// For each section it reports header and `.text` syntax errors, duplicate
-/// symbols, metadata table errors, function declarations without a symbol,
-/// and (with the default [`MetadataLowering`]) instructions that fail to
-/// lower, such as unresolved `@name` operands or missing string literals. It
-/// never executes anything.
+/// symbols, header directive problems (duplicate functions, a bad `.entry`,
+/// too few locals, constants naming unknown functions, duplicate source
+/// symbols), `.func` directives without a symbol, and (with the default
+/// [`MetadataLowering`]) instructions that fail to lower, such as unresolved
+/// `@name` operands. It never executes anything.
 ///
-/// - `H` parses the header and finds the metadata ([`StandardHeader`] by
+/// - `H` parses the header and assembles the metadata ([`StandardHeader`] by
 ///   default; see [`with_header`](Self::with_header)).
 /// - `L` lowers instructions ([`MetadataLowering`]; see
 ///   [`without_lowering`](Self::without_lowering) and
@@ -363,8 +309,8 @@ impl<M, H, L, C> ProgramChecker<M, H, L, C> {
 }
 
 /// Narrow an instruction span to the operand a lowering error names, such as
-/// `@helper` in ``undefined symbol `@helper` `` or `"hi"` in
-/// ``string literal `hi` is missing``.
+/// `@helper` in ``undefined symbol `@helper` `` or `"hi"` in a message
+/// quoting `` `hi` ``.
 fn operand_span(source: &SourceFile, instruction: Span, message: &str) -> Span {
     let text = source.slice(instruction);
     for quoted in message.split('`').skip(1).step_by(2) {
@@ -393,9 +339,8 @@ where
     for<'src> M::Syntax: Parse<'src>,
     M::Syntax: 'static,
     H: CheckHeader,
-    H::Value: ConstantReferences,
     H::Type: Clone,
-    L: Lowering<M::Syntax, H::Value, H::Type, H::Info>,
+    L: Lowering<M::Syntax, H::Value, H::Type>,
     C: SSTGlobalContext,
 {
     fn check_global(&mut self, global: &super::Block<'_>, out: &mut Diagnostics<'_>) {
@@ -416,24 +361,24 @@ where
         metadata::check_duplicate_symbols(&text.symbols, out);
 
         let Some(header) = header else { return };
-        let Some((program, declaration)) = header.metadata(section, out) else {
+        let Some(checked) = header.metadata(section, out) else {
             return;
         };
-        let site = Site::new(out.source(), declaration);
-        metadata::check_tables(program, &site, out);
         if !text_ok {
             // Missing symbols and lowering failures could be caused by the
             // syntax errors already reported.
             return;
         }
-        metadata::check_bindings(program, &text.symbols, &site, out);
+        let program = &checked.metadata;
+        metadata::check_bindings(program, &checked.functions, &text.symbols, out);
 
+        let anchor = section.block_anchor(section.header());
         let symbols: Vec<Symbol> = text.symbols.iter().map(|s| s.value.clone()).collect();
         if out.error_count() == start_errors
             && let Err(error) = program.validate(&symbols, text.code.len())
         {
             // A rule this checker does not model; report the loader's message.
-            out.error(site.head(), format!("{error:#}"), "in this metadata");
+            out.error(anchor, format!("{error:#}"), "in this header");
         }
 
         // Lower against the first definition of each symbol so that a
@@ -460,9 +405,9 @@ where
             Err(error) => {
                 if out.error_count() == start_errors {
                     out.error(
-                        site.head(),
+                        anchor,
                         format!("cannot prepare lowering: {error:#}"),
-                        "for this metadata",
+                        "for this header",
                     );
                 }
             }
@@ -482,8 +427,7 @@ where
 }
 
 /// Check every section of `source` as a program for machine `M`, with the
-/// standard `metadata { ... }` header and `MetadataLoweringContext`
-/// lowering.
+/// standard directive header and `MetadataLoweringContext` lowering.
 pub fn check_program<M>(source: &SourceFile) -> Report
 where
     M: HasInstructionSet,
@@ -501,7 +445,6 @@ where
     for<'src> M::Syntax: Parse<'src>,
     M::Syntax: Lower<MetadataLoweringContext> + 'static,
     H: CheckHeader,
-    H::Value: ConstantReferences,
     H::Type: Clone,
 {
     ProgramChecker::<M>::new().with_header::<H>().check(source)

@@ -2,7 +2,7 @@
 layout: ../../layouts/Guide.astro
 title: Emitting SST from a compiler
 slug: sst-reference
-description: "The SST file structure, instruction syntax, and metadata a compiler must produce."
+description: "The SST file structure, line rules, header directives, and instruction syntax a compiler must produce."
 ---
 
 # Emitting SST from a compiler
@@ -13,61 +13,50 @@ description: "The SST file structure, instruction syntax, and metadata a compile
 > this warning does not imply a stable replacement is already available.
 
 A compiler targeting SST needs both a target machine's instruction vocabulary
-and the program metadata expected by its loader. SST provides section framing;
-the target supplies instruction, type, value, and header grammars. Keep the
-compiler and loader on the same vihaco revision and agree on application-specific
-declarations and lowering rules.
+and the header directives expected by its loader. SST provides section framing
+and the standard program directives; the target supplies instruction, type, and
+value grammars and any application directives. Keep the compiler and loader on
+the same vihaco revision and agree on application-specific directives and
+lowering rules.
 
 ## File and section structure
 
 SST is a line-based, assembly-style file. Emit `sst v2` first, then an optional
-`.global` block, then one or more named sections. Each directive sits on its own
-line and opens a block that runs until the next directive or the end of the
-file; there are no closing markers. This is a complete program for a machine
-with an `execution` device using the standard program dialect:
+`.global` block, then one or more named sections. Each block directive sits on
+its own line and opens a block that runs until the next block directive or the
+end of the file; there are no closing markers. This is a complete program for a
+machine with an `execution` device using the standard program dialect:
 
 ```text
 sst v2
 
 .section main
 .header
-    metadata {
-        strings: ["main", "output.sst"],
-        functions: [
-            {
-                name: 0,
-                signature: { params: [], ret: [u64] },
-                local_count: 0,
-                file: 1,
-            },
-        ],
-        constants: [],
-        main_function: 0,
-        source_symbols: [],
-        extra: {},
-    }
+.file "output.sst"
+.func @main() -> u64, locals 0
+.entry @main
 .text
 @main:
     execution::program::const_u64 42
     execution::program::ret 1
 ```
 
-The directives are:
+The block directives are:
 
 | Directive | Meaning |
 |---|---|
 | `sst v2` | Format version. Must be the first non-blank line. |
 | `.global` | Optional global context in a consumer-defined grammar. Must come before any `.section`; omit it for loaders using `NoContext`. |
 | `.section <name>` | Starts a new section. Names are required, unique within the file, and contain no whitespace. |
-| `.header` | The current section's header: declarations such as `metadata { ... }`. |
+| `.header` | The current section's header: one directive per line, such as `.func @main() -> u64, locals 0`. |
 | `.text` | The current section's code: a flat instruction stream with `@name:` symbol definitions. |
 
 Sections are a flat list; there is no nesting and no implicit root. Each may
 contain at most one `.header` and one `.text`, in either order. An omitted block
 yields empty text to the consumer; a runnable program still needs the content
-its loader requires. Indentation is free-form, and directive lines may end with
-a `;` comment. Every other line belongs to the enclosing block and is passed to
-the target's grammar unchanged.
+its loader requires. Every other line belongs to the enclosing block and is
+passed to the target's grammar unchanged; only these five directives are
+reserved, so header directives such as `.func` are block content.
 
 A section is an independently loadable unit. Its name exists only so a loader
 can select it with `file.section(name)`. Execution relies on instruction
@@ -76,20 +65,21 @@ section come from its symbol definitions, described below.
 
 ### Lines and comments
 
-SST reads like assembly: every statement (a declaration in `.header`, a symbol
+SST reads like assembly: every statement (a directive in `.header`, a symbol
 definition or instruction in `.text`) ends at the end of its line. There is no
 statement terminator. A statement continues onto the next line only while a
 `(`, `[`, or `{` is open, as in Python; there is no `\` continuation. Two
 statements on one line, or an operand moved to the next line outside brackets,
 is an error. Indentation and spacing carry no meaning, and `\r\n` is a newline.
 A bracket left open at the end of a block is reported where it was opened, as
-``unclosed `[` opened at line N``.
+``unclosed `[` opened at line N``, and the lines after it are checked normally.
 
 A comment runs from `;` to the end of the line. Comments may end any line,
-including directive lines, and may stand on their own line. Inside a
+including block directive lines, and may stand on their own line. Inside a
 bracket-continued statement they may also end each continued line. A `;`
-inside a string literal is part of the string. The `.global` block is
-consumer-defined and decides its own comment rules.
+inside a string literal is part of the string, so string literals cannot span
+lines (write `\n`). The `.global` block is consumer-defined and decides its own
+comment rules.
 
 A comment on its own line that starts with `;;` (but not `;;;`) is
 *generated*: tools such as the [formatter](#formatting-sst-files) write it
@@ -119,8 +109,7 @@ address order, plus symbol definitions:
     execution::program::call 0, @helper
     execution::program::br @done
     execution::program::const_u64 999
-@done:
-    execution::program::ret 1
+@done: execution::program::ret 1
 @helper:
     execution::program::const_u64 21
     execution::program::ret 1
@@ -132,99 +121,121 @@ address order, plus symbol definitions:
 - `@name` in an operand refers to a symbol. Lowering looks it up in the
   section's symbol table, so forward references work. Each instruction decides
   what it needs from the entry: `br` and `call` take the symbol's address,
-  while a function-reference constant takes the function's metadata index.
+  while a function-reference constant takes the function's table index.
 - Symbol names are unique within a section. There is no per-function scope; a
   compiler that reuses local label names should qualify them, for example
   `@main.done`.
 - Each instruction and each symbol definition goes on its own line, except
-  that a symbol definition may be followed by one instruction on its line, as
-  in `@done: execution::program::ret 1`. Indentation carries no meaning.
+  that one symbol definition may be followed by one instruction on its line,
+  as in `@done: execution::program::ret 1`, like `label: mov` in assembly.
 
-A function is a symbol that has a declaration in the header's `functions` table
-with the same name. Its signature and locals come only from that declaration.
-Its executable range runs from its symbol to the next function symbol, or to the
-end of the section; other symbols inside it, such as `@done`, do not end it.
-Nothing stops execution from running past the end of one function into the next.
+A function is a symbol that has a `.func` directive with the same name in the
+header. Its signature and locals come only from that directive. Its executable
+range runs from its symbol to the next function symbol, or to the end of the
+section; other symbols inside it, such as `@done`, do not end it. Nothing stops
+execution from running past the end of one function into the next.
 
 Each parsed instruction lowers to exactly one runtime instruction. Expand any
 compiler pseudo-instructions before emitting SST. Symbolic operands and their
 punctuation are dialect-specific; see the
 [parser pattern reference](/guide/parser-patterns).
 
-## The metadata header
+## The header
 
-The standard loading path uses `HeaderDeclarations<ProgramMetadata>` or an
-application declaration enum containing `ProgramMetadata`. Each declaration
-starts on its own line; the record continues onto the following lines because
-its `{` is open. The first-machine loader requires exactly one
-`metadata { ... }` record;
-other loaders choose their own required declarations and duplicate policy.
+The standard header is a list of flat directives, one per line, that name
+things by symbol. The loader builds every table and index from them; no index
+or string table is written by hand:
 
-Emit every field below, including empty arrays. Records use named fields and
-comma-separated lists; trailing commas are accepted. The standard schema is
-`ProgramMetadata<Value, Type, NoInfo>`:
+```text
+.file "loadable.sst"                  ; the file of the .func lines that follow
+.func @helper(x: u64) -> u64, locals 1
+.func @main() -> (u64, bool), locals 0
+.entry @main
+.const u64 42                         ; constants[0]
+.const str "hello"                    ; a string constant, by its text
+.const fn @helper                     ; a function reference, by name
+.source_symbol 12 "user"
+experiment.description "an example"   ; an application directive
+```
 
-| Field | What the compiler supplies |
+| Directive | Meaning |
 |---|---|
-| `strings` | An ordered array of quoted strings, including function names, parameter names, filenames, and literals needed by lowering. String indices are zero-based. Plain symbols such as branch targets need no entry. |
-| `functions` | An ordered array of function declarations, described below. Array position is the function index; this order may differ from address order. |
-| `constants` | An ordered array of values parsed by the target's value parser. Constant indices are array positions. |
-| `main_function` | The entry function's table index, or `null` when no entry is selected. It is not an instruction address. |
-| `source_symbols` | Records `{ index: number, name: "symbol" }`. Indices must be unique; names are inline strings. Agree with the consumer on their meaning. |
-| `extra` | Application metadata in the target's chosen schema. With the default `NoInfo`, emit `{}`. |
+| `.file "path"` | The source file of the `.func` directives that follow, until the next `.file`. A `.func` before any `.file` belongs to the empty file `""`. |
+| `.func @name(param: type, ...) -> ret, locals N` | Declares a function. The return is omitted (no results), one type (`-> u64`), or a parenthesized list (`-> (u64, bool)`). `locals N` is the total number of reserved local slots, including parameters, and must be at least the parameter count; the loader does not infer extra locals. The function table is in `.func` order, and each name must match a `@name:` symbol in `.text` and be unique. |
+| `.entry @name` | Selects the entry function, by name. Optional; at most one. |
+| `.const <value>` | Appends to the constant pool; the pool is in `.const` order. `.const str "text"` is a string constant and `.const fn @name` a reference to a declared function. Other values use the value type's syntax: with standard `Value`, typed literals such as `u64 42`, `i64 -1`, `bool true`, `f64 -0.5`, or `f64_bits` followed by a decimal `u64` (and `f32_bits` with a `u32`) to preserve exact floating-point bits, including NaNs. A table index such as `str 3` or `fn 0` is rejected. |
+| `.source_symbol <index> "<name>"` | A source-level symbol. Indices are unique; agree with the consumer on their meaning. |
 
-Each function record contains:
+Directives may appear in any order; their relative order matters only within a
+kind (`.func` order, `.const` order, and which `.file` precedes a `.func`). The
+grammar leaves room for named constants (`.const @name <value>`) later.
 
-| Field | Meaning |
-|---|---|
-| `name` | Index of the function name in `strings`, without the `@` prefix. It must match a `@name:` symbol in `.text`, and names must be unique. |
-| `signature` | `{ params: [{ name: string_index, ty: type }, ...], ret: [type, ...] }`. This is the only place a function's signature is stated. |
-| `local_count` | Total reserved local slots, including parameters. Must be at least the parameter count; the loader does not infer extra locals. |
-| `file` | Index of the source filename in `strings`. |
+Parameter and symbol names contain no whitespace and none of
+`` : @ , ; ( ) [ ] { } " ' ` ``. A long `.func` may be broken inside its
+parentheses.
 
-A declaration says *what* a function is; its symbol says *where* it is. There
-are no address fields to keep in sync. Addresses and table references use `u32`
-and count decoded instructions, not bytes, source lines, or symbol definitions.
-In the example, `main` covers `0..2`. Function-reference constants lower to
-metadata table indices, independently of address order.
+### Derived tables
+
+`ProgramHeader` assembles the directives into `ProgramMetadata`:
+
+- **functions**: one per `.func`, in order; `.entry` and `.const fn` resolve to
+  these indices.
+- **constants**: one per `.const`, in order.
+- **source symbols**: one per `.source_symbol`, in order.
+- **strings**: each distinct string once, at its first occurrence, in this
+  order: function names in `.func` order; then parameter names, by function and
+  then by position; then file names in `.func` order; then `.const str`
+  literals in `.const` order. Lowering then appends the string literals that
+  `.text` instructions intern, in address order. The same file always yields
+  the same table.
+
+For the example above, `strings` is `["helper", "main", "x", "loadable.sst",
+"hello"]`, `functions[0]` is `@helper`, `main_function` is `1`, and the
+constants are `[u64 42, str 4, fn 0]`.
+
+Addresses and table references use `u32` and count decoded instructions, not
+bytes, source lines, or symbol definitions. In the first example, `main`
+covers `0..2`. Function-reference constants lower to function-table indices,
+independently of address order.
+
+### Application directives
+
+A loader can accept its own directives in the same header, such as device
+configuration or `experiment.description` above. Its declaration enum holds a
+`ProgramDirective` variant (usually `#[pattern = "$0"]`) next to its own
+variants and implements `StandardDirective` to expose it; the loader pushes the
+standard directives into a `ProgramHeader` and handles the rest, then passes
+its own result as the metadata's `extra`. These directives require an explicit
+agreement with the consuming loader. See
+[loading SST programs](/guide/parser-advanced) for declaration preparation and
+custom contexts.
 
 ## Constants, strings, and symbol resolution
 
-With standard `Value`, constants use typed literals such as `u64 42`, `i64 -1`,
-`bool true`, `string 0`, and `fn 0`. String values reference `strings`;
-function references select `functions`. The loader checks these references when
-assembling the module. Use `f32_bits` followed by a decimal `u32` or `f64_bits`
-followed by a decimal `u64` to preserve exact floating-point bits, including NaNs.
-Custom value types can define a different grammar.
-
-Populate strings before lowering. `MetadataLoweringContext` looks up strings
-without appending or reordering them; a missing literal is an error. Equal
-strings resolve to the first matching table entry. Function lookup preserves
-the supplied function indices. Symbol lookup uses the whole section's table and
-returns absolute, section-local addresses.
-
-Application header directives can describe device configuration or add lowering
-capabilities. These require an explicit agreement with the consuming loader;
-the standard metadata record does not define their schema. See
-[loading SST programs](/guide/parser-advanced) for declaration preparation and
-custom contexts.
+`MetadataLoweringContext` resolves symbols through the whole section's table
+and returns absolute, section-local addresses. Function lookup preserves the
+`.func` indices. Its string lookup interns: a string already in the table
+(including the header's strings) keeps its index, and a new one is appended,
+so `.text` string literals need no header entry. Store the completed table with
+`metadata.strings = context.into_strings()` before assembling the module.
 
 ## Validate compiler output
 
 Load emitted files through the same path as the target application:
-`SSTFile::from_text`, `ParsedModule::parse_section`, declaration preparation,
-`MetadataLoweringContext::new`, `lower_code_with_metadata`, then
-`metadata.into_module(code, symbols)`. This binds each function declaration to
-its symbol, rejects duplicate or missing symbols, derives instruction ranges,
-resolves symbolic operands, and checks standard constant references. Loading preserves table order and does
-not invent missing metadata or select an entry function for you.
+`SSTFile::from_text`, `ParsedModule::parse_section`, assembling the directives
+with `ProgramHeader`, `MetadataLoweringContext::new`, `lower_code_with_metadata`,
+storing the interned strings, then `metadata.into_module(code, symbols)`. This
+binds each function to its symbol, rejects duplicate or missing symbols,
+derives instruction ranges, resolves symbolic operands, and checks standard
+constant references. Loading preserves directive order and does not invent
+missing declarations or select an entry function for you.
 
 For the minimal file above, this loader validates and assembles the program:
 
 ```rust
 use vihaco::{HasInstructionSet, NoContext, SSTFile, composite};
 use vihaco::loader::MetadataLoweringContext;
-use vihaco::module::ProgramMetadata;
+use vihaco::module::{NoInfo, ProgramDirective, ProgramHeader};
 use vihaco::syntax::{HeaderDeclarations, ParsedModule, lower_code_with_metadata};
 
 #[composite]
@@ -244,16 +255,16 @@ fn validate(source: &str) -> eyre::Result<()> {
         code,
         symbols,
     } = ParsedModule::<
-        SourceInstruction, HeaderDeclarations<ProgramMetadata>
+        SourceInstruction, HeaderDeclarations<ProgramDirective>
     >::parse_section(section)?;
-    let mut declarations = header.into_iter();
-    let metadata = declarations.next().ok_or_else(|| eyre::eyre!("missing metadata"))?;
-    eyre::ensure!(declarations.next().is_none(), "duplicate metadata");
+    let mut metadata = header.into_iter().collect::<ProgramHeader>().finish(NoInfo)?;
     let mut context = MetadataLoweringContext::new(&metadata, &symbols)?;
     let code = lower_code_with_metadata(code, &symbols, &metadata, &mut context)?;
+    metadata.strings = context.into_strings();
     let module = metadata.into_module(code, symbols)?;
     assert_eq!(module.code.len(), 2);
     assert_eq!(module.main_function, Some(0));
+    assert_eq!(module.strings, ["main", "output.sst"]);
     Ok(())
 }
 # let page = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/src/pages/guide/sst-reference.md"));
@@ -263,11 +274,11 @@ fn validate(source: &str) -> eyre::Result<()> {
 ```
 
 Use [your first machine](/guide/first-machine) as a minimal consumer and the
-[Loadable example](/guide/parser-advanced#run-the-complete-example) for multiple
-sections, reordered function metadata, a helper call, and a forward branch.
-Test both accepted programs and malformed output: missing strings, missing
-or duplicate symbols, functions without a symbol, insufficient locals,
-unresolved symbolic operands, and invalid table references. Execute accepted
+[Loadable example](/guide/parser-advanced#run-the-complete-example) for
+an application directive, a function table in a different order from the code,
+a helper call, and a forward branch. Test both accepted programs and malformed
+output: duplicate or missing symbols, `.func` without a symbol, insufficient
+locals, an unknown `.entry`, and unresolved symbolic operands. Execute accepted
 programs to check behavior as well as syntax.
 
 ## Checking SST files
@@ -322,16 +333,16 @@ fn main() {
     assert!(check_program::<Machine>(&source).is_ok());
 
     let broken = text
-        .replace("main_function: 0", "main_function: 3")
+        .replace(".entry @main", ".entry @start")
         .replace("const_u64 22", "const_u64 x")
         .replace("arithmetic::add", "arithmetic::sub");
     let source = SourceFile::new("broken.sst", broken);
     let report = check_program::<Machine>(&source);
     let messages: Vec<String> = report.iter().map(ToString::to_string).collect();
     assert_eq!(messages, [
-        "16:24: error: metadata.main_function: function index 3 is out of range (metadata.functions has 1 entry)",
-        "23:35: error: unexpected `x` in operands of `execution::program::const_u64`",
-        "24:5: error: expected an instruction, found `calculator::arithmetic::sub`",
+        "7:8: error: `.entry @start` names no `.func` directive",
+        "11:35: error: unexpected `x` in operands of `execution::program::const_u64`",
+        "12:5: error: expected an instruction, found `calculator::arithmetic::sub`",
     ]);
     eprint!("{}", report.render(&source));
 }
@@ -343,18 +354,24 @@ style of rustc:
 
 ```text
 error: unexpected `x` in operands of `execution::program::const_u64`
-   --> broken.sst:23:35
+   --> broken.sst:11:35
    |
-23 |     execution::program::const_u64 x
+11 |     execution::program::const_u64 x
    |                                   ^ unexpected operand
 ```
 
-`check_program` checks every section with the standard `metadata { ... }`
-header and `MetadataLoweringContext` lowering. It reports framing errors,
-header and `.text` syntax errors, duplicate symbols, metadata table errors,
-functions without a symbol, and instructions that fail to lower, such as an
-unresolved `@name` or a string missing from `strings`. Use `ProgramChecker` to
-select sections with `require_sections`, parse an application header with
+`check_program` checks every section with the standard directive header and
+`MetadataLoweringContext` lowering. It reports framing errors; header and
+`.text` syntax errors, one per bad line, including unknown directives, two
+statements on a line, and unclosed brackets; duplicate symbols; header
+directive problems (duplicate `.func` names, too few `locals`, more than one
+`.entry` or one naming no `.func`, a `.const fn` naming no `.func`, a constant
+written as a table index, duplicate `.source_symbol` indices), each pointing at
+the offending part of its line; `.func` directives without a `@name:` symbol;
+and instructions that fail to lower, such as an unresolved `@name`. A bad
+directive does not stop the `.text` checks: they run against the directives
+that were fine. Use `ProgramChecker` to select sections with
+`require_sections`, parse an application header with
 `with_header::<Declarations<YourDeclaration>>()`, or lower with your own
 context. `check_framing` needs no machine, and `check_file` accepts any
 `SectionChecker` for other header or instruction grammars.
@@ -428,24 +445,12 @@ sst v2
 
 .section main
 .header
-    metadata {
-        strings: ["main", "first-machine.sst"],
-        functions: [
-            {
-                ;; "main"
-                name: 0,
-                signature: { params: [], ret: [u64] },
-                local_count: 0,
-                ;; "first-machine.sst"
-                file: 1,
-            },
-        ],
-        constants: [],
-        ;; @main
-        main_function: 0,
-        source_symbols: [],
-        extra: {},
-    }
+;; strings[1]
+.file "first-machine.sst"
+;; functions[0], @main = 0x0000..0x0004
+.func @main() -> u64, locals 0
+;; functions[0]
+.entry @main
 .text
 ;; fn main() -> u64, locals 0, functions[0]
 @main:
@@ -457,7 +462,7 @@ sst v2
 
 The file is checked first, with the same `ProgramChecker` as
 [`check_program`](#checking-sst-files); if it has errors, `format_program`
-returns the `Report` instead. Instructions and header declarations are
+returns the `Report` instead. Instructions and header directives are
 re-spelled with their `Print` implementations, so operands, keywords, and
 punctuation take their canonical spelling. A value that has no spelling that
 parses back to itself is reported as an error rather than altered. Before
@@ -466,19 +471,20 @@ has the same headers, code, symbols, and comments as the input.
 
 ### Layout
 
-- Directives start at column 0, one per line; a directive's comment follows it
-  after two spaces. One blank line precedes `.global` and every `.section`.
-  `.header` and `.text` follow without a blank line and keep their order.
+- Block directives start at column 0, one per line; a directive's comment
+  follows it after two spaces. One blank line precedes `.global` and every
+  `.section`. `.header` and `.text` follow without a blank line and keep their
+  order.
 - `.global` content is consumer-defined and kept verbatim, except that trailing
   whitespace and trailing blank lines are removed.
-- Header declarations are indented four spaces. A
-  `metadata { ... }` record always puts one field per line. Nested records and
-  lists stay on one line when they fit in `max_width` (80 columns by default)
-  and contain no comments; otherwise they are broken one item per line with a
-  trailing comma, like rustfmt. Record fields appear in their declaration
-  order: the standard record is `strings`, `functions`, `constants`,
-  `main_function`, `source_symbols`, `extra` (any order is accepted when
-  parsing). Tuples and declarations whose pattern needs its punctuation on one
+- Header directives also start at column 0, one per line, in source order.
+  Their order is meaningful (`.func` and `.const` order define the tables, and
+  `.file` applies to the `.func` lines after it), so the formatter never
+  reorders them, and application directives stay where they are. A directive
+  stays on one line; an application directive with a list or record that does
+  not fit in `max_width` (80 columns by default), or that carries comments, is
+  broken one item per line inside its brackets with a trailing comma, like
+  rustfmt. Tuples and declarations whose pattern needs its punctuation on one
   line are never broken.
 - In `.text`, each symbol definition and each instruction gets its own line:
   `@name:` at column 0 and instructions indented four spaces.
@@ -495,14 +501,14 @@ has the same headers, code, symbols, and comments as the input.
 ### Comments
 
 A `;` comment on its own line stays above the item that follows it. A trailing
-comment stays at the end of its item's line; inside a header record, the item
-is the field or list entry, and it travels with that field when `Print`
-reorders fields. A comment never leaves the block it was written in: comments
-after the last item of a `.header` or `.text` stay at the end of that block, at
-its indentation, after a blank line if there was one. When one item had several
-trailing comments, the first stays trailing and the others move above the item.
-If a comment's position inside a declaration cannot be matched to the printed
-declaration, it is moved above the declaration.
+comment stays at the end of its item's line; inside a bracket-continued
+declaration, the item is the list entry or record field, and it travels with
+that field when `Print` reorders fields. A comment never leaves the block it
+was written in: comments after the last item of a `.header` or `.text` stay at
+the end of that block, after a blank line if there was one. When one item had
+several trailing comments, the first stays trailing and the others move above
+the item. If a comment's position inside a declaration cannot be matched to the
+printed declaration, it is moved above the declaration.
 
 Generated comments are rewritten every time: every own-line `;;` comment is
 removed and fresh ones are written. Without them
@@ -512,14 +518,15 @@ describes:
 
 | Item | Generated comment |
 |---|---|
+| `.func @main(...)` | `;; functions[1], @main = 0x0000..0x0006` (its index and range) |
+| `.entry @main` | `;; functions[1]` |
+| `.file "loadable.sst"` | `;; strings[2]` |
+| `.const u64 42` | `;; constants[0]` |
+| `.const str "hello"` / `.const fn @helper` | `;; constants[1] = strings[3]` / `;; constants[2] = functions[0]` |
 | Function symbol `@main:` | `;; fn main() -> u64, locals 0, functions[1]` |
 | Other symbol `@done:` | `;; 0x0005` (its address) |
 | Instruction with an `@name` operand | `;; @done = 0x0005`; functions add their index: `;; @helper = 0x0006 (functions[0])` |
 | Instruction with a string literal | `;; "hi" = strings[3]` |
-| `functions[i].name`, `.file` | `;; "helper"`, `;; "loadable.sst"` |
-| `functions[i].signature` with parameters | `;; fn helper(x: u64) -> u64` |
-| `main_function` | `;; @main` |
-| `str N` / `fn N` constants | `;; "hi"`, `;; @helper` |
 
 For example:
 
@@ -531,15 +538,16 @@ For example:
     execution::program::const_u64 999  ; never reached
 ```
 
-Notes are looked up in the section's metadata and symbol table. An item with
-several notes gets one `;;` line per note. Machine-specific notes can be added with
-`Formatter::with_annotator`, which receives each instruction with its address,
-the symbol table, and the string table. For an application header, use
-`Formatter::with_checker` with the same checker you would use for
-`ProgramChecker`, for example
+Notes are looked up in the section's assembled metadata and symbol table. The
+string indices of `.text` literals follow the [derived table](#derived-tables),
+assuming each string literal operand is interned as it lowers, as the standard
+dialects do. An item with several notes gets one `;;` line per note.
+Machine-specific notes can be added with `Formatter::with_annotator`, which
+receives each instruction with its address, the symbol table, and the string
+table. For an application header, use `Formatter::with_checker` with the same
+checker you would use for `ProgramChecker`, for example
 `ProgramChecker::<Machine>::new().with_header::<Declarations<YourDeclaration>>()`.
-The `metadata { ... }` record inside an application declaration gets the same
-layout and notes.
+The standard directives inside an application header get the same notes.
 
 Continue with [binary formats](/guide/instructions-advanced) for encoded programs
 and compatibility planning.
