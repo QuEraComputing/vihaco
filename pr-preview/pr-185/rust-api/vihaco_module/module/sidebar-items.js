@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["FunctionDecl","FunctionInfo","LocalModule","NoInfo","Parameter","ProgramMetadata","Signature","SourceSymbolInfo","Symbol"]};
