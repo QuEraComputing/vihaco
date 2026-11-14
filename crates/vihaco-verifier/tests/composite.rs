@@ -1,0 +1,332 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
+//! The engine verifies a real `#[composite]` machine through its generated
+//! `Verify` aggregate. Run with `--features typed-declarations`.
+
+#![cfg(feature = "typed-declarations")]
+
+use std::collections::BTreeSet;
+
+use vihaco_runtime::{HasInstructionSet, Lower as _, component, composite, dialect};
+use vihaco_verifier::{
+    AbstractState, DiagnosticKind, Flow, Frame, FrameState, FunctionSpan, OperandStack, Type,
+    TypeSlot, TypedSlot, Verify, VerifyError, VerifyOptions, stack_effect, verify_functions,
+};
+
+/// A component-specific capability: which channels are open.
+trait Channels {
+    fn open(&mut self, channel: u32);
+    fn require_open(&self, channel: u32) -> Result<(), VerifyError>;
+}
+
+#[dialect]
+mod compute {
+    #[instruction]
+    #[pattern = "'const_i64"]
+    pub struct ConstI64;
+
+    #[instruction]
+    #[pattern = "'const_f64"]
+    pub struct ConstF64;
+
+    #[instruction]
+    #[pattern = "'const_bool"]
+    pub struct ConstBool;
+
+    #[instruction]
+    #[pattern = "'add_i64"]
+    pub struct AddI64;
+
+    #[instruction]
+    #[pattern = "'br $0"]
+    pub struct Br(pub u32);
+
+    #[instruction]
+    #[pattern = "'br_if $0 `,` $1"]
+    pub struct BranchIf(pub u32, pub u32);
+
+    #[instruction]
+    #[pattern = "'halt"]
+    pub struct Halt;
+}
+
+#[dialect]
+mod sequencer {
+    #[instruction]
+    #[pattern = "'open $0"]
+    pub struct Open(pub u32);
+
+    #[instruction]
+    #[pattern = "'play $0"]
+    pub struct Play(pub u32);
+}
+
+impl<C: OperandStack<Slot: TypedSlot> + ?Sized> Verify<C> for compute::ConstI64 {
+    fn verify(&self, cx: &mut C) -> eyre::Result<()> {
+        stack_effect(cx, [], [Type::I64])
+    }
+}
+
+impl<C: OperandStack<Slot: TypedSlot> + ?Sized> Verify<C> for compute::ConstF64 {
+    fn verify(&self, cx: &mut C) -> eyre::Result<()> {
+        stack_effect(cx, [], [Type::F64])
+    }
+}
+
+impl<C: OperandStack<Slot: TypedSlot> + ?Sized> Verify<C> for compute::ConstBool {
+    fn verify(&self, cx: &mut C) -> eyre::Result<()> {
+        stack_effect(cx, [], [Type::Bool])
+    }
+}
+
+impl<C: OperandStack<Slot: TypedSlot> + ?Sized> Verify<C> for compute::AddI64 {
+    fn verify(&self, cx: &mut C) -> eyre::Result<()> {
+        stack_effect(cx, [Type::I64, Type::I64], [Type::I64])
+    }
+}
+
+impl<C: ?Sized> Verify<C> for compute::Br {
+    fn flow(&self) -> Flow {
+        Flow::jump(self.0)
+    }
+    fn verify(&self, _: &mut C) -> eyre::Result<()> {
+        Ok(())
+    }
+}
+
+impl<C: OperandStack<Slot: TypedSlot> + ?Sized> Verify<C> for compute::BranchIf {
+    fn flow(&self) -> Flow {
+        Flow::jump_to([self.0, self.1])
+    }
+    fn verify(&self, cx: &mut C) -> eyre::Result<()> {
+        cx.pop_expect(&Type::Bool)?;
+        Ok(())
+    }
+}
+
+impl<C: ?Sized> Verify<C> for compute::Halt {
+    fn flow(&self) -> Flow {
+        Flow::Halt
+    }
+    fn verify(&self, _: &mut C) -> eyre::Result<()> {
+        Ok(())
+    }
+}
+
+impl<C: Channels + ?Sized> Verify<C> for sequencer::Open {
+    fn verify(&self, cx: &mut C) -> eyre::Result<()> {
+        cx.open(self.0);
+        Ok(())
+    }
+}
+
+impl<C: Channels + ?Sized> Verify<C> for sequencer::Play {
+    fn verify(&self, cx: &mut C) -> eyre::Result<()> {
+        Ok(cx.require_open(self.0)?)
+    }
+}
+
+#[component]
+#[instructions { compute }]
+struct Cpu;
+
+#[component]
+#[instructions { sequencer }]
+struct Sequencer;
+
+impl<I> vihaco_runtime::Execute<I> for Cpu {
+    type Message = ();
+    type Effect = ();
+    type Error = std::convert::Infallible;
+    fn execute(&mut self, _: &I, _: ()) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl<I> vihaco_runtime::Execute<I> for Sequencer {
+    type Message = ();
+    type Effect = ();
+    type Error = std::convert::Infallible;
+    fn execute(&mut self, _: &I, _: ()) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+#[composite]
+struct Machine {
+    #[device(1)]
+    cpu: Cpu,
+    #[device(2)]
+    seq: Sequencer,
+}
+
+impl<I> vihaco_runtime::Step<vihaco_runtime::field!(Machine::cpu), I> for Machine {
+    fn step(&mut self, _: &I, _: &()) -> eyre::Result<()> {
+        Ok(())
+    }
+}
+
+impl<I> vihaco_runtime::Step<vihaco_runtime::field!(Machine::seq), I> for Machine {
+    fn step(&mut self, _: &I, _: &()) -> eyre::Result<()> {
+        Ok(())
+    }
+}
+
+/// The machine's verifier context: the standard frame plus open channels.
+struct MachineVerifier {
+    frame: FrameState<TypeSlot>,
+    open: BTreeSet<u32>,
+}
+
+impl OperandStack for MachineVerifier {
+    type Slot = TypeSlot;
+    fn pop(&mut self) -> Result<TypeSlot, VerifyError> {
+        self.frame.pop()
+    }
+    fn push(&mut self, slot: TypeSlot) {
+        self.frame.push(slot);
+    }
+    fn peek(&self) -> Result<&TypeSlot, VerifyError> {
+        self.frame.peek()
+    }
+    fn depth(&self) -> usize {
+        self.frame.depth()
+    }
+}
+
+impl Channels for MachineVerifier {
+    fn open(&mut self, channel: u32) {
+        self.open.insert(channel);
+    }
+    fn require_open(&self, channel: u32) -> Result<(), VerifyError> {
+        if self.open.contains(&channel) {
+            Ok(())
+        } else {
+            Err(VerifyError::rule(format!("channel {channel} is not open")))
+        }
+    }
+}
+
+impl AbstractState for MachineVerifier {
+    type Snapshot = (Frame<TypeSlot>, BTreeSet<u32>);
+
+    fn snapshot(&self) -> Self::Snapshot {
+        (self.frame.snapshot(), self.open.clone())
+    }
+
+    fn restore(&mut self, (frame, open): &Self::Snapshot) {
+        self.frame.restore(frame);
+        self.open.clone_from(open);
+    }
+
+    fn join(
+        (frame, open): &mut Self::Snapshot,
+        (in_frame, in_open): &Self::Snapshot,
+    ) -> Result<bool, VerifyError> {
+        let frame_changed = frame.join(in_frame)?;
+        let before = open.len();
+        open.retain(|channel| in_open.contains(channel));
+        Ok(frame_changed || open.len() != before)
+    }
+
+    fn set_address(&mut self, function: u32, address: u32) {
+        self.frame.set_address(function, address);
+    }
+}
+
+type Instruction = <Machine as HasInstructionSet>::Runtime;
+
+fn parse(source: &str) -> Instruction {
+    use vihaco_runtime::{Parse, chumsky::Parser as _};
+    <Machine as HasInstructionSet>::Syntax::parser()
+        .parse(source)
+        .into_result()
+        .unwrap_or_else(|errors| panic!("{source}: {errors:?}"))
+        .lower(&mut ())
+        .unwrap()
+}
+
+fn verify(program: &[&str]) -> Result<(), Vec<(u32, DiagnosticKind)>> {
+    let code: Vec<Instruction> = program.iter().map(|source| parse(source)).collect();
+    let entry = (Frame::new(vec![]), BTreeSet::new());
+    let mut cx = MachineVerifier {
+        frame: FrameState::new(entry.0.clone()),
+        open: BTreeSet::new(),
+    };
+    let function = FunctionSpan {
+        function: 0,
+        start: 0,
+        end: code.len() as u32,
+        entry,
+    };
+    verify_functions(&code, &[function], &mut cx, VerifyOptions::default())
+        .map(|_| ())
+        .map_err(|rejection| {
+            rejection
+                .diagnostics
+                .into_iter()
+                .map(|d| (d.address, d.kind))
+                .collect()
+        })
+}
+
+#[test]
+fn the_generated_aggregate_verifies_a_well_typed_program() {
+    verify(&[
+        "cpu::compute::const_bool", // 0
+        "cpu::compute::br_if 2, 5", // 1
+        "seq::sequencer::open 1",   // 2
+        "cpu::compute::const_i64",  // 3
+        "cpu::compute::br 7",       // 4
+        "seq::sequencer::open 1",   // 5
+        "cpu::compute::const_i64",  // 6
+        "seq::sequencer::play 1",   // 7: join, channel 1 open on both arms
+        "cpu::compute::const_i64",  // 8
+        "cpu::compute::add_i64",    // 9
+        "cpu::compute::halt",       // 10
+    ])
+    .unwrap();
+}
+
+#[test]
+fn the_generated_aggregate_reports_each_components_errors() {
+    let errors = verify(&[
+        "cpu::compute::const_bool", // 0
+        "cpu::compute::br_if 2, 5", // 1
+        "seq::sequencer::open 1",   // 2
+        "cpu::compute::const_i64",  // 3
+        "cpu::compute::br 7",       // 4
+        "cpu::compute::const_f64",  // 5: channel 1 not opened on this arm
+        "cpu::compute::br 7",       // 6
+        "seq::sequencer::play 1",   // 7: join
+        "cpu::compute::halt",       // 8
+    ])
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [(7, DiagnosticKind::Rule("channel 1 is not open".into()))]
+    );
+
+    let errors = verify(&[
+        "cpu::compute::const_bool", // 0
+        "cpu::compute::br_if 2, 4", // 1
+        "cpu::compute::const_i64",  // 2
+        "cpu::compute::br 5",       // 3
+        "cpu::compute::const_f64",  // 4
+        "cpu::compute::const_i64",  // 5: join
+        "cpu::compute::add_i64",    // 6: i64 | f64 + i64
+        "cpu::compute::halt",       // 7
+    ])
+    .unwrap_err();
+    assert_eq!(
+        errors,
+        [(
+            6,
+            DiagnosticKind::TypeMismatch {
+                expected: "i64".into(),
+                found: "i64 | f64".into()
+            }
+        )]
+    );
+}
