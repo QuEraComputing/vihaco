@@ -3,7 +3,6 @@
 
 //! Section headers as collections of consumer-defined declarations.
 
-use chumsky::prelude::*;
 use vihaco_abi::traits::FromText;
 use vihaco_bytecode::SSTHeader;
 use vihaco_parser::Parse;
@@ -24,17 +23,20 @@ where
     for<'src> D: Parse<'src>,
 {
     fn from_text(text: &str) -> eyre::Result<Self> {
-        D::parser()
-            .padded_by(crate::skip())
-            .then_ignore(just(';').padded_by(crate::skip()))
-            .repeated()
-            .collect::<Vec<_>>()
-            .then_ignore(crate::skip())
-            .then_ignore(end())
-            .parse(text)
-            .into_result()
-            .map(Self)
-            .map_err(|errors| eyre::eyre!("invalid header declarations: {errors:?}"))
+        let parsed = crate::spanned::parse_declarations::<D>(text);
+        if let Some(first) = parsed.errors.first() {
+            let (line, column) = crate::spanned::line_column(text, first.span.start);
+            eyre::bail!(
+                "invalid header declarations: header line {line}, column {column}: {first}"
+            );
+        }
+        Ok(Self(
+            parsed
+                .declarations
+                .into_iter()
+                .map(|declaration| declaration.value)
+                .collect(),
+        ))
     }
 }
 

@@ -38,6 +38,7 @@ vihaco-runtime = { workspace = true }
 
 [dev-dependencies]
 vihaco-parser = { workspace = true }
+vihaco-sst = { workspace = true }
 vihaco-syntax = { workspace = true }
 
 [[example]]

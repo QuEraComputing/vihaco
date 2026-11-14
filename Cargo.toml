@@ -12,6 +12,7 @@ members = [
     "crates/vihaco-parser-derive",
     "crates/vihaco-runtime",
     "crates/vihaco-runtime-derive",
+    "crates/vihaco-sst",
     "crates/vihaco-stdlib",
     "crates/vihaco-syntax",
 ]
@@ -38,11 +39,14 @@ vihaco-parser     = { version = "0.7.0", path = "crates/vihaco-parser" }
 vihaco-parser-derive = { version = "0.7.0", path = "crates/vihaco-parser-derive" }
 vihaco-runtime    = { version = "0.7.0", path = "crates/vihaco-runtime" }
 vihaco-runtime-derive = { version = "0.7.0", path = "crates/vihaco-runtime-derive" }
+vihaco-sst        = { version = "0.7.0", path = "crates/vihaco-sst" }
 vihaco-stdlib     = { version = "0.7.0", path = "crates/vihaco-stdlib" }
 vihaco-syntax     = { version = "0.7.0", path = "crates/vihaco-syntax" }
 
 # Shared third-party dependencies pinned once (see design/crate-split.md §8.1).
 byteorder = "1.5.0"
 chumsky   = "0.10"
+# Diagnostic rendering for `vihaco-sst`; already in the tree through `codespan`.
+codespan-reporting = { version = "0.13.1", default-features = false, features = ["std"] }
 eyre      = "0.6.12"
 smallvec  = "1.15.1"

@@ -12,6 +12,9 @@ mod section;
 #[cfg(test)]
 mod tests;
 
+pub use container::sst::{
+    SSTBlockLayout, SSTFramingError, SSTLayout, SSTSectionLayout, scan as scan_sst,
+};
 pub use context::{
     BytecodeGlobalContext, ContextHandle, GlobalContext, NoContext, SSTGlobalContext,
     SectionNameResolver,

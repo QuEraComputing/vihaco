@@ -81,6 +81,7 @@ changelog_include = [
     "vihaco-parser-derive",
     "vihaco-runtime",
     "vihaco-runtime-derive",
+    "vihaco-sst",
     "vihaco-stdlib",
     "vihaco-syntax",
 ]
@@ -138,6 +139,10 @@ version_group = "workspace"
 
 [[package]]
 name = "vihaco-runtime-derive"
+version_group = "workspace"
+
+[[package]]
+name = "vihaco-sst"
 version_group = "workspace"
 
 [[package]]

@@ -59,6 +59,7 @@ pub use lower::lower_code_with_metadata;
 pub mod parse;
 #[cfg(not(feature = "typed-declarations"))]
 pub mod resolve;
+pub mod spanned;
 
 pub use types::{ParsedModule, Symbol};
 pub use vihaco_parser::SurfaceInstruction;
@@ -66,6 +67,9 @@ pub use vihaco_parser::SurfaceInstruction;
 pub use parse::{block_i64_flat, block_i64_pairs, skip, symbol_definition};
 #[cfg(not(feature = "typed-declarations"))]
 pub use resolve::Resolve;
+pub use spanned::{
+    ParsedDeclarations, ParsedText, Spanned, SyntaxError, parse_declarations, parse_text,
+};
 
 #[cfg(test)]
 mod tests {
@@ -145,6 +149,16 @@ mod tests {
         );
         assert!(parse("@: stub.halt").is_err());
         assert!(parse("fn @main() { stub.halt }").is_err());
+    }
+
+    #[test]
+    fn text_errors_name_the_first_problem_by_file_line_and_column() {
+        let err = parse("stub.halt\n  foo bar\n@main\n").unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "failed to parse `.text` of section `main`: line 5, column 3: \
+             expected an instruction, found `foo` (and 1 more error)"
+        );
     }
 
     #[test]

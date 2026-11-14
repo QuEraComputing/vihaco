@@ -227,6 +227,54 @@ mod tests {
         Ok(())
     }
 
+    impl vihaco_sst::check::MetadataDeclaration for HeaderDeclaration {
+        type Value = Value;
+        type Type = Type;
+        type Info = vihaco_module::module::NoInfo;
+
+        fn as_metadata(&self) -> Option<&Metadata> {
+            match self {
+                Self::Metadata(metadata) => Some(metadata),
+                Self::Description(_) => None,
+            }
+        }
+    }
+
+    fn check(source: &str) -> Vec<String> {
+        let source = vihaco_sst::SourceFile::new("loadable.sst", source);
+        vihaco_sst::ProgramChecker::<Machine>::new()
+            .with_header::<vihaco_sst::Declarations<HeaderDeclaration>>()
+            .require_sections(["controller"])
+            .check(&source)
+            .iter()
+            .map(ToString::to_string)
+            .collect()
+    }
+
+    #[test]
+    fn the_example_source_checks_clean_without_executing() {
+        assert_eq!(check(include_str!("loadable.sst")), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_checker_reports_every_problem_in_a_broken_source() {
+        let source = include_str!("loadable.sst")
+            .replace("@helper:", "@helpr:")
+            .replace("br @done", "br @finish")
+            .replace("main_function: 1,", "main_function: 2,");
+        assert_eq!(
+            check(&source),
+            [
+                "11:23: error: function `@helper` (metadata.functions[0]) has no `@helper:` \
+                 symbol definition",
+                "24:24: error: metadata.main_function: function index 2 is out of range \
+                 (metadata.functions has 2 entries)",
+                "30:33: error: function `@helper` has no `@helper:` symbol definition",
+                "33:28: error: undefined symbol `@finish`",
+            ]
+        );
+    }
+
     #[test]
     fn duplicate_declarations_are_rejected_during_collection() {
         let source = include_str!("loadable.sst").replace(

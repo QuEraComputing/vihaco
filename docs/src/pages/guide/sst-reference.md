@@ -242,5 +242,94 @@ or duplicate symbols, functions without a symbol, insufficient locals,
 unresolved symbolic operands, and invalid table references. Execute accepted
 programs to check behavior as well as syntax.
 
+## Checking SST files
+
+The loading path stops at the first problem. To report every problem in a file
+at once, with its line and column, use the `vihaco-sst` crate. It checks a file
+against your machine's instruction set without loading or executing anything:
+
+```rust
+# macro_rules! include_str {
+#     ("first-machine.sst") => {
+#         std::include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/examples/first-machine.sst"))
+#     };
+# }
+use vihaco::{Execute, PopFromStack, PushToStack, component, composite, dialect};
+use vihaco_sst::{SourceFile, check_program};
+
+#[dialect]
+pub mod arithmetic {
+    #[instruction]
+    pub struct Add;
+}
+
+#[component]
+#[instructions { arithmetic }]
+#[derive(Default)]
+pub struct Calculator;
+
+impl Execute<arithmetic::Add> for Calculator {
+    type Message = PopFromStack<(u64, u64)>;
+    type Effect = PushToStack<(u64,)>;
+    type Error = eyre::Report;
+
+    fn execute(&mut self, _: &arithmetic::Add, message: Self::Message) -> eyre::Result<Self::Effect> {
+        let PopFromStack((lhs, rhs)) = message;
+        Ok(PushToStack((lhs + rhs,)))
+    }
+}
+
+#[composite]
+struct Machine {
+    #[device(0)]
+    #[program]
+    execution: vihaco_stdlib::ExecutionState,
+    #[device(1)]
+    calculator: Calculator,
+}
+
+fn main() {
+    let text = include_str!("first-machine.sst");
+    let source = SourceFile::new("first-machine.sst", text);
+    assert!(check_program::<Machine>(&source).is_ok());
+
+    let broken = text
+        .replace("main_function: 0", "main_function: 3")
+        .replace("const_u64 22", "const_u64 x")
+        .replace("arithmetic::add", "arithmetic::sub");
+    let source = SourceFile::new("broken.sst", broken);
+    let report = check_program::<Machine>(&source);
+    let messages: Vec<String> = report.iter().map(ToString::to_string).collect();
+    assert_eq!(messages, [
+        "16:24: error: metadata.main_function: function index 3 is out of range (metadata.functions has 1 entry)",
+        "23:35: error: unexpected `x` in operands of `execution::program::const_u64`",
+        "24:5: error: expected an instruction, found `calculator::arithmetic::sub`",
+    ]);
+    eprint!("{}", report.render(&source));
+}
+```
+
+Each diagnostic carries a severity, a message, a file span with its line and
+column, and optional secondary labels and notes. `render` prints them in the
+style of rustc:
+
+```text
+error: unexpected `x` in operands of `execution::program::const_u64`
+   --> broken.sst:23:35
+   |
+23 |     execution::program::const_u64 x
+   |                                   ^ unexpected operand
+```
+
+`check_program` checks every section with the standard `metadata { ... };`
+header and `MetadataLoweringContext` lowering. It reports framing errors,
+header and `.text` syntax errors, duplicate symbols, metadata table errors,
+functions without a symbol, and instructions that fail to lower, such as an
+unresolved `@name` or a string missing from `strings`. Use `ProgramChecker` to
+select sections with `require_sections`, parse an application header with
+`with_header::<Declarations<YourDeclaration>>()`, or lower with your own
+context. `check_framing` needs no machine, and `check_file` accepts any
+`SectionChecker` for other header or instruction grammars.
+
 Continue with [binary formats](/guide/instructions-advanced) for encoded programs
 and compatibility planning.
