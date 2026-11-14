@@ -71,6 +71,11 @@ pub enum Type {
     /// A heap reference to an array whose elements all have the given type.
     /// Written `array <elem>`, e.g. `array f64` or `array array u64`.
     Array(Box<Type>),
+    /// A named type, by index into the module's named-type table. Written
+    /// `type N`. Named types are nominal: at runtime a value is the same word
+    /// as the table entry's scalar representation, but for verification it
+    /// satisfies only itself.
+    Named(u32),
 }
 
 impl Type {
@@ -87,6 +92,25 @@ impl Type {
             Type::Array(elem) => elem.visit_struct_refs(visit),
             _ => {}
         }
+    }
+
+    /// Visit every named-type-table index this type refers to, including named
+    /// types nested inside array element types.
+    pub fn visit_named_refs(&self, visit: &mut dyn FnMut(u32)) {
+        match self {
+            Type::Named(index) => visit(*index),
+            Type::Array(elem) => elem.visit_named_refs(visit),
+            _ => {}
+        }
+    }
+
+    /// Whether this is a scalar word type that may represent a named type:
+    /// `i32`, `i64`, `u32`, `u64`, `f32`, `f64` or `bool`.
+    pub fn is_scalar_word(&self) -> bool {
+        matches!(
+            self,
+            Type::I32 | Type::I64 | Type::U32 | Type::U64 | Type::F32 | Type::F64 | Type::Bool
+        )
     }
 }
 
@@ -191,6 +215,7 @@ impl std::fmt::Display for Type {
             Type::HeapRef => write!(f, "heap"),
             Type::Struct(index) => write!(f, "struct {}", index),
             Type::Array(elem) => write!(f, "array {}", elem),
+            Type::Named(index) => write!(f, "type {}", index),
         }
     }
 }
@@ -256,6 +281,7 @@ impl crate::traits::FromBytes for Type {
             0x0A => Ok(Type::F32),
             0x0B => Ok(Type::Struct(bytes.read_u32::<LittleEndian>()?)),
             0x0C => Ok(Type::array(Type::from_bytes(bytes)?)),
+            0x0D => Ok(Type::Named(bytes.read_u32::<LittleEndian>()?)),
             _ => Err(eyre::eyre!("Unknown type byte: {}", type_byte)),
         }
     }
@@ -290,10 +316,11 @@ impl crate::traits::WriteBytes for Type {
             Type::F32 => 0x0A,
             Type::Struct(_) => 0x0B,
             Type::Array(_) => 0x0C,
+            Type::Named(_) => 0x0D,
         };
         io.write_u8(type_byte)?;
         match self {
-            Type::Struct(index) => io.write_u32::<LittleEndian>(*index)?,
+            Type::Struct(index) | Type::Named(index) => io.write_u32::<LittleEndian>(*index)?,
             Type::Array(elem) => elem.write_bytes(io)?,
             _ => {}
         }
@@ -425,12 +452,17 @@ fn type_text_parser<'src>() -> impl Parser<'src, &'src str, Type, ValueParseExtr
             .then_ignore(text::whitespace().at_least(1))
             .ignore_then(scalar_text::<u32>())
             .map(Type::Struct);
+        let named_type = just("type")
+            .then_ignore(text::whitespace().at_least(1))
+            .ignore_then(scalar_text::<u32>())
+            .map(Type::Named);
         let array_type = just("array")
             .then_ignore(text::whitespace().at_least(1))
             .ignore_then(ty)
             .map(Type::array);
         choice((
             struct_type,
+            named_type,
             array_type,
             just("undefined").to(Type::Undefined),
             just("undef").to(Type::Undefined),

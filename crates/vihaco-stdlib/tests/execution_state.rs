@@ -15,6 +15,7 @@ fn module() -> LocalModule<(), (), (), ()> {
     LocalModule {
         code: vec![()],
         structs: vec![],
+        types: vec![],
         functions: vec![FunctionInfo {
             name: 0,
             signature: Signature {

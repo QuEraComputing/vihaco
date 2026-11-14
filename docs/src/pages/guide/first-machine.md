@@ -41,6 +41,7 @@ sst v1
                 },
             ],
             structs: [],
+            types: [],
             labels: [],
             constants: [],
             main_function: 0,

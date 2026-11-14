@@ -222,6 +222,22 @@ metadata {
 - Function signatures, locals, struct fields, and array elements may all use
   named types (`array location` for a group of addresses).
 
+Settled in implementation:
+
+- `type N` is encoded as byte `0x0D` followed by `N` as a little-endian
+  `u32`, like `struct N`.
+- `wrap` and `unwrap` take a named type by name or index, `wrap @location` or
+  `wrap 0`, like `struct_new`. Type operands of the array instructions accept
+  `type @location`. Lowering resolves both through a `NamedTypeLookup`
+  capability, parallel to `StructLookup`; the legacy enum build takes numeric
+  `wrap 0` only.
+- At runtime `wrap` and `unwrap` still require an operand, so they fail on an
+  empty stack like any other one-operand instruction.
+- Module assembly checks representations through `StructTypeRef`, which
+  gains `visit_named_refs` and `is_named_type_repr` with defaults that declare
+  no named types, so custom type models keep compiling and must keep `types`
+  empty.
+
 ## Standard capabilities
 
 Defined by the framework, provided by the standard `ModuleVerifier`. Each is a

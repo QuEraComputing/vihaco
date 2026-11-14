@@ -76,6 +76,7 @@ impl<I, C, V, Ty, Info> ProgramImage<I, C, V, Ty, Info> {
                 code: Vec::new(),
                 functions: Vec::new(),
                 structs: Vec::new(),
+                types: Vec::new(),
                 labels: Vec::new(),
                 constants: Vec::new(),
                 strings: Vec::new(),

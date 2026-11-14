@@ -14,8 +14,8 @@
 //! Custom extra records use the same delimited metadata derive as the header.
 
 use crate::module::{
-    FunctionInfo, LabelInfo, LocalModule, MAX_LOCALS, NoInfo, SourceSymbolInfo, StructInfo,
-    StructTypeRef,
+    FunctionInfo, LabelInfo, LocalModule, MAX_LOCALS, NamedTypeInfo, NoInfo, SourceSymbolInfo,
+    StructInfo, StructTypeRef,
 };
 use vihaco_abi::{Type, Value};
 
@@ -26,6 +26,8 @@ use vihaco_abi::{Type, Value};
 pub struct ProgramMetadata<V = Value, Ty = Type, Info = NoInfo> {
     pub functions: Vec<FunctionInfo<Ty>>,
     pub structs: Vec<StructInfo<Ty>>,
+    /// The named-type table: `type N` refers to entry `N`.
+    pub types: Vec<NamedTypeInfo<Ty>>,
     pub labels: Vec<LabelInfo>,
     pub constants: Vec<V>,
     pub strings: Vec<String>,
@@ -51,6 +53,7 @@ impl<V, Ty, Info> ProgramMetadata<V, Ty, Info> {
         ProgramMetadata {
             functions: self.functions,
             structs: self.structs,
+            types: self.types,
             labels: self.labels,
             constants: self.constants,
             strings: self.strings,
@@ -126,6 +129,16 @@ impl<V, Ty: PartialEq, Info> ProgramMetadata<V, Ty, Info> {
                 );
             }
         }
+        let mut type_names = std::collections::BTreeSet::new();
+        for (index, info) in self.types.iter().enumerate() {
+            let path = format!("metadata.types[{index}]");
+            check_index(info.name, self.strings.len(), &format!("{path}.name"))?;
+            let name = &self.strings[info.name as usize];
+            eyre::ensure!(
+                type_names.insert(name),
+                "{path}.name: duplicate named type `{name}`"
+            );
+        }
         for (index, label) in self.labels.iter().enumerate() {
             check_index(
                 label.name,
@@ -150,8 +163,11 @@ impl<V, Ty: PartialEq, Info> ProgramMetadata<V, Ty, Info> {
 }
 
 impl<V, Ty: StructTypeRef, Info> ProgramMetadata<V, Ty, Info> {
-    /// Check that every struct type in signatures, locals and struct fields names an
-    /// entry of the struct table. Structs may refer to themselves or each other.
+    /// Check that every struct type (`struct N`) and named type (`type N`) in
+    /// signatures, locals and struct fields names an entry of its table,
+    /// including references nested inside array element types, and that every
+    /// named type is represented by a scalar word type. Structs may refer to
+    /// themselves or each other.
     pub fn validate_struct_types(&self) -> eyre::Result<()> {
         let check = |ty: &Ty, what: &dyn Fn() -> String| {
             let mut result = Ok(());
@@ -160,8 +176,20 @@ impl<V, Ty: StructTypeRef, Info> ProgramMetadata<V, Ty, Info> {
                     result = check_index(index, self.structs.len(), &what());
                 }
             });
+            ty.visit_named_refs(&mut |index| {
+                if result.is_ok() {
+                    result = check_index(index, self.types.len(), &what());
+                }
+            });
             result
         };
+        for (index, info) in self.types.iter().enumerate() {
+            eyre::ensure!(
+                info.repr.is_named_type_repr(),
+                "metadata.types[{index}].repr: a named type must be represented by \
+                 i32, i64, u32, u64, f32, f64 or bool"
+            );
+        }
         for (index, function) in self.functions.iter().enumerate() {
             let path = format!("metadata.functions[{index}].signature");
             for (param, parameter) in function.signature.params.iter().enumerate() {
@@ -213,6 +241,7 @@ impl<Ty: PartialEq + StructTypeRef, Info> ProgramMetadata<Value, Ty, Info> {
             code,
             functions: self.functions,
             structs: self.structs,
+            types: self.types,
             labels: self.labels,
             constants: self.constants,
             strings: self.strings,

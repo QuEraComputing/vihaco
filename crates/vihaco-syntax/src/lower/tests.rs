@@ -22,6 +22,7 @@ impl Lower<MetadataLoweringContext> for Literal {
 fn one_function_metadata() -> ProgramMetadata {
     ProgramMetadata {
         structs: vec![],
+        types: vec![],
         functions: vec![FunctionInfo {
             name: 0,
             signature: Signature {
@@ -249,6 +250,7 @@ mod typed {
     fn metadata() -> ProgramMetadata {
         ProgramMetadata {
             structs: vec![],
+            types: vec![],
             strings: vec![
                 "main".into(),
                 "helper".into(),

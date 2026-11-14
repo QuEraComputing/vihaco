@@ -40,7 +40,9 @@ pub trait TypedSlot: Lattice {
 ///
 /// Types are compatible when they are equal; in addition, `struct N` and
 /// `array T` satisfy `heap`, so instructions that accept any heap object accept
-/// both. `heap` satisfies neither `struct N` nor `array T`.
+/// both. `heap` satisfies neither `struct N` nor `array T`. A named type
+/// `type N` is nominal and satisfies only itself: not its representation,
+/// another named type, or `heap`.
 pub fn type_satisfies(found: &Type, expected: &Type) -> bool {
     found == expected
         || (matches!(expected, Type::HeapRef) && matches!(found, Type::Struct(_) | Type::Array(_)))
@@ -116,6 +118,23 @@ mod tests {
         assert!(!type_satisfies(
             &Type::array(Type::U64),
             &Type::array(Type::F64)
+        ));
+    }
+
+    #[test]
+    fn named_types_satisfy_only_themselves() {
+        assert!(type_satisfies(&Type::Named(0), &Type::Named(0)));
+        assert!(!type_satisfies(&Type::Named(0), &Type::Named(1)));
+        assert!(!type_satisfies(&Type::Named(0), &Type::U64));
+        assert!(!type_satisfies(&Type::U64, &Type::Named(0)));
+        assert!(!type_satisfies(&Type::Named(0), &Type::HeapRef));
+        assert!(type_satisfies(
+            &Type::array(Type::Named(0)),
+            &Type::array(Type::Named(0))
+        ));
+        assert!(!type_satisfies(
+            &Type::array(Type::Named(0)),
+            &Type::array(Type::U64)
         ));
     }
 

@@ -7,9 +7,11 @@
 use std::collections::HashMap;
 
 use vihaco_abi::{Type, Value, Verify};
-use vihaco_module::module::{FunctionInfo, LocalModule, MAX_LOCALS, Signature, StructInfo};
+use vihaco_module::module::{
+    FunctionInfo, LocalModule, MAX_LOCALS, NamedTypeInfo, Signature, StructInfo,
+};
 
-use crate::capability::{Constants, Locals, Signatures, StructTypes};
+use crate::capability::{Constants, Locals, NamedTypes, Signatures, StructTypes};
 use crate::diagnostic::{Diagnostic, DiagnosticKind, VerifyError};
 use crate::engine::{FunctionSpan, Rejection, Verification, VerifyOptions, verify_functions};
 use crate::slot::TypeSlot;
@@ -21,7 +23,7 @@ use crate::state::AbstractState;
 ///
 /// It reads the module's metadata tables and implements every standard
 /// capability: [`OperandStack`], [`Locals`], [`Signatures<Type>`],
-/// [`StructTypes<Type>`] and [`Constants<Value, Type>`], plus
+/// [`StructTypes<Type>`], [`NamedTypes<Type>`] and [`Constants<Value, Type>`], plus
 /// [`AbstractState`] over a standard [`Frame`]. Each function is verified
 /// from its entry state: an empty operand stack and locals typed from the
 /// function's declared `locals` (parameters first).
@@ -39,9 +41,11 @@ use crate::state::AbstractState;
 pub struct ModuleVerifier<'m> {
     functions: &'m [FunctionInfo<Type>],
     structs: &'m [StructInfo<Type>],
+    types: &'m [NamedTypeInfo<Type>],
     constants: &'m [Value],
     strings: &'m [String],
     by_address: HashMap<u32, u32>,
+    type_names: HashMap<&'m str, u32>,
     frame: FrameState<TypeSlot>,
 }
 
@@ -52,6 +56,7 @@ impl<'m> ModuleVerifier<'m> {
         Self::from_parts(
             &module.functions,
             &module.structs,
+            &module.types,
             &module.constants,
             &module.strings,
         )
@@ -61,6 +66,7 @@ impl<'m> ModuleVerifier<'m> {
     pub fn from_parts(
         functions: &'m [FunctionInfo<Type>],
         structs: &'m [StructInfo<Type>],
+        types: &'m [NamedTypeInfo<Type>],
         constants: &'m [Value],
         strings: &'m [String],
     ) -> Self {
@@ -71,12 +77,21 @@ impl<'m> ModuleVerifier<'m> {
                 .entry(function.start_address)
                 .or_insert(index as u32);
         }
+        let mut type_names = HashMap::with_capacity(types.len());
+        for (index, info) in types.iter().enumerate() {
+            // Names are unique in validated metadata; keep the first otherwise.
+            if let Some(name) = strings.get(info.name as usize) {
+                type_names.entry(name.as_str()).or_insert(index as u32);
+            }
+        }
         Self {
             functions,
             structs,
+            types,
             constants,
             strings,
             by_address,
+            type_names,
             frame: FrameState::new(Frame::new(Vec::new())),
         }
     }
@@ -89,6 +104,11 @@ impl<'m> ModuleVerifier<'m> {
     /// The struct table.
     pub fn structs(&self) -> &'m [StructInfo<Type>] {
         self.structs
+    }
+
+    /// The named-type table.
+    pub fn types(&self) -> &'m [NamedTypeInfo<Type>] {
+        self.types
     }
 
     /// The constant table.
@@ -346,6 +366,31 @@ impl StructTypes<Type> for ModuleVerifier<'_> {
                 VerifyError::rule(format!(
                     "field slot {slot} is outside struct {struct_id}, which has {} fields",
                     info.fields.len()
+                ))
+            })
+    }
+}
+
+impl NamedTypes<Type> for ModuleVerifier<'_> {
+    fn named_type_count(&self) -> usize {
+        self.types.len()
+    }
+
+    fn named_type_index(&self, name: &str) -> Result<u32, VerifyError> {
+        self.type_names
+            .get(name)
+            .copied()
+            .ok_or_else(|| VerifyError::rule(format!("undefined named type `{name}`")))
+    }
+
+    fn named_type_repr(&self, index: u32) -> Result<&Type, VerifyError> {
+        self.types
+            .get(index as usize)
+            .map(|info| &info.repr)
+            .ok_or_else(|| {
+                VerifyError::rule(format!(
+                    "named type {index} is outside the named-type table of length {}",
+                    self.types.len()
                 ))
             })
     }
@@ -619,6 +664,20 @@ impl<S> StructTypes<Type> for WithState<'_, S> {
 
     fn field_type(&self, struct_id: u32, slot: u32) -> Result<&Type, VerifyError> {
         self.verifier.field_type(struct_id, slot)
+    }
+}
+
+impl<S> NamedTypes<Type> for WithState<'_, S> {
+    fn named_type_count(&self) -> usize {
+        self.verifier.named_type_count()
+    }
+
+    fn named_type_index(&self, name: &str) -> Result<u32, VerifyError> {
+        self.verifier.named_type_index(name)
+    }
+
+    fn named_type_repr(&self, index: u32) -> Result<&Type, VerifyError> {
+        self.verifier.named_type_repr(index)
     }
 }
 

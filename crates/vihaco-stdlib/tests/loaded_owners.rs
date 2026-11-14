@@ -141,7 +141,7 @@ metadata {{
         {{ name: 0, signature: {{ params: [], ret: [u64] }}, locals: [],
            start_address: 0, end_address: {helper_start}, file: 2 }},
     ],
-    structs: [], labels: [], constants: [], main_function: 1, source_symbols: [],
+    structs: [], types: [], labels: [], constants: [], main_function: 1, source_symbols: [],
     extra: {{}},
 }}
 .header({name}).
@@ -248,10 +248,11 @@ fn struct_program(main_body: &str) -> String {
 .section(root):
 .header(root):
 metadata {{
-    strings: ["main", "make_point", "points.sst", "Point", "x", "y"],
+    strings: ["main", "make_point", "points.sst", "Point", "x", "y", "location"],
     structs: [
         {{ name: 3, fields: [{{ name: 4, ty: u64 }}, {{ name: 5, ty: u64 }}] }},
     ],
+    types: [{{ name: 6, repr: u64 }}],
     functions: [
         {{ name: 0, signature: {{ params: [], ret: [u64] }}, locals: [],
            start_address: 0, end_address: 6, file: 2 }},
@@ -364,6 +365,58 @@ execution::program::ret 1",
         format!("{error:#}").contains("undefined struct `Line`"),
         "{error:#}"
     );
+}
+
+#[test]
+fn named_types_resolve_by_name_through_the_metadata_type_table() {
+    // let locations = [wrap(7)]; return locations[0]
+    let source = "execution::program::const_u64 7
+cpu::cpu::wrap @location
+cpu::cpu::array_new type @location, 1
+execution::program::const_u64 0
+cpu::cpu::array_get type @location
+execution::program::ret 1";
+    let image = load_struct_program(source).unwrap();
+    assert_eq!(image.module.types.len(), 1);
+    let code = format!("{:?}", image.module.code);
+    assert!(code.contains("ArrayNew(Named(0), 1)"), "{code}");
+    assert!(code.contains("Wrap(0)"), "{code}");
+    assert_eq!(run_struct_program(source).unwrap(), [7]);
+
+    // Numeric references are checked against the table too.
+    let stack = run_struct_program(
+        "execution::program::const_u64 7
+cpu::cpu::wrap 0
+cpu::cpu::unwrap @location
+execution::program::ret 1
+execution::program::halt
+execution::program::halt",
+    )
+    .unwrap();
+    assert_eq!(stack, [7]);
+    for (body, message) in [
+        ("cpu::cpu::wrap @lane", "undefined named type `lane`"),
+        ("cpu::cpu::wrap 1", "outside the named-type table"),
+        (
+            "cpu::cpu::array_new type @lane, 1",
+            "undefined named type `lane`",
+        ),
+        (
+            "cpu::cpu::array_get array type 3",
+            "outside the named-type table",
+        ),
+    ] {
+        let error = load_struct_program(&format!(
+            "execution::program::const_u64 7
+{body}
+execution::program::ret 1
+execution::program::halt
+execution::program::halt
+execution::program::halt"
+        ))
+        .unwrap_err();
+        assert!(format!("{error:#}").contains(message), "{body}: {error:#}");
+    }
 }
 
 #[test]

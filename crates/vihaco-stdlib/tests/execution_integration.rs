@@ -141,6 +141,17 @@ impl vihaco_cpu::field::StructLookup for NumericContext {
     }
 }
 
+// Numeric named-type operands are checked against a one-entry table.
+impl vihaco_cpu::field::NamedTypeLookup for NumericContext {
+    fn named_type_index(&self, _: &str) -> eyre::Result<u32> {
+        Err(eyre::eyre!("numeric fixture"))
+    }
+    fn check_named_type(&self, index: u32) -> eyre::Result<()> {
+        eyre::ensure!(index == 0, "numeric fixture has no named type {index}");
+        Ok(())
+    }
+}
+
 fn machine(code: &[&str]) -> (Program, Machine) {
     let module = LocalModule {
         code: code
@@ -155,6 +166,7 @@ fn machine(code: &[&str]) -> (Program, Machine) {
             })
             .collect::<Vec<Instruction>>(),
         structs: vec![],
+        types: vec![],
         main_function: Some(0),
         functions: vec![FunctionInfo {
             name: 0,
@@ -457,6 +469,24 @@ fn struct_new_allocates_tagged_structs_and_fields_are_type_checked() {
         error.to_string().contains("is struct 1, expected an array"),
         "{error:#}"
     );
+}
+
+#[test]
+fn wrap_and_unwrap_pass_the_word_through_unchanged() {
+    let (module, mut vm) = machine(&[
+        "program::program::const_u64 7",
+        "cpu::cpu::wrap 0",
+        "program::program::const_u64 9",
+        "cpu::cpu::unwrap 0",
+        "program::program::ret 2",
+    ]);
+    execute(&module, &mut vm, &[]).unwrap();
+    assert_eq!(vm.program.stack(), &[7, 9]);
+
+    // They still need an operand.
+    let (module, mut vm) = machine(&["cpu::cpu::wrap 0"]);
+    assert!(execute(&module, &mut vm, &[]).is_err());
+    assert_eq!(vm.program.pc(), 0);
 }
 
 #[vihaco_runtime::dialect]

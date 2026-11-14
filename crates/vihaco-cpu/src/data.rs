@@ -380,6 +380,16 @@ vihaco_runtime::component! {
         /// must be below the current length. Pushes nothing.
         #[pattern = "'array_set $0"]
         ArraySet(Type),
+
+        /// Reinterpret the top word as named type `$0` (a named-type-table
+        /// index). A runtime no-op: named types exist only for verification.
+        #[pattern = "'wrap $0"]
+        Wrap(u32),
+
+        /// Reinterpret the top word, of named type `$0`, as its
+        /// representation. A runtime no-op.
+        #[pattern = "'unwrap $0"]
+        Unwrap(u32),
     }
 }
 
