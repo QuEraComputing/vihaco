@@ -352,6 +352,15 @@ vihaco_runtime::component! {
         /// Pop a heap reference and push the object's current length as a u64.
         #[pattern = "'heap_len"]
         HeapLen,
+
+        /// Pop a heap reference and push the word stored in field `$0`.
+        #[pattern = "'get_field $0"]
+        GetField(u32),
+
+        /// Pop a value and a heap reference (pushed in that order: reference
+        /// first) and overwrite field `$0` with the value. Pushes nothing.
+        #[pattern = "'set_field $0"]
+        SetField(u32),
     }
 }
 
@@ -526,6 +535,10 @@ impl CPU {
     #[cfg(feature = "typed-declarations")]
     pub(crate) fn append_heap_object(&mut self, id: u32, value: Word) -> eyre::Result<()> {
         self.heap.push(id, value)
+    }
+
+    pub(crate) fn set_heap_item(&mut self, id: u32, index: usize, value: Word) -> eyre::Result<()> {
+        self.heap.set(id, index, value)
     }
 
     pub(crate) fn dealloc_heap_object(&mut self, id: u32) -> eyre::Result<()> {

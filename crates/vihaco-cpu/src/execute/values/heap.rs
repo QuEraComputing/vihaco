@@ -100,3 +100,56 @@ impl Execute<cpu::HeapLen> for CPU {
         Ok(PushToStack((u64::try_from(self.heap.get(id)?.len())?,)))
     }
 }
+
+impl Execute<cpu::GetField> for CPU {
+    type Message = PopFromStack<(u32,)>;
+    type Effect = PushToStack<(Word,)>;
+    type Error = eyre::Report;
+    fn execute(
+        &mut self,
+        instruction: &cpu::GetField,
+        PopFromStack((id,)): Self::Message,
+    ) -> eyre::Result<Self::Effect> {
+        let index = instruction.0;
+        let value = *self
+            .heap
+            .get(id)?
+            .get(index as usize)
+            .ok_or_else(|| eyre::eyre!("heap index {} out of bounds", index))?;
+        Ok(PushToStack((value,)))
+    }
+}
+
+impl Execute<cpu::SetField> for CPU {
+    type Message = PopFromStack<(u32, Word)>;
+    type Effect = PushToStack<()>;
+    type Error = eyre::Report;
+    fn execute(
+        &mut self,
+        instruction: &cpu::SetField,
+        PopFromStack((id, value)): Self::Message,
+    ) -> eyre::Result<Self::Effect> {
+        self.heap.set(id, instruction.0 as usize, value)?;
+        Ok(PushToStack(()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn struct_fields_read_and_overwrite_in_place() {
+        let mut cpu = CPU::default();
+        let id = cpu.heap.alloc(vec![1, 2]);
+        cpu.execute(&cpu::SetField(1), PopFromStack((id, 7)))
+            .unwrap();
+        let PushToStack((value,)) = cpu.execute(&cpu::GetField(1), PopFromStack((id,))).unwrap();
+        assert_eq!(value, 7);
+        assert!(cpu.execute(&cpu::GetField(2), PopFromStack((id,))).is_err());
+        assert!(
+            cpu.execute(&cpu::SetField(2), PopFromStack((id, 0)))
+                .is_err()
+        );
+    }
+}

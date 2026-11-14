@@ -108,6 +108,8 @@ impl CPU {
             HeapReserve => self.op_heap_reserve(),
             HeapPush => self.op_heap_push(),
             HeapLen => self.op_heap_len(),
+            GetField(index) => self.op_get_field(*index),
+            SetField(index) => self.op_set_field(*index),
             ConstI32(v) | ConstI64(v) | ConstU32(v) | ConstU64(v) | ConstF32(v) | ConstF64(v)
             | ConstBool(v) | ConstString(v) | ConstFunctionRef(v) | ConstHeapRef(v) => {
                 self.op_const(*v)
@@ -466,6 +468,26 @@ impl CPU {
         let heap_id = decode_heap_ref(self.stack_pop()?);
         let len = u64::try_from(self.heap_object(heap_id)?.len())?;
         self.stack_push(encode_u64(len));
+        Ok(StepOutcome::Continue)
+    }
+
+    #[cfg(not(feature = "typed-declarations"))]
+    fn op_get_field(&mut self, index: u32) -> Result<StepOutcome> {
+        let heap_id = decode_heap_ref(self.stack_pop()?);
+        let value = *self
+            .heap_object(heap_id)?
+            .get(index as usize)
+            .ok_or_else(|| eyre::eyre!("heap index {} out of bounds", index))?;
+        self.stack_push(value);
+        Ok(StepOutcome::Continue)
+    }
+
+    #[cfg(not(feature = "typed-declarations"))]
+    fn op_set_field(&mut self, index: u32) -> Result<StepOutcome> {
+        self.require_operands(2)?;
+        let value = self.stack_pop()?;
+        let heap_id = decode_heap_ref(self.stack_pop()?);
+        self.set_heap_item(heap_id, index as usize, value)?;
         Ok(StepOutcome::Continue)
     }
 
@@ -919,6 +941,68 @@ mod tests {
 
         assert_eq!(outcome, StepOutcome::Continue);
         assert_eq!(cpu.stack(), &vec![encode_i64(20)]);
+    }
+
+    #[test]
+    #[cfg(not(feature = "typed-declarations"))]
+    fn struct_fields_read_and_overwrite_in_place() {
+        let mut cpu = CPU::default();
+        // Point { x: 1.5, y: -2 }
+        cpu.stack_push(encode_f64(1.5));
+        cpu.stack_push(encode_i64(-2));
+        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(2))
+            .unwrap();
+        let point = *cpu.stack_top().unwrap();
+
+        cpu.stack_push(point);
+        cpu.stack_push(encode_i64(7));
+        let outcome = cpu
+            .execute_instruction(RuntimeInstruction::SetField(1))
+            .unwrap();
+        assert_eq!(outcome, StepOutcome::Continue);
+        assert_eq!(cpu.stack(), &vec![point]);
+
+        cpu.stack_push(point);
+        cpu.execute_instruction(RuntimeInstruction::GetField(0))
+            .unwrap();
+        cpu.stack_push(point);
+        cpu.execute_instruction(RuntimeInstruction::GetField(1))
+            .unwrap();
+        assert_eq!(cpu.stack(), &vec![point, encode_f64(1.5), encode_i64(7)]);
+    }
+
+    #[test]
+    #[cfg(not(feature = "typed-declarations"))]
+    fn struct_field_access_checks_bounds_and_operands() {
+        let mut cpu = CPU::default();
+        cpu.stack_push(encode_i64(1));
+        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
+            .unwrap();
+        let object = *cpu.stack_top().unwrap();
+
+        cpu.execute_instruction(RuntimeInstruction::GetField(0))
+            .unwrap();
+        assert_eq!(cpu.stack(), &vec![encode_i64(1)]);
+
+        cpu.stack_push(object);
+        let err = cpu
+            .execute_instruction(RuntimeInstruction::GetField(1))
+            .unwrap_err();
+        assert!(err.to_string().contains("out of bounds"));
+
+        cpu.stack_push(object);
+        cpu.stack_push(encode_i64(9));
+        let err = cpu
+            .execute_instruction(RuntimeInstruction::SetField(1))
+            .unwrap_err();
+        assert!(err.to_string().contains("out of bounds"));
+
+        let mut cpu = CPU::default();
+        cpu.stack_push(encode_i64(9));
+        assert!(
+            cpu.execute_instruction(RuntimeInstruction::SetField(0))
+                .is_err()
+        );
     }
 
     #[test]

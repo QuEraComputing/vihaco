@@ -577,4 +577,15 @@ pub mod cpu {
     #[instruction]
     #[pattern = "'ge_f64"]
     pub struct GeF64;
+
+    /// Pop a heap reference and push the word stored in field `$0`.
+    #[instruction]
+    #[pattern = "'get_field $0"]
+    pub struct GetField(pub u32);
+
+    /// Pop a value and a heap reference (reference pushed first) and overwrite
+    /// field `$0` with the value. Pushes nothing.
+    #[instruction]
+    #[pattern = "'set_field $0"]
+    pub struct SetField(pub u32);
 }

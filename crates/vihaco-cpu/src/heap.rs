@@ -3,10 +3,11 @@
 
 use crate::Word;
 
-/// Append-only storage with a fixed capacity limit and a current length.
+/// Storage with a fixed capacity limit and a current length.
 /// `heap_alloc` creates a full object, and `heap_reserve` creates an empty one.
-/// Appends never overwrite elements or grow the allocation, and reads are
-/// bounded by `values.len()` rather than capacity.
+/// Appends never overwrite elements or grow the allocation. Reads and in-place
+/// writes (`set_field`) are bounded by `values.len()` rather than capacity, so
+/// a write can never extend an object.
 #[derive(Debug, Default)]
 struct HeapObject {
     values: Vec<Word>,
@@ -74,6 +75,25 @@ impl Heap {
         Ok(())
     }
 
+    /// Overwrite an element that already exists (`index < len`).
+    /// Writes never extend an object; use `push` to append.
+    /// Returns an error for invalid or deallocated objects and out-of-bounds indices.
+    pub(crate) fn set(&mut self, id: u32, index: usize, value: Word) -> eyre::Result<()> {
+        let object = match self.slots.get_mut(id as usize) {
+            Some(HeapSlot::Alive(object)) => object,
+            Some(HeapSlot::Deallocated) => {
+                return Err(eyre::eyre!("heap object {} has been deallocated", id));
+            }
+            None => return Err(eyre::eyre!("invalid heap object id {}", id)),
+        };
+        let slot = object
+            .values
+            .get_mut(index)
+            .ok_or_else(|| eyre::eyre!("heap index {} out of bounds", index))?;
+        *slot = value;
+        Ok(())
+    }
+
     fn insert(&mut self, object: HeapObject) -> u32 {
         if let Some(id) = self.free_list.pop() {
             self.slots[id as usize] = HeapSlot::Alive(object);
@@ -133,6 +153,41 @@ mod heap_tests {
         let id = heap.alloc(values);
         assert!(heap.push(id, 2).unwrap_err().to_string().contains("full"));
         assert_eq!(heap.get(id).unwrap(), &[1]);
+    }
+
+    #[test]
+    fn set_overwrites_existing_elements_only() {
+        let mut heap = Heap::default();
+        let id = heap.alloc(vec![1, 2]);
+        heap.set(id, 1, 5).unwrap();
+        assert_eq!(heap.get(id).unwrap(), &[1, 5]);
+        assert!(
+            heap.set(id, 2, 9)
+                .unwrap_err()
+                .to_string()
+                .contains("out of bounds")
+        );
+
+        // Reserved-but-unfilled slots cannot be written; set never extends.
+        let reserved = heap.reserve(2).unwrap();
+        assert!(heap.set(reserved, 0, 1).is_err());
+        heap.push(reserved, 1).unwrap();
+        heap.set(reserved, 0, 7).unwrap();
+        assert_eq!(heap.get(reserved).unwrap(), &[7]);
+
+        heap.dealloc(id).unwrap();
+        assert!(
+            heap.set(id, 0, 1)
+                .unwrap_err()
+                .to_string()
+                .contains("deallocated")
+        );
+        assert!(
+            heap.set(99, 0, 1)
+                .unwrap_err()
+                .to_string()
+                .contains("invalid")
+        );
     }
 
     #[test]

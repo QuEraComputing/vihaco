@@ -166,6 +166,12 @@ mod parse_tests {
     }
 
     #[test]
+    fn parses_struct_field_access() {
+        assert_parses!("cpu.get_field 2", SurfaceInstruction::GetField(2));
+        assert_parses!("cpu.set_field 0", SurfaceInstruction::SetField(0));
+    }
+
+    #[test]
     fn parses_heap_reserve_and_push() {
         assert_parses!("cpu.heap_reserve", SurfaceInstruction::HeapReserve);
         assert_parses!("cpu.heap_push", SurfaceInstruction::HeapPush);

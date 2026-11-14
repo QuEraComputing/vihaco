@@ -70,7 +70,7 @@ macro_rules! steps {
             LoadI32, LoadI64, LoadU32, LoadU64, LoadF32, LoadF64,
             LoadBool, StoreI32, StoreI64, StoreU32, StoreU64, StoreF32,
             StoreF64, StoreBool, Dup, HeapAlloc, GetItem, HeapDealloc,
-            HeapReserve, HeapPush, HeapLen,
+            HeapReserve, HeapPush, HeapLen, GetField, SetField,
             ConstI32, ConstI64, ConstU32, ConstU64, ConstF32, ConstF64,
             ConstBool, ConstString, ConstFunctionRef, ConstHeapRef, AddI32, AddF32,
             AddI64, AddU32, AddU64, AddF64, SubI32, SubI64,
@@ -752,13 +752,15 @@ fn every_executable_leaf_parses_directly_and_metadata_is_excluded() {
     check("ge_u64", cpu::GeU64);
     check("ge_f32", cpu::GeF32);
     check("ge_f64", cpu::GeF64);
+    check("get_field 0", cpu::GetField(0));
+    check("set_field 0", cpu::SetField(0));
     assert_eq!(
         vihaco_runtime::__private::capabilities::<CPU>().count(),
-        142
+        144
     );
     assert_eq!(
         vihaco_runtime::__private::capabilities::<Machine>().count(),
-        284
+        288
     );
     assert!(
         !vihaco_runtime::__private::capabilities::<CPU>()

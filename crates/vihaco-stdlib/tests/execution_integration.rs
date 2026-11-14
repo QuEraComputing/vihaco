@@ -354,6 +354,40 @@ fn heap_transfers_use_program_operands_and_preserve_device_state() {
     assert_eq!(vm.program.pc(), 9);
 }
 
+#[test]
+fn struct_fields_are_read_and_overwritten_by_static_index() {
+    // Point { x: 7, y: 9 }; point.y = 4; return (point.x, point.y)
+    let (module, mut vm) = machine(&[
+        "program::program::const_u64 7",
+        "program::program::const_u64 9",
+        "cpu::cpu::heap_alloc 2",
+        "program::program::dup",
+        "program::program::const_u64 4",
+        "cpu::cpu::set_field 1",
+        "program::program::dup",
+        "cpu::cpu::get_field 0",
+        "program::program::store_u64 0",
+        "cpu::cpu::get_field 1",
+        "program::program::load_u64 0",
+        "program::program::ret 2",
+    ]);
+    execute(&module, &mut vm, &[]).unwrap();
+    assert_eq!(vm.program.stack(), &[4, 7]);
+
+    // Out-of-bounds field writes fail at the faulting pc; like the other heap
+    // transfers, the popped operands are consumed (only local slot 0 remains).
+    let (module, mut vm) = machine(&[
+        "program::program::const_u64 7",
+        "cpu::cpu::heap_alloc 1",
+        "program::program::const_u64 4",
+        "cpu::cpu::set_field 1",
+    ]);
+    let error = execute(&module, &mut vm, &[]).unwrap_err();
+    assert!(error.to_string().contains("out of bounds"));
+    assert_eq!(vm.program.stack(), &[0]);
+    assert_eq!(vm.program.pc(), 3);
+}
+
 #[vihaco_runtime::dialect]
 mod batches {
     #[instruction]

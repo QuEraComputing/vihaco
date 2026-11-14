@@ -109,9 +109,77 @@ impl Execute<cpu::HeapLen> for CPU {
     }
 }
 
+impl Execute<cpu::GetField> for CPU {
+    type Message = NoMessage;
+    type Effect = StepOutcome;
+    type Error = eyre::Report;
+
+    fn execute(&mut self, instruction: &cpu::GetField, _: NoMessage) -> eyre::Result<StepOutcome> {
+        self.clear_pending_pc();
+        let index = instruction.0;
+        let heap_id = decode_heap_ref(self.stack_pop()?);
+        let value = *self
+            .heap_object(heap_id)?
+            .get(index as usize)
+            .ok_or_else(|| eyre::eyre!("heap index {} out of bounds", index))?;
+        self.stack_push(value);
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl Execute<cpu::SetField> for CPU {
+    type Message = NoMessage;
+    type Effect = StepOutcome;
+    type Error = eyre::Report;
+
+    fn execute(&mut self, instruction: &cpu::SetField, _: NoMessage) -> eyre::Result<StepOutcome> {
+        self.clear_pending_pc();
+        self.require_operands(2)?;
+        let value = self.stack_pop()?;
+        let heap_id = decode_heap_ref(self.stack_pop()?);
+        self.set_heap_item(heap_id, instruction.0 as usize, value)?;
+        Ok(StepOutcome::Continue)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn struct_fields_read_and_overwrite_in_place() {
+        let mut cpu = CPU::default();
+        // Point { x: 1, y: 2 }
+        cpu.stack_push(encode_u64(1));
+        cpu.stack_push(encode_u64(2));
+        cpu.execute(&cpu::HeapAlloc(2), NoMessage::new()).unwrap();
+        let point = *cpu.stack_top().unwrap();
+
+        cpu.stack_push(point);
+        cpu.stack_push(encode_u64(7));
+        cpu.execute(&cpu::SetField(1), NoMessage::new()).unwrap();
+        assert_eq!(cpu.stack(), &[point]);
+
+        cpu.execute(&cpu::GetField(1), NoMessage::new()).unwrap();
+        assert_eq!(cpu.stack(), &[encode_u64(7)]);
+    }
+
+    #[test]
+    fn struct_field_access_rejects_out_of_bounds_and_missing_operands() {
+        let mut cpu = CPU::default();
+        cpu.stack_push(encode_u64(1));
+        cpu.execute(&cpu::HeapAlloc(1), NoMessage::new()).unwrap();
+        let object = *cpu.stack_top().unwrap();
+        assert!(cpu.execute(&cpu::GetField(1), NoMessage::new()).is_err());
+
+        cpu.stack_push(object);
+        cpu.stack_push(encode_u64(9));
+        assert!(cpu.execute(&cpu::SetField(1), NoMessage::new()).is_err());
+
+        let mut cpu = CPU::default();
+        cpu.stack_push(encode_u64(9));
+        assert!(cpu.execute(&cpu::SetField(0), NoMessage::new()).is_err());
+    }
 
     #[test]
     fn heap_reserve_rejects_unrepresentable_allocation_without_allocating() {
