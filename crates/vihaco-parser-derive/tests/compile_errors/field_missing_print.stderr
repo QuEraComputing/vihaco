@@ -1,0 +1,22 @@
+error[E0277]: the trait bound `Opaque: Print` is not satisfied
+  --> tests/compile_errors/field_missing_print.rs:16:10
+   |
+16 | #[derive(Parse)]
+   |          ^^^^^ unsatisfied trait bound
+   |
+help: the trait `Print` is not implemented for `Opaque`
+  --> tests/compile_errors/field_missing_print.rs:5:1
+   |
+ 5 | struct Opaque;
+   | ^^^^^^^^^^^^^
+   = help: the following other types implement trait `Print`:
+             &T
+             (A, B)
+             BareToken
+             Box<T>
+             Ident
+             Option<T>
+             QuotedString
+             String
+           and $N others
+   = note: this error originates in the derive macro `Parse` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -579,6 +579,10 @@ struct ValidatedPatternInfo<'p> {
 enum ParserPart {
     Ignore {
         parser: TokenStream2,
+        /// The exact source text this part matches, used by the printer.
+        text: String,
+        /// The punctuation literal, if this part is one.
+        symbol: Option<char>,
         suppresses_leading_whitespace: bool,
         suppresses_trailing_whitespace: bool,
     },
@@ -607,6 +611,8 @@ fn build_parser_syntax_parts(
                     parser: quote! {
                         #chumsky::primitive::just(#token).ignored()
                     },
+                    text: token.to_owned(),
+                    symbol: None,
                     suppresses_leading_whitespace: false,
                     suppresses_trailing_whitespace: false,
                 });
@@ -634,6 +640,10 @@ fn build_parser_syntax_parts(
                     literal,
                     Symbol(':' | ';' | '{' | '}' | '[' | ']' | '(' | ')')
                 );
+                let symbol = match literal {
+                    Symbol(symbol) => Some(symbol),
+                    Keyword(_) => None,
+                };
                 let literal = literal.to_string();
                 let parser = if flexible {
                     quote! { #chumsky::primitive::just(#literal).padded_by(#parser_root::trivia()).ignored() }
@@ -642,6 +652,8 @@ fn build_parser_syntax_parts(
                 };
                 parts.push(ParserPart::Ignore {
                     parser,
+                    text: literal,
+                    symbol,
                     suppresses_leading_whitespace,
                     suppresses_trailing_whitespace,
                 });
@@ -652,9 +664,57 @@ fn build_parser_syntax_parts(
     Ok(parts)
 }
 
+/// One step of a generated printer: fixed source text or a captured field.
+enum PrintPiece {
+    Text(String),
+    Field(Ident),
+}
+
+/// Append fixed text, merging it with a preceding text piece.
+fn push_print_text(pieces: &mut Vec<PrintPiece>, text: &str) {
+    if let Some(PrintPiece::Text(previous)) = pieces.last_mut() {
+        previous.push_str(text);
+    } else {
+        pieces.push(PrintPiece::Text(text.to_owned()));
+    }
+}
+
+/// Emit printer statements writing to `out`; each statement propagates errors.
+fn emit_print_pieces(pieces: &[PrintPiece], paths: &ParserPaths) -> TokenStream2 {
+    let parser_root = &paths.parser_root;
+    let out = print_out_ident();
+    let statements = pieces.iter().map(|piece| match piece {
+        PrintPiece::Text(text) => quote! { #out.write_str(#text)?; },
+        PrintPiece::Field(binding) => quote! { #parser_root::Print::print(#binding, #out)?; },
+    });
+    quote! { #(#statements)* }
+}
+
+/// The printer's output parameter name; generated field bindings never collide.
+fn print_out_ident() -> Ident {
+    Ident::new("__vihaco_out", Span::call_site())
+}
+
+/// A compiled pattern: its parser binding and the matching printer arm.
+struct CompiledPattern {
+    parser_name: Ident,
+    parser: TokenStream2,
+    print_arm: TokenStream2,
+    field_types: Vec<Type>,
+}
+
 impl<'p> ValidatedPatternInfo<'p> {
-    fn emit(self, paths: &ParserPaths) -> eyre::Result<(Ident, TokenStream2)> {
+    fn emit(self, paths: &ParserPaths) -> eyre::Result<CompiledPattern> {
         let chumsky = &paths.chumsky;
+        let field_types: Vec<Type> = self
+            .pattern
+            .0
+            .iter()
+            .filter_map(|atom| match atom {
+                Binding(binding) => Some(binding.ty.clone()),
+                _ => None,
+            })
+            .collect();
         let parts = build_parser_syntax_parts(self.pattern, paths)?;
 
         let mut chain = None::<TokenStream2>;
@@ -663,20 +723,42 @@ impl<'p> ValidatedPatternInfo<'p> {
         let mut previous_suppresses_trailing_whitespace = false;
         let mut constructor_fields = Vec::<(usize, Option<Ident>, Ident)>::new();
 
+        // The printer mirrors the parser chain: it writes one space exactly
+        // where the parser requires whitespace and none where it forbids it.
+        // Beyond that, it adds a space after `:`/`;` and between a capture and
+        // a following `:`. Both literals accept surrounding trivia, and the
+        // latter keeps a token-like capture from absorbing the colon.
+        let mut print_pieces = Vec::<PrintPiece>::new();
+        let mut previous_was_capture = false;
+        let mut space_after_previous = false;
+
         let ws = quote! { .then_ignore(#chumsky::primitive::just(' ').repeated().at_least(1)) };
 
         for part in parts {
             match part {
                 ParserPart::Ignore {
                     parser,
+                    text,
+                    symbol,
                     suppresses_leading_whitespace,
                     suppresses_trailing_whitespace,
                 } => {
+                    let requires_whitespace = chain.is_some()
+                        && !previous_suppresses_trailing_whitespace
+                        && !suppresses_leading_whitespace;
+                    let print_space = requires_whitespace
+                        || (chain.is_some()
+                            && (space_after_previous
+                                || (previous_was_capture && symbol == Some(':'))));
+                    if print_space {
+                        push_print_text(&mut print_pieces, " ");
+                    }
+                    push_print_text(&mut print_pieces, &text);
+                    previous_was_capture = false;
+                    space_after_previous = matches!(symbol, Some(':' | ';'));
+
                     chain = Some(match chain {
-                        Some(chain)
-                            if !previous_suppresses_trailing_whitespace
-                                && !suppresses_leading_whitespace =>
-                        {
+                        Some(chain) if requires_whitespace => {
                             quote! {
                                 #chain
                                     #ws
@@ -695,6 +777,15 @@ impl<'p> ValidatedPatternInfo<'p> {
                     binding,
                     constructor_position,
                 } => {
+                    if chain.is_some()
+                        && (!previous_suppresses_trailing_whitespace || space_after_previous)
+                    {
+                        push_print_text(&mut print_pieces, " ");
+                    }
+                    print_pieces.push(PrintPiece::Field(binding.clone()));
+                    previous_was_capture = true;
+                    space_after_previous = false;
+
                     chain = Some(match chain {
                         Some(chain)
                             if bindings.is_empty() && !previous_suppresses_trailing_whitespace =>
@@ -736,6 +827,36 @@ impl<'p> ValidatedPatternInfo<'p> {
             PatternTarget::Variant { ident } => quote! { Self::#ident },
             PatternTarget::Struct { ident } => quote! { #ident },
         };
+        // Printer arms match `&Self`, so a struct is spelled `Self`; emitters
+        // may retarget the impl's self type to a phase-specific instantiation.
+        let print_constructor = match &self.target {
+            PatternTarget::Variant { ident } => quote! { Self::#ident },
+            PatternTarget::Struct { .. } => quote! { Self },
+        };
+
+        let print_pattern = match self.constructor {
+            ConstructorType::Unit => quote! { #print_constructor },
+            ConstructorType::Named => {
+                let fields = constructor_fields.iter().map(|(_, name, binding)| {
+                    let name = name
+                        .as_ref()
+                        .expect("named constructor bindings have field names");
+                    quote! { #name: #binding }
+                });
+                quote! { #print_constructor { #(#fields),* } }
+            }
+            ConstructorType::Unnamed => {
+                let mut ordered = constructor_fields
+                    .iter()
+                    .map(|(position, _, binding)| (*position, binding))
+                    .collect::<Vec<_>>();
+                ordered.sort_by_key(|(position, _)| *position);
+                let fields = ordered.iter().map(|(_, binding)| binding);
+                quote! { #print_constructor(#(#fields),*) }
+            }
+        };
+        let print_body = emit_print_pieces(&print_pieces, paths);
+        let print_arm = quote! { #print_pattern => { #print_body } };
 
         let map = if bindings.is_empty() {
             match self.constructor {
@@ -769,12 +890,14 @@ impl<'p> ValidatedPatternInfo<'p> {
             &self.target.ident().to_string().to_lowercase()
         );
 
-        Ok((
-            name.clone(),
-            quote! {
+        Ok(CompiledPattern {
+            parser_name: name.clone(),
+            parser: quote! {
                 let #name = #chain #map;
             },
-        ))
+            print_arm,
+            field_types,
+        })
     }
 }
 
@@ -875,7 +998,7 @@ fn compile_pattern_parser(
     decl_span: Span,
     variant_span: Span,
     paths: &ParserPaths,
-) -> Result<(Ident, TokenStream2, Option<InstructionWithSpan>)> {
+) -> Result<(CompiledPattern, Option<InstructionWithSpan>)> {
     let Some(ref class) = info.class else {
         return Err(Error::new(
             decl_span,
@@ -899,10 +1022,10 @@ fn compile_pattern_parser(
             .pattern
             .contains_token()
             .map(|token| (token.to_owned(), span));
-        let (ident, parser) = validated
+        let compiled = validated
             .emit(paths)
             .map_err(|err| Error::new(span, err.to_string()))?;
-        Ok((ident, parser, instruction_token))
+        Ok((compiled, instruction_token))
     } else {
         let new_info = generate_pattern(info, variant_span)
             .map_err(|err| Error::new(variant_span, err.to_string()))?;
@@ -987,6 +1110,75 @@ fn emit_parse_impl(
     }
 }
 
+/// The text written before a body for the class's `head`, mirroring
+/// [`apply_head`] with its minimal separator.
+fn print_head(class: Option<&SyntaxClassAttr>) -> Option<String> {
+    match class {
+        Some(SyntaxClassAttr::Instruction { head: Some(head) }) => Some(format!("{head}.")),
+        Some(SyntaxClassAttr::Metadata {
+            head: Some(head), ..
+        }) => Some(format!("{head} ")),
+        _ => None,
+    }
+}
+
+/// Whether `ty` names one of the given type parameters anywhere.
+fn mentions_type_param(ty: &Type, params: &HashSet<String>) -> bool {
+    fn walk(tokens: TokenStream2, params: &HashSet<String>) -> bool {
+        tokens.into_iter().any(|token| match token {
+            proc_macro2::TokenTree::Ident(ident) => params.contains(&ident.to_string()),
+            proc_macro2::TokenTree::Group(group) => walk(group.stream(), params),
+            _ => false,
+        })
+    }
+    walk(quote!(#ty), params)
+}
+
+/// Emit `Print` with `body` writing to `__vihaco_out`.
+///
+/// Field types that mention a type parameter get a `Print` bound, so a generic
+/// type prints exactly when its operands do. Concrete field types must
+/// implement `Print` themselves.
+fn emit_print_impl(
+    ident: &Ident,
+    generics: &Generics,
+    field_types: &[Type],
+    head: Option<String>,
+    body: TokenStream2,
+    paths: &ParserPaths,
+) -> TokenStream2 {
+    let parser_root = &paths.parser_root;
+    let out = print_out_ident();
+    let params: HashSet<String> = generics
+        .type_params()
+        .map(|param| param.ident.to_string())
+        .collect();
+    let mut generics = generics.clone();
+    let mut bounded = HashSet::new();
+    for ty in field_types {
+        if mentions_type_param(ty, &params) && bounded.insert(quote!(#ty).to_string()) {
+            generics
+                .make_where_clause()
+                .predicates
+                .push(syn::parse_quote!(#ty: #parser_root::Print));
+        }
+    }
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let head = head.map(|head| quote! { #out.write_str(#head)?; });
+    quote! {
+        impl #impl_generics #parser_root::Print for #ident #ty_generics #where_clause {
+            fn print(
+                &self,
+                #out: &mut dyn ::core::fmt::Write,
+            ) -> ::core::fmt::Result {
+                #head
+                #body
+                ::core::result::Result::Ok(())
+            }
+        }
+    }
+}
+
 fn expand_enum(input: EnumInfo, paths: &ParserPaths) -> Result<TokenStream> {
     let ParserPaths {
         parser_root,
@@ -1036,7 +1228,7 @@ fn expand_enum(input: EnumInfo, paths: &ParserPaths) -> Result<TokenStream> {
     }
 
     // Parse all variant attrs + compute tokens
-    let mut variant_data: Vec<(Ident, TokenStream2, Option<InstructionWithSpan>)> = vec![];
+    let mut variant_data: Vec<(CompiledPattern, Option<InstructionWithSpan>)> = vec![];
     let mut instruction_names = HashSet::new();
     for variant in &data.variants {
         let vattrs = VariantAttrs::from_variant(variant)?;
@@ -1050,14 +1242,14 @@ fn expand_enum(input: EnumInfo, paths: &ParserPaths) -> Result<TokenStream> {
             class: enum_attrs.syntax_class.clone(),
         };
 
-        let ident_and_parser = compile_pattern_parser(
+        let compiled = compile_pattern_parser(
             pattern_compilation_info,
             enum_ident.span(),
             variant.span(),
             paths,
         )?;
 
-        if let Some((token, span)) = &ident_and_parser.2 {
+        if let Some((token, span)) = &compiled.1 {
             if !instruction_names.insert(token.clone()) {
                 return Err(Error::new(
                     *span,
@@ -1066,26 +1258,47 @@ fn expand_enum(input: EnumInfo, paths: &ParserPaths) -> Result<TokenStream> {
             }
         }
 
-        variant_data.push(ident_and_parser);
+        variant_data.push(compiled);
     }
+
+    // Printing selects a variant by value, so declaration order is kept.
+    let print_arms = variant_data
+        .iter()
+        .map(|(compiled, _)| &compiled.print_arm)
+        .collect::<Vec<_>>();
+    let field_types = variant_data
+        .iter()
+        .flat_map(|(compiled, _)| compiled.field_types.iter().cloned())
+        .collect::<Vec<_>>();
+    let print_impl = emit_print_impl(
+        enum_ident,
+        input.generics,
+        &field_types,
+        print_head(enum_attrs.syntax_class.as_ref()),
+        quote! { match self { #(#print_arms)* } },
+        paths,
+    );
 
     // A parser such as `just("v2")` succeeds on the prefix of `v25`. Since
     // end-of-input (or a list separator) lives outside the instruction parser,
     // shorter alternatives must not shadow longer instruction tokens.
-    variant_data.sort_by_key(|(_, _, token)| {
+    variant_data.sort_by_key(|(_, token)| {
         std::cmp::Reverse(token.as_ref().map_or(0, |(token, _)| token.len()))
     });
 
     let alternatives = variant_data
         .iter()
-        .map(|(name, _, _)| quote!(#name))
+        .map(|(compiled, _)| {
+            let name = &compiled.parser_name;
+            quote!(#name)
+        })
         .collect::<Vec<_>>();
     let parser = apply_head(
         emit_choice(&alternatives, chumsky),
         enum_attrs.syntax_class.as_ref(),
         paths,
     );
-    let variant_bindings = variant_data.iter().map(|(_, binding, _)| binding);
+    let variant_bindings = variant_data.iter().map(|(compiled, _)| &compiled.parser);
     let parse_impl = emit_parse_impl(
         enum_ident,
         input.generics,
@@ -1106,7 +1319,7 @@ fn expand_enum(input: EnumInfo, paths: &ParserPaths) -> Result<TokenStream> {
         quote! {}
     };
 
-    let output = quote! { #parse_impl #surface_instruction_impl };
+    let output = quote! { #parse_impl #print_impl #surface_instruction_impl };
 
     Ok(output.into())
 }
@@ -1150,7 +1363,7 @@ fn compile_struct(
 
     let src_lifetime = fresh_lifetime(input.generics, "__vihaco_src");
     let mut generics = input.generics.clone();
-    let (body, mnemonic) = if let Some(SyntaxClassAttr::Metadata {
+    let (body, print_body, field_types, mnemonic) = if let Some(SyntaxClassAttr::Metadata {
         delimiters: Some((open, close)),
         ..
     }) = &struct_attrs.syntax_class
@@ -1162,6 +1375,7 @@ fn compile_struct(
             ));
         }
         let body = emit_metadata_record(&input, paths, &src_lifetime, open, close)?;
+        let print_body = emit_metadata_record_printer(&input, paths, open, close)?;
         for field in &input.data.fields {
             let ty = &field.ty;
             let parser_root = &paths.parser_root;
@@ -1170,7 +1384,8 @@ fn compile_struct(
                 .predicates
                 .push(syn::parse_quote!(#ty: #parser_root::Parse<#src_lifetime> + #src_lifetime));
         }
-        (body, None)
+        let field_types = input.data.fields.iter().map(|f| f.ty.clone()).collect();
+        (body, print_body, field_types, None)
     } else {
         let info = PatternCompilationInfo {
             fields: &input.data.fields,
@@ -1181,12 +1396,83 @@ fn compile_struct(
             class: struct_attrs.syntax_class.clone(),
         };
         let span = struct_ident.span();
-        let (ident, binding, mnemonic) = compile_pattern_parser(info, span, span, paths)?;
-        (quote! { { #binding #ident } }, mnemonic)
+        let (compiled, mnemonic) = compile_pattern_parser(info, span, span, paths)?;
+        let CompiledPattern {
+            parser_name,
+            parser,
+            print_arm,
+            field_types,
+        } = compiled;
+        (
+            quote! { { #parser #parser_name } },
+            quote! { match self { #print_arm } },
+            field_types,
+            mnemonic,
+        )
     };
     let parser = apply_head(body, struct_attrs.syntax_class.as_ref(), paths);
-    let output = emit_parse_impl(struct_ident, &generics, &src_lifetime, parser, paths);
-    Ok((output.into(), mnemonic))
+    let parse_impl = emit_parse_impl(struct_ident, &generics, &src_lifetime, parser, paths);
+    let print_impl = emit_print_impl(
+        struct_ident,
+        input.generics,
+        &field_types,
+        print_head(struct_attrs.syntax_class.as_ref()),
+        print_body,
+        paths,
+    );
+    Ok((quote! { #parse_impl #print_impl }.into(), mnemonic))
+}
+
+/// Print a delimited record as `open key: value, ... close` in declaration
+/// order, with keys quoted only when they are not bare identifiers.
+fn emit_metadata_record_printer(
+    input: &StructInfo<'_>,
+    paths: &ParserPaths,
+    open: &str,
+    close: &str,
+) -> Result<TokenStream2> {
+    let Fields::Named(fields) = &input.data.fields else {
+        return Err(Error::new_spanned(
+            input.ident,
+            "metadata delimiters require a named struct",
+        ));
+    };
+    let mut pieces = Vec::new();
+    push_print_text(&mut pieces, open);
+    for (index, field) in fields.named.iter().enumerate() {
+        let name = field.ident.as_ref().expect("named fields");
+        let key = name.unraw().to_string();
+        let bare = key
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        let key = if bare {
+            key
+        } else {
+            let mut quoted = String::new();
+            vihaco_parser::print_quoted(&key, &mut quoted)
+                .map_err(|_| Error::new_spanned(name, "record key cannot be printed"))?;
+            quoted
+        };
+        let separator = if index == 0 { " " } else { ", " };
+        push_print_text(&mut pieces, &format!("{separator}{key}: "));
+        pieces.push(PrintPiece::Field(name.clone()));
+    }
+    if !fields.named.is_empty() {
+        push_print_text(&mut pieces, " ");
+    }
+    push_print_text(&mut pieces, close);
+    // Bind fields by name; the printer statements refer to them directly.
+    let names = fields
+        .named
+        .iter()
+        .map(|field| field.ident.as_ref().unwrap());
+    let body = emit_print_pieces(&pieces, paths);
+    Ok(quote! {
+        let Self { #(#names),* } = self;
+        #body
+    })
 }
 
 /// Emit the unordered record body; struct emission supplies its head and impl.
