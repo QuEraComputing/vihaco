@@ -20,11 +20,12 @@ machine, then pair the result with the machine when it's ready.
 
 ## Read a section
 
-Start with `SstFile<C>::from_text(source)`. The type `C` interprets the file's
-global context; use `NoContext` when you have no global data. From `root()`,
-`child(name)` and `children()` let you pick sections for independently loaded
-programs. These section names describe the file structure, rather than routes
-to instruction destinations.
+Start with `SSTFile<C>::from_text(source)`. The type `C` interprets the file's
+global context; use `NoContext` when you have no global data. A file holds a
+flat list of named sections: `section(name)` picks one and `sections()` lists
+them in file order. Each section is an independently loaded program. Section
+names are only for selecting a section; execution uses instruction addresses,
+and any mapping from addresses to names belongs in the header metadata.
 
 A section view gives you the header and source body. Pass it to
 `ParsedModule::<SourceInstruction, Type, Header>::parse_section(section)`, using

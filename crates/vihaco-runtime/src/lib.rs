@@ -121,7 +121,7 @@ pub use chumsky;
 pub use eyre;
 pub use vihaco_abi::traits::{EffectSink, Reset};
 pub use vihaco_abi::{Effects, Lower, Runtime, Syntax, metadata};
-pub use vihaco_bytecode::{BytecodeSectionView, SstSectionView};
+pub use vihaco_bytecode::{BytecodeSectionView, SSTSectionView};
 pub use vihaco_module::loader;
 #[doc(hidden)]
 pub use vihaco_parser::trivia;
@@ -167,11 +167,10 @@ pub use vihaco_runtime_derive::{Message, dispatch, machine, observe};
 /// Generic declarations retain their original bounds.
 /// Every device needs an explicit u8 code, unique within its parent. Ordinary
 /// state is excluded from parent instruction sets.
-/// Without `program-image-execution`, `#[loadable]` devices form section boundaries
-/// and are excluded from parent instruction sets. The macro generates legacy
-/// section-loading implementations in that configuration. With the feature
-/// enabled, construct images explicitly and pair them with stdlib `Loadable`;
-/// `#[loadable]` helpers and generated section loading are unavailable.
+/// Composites do not generate section loading: file sections are flat, so
+/// select one by name and load it explicitly (`LoadSSTSection` /
+/// `LoadBytecodeSection`, or, with `program-image-execution`, construct an
+/// image and pair it with stdlib `Loadable`).
 /// [`Field::get`] and [`Field::get_mut`] borrow eligible devices through direct or
 /// nested field routes, including devices that contain borrowed data.
 /// Named generic children are supported; bare type parameters and associated

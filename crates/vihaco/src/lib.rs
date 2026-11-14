@@ -33,8 +33,8 @@ pub mod value {
 
 pub use binary::{
     BytecodeFile, BytecodeGlobalContext, BytecodeHeader, BytecodeSectionView, ConstantId,
-    ContextHandle, FLAGS, GlobalContext, MAGIC, NoContext, SectionNameResolver, SectionPath,
-    SstFile, SstGlobalContext, SstHeader, SstSectionView, VERSION, WriteBytecodeHeader,
+    ContextHandle, FLAGS, GlobalContext, MAGIC, NoContext, SST_VERSION, SSTFile, SSTGlobalContext,
+    SSTHeader, SSTSectionView, SectionNameResolver, VERSION, WriteBytecodeHeader,
     decode_instruction_stream,
 };
 
@@ -51,7 +51,7 @@ pub use instruction_syntax::{
 pub use loader::ProgramImage;
 
 #[cfg(not(feature = "program-image-execution"))]
-pub use loader::{LoadBytecodeSection, LoadOwnBytecodeSection, LoadOwnSstSection, LoadSstSection};
+pub use loader::{LoadBytecodeSection, LoadSSTSection};
 
 pub use macros::{Instruction, Message, component, composite, dispatch, observe};
 pub use program::{Type, Value};
@@ -118,7 +118,7 @@ pub use vihaco_stdlib::{
 mod public_api_tests {
     use crate::{
         BytecodeGlobalContext, BytecodeHeader, ConstantId, EffectSink, Effects, GeneratedComponent,
-        GlobalContext, Reset, SectionNameResolver, SstGlobalContext, SstHeader,
+        GlobalContext, Reset, SSTGlobalContext, SSTHeader, SectionNameResolver,
         WriteBytecodeHeader,
         instruction::{FromBytes, OpCode, WriteBytes},
         module::FunctionInfo,
@@ -126,7 +126,7 @@ mod public_api_tests {
     };
 
     #[cfg(not(feature = "program-image-execution"))]
-    use crate::{LoadBytecodeSection, LoadOwnBytecodeSection};
+    use crate::LoadBytecodeSection;
 
     struct PublicReset;
 
@@ -148,21 +148,9 @@ mod public_api_tests {
         }
     }
 
-    impl SstGlobalContext for PublicContext {
+    impl SSTGlobalContext for PublicContext {
         fn from_text(_text: &str) -> eyre::Result<Self> {
             Ok(Self)
-        }
-    }
-
-    #[cfg(not(feature = "program-image-execution"))]
-    impl LoadOwnBytecodeSection<PublicContext> for PublicReset {
-        type Output = ();
-
-        fn load_own_bytecode_section<'bc>(
-            &mut self,
-            _section: crate::BytecodeSectionView<'bc, PublicContext>,
-        ) -> eyre::Result<()> {
-            Ok(())
         }
     }
 
@@ -174,7 +162,8 @@ mod public_api_tests {
             &mut self,
             section: crate::BytecodeSectionView<'bc, PublicContext>,
         ) -> eyre::Result<()> {
-            self.load_own_bytecode_section(section)
+            let _ = section.name();
+            Ok(())
         }
     }
 
@@ -186,7 +175,7 @@ mod public_api_tests {
         }
     }
 
-    impl SstHeader for PublicSstHeader {}
+    impl SSTHeader for PublicSstHeader {}
 
     #[test]
     fn crate_root_exports_new_traits() {
@@ -194,14 +183,12 @@ mod public_api_tests {
         fn require_reset<T: Reset>() {}
         fn require_instruction<T: FromBytes + OpCode + WriteBytes>() {}
         fn require_bytecode_header<T: BytecodeHeader>() {}
-        fn require_sst_header<T: SstHeader>() {}
+        fn require_sst_header<T: SSTHeader>() {}
         fn require_write_bytecode_header<T: WriteBytecodeHeader>() {}
         fn require_section_name_resolver<T: SectionNameResolver>() {}
         fn require_bytecode_global_context<T: BytecodeGlobalContext>() {}
-        fn require_sst_global_context<T: SstGlobalContext>() {}
+        fn require_sst_global_context<T: SSTGlobalContext>() {}
         fn require_global_context<T: GlobalContext>() {}
-        #[cfg(not(feature = "program-image-execution"))]
-        fn require_load_own_bytecode_section<T: LoadOwnBytecodeSection<PublicContext>>() {}
         #[cfg(not(feature = "program-image-execution"))]
         fn require_load_bytecode_section<T: LoadBytecodeSection<PublicContext>>() {}
         fn require_stdout_effect(_effect: StdoutEffect) {}
@@ -218,8 +205,6 @@ mod public_api_tests {
         require_sst_global_context::<PublicContext>();
         require_sst_global_context::<crate::NoContext>();
         require_global_context::<PublicContext>();
-        #[cfg(not(feature = "program-image-execution"))]
-        require_load_own_bytecode_section::<PublicReset>();
         #[cfg(not(feature = "program-image-execution"))]
         require_load_bytecode_section::<PublicReset>();
         let _constant = ConstantId(0);

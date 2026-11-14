@@ -8,7 +8,7 @@
 //! Without a path, this runs the adjacent `loadable.sst`, which computes 21 * 2.
 
 use vihaco_abi::{Type, Value};
-use vihaco_bytecode::{NoContext, SstFile};
+use vihaco_bytecode::{NoContext, SSTFile};
 use vihaco_cpu::CPU;
 use vihaco_module::{
     loader::MetadataLoweringContext,
@@ -143,10 +143,9 @@ struct Runtime {
 impl Runtime {
     fn from_sst(source: &str) -> eyre::Result<Self> {
         // 1. Read the container and select this runtime field's program section.
-        let file = SstFile::<NoContext>::from_text(source)?;
+        let file = SSTFile::<NoContext>::from_text(source)?;
         let section = file
-            .root()
-            .child("controller")
+            .section("controller")
             .ok_or_else(|| eyre::eyre!("missing controller section"))?;
 
         // 2. Parse header declarations and the composite's syntax instructions.

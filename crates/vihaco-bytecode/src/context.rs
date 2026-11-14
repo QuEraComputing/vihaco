@@ -11,7 +11,7 @@ pub struct NoContext;
 
 /// Resolve section-name indexes stored in bytecode files.
 ///
-/// Bytecode child section entries store section names indirectly, so parsing a
+/// Bytecode section table entries store section names indirectly, so parsing a
 /// bytecode file needs a context object that can resolve those indexes.
 pub trait SectionNameResolver {
     fn section_name(&self, index: u32) -> Option<&str>;
@@ -23,16 +23,16 @@ pub trait BytecodeGlobalContext: Sized + SectionNameResolver {
 }
 
 /// A global context that can be parsed from SST text.
-pub trait SstGlobalContext: Sized {
+pub trait SSTGlobalContext: Sized {
     fn from_text(text: &str) -> eyre::Result<Self>;
 }
 
 /// A global context that supports both bytecode and SST representations.
-pub trait GlobalContext: BytecodeGlobalContext + SstGlobalContext {}
+pub trait GlobalContext: BytecodeGlobalContext + SSTGlobalContext {}
 
-impl<T> GlobalContext for T where T: BytecodeGlobalContext + SstGlobalContext {}
+impl<T> GlobalContext for T where T: BytecodeGlobalContext + SSTGlobalContext {}
 
-impl SstGlobalContext for NoContext {
+impl SSTGlobalContext for NoContext {
     fn from_text(text: &str) -> eyre::Result<Self> {
         if text.trim().is_empty() {
             Ok(Self)

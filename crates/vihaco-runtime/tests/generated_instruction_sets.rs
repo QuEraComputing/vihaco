@@ -47,17 +47,6 @@ type Alias<T> = Cpu<T>;
 pub use __vihaco_fields_Cpu as __vihaco_fields_Alias;
 pub use __vihaco_inventory_Cpu as __vihaco_inventory_Alias;
 
-#[cfg(not(feature = "program-image-execution"))]
-#[composite]
-struct Inner<T> {
-    #[device(7, alias = "core", alias = "core-v2")]
-    cpu: Alias<T>,
-    #[device(8)]
-    #[loadable]
-    image: Image,
-}
-
-#[cfg(feature = "program-image-execution")]
 #[composite]
 struct Inner<T> {
     #[device(7, alias = "core", alias = "core-v2")]
@@ -74,20 +63,6 @@ impl<T, I> Step<field!(Inner<T>::cpu), I> for Inner<T> {
 
 struct Image;
 
-#[cfg(not(feature = "program-image-execution"))]
-#[composite]
-struct Machine<T> {
-    #[device(42)]
-    left: Inner<T>,
-    #[device(43)]
-    right: Inner<T>,
-    #[device(44)]
-    #[loadable]
-    excluded: Inner<T>,
-    total: i64,
-}
-
-#[cfg(feature = "program-image-execution")]
 #[composite]
 struct Machine<T> {
     #[device(42)]
@@ -280,17 +255,9 @@ fn inventory_and_step_contract_diagnostics() {
     fixtures.sort();
     for fixture in fixtures {
         let name = fixture.file_name().unwrap().to_str().unwrap();
-        if cfg!(feature = "program-image-execution") {
-            if matches!(
-                name,
-                "duplicate-loadable-code.rs" | "missing-loadable-code.rs"
-            ) {
-                continue;
-            }
-            if name == "missing-step.rs" {
-                cases.compile_fail("tests/compile_fail/program_image_inventory/missing-step.rs");
-                continue;
-            }
+        if cfg!(feature = "program-image-execution") && name == "missing-step.rs" {
+            cases.compile_fail("tests/compile_fail/program_image_inventory/missing-step.rs");
+            continue;
         }
         cases.compile_fail(fixture);
     }

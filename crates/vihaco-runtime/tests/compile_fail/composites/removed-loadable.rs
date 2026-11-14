@@ -1,15 +1,11 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-use vihaco_runtime as framework;
-use framework::composite;
+use vihaco_runtime::composite;
 #[composite]
-#[vihaco(crate = framework)]
 struct Parent {
     #[device(100)]
     #[loadable]
     image: u8,
 }
-fn main() {
-    let _: Option<framework::field!(Parent::image)> = None;
-}
+fn main() {}

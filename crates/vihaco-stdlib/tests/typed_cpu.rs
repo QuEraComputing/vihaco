@@ -891,18 +891,18 @@ impl vihaco_abi::traits::FromText for Header {
     }
 }
 
-impl vihaco_bytecode::SstHeader for Header {}
+impl vihaco_bytecode::SSTHeader for Header {}
 
-impl vihaco_module::loader::LoadOwnSstSection<vihaco_bytecode::NoContext> for SymbolLoader
+impl vihaco_module::loader::LoadSSTSection<vihaco_bytecode::NoContext> for SymbolLoader
 where
     <Machine as HasInstructionSet>::Syntax:
         vihaco_runtime::Lower<Self, Runtime = <Machine as HasInstructionSet>::Runtime>,
 {
     type Output = ();
 
-    fn load_own_sst_section<'src>(
+    fn load_sst_section<'src>(
         &mut self,
-        section: vihaco_bytecode::SstSectionView<'src, vihaco_bytecode::NoContext>,
+        section: vihaco_bytecode::SSTSectionView<'src, vihaco_bytecode::NoContext>,
     ) -> eyre::Result<()> {
         type Module = vihaco_syntax::ParsedModule<
             <Machine as HasInstructionSet>::Syntax,
@@ -954,13 +954,16 @@ where
 }
 
 fn load_symbolic(loader: &mut SymbolLoader, functions: &str) -> eyre::Result<()> {
-    use vihaco_module::loader::LoadOwnSstSection;
+    use vihaco_module::loader::LoadSSTSection;
     let text = format!(
-        "sst v{}\n.section(root):\n.text(root):\n{functions}\n.text(root).\n.section(root).\n",
-        vihaco_bytecode::VERSION
+        "sst v{}\n.section main\n.text\n{functions}\n",
+        vihaco_bytecode::SST_VERSION
     );
-    let file = vihaco_bytecode::SstFile::<vihaco_bytecode::NoContext>::from_text(&text)?;
-    loader.load_own_sst_section(file.root())
+    let file = vihaco_bytecode::SSTFile::<vihaco_bytecode::NoContext>::from_text(&text)?;
+    let section = file
+        .section("main")
+        .ok_or_else(|| eyre::eyre!("missing main section"))?;
+    loader.load_sst_section(section)
 }
 
 #[test]

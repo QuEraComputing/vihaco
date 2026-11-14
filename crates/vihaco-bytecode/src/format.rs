@@ -8,12 +8,14 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use vihaco_abi::traits::{FromBytes, FromText, Instruction, OpCode, WriteBytes};
 
 pub use crate::container::bytecode::{FLAGS, MAGIC, VERSION};
+/// The SST text format version (`sst v2`), distinct from the binary [`VERSION`].
+pub use crate::container::sst::VERSION as SST_VERSION;
 
 pub trait BytecodeHeader: Sized + FromBytes {}
 
 impl<T> BytecodeHeader for T where T: Sized + FromBytes {}
 
-pub trait SstHeader: Sized + FromText {}
+pub trait SSTHeader: Sized + FromText {}
 
 pub trait WriteBytecodeHeader: WriteBytes {}
 

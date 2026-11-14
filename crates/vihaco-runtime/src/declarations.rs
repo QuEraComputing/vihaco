@@ -89,13 +89,10 @@ pub struct FieldPath<Head, Tail>(std::marker::PhantomData<(Head, Tail)>);
 /// Declaration-local device metadata.
 /// Every device has an explicit code, independent of marker type identity.
 /// Ordinary state fields are absent.
-/// Legacy section boundaries are included without `program-image-execution`.
 pub struct CompositeDevice {
     pub name: &'static str,
     pub code: u8,
     pub source: &'static [&'static str],
-    #[cfg(not(feature = "program-image-execution"))]
-    pub section: Option<&'static str>,
 }
 
 pub trait CompositeSpec {

@@ -1,0 +1,5 @@
+error: #[loadable] was removed: sections are flat; implement LoadSSTSection/LoadBytecodeSection and select a section by name
+ --> tests/compile_fail/composites/removed-loadable.rs:8:5
+  |
+8 |     #[loadable]
+  |     ^^^^^^^^^^^

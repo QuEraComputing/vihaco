@@ -13,12 +13,12 @@ mod section;
 mod tests;
 
 pub use context::{
-    BytecodeGlobalContext, ContextHandle, GlobalContext, NoContext, SectionNameResolver,
-    SstGlobalContext,
+    BytecodeGlobalContext, ContextHandle, GlobalContext, NoContext, SSTGlobalContext,
+    SectionNameResolver,
 };
-pub use file::{BytecodeFile, SstFile};
+pub use file::{BytecodeFile, SSTFile};
 pub use format::{
-    BytecodeHeader, ConstantId, FLAGS, MAGIC, SstHeader, VERSION, WriteBytecodeHeader,
+    BytecodeHeader, ConstantId, FLAGS, MAGIC, SST_VERSION, SSTHeader, VERSION, WriteBytecodeHeader,
     decode_instruction_stream,
 };
-pub use section::{BytecodeSectionView, SectionPath, SstSectionView};
+pub use section::{BytecodeSectionView, SSTSectionView};

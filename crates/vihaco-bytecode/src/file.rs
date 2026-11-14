@@ -2,17 +2,17 @@
 // SPDX-License-Identifier: MIT
 
 use super::{
-    context::{BytecodeGlobalContext, ContextHandle, SstGlobalContext},
-    section::{BytecodeSectionView, SstSectionView},
+    context::{BytecodeGlobalContext, ContextHandle, SSTGlobalContext},
+    section::{BytecodeSectionView, SSTSectionView},
 };
-use crate::container::SectionNode;
+use crate::container::SectionEntry;
 
-/// A parsed bytecode file.
+/// A parsed bytecode file: a global context plus a flat table of named sections.
 #[derive(Debug, Clone)]
 pub struct BytecodeFile<C> {
     contents: Vec<u8>,
     context: ContextHandle<C>,
-    root: SectionNode,
+    sections: Vec<SectionEntry>,
 }
 
 impl<C> BytecodeFile<C> {
@@ -24,9 +24,21 @@ impl<C> BytecodeFile<C> {
         self.context.clone()
     }
 
-    /// The view of the root of the bytecode section tree.
-    pub fn root(&self) -> BytecodeSectionView<'_, C> {
-        BytecodeSectionView::from_parts(self.contents.as_slice(), self.context.clone(), &self.root)
+    /// All sections, in file order.
+    pub fn sections(&self) -> impl ExactSizeIterator<Item = BytecodeSectionView<'_, C>> + '_ {
+        self.sections.iter().map(|entry| self.view(entry))
+    }
+
+    /// The section named `name`, if present.
+    pub fn section(&self, name: &str) -> Option<BytecodeSectionView<'_, C>> {
+        self.sections
+            .iter()
+            .find(|entry| entry.name == name)
+            .map(|entry| self.view(entry))
+    }
+
+    fn view<'bc>(&'bc self, entry: &'bc SectionEntry) -> BytecodeSectionView<'bc, C> {
+        BytecodeSectionView::from_parts(self.contents.as_slice(), self.context.clone(), entry)
     }
 }
 
@@ -49,20 +61,20 @@ where
         Ok(BytecodeFile {
             contents: bytes,
             context: ContextHandle::new(context),
-            root: parsed.root,
+            sections: parsed.sections,
         })
     }
 }
 
-/// A parsed SST file.
+/// A parsed SST file: a global context plus a flat list of named sections.
 #[derive(Debug, Clone)]
-pub struct SstFile<C> {
+pub struct SSTFile<C> {
     contents: String,
     context: ContextHandle<C>,
-    root: SectionNode,
+    sections: Vec<SectionEntry>,
 }
 
-impl<C> SstFile<C> {
+impl<C> SSTFile<C> {
     pub fn context(&self) -> &C {
         self.context.get()
     }
@@ -71,15 +83,27 @@ impl<C> SstFile<C> {
         self.context.clone()
     }
 
-    /// The view of the root of the SST section tree.
-    pub fn root(&self) -> SstSectionView<'_, C> {
-        SstSectionView::from_parts(self.contents.as_str(), self.context.clone(), &self.root)
+    /// All sections, in file order.
+    pub fn sections(&self) -> impl ExactSizeIterator<Item = SSTSectionView<'_, C>> + '_ {
+        self.sections.iter().map(|entry| self.view(entry))
+    }
+
+    /// The section named `name`, if present.
+    pub fn section(&self, name: &str) -> Option<SSTSectionView<'_, C>> {
+        self.sections
+            .iter()
+            .find(|entry| entry.name == name)
+            .map(|entry| self.view(entry))
+    }
+
+    fn view<'bc>(&'bc self, entry: &'bc SectionEntry) -> SSTSectionView<'bc, C> {
+        SSTSectionView::from_parts(self.contents.as_str(), self.context.clone(), entry)
     }
 }
 
-impl<C> SstFile<C>
+impl<C> SSTFile<C>
 where
-    C: SstGlobalContext,
+    C: SSTGlobalContext,
 {
     /// Parse an SST file from text.
     pub fn from_text(text: &str) -> eyre::Result<Self> {
@@ -89,10 +113,10 @@ where
                 .ok_or_else(|| eyre::eyre!("global context is out of bounds"))?,
         )?;
 
-        Ok(SstFile {
+        Ok(SSTFile {
             contents: text.to_string(),
             context: ContextHandle::new(context),
-            root: parsed.root,
+            sections: parsed.sections,
         })
     }
 }
