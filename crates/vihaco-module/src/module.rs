@@ -90,15 +90,14 @@ pub struct FieldInfo<Ty> {
 /// Exposes the struct-table reference carried by a type, if any, so module
 /// assembly can check `Type::Struct` indices against the struct table.
 pub trait StructTypeRef {
-    fn struct_index(&self) -> Option<u32>;
+    /// Visit every struct-table index this type refers to, including ones
+    /// nested inside compound types such as array element types.
+    fn visit_struct_refs(&self, visit: &mut dyn FnMut(u32));
 }
 
 impl StructTypeRef for vihaco_abi::Type {
-    fn struct_index(&self) -> Option<u32> {
-        match self {
-            vihaco_abi::Type::Struct(index) => Some(*index),
-            _ => None,
-        }
+    fn visit_struct_refs(&self, visit: &mut dyn FnMut(u32)) {
+        vihaco_abi::Type::visit_struct_refs(self, visit)
     }
 }
 

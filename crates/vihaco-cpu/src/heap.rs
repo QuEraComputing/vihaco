@@ -1,23 +1,27 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! CPU heap: kind-tagged objects behind generational references.
+//! CPU heap: type-tagged objects behind generational references.
 //!
 //! References are `slotmap` keys packed into a 64-bit word (32-bit slot index,
 //! 32-bit version). Freeing an object bumps its slot's version, so a stale
 //! reference can never reach the object that later reuses the slot.
+//!
+//! Every object records what it is: an array with a specific element type, or
+//! a specific struct. Each access names what it expects and is checked against
+//! that tag before any element or field is touched.
 
 use crate::Word;
 use crate::layout::{FieldSlot, StructLayout};
 use slotmap::{DefaultKey, Key, KeyData, SlotMap};
+use vihaco_abi::Type;
 
-/// What a heap object is. Every access checks the kind before touching slots,
-/// so struct and array operations cannot be applied to the wrong object.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// What a heap object is.
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum ObjectKind {
-    /// Created by `heap_alloc` or `heap_reserve`; accessed by index.
-    #[default]
-    Array,
+    /// Created by `array_new` or `array_reserve`; elements of the given type,
+    /// accessed by index.
+    Array(Type),
     /// Created by `struct_new`; a fixed set of fields, accessed by field slot.
     Struct(u32),
 }
@@ -25,18 +29,18 @@ enum ObjectKind {
 impl std::fmt::Display for ObjectKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ObjectKind::Array => f.write_str("an array"),
+            ObjectKind::Array(elem) => write!(f, "array {elem}"),
             ObjectKind::Struct(id) => write!(f, "struct {id}"),
         }
     }
 }
 
 /// Storage with a fixed capacity limit and a current length.
-/// `heap_alloc` creates a full array, `heap_reserve` an empty one, and
+/// `array_new` creates a full array, `array_reserve` an empty one, and
 /// `struct_new` a full struct. Appends never overwrite elements or grow the
-/// allocation, and only arrays accept them. Reads and field writes are bounded
-/// by `values.len()` rather than capacity, so a write never extends an object.
-#[derive(Debug, Default)]
+/// allocation, and only arrays accept them. Reads and writes are bounded by
+/// `values.len()` rather than capacity, so a write never extends an object.
+#[derive(Debug)]
 struct HeapObject {
     kind: ObjectKind,
     values: Vec<Word>,
@@ -50,7 +54,7 @@ impl Clone for HeapObject {
         let mut values = Vec::with_capacity(self.capacity);
         values.extend_from_slice(&self.values);
         Self {
-            kind: self.kind,
+            kind: self.kind.clone(),
             values,
             capacity: self.capacity,
         }
@@ -84,15 +88,28 @@ fn invalid(reference: HeapRef) -> eyre::Report {
 }
 
 impl Heap {
-    /// Allocate a full array; spare Vec capacity does not permit appending.
-    pub(crate) fn alloc(&mut self, values: impl Into<Vec<Word>>) -> HeapRef {
+    /// Allocate a full array of `elem` values; spare Vec capacity does not
+    /// permit appending.
+    pub(crate) fn alloc_array(&mut self, elem: Type, values: impl Into<Vec<Word>>) -> HeapRef {
         let values = values.into();
         let capacity = values.len();
         self.insert(HeapObject {
-            kind: ObjectKind::Array,
+            kind: ObjectKind::Array(elem),
             values,
             capacity,
         })
+    }
+
+    /// Allocate an empty array of `elem` values with an exact, fixed element
+    /// limit. Returns an error if its storage cannot be allocated.
+    pub(crate) fn reserve_array(&mut self, elem: Type, capacity: usize) -> eyre::Result<HeapRef> {
+        let mut values = Vec::new();
+        values.try_reserve_exact(capacity)?;
+        Ok(self.insert(HeapObject {
+            kind: ObjectKind::Array(elem),
+            values,
+            capacity,
+        }))
     }
 
     /// Allocate a struct whose fields are `values`, in declaration order.
@@ -118,22 +135,16 @@ impl Heap {
         }))
     }
 
-    /// Allocate an empty array with an exact, fixed element limit.
-    /// Returns an error if its storage cannot be allocated.
-    pub(crate) fn reserve(&mut self, capacity: usize) -> eyre::Result<HeapRef> {
-        let mut values = Vec::new();
-        values.try_reserve_exact(capacity)?;
-        Ok(self.insert(HeapObject {
-            kind: ObjectKind::Array,
-            values,
-            capacity,
-        }))
-    }
-
-    /// Append to an array without reallocating or overwriting existing elements.
-    /// Returns an error for invalid, deallocated, full, or struct objects.
-    pub(crate) fn push(&mut self, reference: HeapRef, value: Word) -> eyre::Result<()> {
-        let object = self.array_mut(reference)?;
+    /// Append to an `elem` array without reallocating or overwriting elements.
+    /// Returns an error for invalid, full, or wrongly typed objects.
+    pub(crate) fn push(
+        &mut self,
+        reference: HeapRef,
+        elem: &Type,
+        value: Word,
+    ) -> eyre::Result<()> {
+        let object = self.object_mut(reference)?;
+        check_array(reference, object, elem)?;
         eyre::ensure!(
             object.values.len() < object.capacity,
             "heap object {reference:#x} is full (capacity {})",
@@ -141,6 +152,41 @@ impl Heap {
         );
         object.values.push(value);
         Ok(())
+    }
+
+    /// Read element `index` of an `elem` array.
+    pub(crate) fn get(&self, reference: HeapRef, elem: &Type, index: u64) -> eyre::Result<Word> {
+        let object = self.object(reference)?;
+        check_array(reference, object, elem)?;
+        let slot = element(object, index)?;
+        Ok(object.values[slot])
+    }
+
+    /// Overwrite element `index` of an `elem` array. The index must be below
+    /// the current length; writes never extend an array.
+    pub(crate) fn set(
+        &mut self,
+        reference: HeapRef,
+        elem: &Type,
+        index: u64,
+        value: Word,
+    ) -> eyre::Result<()> {
+        let object = self.object_mut(reference)?;
+        check_array(reference, object, elem)?;
+        let slot = element(object, index)?;
+        object.values[slot] = value;
+        Ok(())
+    }
+
+    /// The current length of an array of any element type.
+    pub(crate) fn len(&self, reference: HeapRef) -> eyre::Result<usize> {
+        let object = self.object(reference)?;
+        eyre::ensure!(
+            matches!(object.kind, ObjectKind::Array(_)),
+            "type error: heap object {reference:#x} is {}, expected an array",
+            object.kind
+        );
+        Ok(object.values.len())
     }
 
     /// Read a field of a struct object.
@@ -169,27 +215,13 @@ impl Heap {
         self.objects.insert(object).data().as_ffi()
     }
 
-    /// Free an object of either kind. Freeing twice, or freeing through a
+    /// Free an object of any kind. Freeing twice, or freeing through a
     /// reference whose slot has since been reused, is an error.
     pub(crate) fn dealloc(&mut self, reference: HeapRef) -> eyre::Result<()> {
         key(reference)
             .and_then(|key| self.objects.remove(key))
             .map(drop)
             .ok_or_else(|| invalid(reference))
-    }
-
-    /// The elements of an array object. Struct objects are rejected: their
-    /// fields are only reachable through checked field access.
-    pub(crate) fn array(&self, reference: HeapRef) -> eyre::Result<&[Word]> {
-        let object = self.object(reference)?;
-        check_array(reference, object)?;
-        Ok(&object.values)
-    }
-
-    fn array_mut(&mut self, reference: HeapRef) -> eyre::Result<&mut HeapObject> {
-        let object = self.object_mut(reference)?;
-        check_array(reference, object)?;
-        Ok(object)
     }
 
     fn object(&self, reference: HeapRef) -> eyre::Result<&HeapObject> {
@@ -210,19 +242,39 @@ impl Heap {
         self.objects.clear();
     }
 
+    /// The raw elements of an array of any element type, for inspection.
+    #[cfg(all(test, not(feature = "typed-declarations")))]
+    pub(crate) fn elements(&self, reference: HeapRef) -> eyre::Result<&[Word]> {
+        self.len(reference)?;
+        Ok(&self.object(reference)?.values)
+    }
+
     #[cfg(all(test, not(feature = "program-image-execution")))]
     pub fn is_empty(&self) -> bool {
         self.objects.is_empty()
     }
 }
 
-fn check_array(reference: HeapRef, object: &HeapObject) -> eyre::Result<()> {
-    eyre::ensure!(
-        object.kind == ObjectKind::Array,
-        "type error: heap object {reference:#x} is {}, expected an array",
-        object.kind
-    );
-    Ok(())
+fn check_array(reference: HeapRef, object: &HeapObject, elem: &Type) -> eyre::Result<()> {
+    match &object.kind {
+        ObjectKind::Array(actual) if actual == elem => Ok(()),
+        kind => Err(eyre::eyre!(
+            "type error: heap object {reference:#x} is {kind}, expected array {elem}"
+        )),
+    }
+}
+
+/// Bounds-check an element index against an array's current length.
+fn element(object: &HeapObject, index: u64) -> eyre::Result<usize> {
+    usize::try_from(index)
+        .ok()
+        .filter(|&slot| slot < object.values.len())
+        .ok_or_else(|| {
+            eyre::eyre!(
+                "array index {index} out of bounds (length {})",
+                object.values.len()
+            )
+        })
 }
 
 fn check_struct(reference: HeapRef, object: &HeapObject, field: FieldSlot) -> eyre::Result<()> {
@@ -258,13 +310,65 @@ mod heap_tests {
     }
 
     #[test]
-    fn allocated_objects_are_full_even_with_spare_vec_capacity() {
+    fn allocated_arrays_are_full_even_with_spare_vec_capacity() {
         let mut heap = Heap::default();
         let mut values = Vec::with_capacity(8);
         values.push(1);
-        let id = heap.alloc(values);
-        assert!(heap.push(id, 2).unwrap_err().to_string().contains("full"));
-        assert_eq!(heap.array(id).unwrap(), &[1]);
+        let id = heap.alloc_array(Type::U64, values);
+        let err = heap.push(id, &Type::U64, 2).unwrap_err().to_string();
+        assert!(err.contains("full"), "{err}");
+        assert_eq!(heap.get(id, &Type::U64, 0).unwrap(), 1);
+    }
+
+    #[test]
+    fn array_elements_are_accessed_only_through_their_element_type() {
+        let mut heap = Heap::default();
+        let floats = heap.alloc_array(Type::F64, vec![1, 2, 3]);
+        heap.set(floats, &Type::F64, 1, 5).unwrap();
+        assert_eq!(heap.get(floats, &Type::F64, 1).unwrap(), 5);
+        assert_eq!(heap.len(floats).unwrap(), 3);
+
+        for err in [
+            heap.get(floats, &Type::U64, 0).unwrap_err(),
+            heap.set(floats, &Type::I64, 0, 1).unwrap_err(),
+            heap.push(floats, &Type::array(Type::F64), 1).unwrap_err(),
+        ] {
+            assert!(
+                err.to_string().contains("is array f64, expected array"),
+                "{err}"
+            );
+        }
+        let err = heap.get(floats, &Type::F64, 3).unwrap_err().to_string();
+        assert!(
+            err.contains("array index 3 out of bounds (length 3)"),
+            "{err}"
+        );
+        assert!(heap.set(floats, &Type::F64, u64::MAX, 0).is_err());
+
+        // Nested element types must match exactly.
+        let nested = heap.alloc_array(Type::array(Type::U64), vec![floats]);
+        assert!(heap.get(nested, &Type::array(Type::U64), 0).is_ok());
+        let err = heap
+            .get(nested, &Type::array(Type::F64), 0)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("is array array u64, expected array array f64"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn reserved_arrays_accept_appends_up_to_capacity_then_writes_within_length() {
+        let mut heap = Heap::default();
+        let id = heap.reserve_array(Type::I64, 2).unwrap();
+        assert!(heap.set(id, &Type::I64, 0, 1).is_err(), "set never extends");
+        heap.push(id, &Type::I64, 7).unwrap();
+        heap.set(id, &Type::I64, 0, 8).unwrap();
+        heap.push(id, &Type::I64, 9).unwrap();
+        assert!(heap.push(id, &Type::I64, 10).is_err());
+        assert_eq!(heap.len(id).unwrap(), 2);
+        assert_eq!(heap.get(id, &Type::I64, 0).unwrap(), 8);
     }
 
     #[test]
@@ -284,14 +388,16 @@ mod heap_tests {
         assert!(err.contains("no field slot 2"), "{err}");
 
         // Struct objects are not arrays: no indexed access, length, or appends.
-        let err = heap.array(point).unwrap_err().to_string();
+        let err = heap.get(point, &Type::U64, 0).unwrap_err().to_string();
+        assert!(err.contains("is struct 0, expected array u64"), "{err}");
+        let err = heap.len(point).unwrap_err().to_string();
         assert!(err.contains("is struct 0, expected an array"), "{err}");
-        assert!(heap.push(point, 3).is_err());
+        assert!(heap.push(point, &Type::U64, 3).is_err());
 
         // Arrays are not structs, even when the index would be in bounds.
-        let array = heap.alloc(vec![1, 2]);
+        let array = heap.alloc_array(Type::U64, vec![1, 2]);
         let err = heap.field(array, field(0, 0)).unwrap_err().to_string();
-        assert!(err.contains("is an array, expected struct 0"), "{err}");
+        assert!(err.contains("is array u64, expected struct 0"), "{err}");
         assert!(heap.set_field(array, field(0, 0), 1).is_err());
 
         heap.dealloc(point).unwrap();
@@ -333,14 +439,14 @@ mod heap_tests {
     #[test]
     fn double_free_and_forged_references_are_rejected() {
         let mut heap = Heap::default();
-        let array = heap.alloc(vec![1]);
+        let array = heap.alloc_array(Type::U64, vec![1]);
         heap.dealloc(array).unwrap();
         let err = heap.dealloc(array).unwrap_err().to_string();
         assert!(err.contains("invalid or has been deallocated"), "{err}");
         // Small literal numbers are not valid references.
-        let live = heap.alloc(vec![1]);
+        let live = heap.alloc_array(Type::U64, vec![1]);
         for forged in [0, 1, live as u32 as u64, u64::MAX] {
-            assert!(heap.array(forged).is_err(), "{forged:#x}");
+            assert!(heap.len(forged).is_err(), "{forged:#x}");
         }
     }
 
@@ -349,38 +455,38 @@ mod heap_tests {
         // The first object in a fresh heap has the lowest version; a forged
         // word holding only its slot index must still be rejected.
         let mut heap = Heap::default();
-        let first = heap.alloc(vec![7]);
+        let first = heap.alloc_array(Type::U64, vec![7]);
         let slot_only = first & 0xffff_ffff;
         assert_ne!(first, slot_only);
-        assert!(heap.array(slot_only).is_err());
-        assert!(heap.field(slot_only, field(0, 0)).is_err());
+        assert!(heap.len(slot_only).is_err());
+        assert!(heap.get(slot_only, &Type::U64, 0).is_err());
         assert!(heap.dealloc(slot_only).is_err());
-        assert_eq!(heap.array(first).unwrap(), &[7]);
+        assert_eq!(heap.get(first, &Type::U64, 0).unwrap(), 7);
     }
 
     #[test]
     fn references_from_before_a_clear_stay_invalid() {
         let mut heap = Heap::default();
-        let old = heap.alloc(vec![1]);
+        let old = heap.alloc_array(Type::U64, vec![1]);
         heap.clear();
-        let new = heap.alloc(vec![2]);
-        assert!(heap.array(old).is_err());
-        assert_eq!(heap.array(new).unwrap(), &[2]);
+        let new = heap.alloc_array(Type::U64, vec![2]);
+        assert!(heap.len(old).is_err());
+        assert_eq!(heap.get(new, &Type::U64, 0).unwrap(), 2);
     }
 
     #[test]
     fn cloned_heap_preserves_append_capacity_without_reallocation() {
         let mut heap = Heap::default();
-        let id = heap.reserve(3).unwrap();
-        heap.push(id, 1).unwrap();
+        let id = heap.reserve_array(Type::U64, 3).unwrap();
+        heap.push(id, &Type::U64, 1).unwrap();
         let mut cloned = heap.clone();
         for heap in [&mut heap, &mut cloned] {
-            let storage = heap.array(id).unwrap().as_ptr();
-            heap.push(id, 2).unwrap();
-            heap.push(id, 3).unwrap();
-            assert_eq!(heap.array(id).unwrap().as_ptr(), storage);
-            assert_eq!(heap.array(id).unwrap(), &[1, 2, 3]);
-            assert!(heap.push(id, 4).is_err());
+            let storage = heap.objects[key(id).unwrap()].values.as_ptr();
+            heap.push(id, &Type::U64, 2).unwrap();
+            heap.push(id, &Type::U64, 3).unwrap();
+            assert_eq!(heap.objects[key(id).unwrap()].values.as_ptr(), storage);
+            assert_eq!(heap.len(id).unwrap(), 3);
+            assert!(heap.push(id, &Type::U64, 4).is_err());
         }
     }
 
@@ -388,8 +494,11 @@ mod heap_tests {
     fn cloned_heap_preserves_object_kinds_and_references() {
         let mut heap = Heap::default();
         let point = heap.alloc_struct(POINT, vec![1, 2]).unwrap();
+        let floats = heap.alloc_array(Type::F64, vec![9]);
         let cloned = heap.clone();
         assert_eq!(cloned.field(point, field(0, 1)).unwrap(), 2);
-        assert!(cloned.array(point).is_err());
+        assert!(cloned.len(point).is_err());
+        assert_eq!(cloned.get(floats, &Type::F64, 0).unwrap(), 9);
+        assert!(cloned.get(floats, &Type::U64, 0).is_err());
     }
 }

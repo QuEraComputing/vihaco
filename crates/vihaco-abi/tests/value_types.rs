@@ -69,6 +69,42 @@ fn struct_types_round_trip_through_text_and_bytes() {
 }
 
 #[test]
+fn array_types_nest_and_round_trip_through_text_and_bytes() {
+    let cases = [
+        (Type::array(Type::F64), "array f64", vec![0x0C, 0x06]),
+        (
+            Type::array(Type::array(Type::U64)),
+            "array array u64",
+            vec![0x0C, 0x0C, 0x05],
+        ),
+        (
+            Type::array(Type::Struct(2)),
+            "array struct 2",
+            vec![0x0C, 0x0B, 0x02, 0x00, 0x00, 0x00],
+        ),
+    ];
+    for (ty, text, bytes) in cases {
+        assert_eq!(ty.to_string(), text);
+        assert_eq!(Type::from_text(text).unwrap(), ty);
+        assert_eq!(encoded(&ty), bytes);
+        let decoded = Type::from_bytes(&mut std::io::Cursor::new(bytes)).unwrap();
+        assert_eq!(decoded, ty);
+    }
+    assert!(Type::from_text("array").is_err());
+    assert!(Type::from_text("array nope").is_err());
+    // A truncated element type is an error, not a panic.
+    assert!(Type::from_bytes(&mut std::io::Cursor::new(vec![0x0C])).is_err());
+}
+
+#[test]
+fn struct_refs_are_found_inside_array_element_types() {
+    let mut found = Vec::new();
+    Type::array(Type::array(Type::Struct(3))).visit_struct_refs(&mut |index| found.push(index));
+    Type::F64.visit_struct_refs(&mut |index| found.push(index));
+    assert_eq!(found, [3]);
+}
+
+#[test]
 fn scalar_instruction_traits_use_narrow_widths() {
     assert_eq!(i32::width(), 4);
     assert_eq!(f32::width(), 4);

@@ -138,9 +138,14 @@ impl<V, Ty: StructTypeRef, Info> ProgramMetadata<V, Ty, Info> {
     /// Check that every struct type in signatures and struct fields names an
     /// entry of the struct table. Structs may refer to themselves or each other.
     pub fn validate_struct_types(&self) -> eyre::Result<()> {
-        let check = |ty: &Ty, what: &dyn Fn() -> String| match ty.struct_index() {
-            Some(index) => check_index(index, self.structs.len(), &what()),
-            None => Ok(()),
+        let check = |ty: &Ty, what: &dyn Fn() -> String| {
+            let mut result = Ok(());
+            ty.visit_struct_refs(&mut |index| {
+                if result.is_ok() {
+                    result = check_index(index, self.structs.len(), &what());
+                }
+            });
+            result
         };
         for (index, function) in self.functions.iter().enumerate() {
             let path = format!("metadata.functions[{index}].signature");

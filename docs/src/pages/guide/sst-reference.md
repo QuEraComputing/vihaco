@@ -142,19 +142,47 @@ Lowering resolves every form against this table: the field count of
 is a load-time error. (The legacy CPU instruction enum has no lowering step and
 takes `struct_new 0, 2` and `get_field 0, 1` with explicit numbers.)
 
-Struct objects are type-checked at runtime. Each heap object records whether it
-is an array (`heap_alloc`, `heap_reserve`) or which struct it is
-(`struct_new`). `get_field` and `set_field` fail unless the reference is to a
-live struct of the field's struct type, and the array instructions (`get_item`,
-`heap_push`, `heap_len`) reject structs, so a struct's shape never changes.
-Field values themselves are untyped words; the CPU does not check that a value
-stored in an `f64` field is an `f64`.
+Heap objects are type-checked at runtime. Each object records what it is: an
+array with a specific element type, or a specific struct. `get_field` and
+`set_field` fail unless the reference is to a live struct of the field's struct
+type, and the array instructions reject structs, so a struct's shape never
+changes. Field values themselves are untyped words; the CPU does not check that
+a value stored in an `f64` field is an `f64`.
+
+Heap references are opaque 64-bit values. A reference to a freed object stays
+invalid even after its slot is reused, so it can never reach the new object.
+Do not write references as literals; use the reference an allocating
+instruction returned.
 
 Types in signatures and fields may name a struct as `struct N`, its index in
 `structs`. At runtime such a value is a heap reference to a `struct N` object.
-Module assembly rejects `struct N` indices outside the table. Structs may refer
-to themselves or to each other, for example a linked node with a
-`next: struct 0` field.
+Module assembly rejects `struct N` indices outside the table, including ones
+nested in array types. Structs may refer to themselves or to each other, for
+example a linked node with a `next: struct 0` field.
+
+### Arrays
+
+Arrays are typed by their element: `array f64`, `array struct 0`, or nested,
+`array array u64`. The type can appear anywhere a type can, such as a function
+return type or a struct field. Elements are stored inline, one word each;
+struct and array elements are references to their own heap objects.
+
+| Instruction | Effect |
+|---|---|
+| `array_new T, N` | Pop `N` values of type `T` (pushed in order) and push a reference to a full `array T`. |
+| `array_reserve T` | Pop a `u64` capacity and push a reference to an empty `array T`. |
+| `array_push T` | Pop a value and an `array T` reference, append the value (below capacity), and push the reference back. |
+| `array_get T` | Pop a `u64` index and an `array T` reference and push that element. |
+| `array_set T` | Pop a value, a `u64` index, and an `array T` reference, and overwrite that element (index below the current length). |
+| `array_len` | Pop a reference to an array of any element type and push its length as `u64`. |
+| `heap_dealloc` | Pop a reference to any heap object and free it. |
+
+Every array instruction checks the object at runtime: it must be a live array
+whose element type is exactly `T`, so `array_get u64` on an `array f64` fails
+with `is array f64, expected array u64`. Indices are always `u64` and are
+bounds-checked against the current length. Element types may name structs,
+`array_new struct @Point, 4`, resolved through the struct table during lowering;
+an unknown struct name or index is a load-time error.
 
 ```text
 metadata {

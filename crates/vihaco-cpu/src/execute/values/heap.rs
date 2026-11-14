@@ -4,44 +4,53 @@
 use crate::{CPU, Word, cpu};
 use vihaco_runtime::{Execute, InputCount, PopFromStack, PushToStack, StackBatch, StackInputCount};
 
-impl StackInputCount<cpu::HeapAlloc> for CPU {
-    fn input_count(instruction: &cpu::HeapAlloc) -> eyre::Result<InputCount> {
-        Ok(InputCount::Immediate(usize::try_from(instruction.0)?))
+impl StackInputCount<cpu::ArrayNew> for CPU {
+    fn input_count(instruction: &cpu::ArrayNew) -> eyre::Result<InputCount> {
+        Ok(InputCount::Immediate(usize::try_from(instruction.1)?))
     }
 }
 
-impl Execute<cpu::HeapAlloc> for CPU {
+impl Execute<cpu::ArrayNew> for CPU {
     type Message = PopFromStack<StackBatch<Word>>;
     type Effect = PushToStack<(u64,)>;
     type Error = eyre::Report;
     fn execute(
         &mut self,
-        _: &cpu::HeapAlloc,
+        instruction: &cpu::ArrayNew,
         PopFromStack(values): Self::Message,
     ) -> eyre::Result<Self::Effect> {
         // The heap object outlives this message and owns a separate allocation.
+        let values: Vec<Word> = values.into_iter().collect();
         Ok(PushToStack((self
             .heap
-            .alloc(values.into_iter().collect::<Vec<_>>()),)))
+            .alloc_array(instruction.0.clone(), values),)))
     }
 }
 
-impl Execute<cpu::GetItem> for CPU {
+impl Execute<cpu::ArrayGet> for CPU {
     type Message = PopFromStack<(u64, u64)>;
     type Effect = PushToStack<(Word,)>;
     type Error = eyre::Report;
     fn execute(
         &mut self,
-        _: &cpu::GetItem,
+        instruction: &cpu::ArrayGet,
         PopFromStack((id, index)): Self::Message,
     ) -> eyre::Result<Self::Effect> {
-        let index = usize::try_from(index)?;
-        let value = *self
-            .heap
-            .array(id)?
-            .get(index)
-            .ok_or_else(|| eyre::eyre!("heap index {} out of bounds", index))?;
-        Ok(PushToStack((value,)))
+        Ok(PushToStack((self.heap.get(id, &instruction.0, index)?,)))
+    }
+}
+
+impl Execute<cpu::ArraySet> for CPU {
+    type Message = PopFromStack<(u64, u64, Word)>;
+    type Effect = PushToStack<()>;
+    type Error = eyre::Report;
+    fn execute(
+        &mut self,
+        instruction: &cpu::ArraySet,
+        PopFromStack((id, index, value)): Self::Message,
+    ) -> eyre::Result<Self::Effect> {
+        self.heap.set(id, &instruction.0, index, value)?;
+        Ok(PushToStack(()))
     }
 }
 
@@ -59,45 +68,47 @@ impl Execute<cpu::HeapDealloc> for CPU {
     }
 }
 
-impl Execute<cpu::HeapReserve> for CPU {
+impl Execute<cpu::ArrayReserve> for CPU {
     type Message = PopFromStack<(u64,)>;
     type Effect = PushToStack<(u64,)>;
     type Error = eyre::Report;
     fn execute(
         &mut self,
-        _: &cpu::HeapReserve,
+        instruction: &cpu::ArrayReserve,
         PopFromStack((capacity,)): Self::Message,
     ) -> eyre::Result<Self::Effect> {
+        let capacity = usize::try_from(capacity)?;
         Ok(PushToStack((self
             .heap
-            .reserve(usize::try_from(capacity)?)?,)))
+            .reserve_array(instruction.0.clone(), capacity)?,)))
     }
 }
 
-impl Execute<cpu::HeapPush> for CPU {
+impl Execute<cpu::ArrayPush> for CPU {
     type Message = PopFromStack<(Word, Word)>;
     type Effect = PushToStack<(Word,)>;
     type Error = eyre::Report;
     fn execute(
         &mut self,
-        _: &cpu::HeapPush,
+        instruction: &cpu::ArrayPush,
         PopFromStack((id, value)): Self::Message,
     ) -> eyre::Result<Self::Effect> {
-        self.heap.push(crate::word::decode_heap_ref(id), value)?;
+        self.heap
+            .push(crate::word::decode_heap_ref(id), &instruction.0, value)?;
         Ok(PushToStack((id,)))
     }
 }
 
-impl Execute<cpu::HeapLen> for CPU {
+impl Execute<cpu::ArrayLen> for CPU {
     type Message = PopFromStack<(u64,)>;
     type Effect = PushToStack<(u64,)>;
     type Error = eyre::Report;
     fn execute(
         &mut self,
-        _: &cpu::HeapLen,
+        _: &cpu::ArrayLen,
         PopFromStack((id,)): Self::Message,
     ) -> eyre::Result<Self::Effect> {
-        Ok(PushToStack((u64::try_from(self.heap.array(id)?.len())?,)))
+        Ok(PushToStack((u64::try_from(self.heap.len(id)?)?,)))
     }
 }
 
@@ -180,11 +191,42 @@ mod tests {
             cpu.execute(&cpu::GetField(slot(1, 0)), PopFromStack((id,)))
                 .is_err()
         );
-        assert!(cpu.execute(&cpu::HeapLen, PopFromStack((id,))).is_err());
-        let array = cpu.heap.alloc(vec![1, 2]);
+        assert!(cpu.execute(&cpu::ArrayLen, PopFromStack((id,))).is_err());
+        let array = cpu.heap.alloc_array(vihaco_abi::Type::U64, vec![1, 2]);
         assert!(
             cpu.execute(&cpu::GetField(slot(0, 0)), PopFromStack((array,)))
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn array_elements_are_checked_against_the_object_element_type() {
+        use vihaco_abi::Type;
+        let mut cpu = CPU::default();
+        let id = cpu.heap.alloc_array(Type::F64, vec![1, 2]);
+        cpu.execute(&cpu::ArraySet(Type::F64), PopFromStack((id, 1, 9)))
+            .unwrap();
+        let PushToStack((value,)) = cpu
+            .execute(&cpu::ArrayGet(Type::F64), PopFromStack((id, 1)))
+            .unwrap();
+        assert_eq!(value, 9);
+        let PushToStack((len,)) = cpu.execute(&cpu::ArrayLen, PopFromStack((id,))).unwrap();
+        assert_eq!(len, 2);
+        let err = cpu
+            .execute(&cpu::ArrayGet(Type::U64), PopFromStack((id, 0)))
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("is array f64, expected array u64"),
+            "{err}"
+        );
+        assert!(
+            cpu.execute(&cpu::ArraySet(Type::F64), PopFromStack((id, 2, 0)))
+                .is_err()
+        );
+        assert!(
+            cpu.execute(&cpu::ArrayPush(Type::F64), PopFromStack((id, 0)))
+                .is_err(),
+            "full arrays reject appends"
         );
     }
 }

@@ -6,38 +6,50 @@ use crate::{CPU, StepOutcome, Word, cpu};
 use vihaco_module::host::StackMemory;
 use vihaco_runtime::{Execute, NoMessage};
 
-impl Execute<cpu::HeapAlloc> for CPU {
+impl Execute<cpu::ArrayNew> for CPU {
     type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, instruction: &cpu::HeapAlloc, _: NoMessage) -> eyre::Result<StepOutcome> {
+    fn execute(&mut self, instruction: &cpu::ArrayNew, _: NoMessage) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
-        let n_elements = instruction.0;
-        let n: usize = n_elements as usize;
+        let n = instruction.1 as usize;
         self.require_operands(n)?;
         let start = self.stack.len() - n;
-        let values: Box<[Word]> = self.stack.drain(start..).collect();
-        let heap_id = self.push_heap_object(values);
+        let values: Vec<Word> = self.stack.drain(start..).collect();
+        let heap_id = self.alloc_heap_array(instruction.0.clone(), values);
         self.stack_push(encode_heap_ref(heap_id));
         Ok(StepOutcome::Continue)
     }
 }
 
-impl Execute<cpu::GetItem> for CPU {
+impl Execute<cpu::ArrayGet> for CPU {
     type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, _instruction: &cpu::GetItem, _: NoMessage) -> eyre::Result<StepOutcome> {
+    fn execute(&mut self, instruction: &cpu::ArrayGet, _: NoMessage) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
-        let index = Self::heap_index(self.stack_pop()?)?;
+        let index = decode_u64(self.stack_pop()?);
         let heap_id = decode_heap_ref(self.stack_pop()?);
-        let value = *self
-            .heap_object(heap_id)?
-            .get(index)
-            .ok_or_else(|| eyre::eyre!("heap index {} out of bounds", index))?;
+        let value = self.heap_array_get(heap_id, &instruction.0, index)?;
         self.stack_push(value);
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl Execute<cpu::ArraySet> for CPU {
+    type Message = NoMessage;
+    type Effect = StepOutcome;
+    type Error = eyre::Report;
+
+    fn execute(&mut self, instruction: &cpu::ArraySet, _: NoMessage) -> eyre::Result<StepOutcome> {
+        self.clear_pending_pc();
+        self.require_operands(3)?;
+        let value = self.stack_pop()?;
+        let index = decode_u64(self.stack_pop()?);
+        let heap_id = decode_heap_ref(self.stack_pop()?);
+        self.heap_array_set(heap_id, &instruction.0, index, value)?;
         Ok(StepOutcome::Continue)
     }
 }
@@ -59,51 +71,51 @@ impl Execute<cpu::HeapDealloc> for CPU {
     }
 }
 
-impl Execute<cpu::HeapReserve> for CPU {
+impl Execute<cpu::ArrayReserve> for CPU {
     type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
     fn execute(
         &mut self,
-        _instruction: &cpu::HeapReserve,
+        instruction: &cpu::ArrayReserve,
         _: NoMessage,
     ) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
         let capacity = decode_u64(self.stack_pop()?);
         let capacity = usize::try_from(capacity)
-            .map_err(|_| eyre::eyre!("heap capacity {} does not fit in usize", capacity))?;
-        let heap_id = self.reserve_heap_object(capacity)?;
+            .map_err(|_| eyre::eyre!("array capacity {} does not fit in usize", capacity))?;
+        let heap_id = self.reserve_heap_array(instruction.0.clone(), capacity)?;
         self.stack_push(encode_heap_ref(heap_id));
         Ok(StepOutcome::Continue)
     }
 }
 
-impl Execute<cpu::HeapPush> for CPU {
+impl Execute<cpu::ArrayPush> for CPU {
     type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, _instruction: &cpu::HeapPush, _: NoMessage) -> eyre::Result<StepOutcome> {
+    fn execute(&mut self, instruction: &cpu::ArrayPush, _: NoMessage) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
         self.require_operands(2)?;
         let value = self.stack_pop()?;
         let heap_ref = self.stack_pop()?;
-        self.append_heap_object(decode_heap_ref(heap_ref), value)?;
+        self.push_heap_array(decode_heap_ref(heap_ref), &instruction.0, value)?;
         self.stack_push(heap_ref);
         Ok(StepOutcome::Continue)
     }
 }
 
-impl Execute<cpu::HeapLen> for CPU {
+impl Execute<cpu::ArrayLen> for CPU {
     type Message = NoMessage;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
-    fn execute(&mut self, _instruction: &cpu::HeapLen, _: NoMessage) -> eyre::Result<StepOutcome> {
+    fn execute(&mut self, _instruction: &cpu::ArrayLen, _: NoMessage) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
         let heap_id = decode_heap_ref(self.stack_pop()?);
-        let len = u64::try_from(self.heap_object(heap_id)?.len())?;
+        let len = u64::try_from(self.heap_array_len(heap_id)?)?;
         self.stack_push(encode_u64(len));
         Ok(StepOutcome::Continue)
     }
@@ -193,15 +205,19 @@ mod tests {
             .unwrap_err();
         assert!(err.to_string().contains("expected struct 1"), "{err}");
         cpu.stack_push(point);
-        assert!(cpu.execute(&cpu::HeapLen, NoMessage::new()).is_err());
+        assert!(cpu.execute(&cpu::ArrayLen, NoMessage::new()).is_err());
 
         cpu.stack_push(encode_u64(1));
         cpu.stack_push(encode_u64(2));
-        cpu.execute(&cpu::HeapAlloc(2), NoMessage::new()).unwrap();
+        cpu.execute(&cpu::ArrayNew(vihaco_abi::Type::U64, 2), NoMessage::new())
+            .unwrap();
         let err = cpu
             .execute(&cpu::GetField(slot(0, 0)), NoMessage::new())
             .unwrap_err();
-        assert!(err.to_string().contains("is an array"), "{err}");
+        assert!(
+            err.to_string().contains("is array u64, expected struct 0"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -223,7 +239,10 @@ mod tests {
     fn heap_reserve_rejects_unrepresentable_allocation_without_allocating() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_u64(u64::MAX));
-        assert!(cpu.execute(&cpu::HeapReserve, NoMessage::new()).is_err());
+        assert!(
+            cpu.execute(&cpu::ArrayReserve(vihaco_abi::Type::U64), NoMessage::new())
+                .is_err()
+        );
         assert!(cpu.heap_is_empty());
     }
 }

@@ -309,6 +309,63 @@ execution::program::ret 1",
     assert_eq!(loaded.machine().execution.stack(), &[4]);
 }
 
+fn run_struct_program(main_body: &str) -> eyre::Result<Vec<u64>> {
+    let mut loaded = Loadable::new(
+        load_struct_program(main_body)?,
+        SequencerMachine {
+            execution: ExecutionState::new(),
+            cpu: CPU::default(),
+        },
+    );
+    loaded.execute(&[])?;
+    Ok(loaded.machine().execution.stack().to_vec())
+}
+
+#[test]
+fn arrays_of_named_structs_are_built_indexed_and_type_checked() {
+    // let points = [make_point()]; return points[0].y
+    let stack = run_struct_program(
+        "execution::program::call 0, @make_point
+cpu::cpu::array_new struct @Point, 1
+execution::program::const_u64 0
+cpu::cpu::array_get struct @Point
+cpu::cpu::get_field @Point.y
+execution::program::ret 1",
+    )
+    .unwrap();
+    assert_eq!(stack, [9]);
+
+    // Reading the same array as `array u64` is a runtime type error.
+    let error = run_struct_program(
+        "execution::program::call 0, @make_point
+cpu::cpu::array_new struct @Point, 1
+execution::program::const_u64 0
+cpu::cpu::array_get u64
+cpu::cpu::get_field @Point.y
+execution::program::ret 1",
+    )
+    .unwrap_err();
+    assert!(
+        format!("{error:#}").contains("is array struct 0, expected array u64"),
+        "{error:#}"
+    );
+
+    // An element type naming an undeclared struct fails at load time.
+    let error = load_struct_program(
+        "execution::program::call 0, @make_point
+cpu::cpu::array_new struct @Line, 1
+execution::program::const_u64 0
+cpu::cpu::array_get struct @Point
+cpu::cpu::get_field @Point.y
+execution::program::ret 1",
+    )
+    .unwrap_err();
+    assert!(
+        format!("{error:#}").contains("undefined struct `Line`"),
+        "{error:#}"
+    );
+}
+
 #[test]
 fn unknown_struct_fields_fail_at_load_time() {
     let error = load_struct_program(

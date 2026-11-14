@@ -93,7 +93,7 @@ fn reserved_locals_cannot_be_used_as_operands() {
         I::Dup,
         I::AddU64,
         I::ConditionalBranch(1, 2),
-        I::HeapAlloc(1),
+        I::ArrayNew(vihaco_abi::Type::U64, 1),
         I::Return(1),
         I::StoreU64(0),
     ] {

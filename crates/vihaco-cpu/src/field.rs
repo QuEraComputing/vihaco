@@ -1,19 +1,61 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Struct operands for `struct_new`, `get_field`, and `set_field`, and their lowering.
+//! Struct and type operands for the struct and array instructions, and their lowering.
 //!
 //! Structs are written by name (`struct_new @Point`, `get_field @Point.y`) or
-//! by struct-table index (`struct_new 0`, `get_field 0, 1`). Both forms are
-//! resolved against the section's struct table through [`StructLookup`] when
-//! the program is lowered, so the [`StructLayout`] and [`FieldSlot`] stored in
-//! the runtime instruction always agree with the table. The CPU then checks
-//! each heap object against them at runtime.
+//! by struct-table index (`struct_new 0`, `get_field 0, 1`). Array element
+//! types are ordinary types, where a struct may also be named:
+//! `array_new struct @Point, 4`, `array_get array f64`. Every form is resolved
+//! against the section's struct table through [`StructLookup`] when the
+//! program is lowered, so the [`StructLayout`], [`FieldSlot`], and element
+//! [`Type`] stored in the runtime instruction always agree with the table. The
+//! CPU then checks each heap object against them at runtime.
 
 use crate::{FieldSlot, StructLayout, cpu};
-use vihaco_abi::{Lower, Syntax};
+use chumsky::{error::Simple, extra, prelude::*};
+use vihaco_abi::{Lower, Syntax, Type};
 use vihaco_module::loader::MetadataLoweringContext;
-use vihaco_parser::Ident;
+use vihaco_parser::{Ident, Parse};
+
+/// A type as written in source: any [`Type`], where struct types may also be
+/// named (`struct @Point`), at any nesting depth (`array array struct @Point`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum TypeOperand {
+    /// A type with no names to resolve, such as `f64` or `array struct 0`.
+    Resolved(Type),
+    /// `array <elem>`, where the element type may contain names.
+    Array(Box<TypeOperand>),
+    /// `struct @Name`.
+    StructSymbol(Ident),
+}
+
+impl<'src> Parse<'src> for TypeOperand {
+    fn parser() -> impl Parser<'src, &'src str, Self, extra::Err<Simple<'src, char>>> {
+        // `recursive` needs cloneable parsers; `Parse::parser` is not `Clone`.
+        let resolved = Type::parser().boxed();
+        recursive(move |operand| {
+            let named_struct = just("struct")
+                .then(text::whitespace().at_least(1))
+                .then(just('@'))
+                .ignore_then(vihaco_parser::ident())
+                .map(|name| TypeOperand::StructSymbol(Ident(name)));
+            let array = just("array")
+                .then(text::whitespace().at_least(1))
+                .ignore_then(operand)
+                .map(|elem| match elem {
+                    // Keep fully resolved types in one piece.
+                    TypeOperand::Resolved(elem) => TypeOperand::Resolved(Type::array(elem)),
+                    elem => TypeOperand::Array(Box::new(elem)),
+                });
+            choice((
+                named_struct,
+                array,
+                resolved.clone().map(TypeOperand::Resolved),
+            ))
+        })
+    }
+}
 
 /// A struct, by struct-table index or `@Struct` name.
 #[derive(vihaco_parser_derive::Parse, Clone, Debug, PartialEq)]
@@ -122,10 +164,47 @@ impl<C: StructLookup + ?Sized> Lower<C> for cpu::SetField<Syntax> {
     }
 }
 
+/// Resolve struct names in a type, and check that every struct type it refers
+/// to (named or numeric) exists in the struct table.
+fn resolve_type<C: StructLookup + ?Sized>(operand: TypeOperand, context: &C) -> eyre::Result<Type> {
+    let ty = match operand {
+        TypeOperand::Resolved(ty) => ty,
+        TypeOperand::Array(elem) => Type::array(resolve_type(*elem, context)?),
+        TypeOperand::StructSymbol(name) => Type::Struct(context.struct_index(name.as_str())?),
+    };
+    let mut result = Ok(());
+    ty.visit_struct_refs(&mut |index| {
+        if result.is_ok() {
+            result = context.struct_field_count(index).map(drop);
+        }
+    });
+    result.map(|()| ty)
+}
+
+impl<C: StructLookup + ?Sized> Lower<C> for cpu::ArrayNew<Syntax> {
+    type Runtime = cpu::ArrayNew;
+    fn lower(self, context: &mut C) -> eyre::Result<Self::Runtime> {
+        Ok(cpu::ArrayNew(resolve_type(self.0, context)?, self.1))
+    }
+}
+
+macro_rules! lower_element_type {
+    ($($instruction:ident),* $(,)?) => {$(
+        impl<C: StructLookup + ?Sized> Lower<C> for cpu::$instruction<Syntax> {
+            type Runtime = cpu::$instruction;
+            fn lower(self, context: &mut C) -> eyre::Result<Self::Runtime> {
+                Ok(cpu::$instruction(resolve_type(self.0, context)?))
+            }
+        }
+    )*};
+}
+
+lower_element_type!(ArrayGet, ArraySet, ArrayReserve, ArrayPush);
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vihaco_runtime::{Parse, chumsky::Parser as _};
+    use vihaco_runtime::Parse;
 
     /// Struct 0 is `Point { x, y }`; struct 1 is `Unit {}`.
     struct Points;
@@ -209,6 +288,44 @@ mod tests {
         assert!(lower::<cpu::GetField<Syntax>>("get_field 9, 0").is_err());
         assert!(lower::<cpu::GetField<Syntax>>("get_field @Point.z").is_err());
         assert!(lower::<cpu::GetField<Syntax>>("get_field @Line.x").is_err());
+    }
+
+    #[test]
+    fn element_types_resolve_struct_names_at_any_depth() {
+        assert_eq!(
+            lower::<cpu::ArrayNew<Syntax>>("array_new f64, 3").unwrap(),
+            cpu::ArrayNew(Type::F64, 3)
+        );
+        assert_eq!(
+            lower::<cpu::ArrayNew<Syntax>>("array_new struct @Point, 4").unwrap(),
+            cpu::ArrayNew(Type::Struct(0), 4)
+        );
+        assert_eq!(
+            lower::<cpu::ArrayGet<Syntax>>("array_get array array struct @Unit").unwrap(),
+            cpu::ArrayGet(Type::array(Type::array(Type::Struct(1))))
+        );
+        assert_eq!(
+            lower::<cpu::ArrayPush<Syntax>>("array_push array struct 0").unwrap(),
+            cpu::ArrayPush(Type::array(Type::Struct(0)))
+        );
+        assert_eq!(
+            lower::<cpu::ArraySet<Syntax>>("array_set u64").unwrap(),
+            cpu::ArraySet(Type::U64)
+        );
+        assert_eq!(
+            lower::<cpu::ArrayReserve<Syntax>>("array_reserve str").unwrap(),
+            cpu::ArrayReserve(Type::String)
+        );
+    }
+
+    #[test]
+    fn element_types_must_name_existing_structs() {
+        let err = lower::<cpu::ArrayNew<Syntax>>("array_new struct @Line, 1").unwrap_err();
+        assert!(err.to_string().contains("undefined struct `Line`"), "{err}");
+        // Numeric struct types are checked against the table too, even nested.
+        assert!(lower::<cpu::ArrayGet<Syntax>>("array_get struct 7").is_err());
+        assert!(lower::<cpu::ArrayGet<Syntax>>("array_get array struct 7").is_err());
+        assert!(lower::<cpu::ArrayNew<Syntax>>("array_new nope, 1").is_err());
     }
 
     #[test]

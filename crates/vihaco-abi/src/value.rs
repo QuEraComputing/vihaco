@@ -52,7 +52,7 @@ impl Value {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     Undefined,
     String,
@@ -68,6 +68,26 @@ pub enum Type {
     /// A heap reference to a struct, by index into the module's struct table.
     /// At runtime the value is an ordinary heap reference.
     Struct(u32),
+    /// A heap reference to an array whose elements all have the given type.
+    /// Written `array <elem>`, e.g. `array f64` or `array array u64`.
+    Array(Box<Type>),
+}
+
+impl Type {
+    /// An array type with elements of type `elem`.
+    pub fn array(elem: Type) -> Type {
+        Type::Array(Box::new(elem))
+    }
+
+    /// Visit every struct-table index this type refers to, including struct
+    /// types nested inside array element types.
+    pub fn visit_struct_refs(&self, visit: &mut dyn FnMut(u32)) {
+        match self {
+            Type::Struct(index) => visit(*index),
+            Type::Array(elem) => elem.visit_struct_refs(visit),
+            _ => {}
+        }
+    }
 }
 
 /// Parse type syntax directly into the runtime type vocabulary.
@@ -170,6 +190,7 @@ impl std::fmt::Display for Type {
             Type::FunctionRef => write!(f, "fn"),
             Type::HeapRef => write!(f, "heap"),
             Type::Struct(index) => write!(f, "struct {}", index),
+            Type::Array(elem) => write!(f, "array {}", elem),
         }
     }
 }
@@ -234,6 +255,7 @@ impl crate::traits::FromBytes for Type {
             0x09 => Ok(Type::I32),
             0x0A => Ok(Type::F32),
             0x0B => Ok(Type::Struct(bytes.read_u32::<LittleEndian>()?)),
+            0x0C => Ok(Type::array(Type::from_bytes(bytes)?)),
             _ => Err(eyre::eyre!("Unknown type byte: {}", type_byte)),
         }
     }
@@ -267,10 +289,13 @@ impl crate::traits::WriteBytes for Type {
             Type::I32 => 0x09,
             Type::F32 => 0x0A,
             Type::Struct(_) => 0x0B,
+            Type::Array(_) => 0x0C,
         };
         io.write_u8(type_byte)?;
-        if let Type::Struct(index) = self {
-            io.write_u32::<LittleEndian>(*index)?;
+        match self {
+            Type::Struct(index) => io.write_u32::<LittleEndian>(*index)?,
+            Type::Array(elem) => elem.write_bytes(io)?,
+            _ => {}
         }
         Ok(())
     }
@@ -394,29 +419,36 @@ impl crate::traits::WriteBytes for Value {
 }
 
 fn type_text_parser<'src>() -> impl Parser<'src, &'src str, Type, ValueParseExtra<'src>> + Clone {
-    // `struct` must precede `str`, which would otherwise match its prefix.
-    let struct_type = just("struct")
-        .then_ignore(text::whitespace().at_least(1))
-        .ignore_then(scalar_text::<u32>())
-        .map(Type::Struct);
-    choice((
-        struct_type,
-        just("undefined").to(Type::Undefined),
-        just("undef").to(Type::Undefined),
-        just("string").to(Type::String),
-        just("str").to(Type::String),
-        just("bool").to(Type::Bool),
-        just("i64").to(Type::I64),
-        just("i32").to(Type::I32),
-        just("u32").to(Type::U32),
-        just("u64").to(Type::U64),
-        just("f64").to(Type::F64),
-        just("f32").to(Type::F32),
-        just("fn_ref").to(Type::FunctionRef),
-        just("fn").to(Type::FunctionRef),
-        just("heap_ref").to(Type::HeapRef),
-        just("heap").to(Type::HeapRef),
-    ))
+    recursive(|ty| {
+        // `struct` must precede `str`, which would otherwise match its prefix.
+        let struct_type = just("struct")
+            .then_ignore(text::whitespace().at_least(1))
+            .ignore_then(scalar_text::<u32>())
+            .map(Type::Struct);
+        let array_type = just("array")
+            .then_ignore(text::whitespace().at_least(1))
+            .ignore_then(ty)
+            .map(Type::array);
+        choice((
+            struct_type,
+            array_type,
+            just("undefined").to(Type::Undefined),
+            just("undef").to(Type::Undefined),
+            just("string").to(Type::String),
+            just("str").to(Type::String),
+            just("bool").to(Type::Bool),
+            just("i64").to(Type::I64),
+            just("i32").to(Type::I32),
+            just("u32").to(Type::U32),
+            just("u64").to(Type::U64),
+            just("f64").to(Type::F64),
+            just("f32").to(Type::F32),
+            just("fn_ref").to(Type::FunctionRef),
+            just("fn").to(Type::FunctionRef),
+            just("heap_ref").to(Type::HeapRef),
+            just("heap").to(Type::HeapRef),
+        ))
+    })
 }
 
 fn value_text_parser<'src>() -> impl Parser<'src, &'src str, Value, ValueParseExtra<'src>> + Clone {

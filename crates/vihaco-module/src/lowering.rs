@@ -342,6 +342,17 @@ mod tests {
         bad.structs[0].fields[0].ty = Type::Struct(1);
         let err = into_module(bad).unwrap_err();
         assert!(err.to_string().contains("structs[0].fields[0].ty"), "{err}");
+        // Struct types nested in array element types are checked too.
+        let mut bad = metadata();
+        bad.functions[0]
+            .signature
+            .ret
+            .push(Type::array(Type::array(Type::Struct(1))));
+        let err = into_module(bad).unwrap_err();
+        assert!(err.to_string().contains("signature.ret[0]"), "{err}");
+        let mut arrays = metadata();
+        arrays.structs[0].fields[0].ty = Type::array(Type::Struct(0));
+        assert!(into_module(arrays).is_ok());
 
         // Self-reference (a linked node) is allowed.
         let mut linked = metadata();

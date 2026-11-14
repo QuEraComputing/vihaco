@@ -317,10 +317,10 @@ fn heap_transfers_use_program_operands_and_preserve_device_state() {
     let (mut module, mut vm) = machine(&[
         "program::program::const_u64 7",
         "program::program::const_u64 9",
-        "cpu::cpu::heap_alloc 2",
+        "cpu::cpu::array_new u64, 2",
         "program::program::dup",
         "program::program::const_u64 1",
-        "cpu::cpu::get_item",
+        "cpu::cpu::array_get u64",
         "program::program::ret 2",
     ]);
     execute(&module, &mut vm, &[]).unwrap();
@@ -333,7 +333,7 @@ fn heap_transfers_use_program_operands_and_preserve_device_state() {
     let (readback, _) = machine(&[
         &readback_ref,
         "program::program::const_u64 0",
-        "cpu::cpu::get_item",
+        "cpu::cpu::array_get u64",
         "program::program::ret 1",
     ]);
     module = readback;
@@ -346,12 +346,12 @@ fn heap_transfers_use_program_operands_and_preserve_device_state() {
     // References use all 64 bits (slot + generation) and pass through locals intact.
     let (module, mut raw) = machine(&[
         "program::program::const_u64 1",
-        "cpu::cpu::heap_reserve",
+        "cpu::cpu::array_reserve u64",
         "program::program::store_u64 0",
         "program::program::load_u64 0",
         "program::program::const_u64 7",
-        "cpu::cpu::heap_push",
-        "cpu::cpu::heap_len",
+        "cpu::cpu::array_push u64",
+        "cpu::cpu::array_len",
         "program::program::ret 1",
     ]);
     execute(&module, &mut raw, &[]).unwrap();
@@ -359,11 +359,11 @@ fn heap_transfers_use_program_operands_and_preserve_device_state() {
     // A number that only matches the slot index is not a reference.
     let (module, mut raw) = machine(&[
         "program::program::const_u64 1",
-        "cpu::cpu::heap_reserve",
+        "cpu::cpu::array_reserve u64",
         "program::program::store_u64 0",
         "program::program::const_u64 1",
         "program::program::const_u64 7",
-        "cpu::cpu::heap_push",
+        "cpu::cpu::array_push u64",
     ]);
     let error = execute(&module, &mut raw, &[]).unwrap_err();
     assert!(
@@ -372,7 +372,7 @@ fn heap_transfers_use_program_operands_and_preserve_device_state() {
             .contains("invalid or has been deallocated"),
         "{error:#}"
     );
-    for operation in ["heap_alloc 2", "heap_push"] {
+    for operation in ["array_new u64, 2", "array_push u64"] {
         let operation = format!("cpu::cpu::{operation}");
         let (module, mut vm) = machine(&["program::program::const_u64 7", &operation]);
         assert!(execute(&module, &mut vm, &[]).is_err());
@@ -382,15 +382,15 @@ fn heap_transfers_use_program_operands_and_preserve_device_state() {
     let (module, mut vm) = machine(&[
         "program::program::const_u64 7",
         "program::program::const_u64 9",
-        "cpu::cpu::heap_alloc 2",
+        "cpu::cpu::array_new u64, 2",
         "program::program::dup",
         "program::program::dup",
-        "cpu::cpu::heap_len",
+        "cpu::cpu::array_len",
         "program::program::store_u64 0",
         "cpu::cpu::heap_dealloc",
         // The remaining copy of the reference is now stale.
         "program::program::const_u64 0",
-        "cpu::cpu::get_item",
+        "cpu::cpu::array_get u64",
     ]);
     let error = execute(&module, &mut vm, &[]).unwrap_err();
     assert!(error.to_string().contains("deallocated"));
@@ -437,18 +437,26 @@ fn struct_new_allocates_tagged_structs_and_fields_are_type_checked() {
     let (module, mut vm) = machine(&[
         "program::program::const_u64 7",
         "program::program::const_u64 9",
-        "cpu::cpu::heap_alloc 2",
+        "cpu::cpu::array_new u64, 2",
         "cpu::cpu::get_field 0, 0",
     ]);
     let error = execute(&module, &mut vm, &[]).unwrap_err();
-    assert!(error.to_string().contains("is an array"), "{error:#}");
+    assert!(
+        error
+            .to_string()
+            .contains("is array u64, expected struct 0"),
+        "{error:#}"
+    );
     let (module, mut vm) = machine(&[
         "program::program::const_u64 7",
         "cpu::cpu::struct_new 1",
-        "cpu::cpu::heap_len",
+        "cpu::cpu::array_len",
     ]);
     let error = execute(&module, &mut vm, &[]).unwrap_err();
-    assert!(error.to_string().contains("expected an array"), "{error:#}");
+    assert!(
+        error.to_string().contains("is struct 1, expected an array"),
+        "{error:#}"
+    );
 }
 
 #[vihaco_runtime::dialect]
