@@ -816,6 +816,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "vihaco-verifier"
+version = "0.7.0"
+dependencies = [
+ "eyre",
+ "smallvec",
+ "vihaco-abi",
+ "vihaco-runtime",
+]
+
+[[package]]
 name = "winapi-util"
 version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"

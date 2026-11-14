@@ -14,6 +14,7 @@ members = [
     "crates/vihaco-runtime-derive",
     "crates/vihaco-stdlib",
     "crates/vihaco-syntax",
+    "crates/vihaco-verifier",
 ]
 
 [workspace.package]
@@ -40,6 +41,7 @@ vihaco-runtime    = { version = "0.7.0", path = "crates/vihaco-runtime" }
 vihaco-runtime-derive = { version = "0.7.0", path = "crates/vihaco-runtime-derive" }
 vihaco-stdlib     = { version = "0.7.0", path = "crates/vihaco-stdlib" }
 vihaco-syntax     = { version = "0.7.0", path = "crates/vihaco-syntax" }
+vihaco-verifier   = { version = "0.7.0", path = "crates/vihaco-verifier" }
 
 # Shared third-party dependencies pinned once (see design/crate-split.md §8.1).
 byteorder = "1.5.0"
