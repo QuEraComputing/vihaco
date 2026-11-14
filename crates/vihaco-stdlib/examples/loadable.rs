@@ -18,7 +18,7 @@ use vihaco_runtime::{
     Apply, BuildMessage, Execute, HasInstructionSet, ReusableMessageRecipe, Step, composite, field,
 };
 use vihaco_stdlib::{ExecutionState, Image, Loadable};
-use vihaco_syntax::{HeaderDeclarations, ParsedModule, lower_functions_with_metadata};
+use vihaco_syntax::{HeaderDeclarations, ParsedModule, lower_code_with_metadata};
 
 // This composite owns mutable devices and invocation state, while its image
 // will live in the separate Loadable field below.
@@ -179,9 +179,12 @@ impl Runtime {
             .ok_or_else(|| eyre::eyre!("missing controller section"))?;
 
         // 2. Parse header declarations and the composite's syntax instructions.
-        let ParsedModule { header, functions } = ParsedModule::<
+        let ParsedModule {
+        header,
+        code,
+        symbols,
+    } = ParsedModule::<
             SourceInstruction,
-            Type,
             HeaderDeclarations<HeaderDeclaration>,
         >::parse_section(section)?;
 
@@ -193,11 +196,11 @@ impl Runtime {
         }
         let (metadata, info) = header_state.finish_program()?;
 
-        // 4. Build symbol capabilities, validate declarations/tables, and lower
-        // function bodies. The driver prepares labels before lowering each body.
-        let mut context = MetadataLoweringContext::new(&metadata)?;
-        let code = lower_functions_with_metadata(functions, &metadata, &mut context)?;
-        let module = metadata.map_extra(|_| info).into_module(code)?;
+        // 4. Build symbol capabilities from the metadata and the section's symbol
+        // table, validate declarations/tables, and lower the code stream.
+        let mut context = MetadataLoweringContext::new(&metadata, &symbols)?;
+        let code = lower_code_with_metadata(code, &symbols, &metadata, &mut context)?;
+        let module = metadata.map_extra(|_| info).into_module(code, symbols)?;
 
         // 5. Wrap the completed module and pair it with a fresh execution machine.
         let image = Image::new(module);

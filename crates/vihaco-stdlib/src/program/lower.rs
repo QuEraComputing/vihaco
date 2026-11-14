@@ -11,10 +11,11 @@ use super::{
 use vihaco_abi::{Lower, Syntax};
 use vihaco_module::loader::MetadataLoweringContext;
 
-/// Resolve labels in the function currently being lowered.
+/// Resolve `@name` branch targets through the section's symbol table.
 ///
-/// The loader prepares label addresses before lowering so forward references
-/// work. Addresses count executable instructions, excluding label declarations.
+/// The loader prepares the whole table before lowering so forward references
+/// work. Addresses count executable instructions; `@name:` definitions occupy
+/// no slot.
 pub trait LabelLookup {
     fn label_address(&self, name: &str) -> eyre::Result<u32>;
 }

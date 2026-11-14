@@ -6,7 +6,7 @@ use vihaco::{
     PopFromStack, PushToStack, SstFile, Step, Type, Value, component, composite, dialect, field,
     loader::MetadataLoweringContext,
     module::{LocalModule, ProgramMetadata},
-    syntax::{HeaderDeclarations, ParsedModule, lower_functions_with_metadata},
+    syntax::{HeaderDeclarations, ParsedModule, lower_code_with_metadata},
 };
 
 #[dialect]
@@ -120,9 +120,12 @@ pub fn main() -> eyre::Result<()> {
     let section = file
         .section("main")
         .ok_or_else(|| eyre::eyre!("missing main section"))?;
-    let ParsedModule { header, functions } = ParsedModule::<
+    let ParsedModule {
+        header,
+        code,
+        symbols,
+    } = ParsedModule::<
         SourceInstruction,
-        Type,
         HeaderDeclarations<ProgramMetadata>,
     >::parse_section(section)?;
 
@@ -134,9 +137,9 @@ pub fn main() -> eyre::Result<()> {
         declarations.next().is_none(),
         "expected one metadata declaration"
     );
-    let mut context = MetadataLoweringContext::new(&metadata)?;
-    let code = lower_functions_with_metadata(functions, &metadata, &mut context)?;
-    let module = metadata.into_module(code)?;
+    let mut context = MetadataLoweringContext::new(&metadata, &symbols)?;
+    let code = lower_code_with_metadata(code, &symbols, &metadata, &mut context)?;
+    let module = metadata.into_module(code, symbols)?;
     let machine = Machine {
         execution: ExecutionState::new(),
         calculator: Calculator::default(),

@@ -17,7 +17,7 @@ There are three types involved in owning a program:
 
 | Type | What it holds |
 |---|---|
-| `LocalModule<I, V, Ty, Info>` | Runtime code, functions, labels, constants, strings, entry selection, source symbols, and application metadata |
+| `LocalModule<I, V, Ty, Info>` | Runtime code, functions, symbols, constants, strings, entry selection, source symbols, and application metadata |
 | `Image<I, V, Ty, Info>` | The module as owned program data |
 | `Loadable<Image<I, V, Ty, Info>, M>` | The image paired with composite `M`, with methods to run and manage it |
 

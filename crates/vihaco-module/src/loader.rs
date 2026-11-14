@@ -10,7 +10,7 @@
 #[cfg(not(feature = "program-image-execution"))]
 use vihaco_bytecode::{BytecodeSectionView, SSTSectionView};
 
-pub use crate::lowering::{FunctionScope, MetadataLoweringContext};
+pub use crate::lowering::MetadataLoweringContext;
 
 /// Allow a machine to load one bytecode section.
 ///

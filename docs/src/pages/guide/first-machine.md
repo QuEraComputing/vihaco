@@ -36,24 +36,20 @@ sst v2
                 name: 0,
                 signature: { params: [], ret: [u64] },
                 local_count: 0,
-                start_address: 0,
-                end_address: 4,
                 file: 1,
             },
         ],
-        labels: [],
         constants: [],
         main_function: 0,
         source_symbols: [],
         extra: {},
     };
 .text
-    fn @main() -> u64 {
-        execution::program::const_u64 20
-        execution::program::const_u64 22
-        calculator::arithmetic::add
-        execution::program::ret 1
-    }
+@main:
+    execution::program::const_u64 20
+    execution::program::const_u64 22
+    calculator::arithmetic::add
+    execution::program::ret 1
 ```
 
 ## The complete machine
@@ -77,7 +73,7 @@ use vihaco::{
     PopFromStack, PushToStack, SstFile, Step, Type, Value, component, composite, dialect, field,
     loader::MetadataLoweringContext,
     module::{LocalModule, ProgramMetadata},
-    syntax::{HeaderDeclarations, ParsedModule, lower_functions_with_metadata},
+    syntax::{HeaderDeclarations, ParsedModule, lower_code_with_metadata},
 };
 
 #[dialect]
@@ -191,9 +187,12 @@ pub fn main() -> eyre::Result<()> {
     let section = file
         .section("main")
         .ok_or_else(|| eyre::eyre!("missing main section"))?;
-    let ParsedModule { header, functions } = ParsedModule::<
+    let ParsedModule {
+        header,
+        code,
+        symbols,
+    } = ParsedModule::<
         SourceInstruction,
-        Type,
         HeaderDeclarations<ProgramMetadata>,
     >::parse_section(section)?;
 
@@ -205,9 +204,9 @@ pub fn main() -> eyre::Result<()> {
         declarations.next().is_none(),
         "expected one metadata declaration"
     );
-    let mut context = MetadataLoweringContext::new(&metadata)?;
-    let code = lower_functions_with_metadata(functions, &metadata, &mut context)?;
-    let module = metadata.into_module(code)?;
+    let mut context = MetadataLoweringContext::new(&metadata, &symbols)?;
+    let code = lower_code_with_metadata(code, &symbols, &metadata, &mut context)?;
+    let module = metadata.into_module(code, symbols)?;
     let machine = Machine {
         execution: ExecutionState::new(),
         calculator: Calculator::default(),
@@ -248,13 +247,13 @@ delegate to reusable message recipes. Standard recipes move operands into
 moves to the next one; program instructions handle calls, branches, and returns.
 
 `SSTFile` reads the file's flat list of sections, and `section("main")` picks
-ours. `ParsedModule` then parses that section's metadata declarations and
-function bodies, using the machine's public syntax instruction type. That avoids
-relying on generated enum variant names.
+ours. `ParsedModule` then parses that section's metadata declarations, its
+instructions, and its `@main:` symbol, using the machine's public syntax
+instruction type. That avoids relying on generated enum variant names.
 
 This example expects exactly one metadata declaration. Once it has that,
 `MetadataLoweringContext` prepares symbol lookup and
-`lower_functions_with_metadata` checks the function declarations against the
+`lower_code_with_metadata` checks the function declarations against the
 metadata and turns syntax instructions into executable ones.
 [Loading SST programs](/guide/parser-advanced) builds on this with custom
 headers and multiple sections.

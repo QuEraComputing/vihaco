@@ -30,7 +30,7 @@ These names come up throughout the guide:
 | Message | Supplies input when an instruction runs |
 | Effect | Carries a successful execution result back to the caller |
 | Composite | Owns devices and connects their execution through steps you write |
-| Module | Holds code and tables such as functions, strings, and labels |
+| Module | Holds code and tables such as functions, strings, and symbols |
 | Image | Owns a module as program data |
 | ExecutionState | Holds one invocation's operands, locals, frames, and control state |
 | Loadable | Pairs an image with the composite that executes it |

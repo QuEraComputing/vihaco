@@ -90,17 +90,17 @@ indices or function symbols. String constants accept indices or quoted literals.
 Pattern bindings infer
 their field parser by default; `$0:SyntaxType` retains the annotated syntax type
 and requires explicit lowering when it differs from the runtime field. Encoded
-constants use literal newtypes to preserve their bits. `label @name` records its
-position in the parsed function's label metadata and emits no instruction.
+constants use literal newtypes to preserve their bits. A `@name:` definition in
+`.text` adds a symbol-table entry and emits no instruction.
 `function_start` and `function_end` are removed from
 the typed dialect. Instructions use `()` or the `message::FunctionInfo` and
 `message::Print` structs, returning `StepOutcome` through `eyre::Result`.
 
 CPU lowering lives outside the dialect definitions in `vihaco_cpu::lower`.
-Loaders implement `LabelLookup` for function-local labels and `FunctionLookup`
-for section function addresses and indices. `StringIntern` supplies string-table
+Loaders implement `LabelLookup` for section symbol addresses and `FunctionLookup`
+for function addresses and indices. `StringIntern` supplies string-table
 indices; `vihaco_stdlib::ProgramImage` implements it with deduplication of decoded contents.
-Prepare functions and label positions before calling
+Prepare the whole symbol table before calling
 `LoadSSTSection::lower_instructions` so forward references resolve. The
 generated composite aggregate enforces these capabilities even for programs
 using only numeric operands. Heap-reference constants continue to accept numeric IDs.

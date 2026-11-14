@@ -356,5 +356,5 @@ its own pattern derive. `Ident`, `BareToken`, and `QuotedString` cover lexical
 leaves; `Vec<T>` and tuples cover collections. Each binding uses its field's
 parser, so the complete grammar stays typed and pattern-derived.
 
-For module parsing, typed function bodies, resolution, and explicit source
+For module parsing, symbol tables, resolution, and explicit source
 sugar, see [loading SST programs](/guide/parser-advanced).

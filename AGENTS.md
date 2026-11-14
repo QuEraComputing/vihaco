@@ -102,12 +102,14 @@ self-contained component you can use directly or copy as a starting point.
 ### Layers inside `vihaco`
 
 - **`module.rs`** — `Module<I, V, Ty, Info>`, the loadable program: `code`,
-  `functions`, `labels`, `constants`, `strings`, `source_symbols`, plus
+  `functions`, `symbols`, `constants`, `strings`, `source_symbols`, plus
   pluggable `extra` metadata. Its `Display` prints an assembly-style dump
   (`.text`/`.const`/`.string`/`.machine`/`.feature`). `loader.rs` wraps a
   `Module` + program counter as a `ProgramLoader`.
-- **`syntax/`** — typed SST parsing and module construction. The parser yields
-  a `ParsedModule`/`ParsedFunction` whose function bodies are `Vec<I>`.
+- **`syntax/`** — typed SST parsing and module construction. A section's
+  `.text` is a flat instruction stream with `@name:` symbol definitions; the
+  parser yields a `ParsedModule` with `code: Vec<I>` and a symbol table.
+  Function signatures live only in the header metadata.
   Pattern-derived instruction enums implement `SurfaceInstruction`
   automatically; consumers use `Resolve` to turn the typed parsed module into
   their runtime module.

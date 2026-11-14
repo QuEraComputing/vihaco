@@ -83,8 +83,8 @@ The generated aggregate requires the lowering capabilities of all its included
 instructions. You'll need to supply those even if one program only uses numeric
 operands.
 
-Each parsed instruction lowers to one runtime instruction. Function-local source
-labels become metadata, so they don't add instructions. If you want instruction
+Each parsed instruction lowers to one runtime instruction. `@name:` symbol
+definitions go into the section's symbol table, so they don't add instructions. If you want instruction
 expansion, do that in a producer before this pipeline.
 
 The [pattern parser reference](/guide/parser-patterns) covers dialect instruction
