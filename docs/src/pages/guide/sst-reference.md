@@ -74,6 +74,21 @@ can select it with `file.section(name)`. Execution relies on instruction
 addresses, which are local to the section. Names for addresses within a
 section come from its symbol definitions, described below.
 
+### Comments
+
+A comment runs from `//` to the end of the line. Comments may end a directive
+line and may appear wherever the header and `.text` grammars allow whitespace:
+on their own line, after an instruction or declaration, or between the fields of
+a `metadata { ... }` record. They are never part of a string literal. The
+`.global` block is consumer-defined and decides its own comment rules.
+
+Comments that start with `//!` are *generated*: tools such as the
+[formatter](#formatting-sst-files) write them to explain the file and replace
+them every time they run, so do not write `//!` comments by hand. `//!` starts
+generated text wherever it appears, including inside a `//` comment: in
+`name: 1, // the helper //! "helper"`, `// the helper` is yours and
+`//! "helper"` is generated. Parsers treat both kinds as ordinary comments.
+
 ## Target instruction and function syntax
 
 The target composite's `<Machine as HasInstructionSet>::Syntax` determines which
@@ -330,6 +345,169 @@ select sections with `require_sections`, parse an application header with
 `with_header::<Declarations<YourDeclaration>>()`, or lower with your own
 context. `check_framing` needs no machine, and `check_file` accepts any
 `SectionChecker` for other header or instruction grammars.
+
+## Formatting SST files
+
+`vihaco-sst` also formats SST files into one canonical layout. Like the checker,
+the formatter is generic over your machine and never executes anything. It
+keeps your `//` comments and writes `//!` comments that spell out what indices
+and symbols refer to:
+
+```rust
+# macro_rules! include_str {
+#     ("first-machine.sst") => {
+#         std::include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/examples/first-machine.sst"))
+#     };
+# }
+# use vihaco::{Execute, PopFromStack, PushToStack, component, composite, dialect};
+# #[dialect]
+# pub mod arithmetic {
+#     #[instruction]
+#     pub struct Add;
+# }
+# #[component]
+# #[instructions { arithmetic }]
+# #[derive(Default)]
+# pub struct Calculator;
+# impl Execute<arithmetic::Add> for Calculator {
+#     type Message = PopFromStack<(u64, u64)>;
+#     type Effect = PushToStack<(u64,)>;
+#     type Error = eyre::Report;
+#     fn execute(&mut self, _: &arithmetic::Add, message: Self::Message) -> eyre::Result<Self::Effect> {
+#         let PopFromStack((lhs, rhs)) = message;
+#         Ok(PushToStack((lhs + rhs,)))
+#     }
+# }
+# #[composite]
+# struct Machine {
+#     #[device(0)]
+#     #[program]
+#     execution: vihaco_stdlib::ExecutionState,
+#     #[device(1)]
+#     calculator: Calculator,
+# }
+use vihaco_sst::{FormatOptions, SourceFile, check_program, format_program};
+
+fn main() {
+    let source = SourceFile::new("first-machine.sst", include_str!("first-machine.sst"));
+    let formatted = format_program::<Machine>(&source, FormatOptions::default())
+        .unwrap_or_else(|report| panic!("{}", report.render(&source)));
+
+    // Formatting is idempotent and the result is still a valid program.
+    let again = SourceFile::new("first-machine.sst", formatted.as_str());
+    assert_eq!(format_program::<Machine>(&again, FormatOptions::default()).unwrap(), formatted);
+    assert!(check_program::<Machine>(&again).is_ok());
+
+    // Without generated comments, only the layout changes.
+    let plain = format_program::<Machine>(&source, FormatOptions::without_generated_comments());
+    assert!(!plain.unwrap().contains("//!"));
+#   let page = std::include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/src/pages/guide/sst-reference.md"));
+#   let section = page.split_once("## Formatting SST files").unwrap().1;
+#   let expected = section.split_once("```text\n").unwrap().1.split_once("```").unwrap().0;
+#   assert_eq!(formatted, expected);
+}
+```
+
+For [`first-machine.sst`](/guide/first-machine) the result is:
+
+```text
+sst v2
+
+.section main
+.header
+    metadata {
+        functions: [
+            {
+                name: 0,   //! "main"
+                signature: { params: [], ret: [u64] },
+                local_count: 0,
+                file: 1,   //! "first-machine.sst"
+            },
+        ],
+        constants: [],
+        strings: ["main", "first-machine.sst"],
+        main_function: 0,  //! @main
+        source_symbols: [],
+        extra: {},
+    };
+.text
+@main:  //! fn main() -> u64, locals 0, functions[0]
+    execution::program::const_u64 20
+    execution::program::const_u64 22
+    calculator::arithmetic::add
+    execution::program::ret 1
+```
+
+The file is checked first, with the same `ProgramChecker` as
+[`check_program`](#checking-sst-files); if it has errors, `format_program`
+returns the `Report` instead. Instructions and header declarations are
+re-spelled with their `Print` implementations, so operands, keywords, and
+punctuation take their canonical spelling. A value that has no spelling that
+parses back to itself is reported as an error rather than altered. Before
+returning, the formatter parses its own output and checks that every section
+has the same headers, code, symbols, and comments as the input.
+
+### Layout
+
+- Directives start at column 0, one per line; a directive's comment follows it
+  after two spaces. One blank line precedes `.global` and every `.section`.
+  `.header` and `.text` follow without a blank line and keep their order.
+- `.global` content is consumer-defined and kept verbatim, except that trailing
+  whitespace and trailing blank lines are removed.
+- Header declarations are indented four spaces and end with `;`. A
+  `metadata { ... }` record always puts one field per line. Nested records and
+  lists stay on one line when they fit in `max_width` (100 columns by default)
+  and contain no comments; otherwise they are broken one item per line with a
+  trailing comma, like rustfmt. Record fields appear in their declaration
+  order, so the standard record starts with `functions`. Tuples and
+  declarations whose pattern needs its punctuation on one line are never
+  broken.
+- In `.text`, each symbol definition and each instruction gets its own line:
+  `@name:` at column 0 and instructions indented four spaces.
+- Blank lines between items are kept, collapsed to at most one. Blank lines at
+  the start of a block and inside a declaration are removed.
+- Trailing comments of a block are aligned to one column: two spaces past the
+  longest commented line, but no further than `comment_column` (column 60 by
+  default). Longer lines put their comment two spaces after the code.
+- Lines have no trailing whitespace, line endings become `\n`, and the file
+  ends with a single newline.
+
+### Comments
+
+A `//` comment on its own line stays above the item that follows it. A trailing
+comment stays at the end of its item's line; inside a header record, the item
+is the field or list entry, and it travels with that field when `Print`
+reorders fields. Comments at the end of a block stay there, unless a blank line
+separates them from the last item: then they introduce the next directive and
+are printed just above it. When one item had several trailing comments, the
+first stays trailing and the others move above the item. If a comment's
+position inside a declaration cannot be matched to the printed declaration, it
+is moved above the declaration.
+
+Generated comments are rewritten every time. Without them
+(`FormatOptions::without_generated_comments()`), existing `//!` comments are
+still removed. The formatter writes:
+
+| Where | Generated comment |
+|---|---|
+| Function symbol | `@main:  //! fn main() -> u64, locals 0, functions[1]` |
+| Other symbol | `@done:  //! 0x0005` (its address) |
+| `@name` operand | `br @done  //! @done = 0x0005`; functions add their index: `//! @helper = 0x0006 (functions[0])` |
+| String literal operand | `print "hi"  //! "hi" = strings[3]` |
+| `functions[i].name`, `.file` | `name: 1,  //! "helper"` and `file: 2,  //! "loadable.sst"` |
+| `functions[i].signature` with parameters | `//! fn helper(x: u64) -> u64` |
+| `main_function` | `main_function: 1,  //! @main` |
+| `str N` / `fn N` constants | `str 3,  //! "hi"` and `fn 0,  //! @helper` |
+
+Notes are looked up in the section's metadata and symbol table. Several notes
+on one line are separated by `; `. Machine-specific notes can be added with
+`Formatter::with_annotator`, which receives each instruction with its address,
+the symbol table, and the string table. For an application header, use
+`Formatter::with_checker` with the same checker you would use for
+`ProgramChecker`, for example
+`ProgramChecker::<Machine>::new().with_header::<Declarations<YourDeclaration>>()`.
+The `metadata { ... }` record inside an application declaration gets the same
+layout and notes.
 
 Continue with [binary formats](/guide/instructions-advanced) for encoded programs
 and compatibility planning.

@@ -80,6 +80,79 @@ mod ex_quickstart {
             .collect();
         assert_eq!(printed, lines);
     }
+
+    /// `first-machine.sst` in the formatter's canonical layout.
+    const FORMATTED: &str = "\
+sst v2
+
+.section main
+.header
+    metadata {
+        functions: [
+            {
+                name: 0,   //! \"main\"
+                signature: { params: [], ret: [u64] },
+                local_count: 0,
+                file: 1,   //! \"first-machine.sst\"
+            },
+        ],
+        constants: [],
+        strings: [\"main\", \"first-machine.sst\"],
+        main_function: 0,  //! @main
+        source_symbols: [],
+        extra: {},
+    };
+.text
+@main:  //! fn main() -> u64, locals 0, functions[0]
+    execution::program::const_u64 20
+    execution::program::const_u64 22
+    calculator::arithmetic::add
+    execution::program::ret 1
+";
+
+    /// Load and run the `main` section of `source`, returning the stack.
+    fn run(source: &str) -> eyre::Result<Vec<u64>> {
+        let file = SSTFile::<NoContext>::from_text(source)?;
+        let section = file
+            .section("main")
+            .ok_or_else(|| eyre::eyre!("missing main section"))?;
+        let ParsedModule {
+            header,
+            code,
+            symbols,
+        } = ParsedModule::<SourceInstruction, HeaderDeclarations<ProgramMetadata>>::parse_section(
+            section,
+        )?;
+        let metadata = header
+            .into_iter()
+            .next()
+            .ok_or_else(|| eyre::eyre!("missing program metadata"))?;
+        let mut context = MetadataLoweringContext::new(&metadata, &symbols)?;
+        let code = lower_code_with_metadata(code, &symbols, &metadata, &mut context)?;
+        let module = metadata.into_module(code, symbols)?;
+        let machine = Machine {
+            execution: ExecutionState::new(),
+            calculator: Calculator::default(),
+        };
+        let mut loaded = Loadable::new(Image::new(module), machine);
+        loaded.execute(&[])?;
+        Ok(loaded.machine().execution.stack().to_vec())
+    }
+
+    #[test]
+    fn first_machine_sst_formats_to_a_pinned_layout_that_still_runs() {
+        use vihaco_sst::{FormatOptions, SourceFile, format_program};
+
+        let format = |text: &str| {
+            let source = SourceFile::new("first-machine.sst", text);
+            format_program::<Machine>(&source, FormatOptions::default())
+                .unwrap_or_else(|report| panic!("{}", report.render(&source)))
+        };
+        let formatted = format(include_str!("../../../docs/examples/first-machine.sst"));
+        assert_eq!(formatted, FORMATTED);
+        assert_eq!(format(&formatted), formatted);
+        assert_eq!(run(&formatted).unwrap(), [42]);
+    }
 }
 
 #[cfg(feature = "program-image-execution")]

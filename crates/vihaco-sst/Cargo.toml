@@ -1,7 +1,7 @@
 [package]
 name = "vihaco-sst"
 edition = "2024"
-description = "SST tooling for vihaco: located diagnostics and a machine-generic syntax checker."
+description = "SST tooling for vihaco: located diagnostics, a machine-generic syntax checker, and a formatter."
 version.workspace = true
 license.workspace = true
 repository.workspace = true

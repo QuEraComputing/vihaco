@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! SST tooling: located diagnostics and a syntax checker that is generic over
-//! the target machine.
+//! SST tooling: located diagnostics, a syntax checker, and a formatter, all
+//! generic over the target machine.
 //!
 //! - [`source`] — [`SourceFile`], byte [`Span`]s, and 1-based [`Location`]s.
 //! - [`diagnostic`] — structured [`Diagnostic`]s (data, not errors) and a
@@ -11,6 +11,9 @@
 //!   ([`check_framing`]), pluggable section checks ([`check_file`]), and the
 //!   typed [`ProgramChecker`] for a `#[composite]` machine
 //!   ([`check_program`]). Checking never executes a program.
+//! - [`format`](mod@format) — a [`Formatter`] that rewrites a checked file into a
+//!   canonical layout ([`format_program`]), keeping user `//` comments and
+//!   regenerating `//!` annotations, without changing what the file means.
 //!
 //! Framing checks need no machine:
 //!
@@ -26,9 +29,12 @@
 //! For a machine `M`, `check_program::<M>(&source)` additionally checks every
 //! section's header, `.text`, symbols, metadata, and lowering; see the
 //! "Checking SST files" section of the SST reference guide.
+//! `format_program::<M>(&source, FormatOptions::default())` formats it; see
+//! "Formatting SST files" in the same guide.
 
 pub mod check;
 pub mod diagnostic;
+pub mod format;
 pub mod source;
 
 pub use check::{
@@ -36,4 +42,7 @@ pub use check::{
     check_framing, check_machine, check_program,
 };
 pub use diagnostic::{Diagnostic, Diagnostics, Label, Report, Severity};
+pub use format::{
+    Annotate, FormatOptions, Formatter, InstructionContext, format_machine, format_program,
+};
 pub use source::{Location, SourceFile, Span};
