@@ -46,7 +46,7 @@ and step behavior.
 ## Preserve the whole program
 
 Code is only part of what a program needs. Keep its function signatures and
-ranges, reserved locals, entry selection, labels, constants, strings, source
+ranges, reserved locals, entry selection, symbols, constants, strings, source
 symbols, and application configuration too. Check references and table bounds
 before pairing the decoded result with a machine. An instruction round trip
 alone doesn't show that the decoded program will behave the same way.

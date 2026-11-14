@@ -75,7 +75,7 @@ impl<I, C, V, Ty, Info> ProgramImage<I, C, V, Ty, Info> {
             module: LocalModule {
                 code: Vec::new(),
                 functions: Vec::new(),
-                labels: Vec::new(),
+                symbols: Vec::new(),
                 constants: Vec::new(),
                 strings: Vec::new(),
                 main_function: None,

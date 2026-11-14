@@ -3,7 +3,7 @@
 
 //! The `Resolve` trait — bridge between [`super::ParsedModule`] and the
 //! runtime `module::Module`. Each consumer implements this for its
-//! own instruction set, source type, and header type, holding whatever state
+//! own instruction set and header type, holding whatever state
 //! is needed (label table, string interner, sugar expansion rules).
 
 use vihaco_parser::SurfaceInstruction;
@@ -15,7 +15,7 @@ use crate::ParsedModule;
 /// Implementations own application-specific conversion such as translating
 /// typed surface variants, expanding explicitly modeled sugar, or interning
 /// parsed values.
-pub trait Resolve<I, Ty, H>
+pub trait Resolve<I, H>
 where
     I: SurfaceInstruction,
 {
@@ -24,5 +24,5 @@ where
     /// `Info`).
     type Module;
 
-    fn resolve_module(&mut self, parsed: ParsedModule<I, Ty, H>) -> eyre::Result<Self::Module>;
+    fn resolve_module(&mut self, parsed: ParsedModule<I, H>) -> eyre::Result<Self::Module>;
 }

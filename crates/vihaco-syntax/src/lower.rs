@@ -1,114 +1,108 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Instruction-set-independent lowering of parsed function bodies.
+//! Instruction-set-independent lowering of a parsed `.text` stream.
 
-use crate::{ParsedFunction, ParsedModule};
+use crate::{ParsedModule, Symbol};
 use eyre::WrapErr;
 use vihaco_abi::{Lower, Value};
-use vihaco_module::loader::FunctionScope;
 use vihaco_module::module::{LocalModule, ProgramMetadata};
 
-/// Lower functions in source order, preparing each function's complete label
-/// scope before lowering its first instruction.
+/// Describe an address relative to the nearest preceding symbol, e.g. `@main+3`.
+fn locate(symbols: &[Symbol], address: usize) -> String {
+    symbols
+        .iter()
+        .filter(|symbol| symbol.address as usize <= address)
+        .max_by_key(|symbol| symbol.address)
+        .map(|symbol| match address - symbol.address as usize {
+            0 => format!("@{}", symbol.name),
+            offset => format!("@{}+{offset}", symbol.name),
+        })
+        .unwrap_or_else(|| format!("address {address}"))
+}
+
+/// Lower a code stream in address order.
 ///
-/// Each syntax instruction lowers to one runtime instruction. Errors include
-/// function and instruction context; no partial code vector is returned.
-/// Context mutations before an error are not rolled back.
-pub fn lower_functions<I, Ty, C>(
-    functions: Vec<ParsedFunction<I, Ty>>,
+/// Each syntax instruction lowers to one runtime instruction. The context must
+/// already know the whole symbol table, so forward references resolve. Errors
+/// name the instruction by address and nearest preceding symbol; no partial
+/// code vector is returned. Context mutations before an error are not rolled
+/// back.
+pub fn lower_code<I, C>(
+    code: Vec<I>,
+    symbols: &[Symbol],
     context: &mut C,
 ) -> eyre::Result<Vec<I::Runtime>>
 where
     I: Lower<C>,
-    C: FunctionScope,
 {
-    let mut code = Vec::new();
-    for function in functions {
-        let name = function.name.as_str();
-        #[cfg(feature = "typed-declarations")]
-        let labels = function
-            .labels
-            .iter()
-            .map(|label| (label.name.as_str(), label.instruction_index));
-        #[cfg(not(feature = "typed-declarations"))]
-        let labels = std::iter::empty();
-        context.enter_function(name, labels)?;
-        for (index, instruction) in function.body.into_iter().enumerate() {
-            code.push(
-                instruction
-                    .lower(context)
-                    .wrap_err_with(|| format!("lowering function @{name}, instruction {index}"))?,
-            );
-        }
-    }
-    Ok(code)
+    code.into_iter()
+        .enumerate()
+        .map(|(address, instruction)| {
+            instruction.lower(context).wrap_err_with(|| {
+                format!(
+                    "lowering instruction {address} ({})",
+                    locate(symbols, address)
+                )
+            })
+        })
+        .collect()
 }
 
-fn validate_program_functions<I, Ty: PartialEq, V, Info>(
-    functions: &[ParsedFunction<I, Ty>],
-    metadata: &ProgramMetadata<V, Ty, Info>,
-) -> eyre::Result<()> {
-    crate::types::validate_functions(functions, metadata)?;
-    metadata.validate(functions.iter().map(|function| function.body.len()).sum())
-}
-
-/// Validate supplied metadata and lower function bodies without consuming it.
+/// Validate supplied metadata and lower a code stream without consuming it.
 ///
 /// Available with `program-image-execution`. The caller prepares the metadata
 /// and context independently, for example by processing individual header
 /// declarations. The context may borrow prepared configuration or the metadata
 /// itself; neither is moved or cloned by this function.
 ///
-/// Function declarations and table bounds are validated before lowering starts.
-/// [`lower_functions`] prepares label scopes and preserves instruction error
-/// context. The returned code can be assembled with
-/// [`ProgramMetadata::into_module`], which also checks standard value references.
+/// Function declarations, the symbol table, and table bounds are validated
+/// before lowering starts. The returned code can be assembled with
+/// [`ProgramMetadata::into_module`], which also checks standard value
+/// references.
 ///
 /// # Errors
-/// Returns declaration, table, or instruction-lowering errors. No partial code
-/// is returned; earlier context mutations are not rolled back.
+/// Returns declaration, symbol, table, or instruction-lowering errors. No
+/// partial code is returned; earlier context mutations are not rolled back.
 #[cfg(feature = "program-image-execution")]
-pub fn lower_functions_with_metadata<I, Ty, V, Info, C>(
-    functions: Vec<ParsedFunction<I, Ty>>,
+pub fn lower_code_with_metadata<I, Ty, V, Info, C>(
+    code: Vec<I>,
+    symbols: &[Symbol],
     metadata: &ProgramMetadata<V, Ty, Info>,
     context: &mut C,
 ) -> eyre::Result<Vec<I::Runtime>>
 where
-    Ty: PartialEq,
+    Ty: Clone,
     I: Lower<C>,
-    C: FunctionScope,
 {
-    validate_program_functions(&functions, metadata)?;
-    lower_functions(functions, context)
+    metadata.validate(symbols, code.len())?;
+    lower_code(code, symbols, context)
 }
 
-impl<I, Ty: PartialEq, H> ParsedModule<I, Ty, H> {
-    /// Validate declarations and tables, lower instructions with the supplied
-    /// context, and assemble a module without inventing or reordering metadata.
+impl<I, H> ParsedModule<I, H> {
+    /// Validate declarations, symbols, and tables, lower instructions with the
+    /// supplied context, and assemble a module without inventing or reordering
+    /// metadata.
     ///
     /// The consumer extracts the metadata from its chosen header schema and
-    /// prepares section-wide context capabilities before calling this method.
-    /// [`lower_functions`] prepares function-local scopes. Standard CPU symbol
-    /// capabilities are provided by `MetadataLoweringContext` in `vihaco-module`.
-    /// Additional capabilities can be supplied by a consumer-owned context.
-    /// The header itself is not interpreted by this method.
+    /// prepares section-wide context capabilities (for example
+    /// `MetadataLoweringContext::new(&metadata, &parsed.symbols)`) before
+    /// calling this method. The header itself is not interpreted here.
     ///
     /// # Errors
-    /// Returns declaration, table, or lowering errors. Context mutations before
-    /// an error are retained; no partial module is returned.
-    pub fn lower_with_metadata<C, Info>(
+    /// Returns declaration, symbol, table, or lowering errors. Context
+    /// mutations before an error are retained; no partial module is returned.
+    pub fn lower_with_metadata<C, Ty: Clone, Info>(
         self,
         metadata: ProgramMetadata<Value, Ty, Info>,
         context: &mut C,
     ) -> eyre::Result<LocalModule<I::Runtime, Value, Ty, Info>>
     where
         I: Lower<C>,
-        C: FunctionScope,
     {
-        validate_program_functions(&self.functions, &metadata)?;
-        let code = lower_functions(self.functions, context)?;
-        metadata.into_module(code)
+        metadata.validate(&self.symbols, self.code.len())?;
+        let code = lower_code(self.code, &self.symbols, context)?;
+        metadata.into_module(code, self.symbols)
     }
 }
 

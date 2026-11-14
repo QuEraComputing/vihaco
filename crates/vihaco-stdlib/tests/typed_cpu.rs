@@ -280,27 +280,37 @@ fn readable_constants_parse_to_encoded_runtime_words() {
     );
 }
 
+fn parse_text(
+    text: &str,
+) -> eyre::Result<vihaco_syntax::ParsedModule<<Machine as HasInstructionSet>::Syntax, Header>> {
+    let source = format!(
+        "sst v{}\n.section main\n.text\n{text}\n",
+        vihaco_bytecode::SST_VERSION
+    );
+    let file = vihaco_bytecode::SSTFile::<vihaco_bytecode::NoContext>::from_text(&source)?;
+    vihaco_syntax::ParsedModule::parse_section(file.section("main").unwrap())
+}
+
 #[test]
-fn sst_labels_are_readability_metadata_and_do_not_occupy_runtime_slots() {
-    type Function =
-        vihaco_syntax::ParsedFunction<<Machine as HasInstructionSet>::Syntax, vihaco_abi::Type>;
-    let parsed = Function::parser()
-        .parse("fn @main() { label @entry ctl::host::cpu::br 1 label @later spare::cpu::halt }")
-        .into_result()
-        .unwrap();
-    assert_eq!(parsed.body.len(), 2);
-    assert_eq!(parsed.labels[0].name.as_str(), "entry");
-    assert_eq!(parsed.labels[0].instruction_index, 0);
-    assert_eq!(parsed.labels[1].name.as_str(), "later");
-    assert_eq!(parsed.labels[1].instruction_index, 1);
+fn sst_symbols_are_readability_metadata_and_do_not_occupy_runtime_slots() {
+    let parsed = parse_text("@entry: ctl::host::cpu::br 1 @later: spare::cpu::halt").unwrap();
+    assert_eq!(parsed.code.len(), 2);
+    assert_eq!(
+        parsed
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.name.as_str(), symbol.address))
+            .collect::<Vec<_>>(),
+        [("entry", 0), ("later", 1)]
+    );
     assert!(matches!(
-        &parsed.body[0],
+        &parsed.code[0],
         __vihaco_MachineInstruction::V_controller__cpu__cpu__Branch(cpu::Branch(Target::Resolved(
             1
         )))
     ));
     let mut machine = machine();
-    for instruction in parsed.body {
+    for instruction in parsed.code {
         machine
             .dispatch(
                 &vihaco_runtime::Lower::lower(instruction, &mut NumericContext).unwrap(),
@@ -309,16 +319,8 @@ fn sst_labels_are_readability_metadata_and_do_not_occupy_runtime_slots() {
             .unwrap();
     }
     assert_eq!(machine.controller.cpu.take_pending_pc(), Some(1));
-    assert!(
-        Function::parser()
-            .parse("fn @main() { ctl::host::cpu::function_start }")
-            .has_errors()
-    );
-    assert!(
-        Function::parser()
-            .parse("fn @main() { ctl::host::cpu::function_end }")
-            .has_errors()
-    );
+    assert!(parse_text("@main: ctl::host::cpu::function_start").is_err());
+    assert!(parse_text("@main: ctl::host::cpu::function_end").is_err());
 }
 
 #[test]
@@ -804,49 +806,34 @@ fn arithmetic_shift_comparison_and_reset_semantics_are_preserved() {
 }
 
 #[test]
-fn sst_signatures_parse_runtime_types_without_surface_types() {
-    type Function =
-        vihaco_syntax::ParsedFunction<<Machine as HasInstructionSet>::Syntax, vihaco_abi::Type>;
-    let parsed = Function::parser()
-        .parse("fn @main(value: i64, target: fn_ref, text: str) -> bool { spare::cpu::halt }")
-        .into_result()
-        .unwrap();
-    assert_eq!(
-        parsed
-            .params
-            .iter()
-            .map(|param| param.ty)
-            .collect::<Vec<_>>(),
-        [
-            vihaco_abi::Type::I64,
-            vihaco_abi::Type::FunctionRef,
-            vihaco_abi::Type::String
-        ]
-    );
-    assert_eq!(parsed.return_types, vec![vihaco_abi::Type::Bool]);
-    assert_eq!(parsed.body.len(), 1);
-    assert_eq!(
-        vihaco_abi::Type::parser()
-            .parse("heap_ref")
-            .into_result()
-            .unwrap(),
-        vihaco_abi::Type::HeapRef
-    );
-    assert_eq!(
-        vihaco_abi::Type::parser()
-            .parse("undef")
-            .into_result()
-            .unwrap(),
-        vihaco_abi::Type::Undefined
-    );
+fn sst_metadata_types_parse_runtime_types_without_surface_types() {
+    for (text, ty) in [
+        ("i64", vihaco_abi::Type::I64),
+        ("fn_ref", vihaco_abi::Type::FunctionRef),
+        ("str", vihaco_abi::Type::String),
+        ("bool", vihaco_abi::Type::Bool),
+        ("heap_ref", vihaco_abi::Type::HeapRef),
+        ("undef", vihaco_abi::Type::Undefined),
+    ] {
+        assert_eq!(
+            vihaco_abi::Type::parser()
+                .parse(text)
+                .into_result()
+                .unwrap(),
+            ty,
+            "{text}"
+        );
+    }
 }
 
 // A consumer loader supplies capabilities once; generated composite lowering
 // reuses CPU's instruction implementations at every device destination.
+// `FUNCTIONS` stands in for the header's function table.
+const FUNCTIONS: [&str; 2] = ["main", "helper"];
+
 #[derive(Default)]
 struct SymbolLoader {
-    labels: std::collections::HashMap<String, u32>,
-    functions: std::collections::HashMap<String, (u32, u32)>,
+    symbols: std::collections::HashMap<String, u32>,
     image: vihaco_stdlib::ProgramImage<
         <Machine as HasInstructionSet>::Runtime,
         vihaco_bytecode::NoContext,
@@ -855,7 +842,7 @@ struct SymbolLoader {
 
 impl LabelLookup for SymbolLoader {
     fn label_address(&self, name: &str) -> eyre::Result<u32> {
-        self.labels
+        self.symbols
             .get(name)
             .copied()
             .ok_or_else(|| eyre::eyre!("unknown label {name}"))
@@ -864,15 +851,17 @@ impl LabelLookup for SymbolLoader {
 
 impl FunctionLookup for SymbolLoader {
     fn function_address(&self, name: &str) -> eyre::Result<u32> {
-        self.functions
+        self.function_index(name)?;
+        self.symbols
             .get(name)
-            .map(|(_, address)| *address)
-            .ok_or_else(|| eyre::eyre!("unknown function {name}"))
+            .copied()
+            .ok_or_else(|| eyre::eyre!("function {name} has no symbol"))
     }
     fn function_index(&self, name: &str) -> eyre::Result<u32> {
-        self.functions
-            .get(name)
-            .map(|(index, _)| *index)
+        FUNCTIONS
+            .iter()
+            .position(|function| *function == name)
+            .map(|index| index as u32)
             .ok_or_else(|| eyre::eyre!("unknown function {name}"))
     }
 }
@@ -904,59 +893,30 @@ where
         &mut self,
         section: vihaco_bytecode::SSTSectionView<'src, vihaco_bytecode::NoContext>,
     ) -> eyre::Result<()> {
-        type Module = vihaco_syntax::ParsedModule<
-            <Machine as HasInstructionSet>::Syntax,
-            vihaco_abi::Type,
-            Header,
-        >;
+        type Module = vihaco_syntax::ParsedModule<<Machine as HasInstructionSet>::Syntax, Header>;
         let parsed = Module::parse_section(section)?;
-        // Gather all function starts before lowering any body, including forward calls.
-        self.functions.clear();
-        let mut address = 0u32;
-        for (index, function) in parsed.functions.iter().enumerate() {
+        // Prepare the whole symbol table before lowering, so forward
+        // references resolve.
+        self.symbols.clear();
+        for symbol in &parsed.symbols {
             if self
-                .functions
-                .insert(
-                    function.name.as_str().to_owned(),
-                    (u32::try_from(index)?, address),
-                )
+                .symbols
+                .insert(symbol.name.clone(), symbol.address)
                 .is_some()
             {
-                return Err(eyre::eyre!("duplicate function {}", function.name));
+                return Err(eyre::eyre!("duplicate symbol {}", symbol.name));
             }
-            address = address
-                .checked_add(u32::try_from(function.body.len())?)
-                .ok_or_else(|| eyre::eyre!("program address overflow"))?;
         }
-        let mut code = Vec::new();
-        for function in parsed.functions {
-            // Label names are scoped to each function, but their addresses are
-            // relative to the complete executable section.
-            self.labels.clear();
-            let base = u32::try_from(code.len())?;
-            for label in function.labels {
-                let address = base
-                    .checked_add(u32::try_from(label.instruction_index)?)
-                    .ok_or_else(|| eyre::eyre!("label address overflow"))?;
-                if self
-                    .labels
-                    .insert(label.name.as_str().to_owned(), address)
-                    .is_some()
-                {
-                    return Err(eyre::eyre!("duplicate label {}", label.name));
-                }
-            }
-            code.extend(self.lower_instructions(function.body)?);
-        }
+        let code = self.lower_instructions(parsed.code)?;
         self.image.module.code = code;
         Ok(())
     }
 }
 
-fn load_symbolic(loader: &mut SymbolLoader, functions: &str) -> eyre::Result<()> {
+fn load_symbolic(loader: &mut SymbolLoader, text: &str) -> eyre::Result<()> {
     use vihaco_module::loader::LoadSSTSection;
     let text = format!(
-        "sst v{}\n.section main\n.text\n{functions}\n",
+        "sst v{}\n.section main\n.text\n{text}\n",
         vihaco_bytecode::SST_VERSION
     );
     let file = vihaco_bytecode::SSTFile::<vihaco_bytecode::NoContext>::from_text(&text)?;
@@ -967,27 +927,25 @@ fn load_symbolic(loader: &mut SymbolLoader, functions: &str) -> eyre::Result<()>
 }
 
 #[test]
-fn symbolic_lowering_interns_strings_and_resolves_scoped_forward_targets() {
+fn symbolic_lowering_interns_strings_and_resolves_forward_symbols() {
     let mut loader = SymbolLoader::default();
     load_symbolic(
         &mut loader,
         r#"
-fn @main() {
-    label @entry
+@main:
+@main.entry:
     ctl::host::cpu::const_string "hello\nworld"
     ctl::host::cpu::const_string "hello\nworld"
     ctl::host::cpu::const_fn_ref @helper
-    ctl::host::cpu::br @done
-    ctl::host::cpu::cond_br @done, @entry
+    ctl::host::cpu::br @main.done
+    ctl::host::cpu::cond_br @main.done, @main.entry
     ctl::host::cpu::call 0, @helper
-    label @done
+@main.done:
     spare::cpu::halt
-}
-fn @helper() {
-    label @entry
-    spare::cpu::br @entry
+@helper:
+@helper.entry:
+    spare::cpu::br @helper.entry
     spare::cpu::ret 0
-}
 "#,
     )
     .unwrap();
@@ -1027,7 +985,7 @@ fn @helper() {
 #[test]
 fn failed_symbol_resolution_keeps_executable_code_and_rejects_duplicates() {
     let mut loader = SymbolLoader::default();
-    load_symbolic(&mut loader, "fn @main() { spare::cpu::halt }").unwrap();
+    load_symbolic(&mut loader, "@main: spare::cpu::halt").unwrap();
     let prior = loader.image.module.code.clone();
     for (instruction, message) in [
         ("br @missing", "unknown label missing"),
@@ -1035,9 +993,9 @@ fn failed_symbol_resolution_keeps_executable_code_and_rejects_duplicates() {
         ("call 0, @missing", "unknown function missing"),
         ("const_fn_ref @missing", "unknown function missing"),
     ] {
-        let functions = format!("fn @main() {{ spare::cpu::{instruction} }}");
+        let text = format!("@main: spare::cpu::{instruction}");
         assert!(
-            load_symbolic(&mut loader, &functions)
+            load_symbolic(&mut loader, &text)
                 .unwrap_err()
                 .to_string()
                 .contains(message)
@@ -1045,19 +1003,16 @@ fn failed_symbol_resolution_keeps_executable_code_and_rejects_duplicates() {
         assert_eq!(loader.image.module.code, prior);
     }
     assert!(
-        load_symbolic(
-            &mut loader,
-            "fn @main() { label @same spare::cpu::halt label @same }"
-        )
-        .unwrap_err()
-        .to_string()
-        .contains("duplicate label same")
-    );
-    assert!(
-        load_symbolic(&mut loader, "fn @main() {} fn @main() {}")
+        load_symbolic(&mut loader, "@main: @same: spare::cpu::halt @same:")
             .unwrap_err()
             .to_string()
-            .contains("duplicate function main")
+            .contains("duplicate symbol same")
+    );
+    assert!(
+        load_symbolic(&mut loader, "@main: @main:")
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate symbol main")
     );
 }
 

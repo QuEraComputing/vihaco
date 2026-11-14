@@ -38,13 +38,6 @@ enum SurfaceOnlyInst {
     Nop,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, vihaco_parser_derive::Parse)]
-#[syntax_class(type)]
-enum TextType {
-    #[pattern = "`i64`"]
-    I64,
-}
-
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct TestHeader {
     cores: u32,
@@ -97,18 +90,15 @@ impl SSTHeader for NoHeader {}
 #[derive(Debug, Default)]
 struct TextResolver;
 
-impl<Ty, H> Resolve<TextInst, Ty, H> for TextResolver {
+impl<H> Resolve<TextInst, H> for TextResolver {
     type Module = LocalModule<TextInst, Value, Type>;
 
-    fn resolve_module(
-        &mut self,
-        parsed: ParsedModule<TextInst, Ty, H>,
-    ) -> eyre::Result<Self::Module> {
-        let mut module = LocalModule::default();
-        for function in parsed.functions {
-            module.code.extend(function.body);
-        }
-        Ok(module)
+    fn resolve_module(&mut self, parsed: ParsedModule<TextInst, H>) -> eyre::Result<Self::Module> {
+        Ok(LocalModule {
+            code: parsed.code,
+            symbols: parsed.symbols,
+            ..LocalModule::default()
+        })
     }
 }
 
@@ -126,9 +116,9 @@ fn load_bytecode_program<'bc>(
     Ok(())
 }
 
-fn load_parsed_text_program<Ty, H>(
+fn load_parsed_text_program<H>(
     program: &mut TextProgram,
-    parsed: ParsedModule<TextInst, Ty, H>,
+    parsed: ParsedModule<TextInst, H>,
     context: vihaco::ContextHandle<TextContext>,
 ) -> eyre::Result<()> {
     let mut resolver = TextResolver;
@@ -246,7 +236,7 @@ impl LoadSSTSection<TextContext> for TextLoadedDevice {
         &mut self,
         section: SSTSectionView<'bc, TextContext>,
     ) -> eyre::Result<()> {
-        let parsed = ParsedModule::<TextInst, TextType, NoHeader>::parse_section(section.clone())?;
+        let parsed = ParsedModule::<TextInst, NoHeader>::parse_section(section.clone())?;
         load_parsed_text_program(&mut self.program, parsed, section.context_handle())?;
         Ok(())
     }
@@ -296,8 +286,7 @@ impl LoadSSTSection<TextContext> for TextHeaderMachine {
         &mut self,
         section: SSTSectionView<'bc, TextContext>,
     ) -> eyre::Result<()> {
-        let parsed =
-            ParsedModule::<TextInst, TextType, TestHeader>::parse_section(section.clone())?;
+        let parsed = ParsedModule::<TextInst, TestHeader>::parse_section(section.clone())?;
         self.info = parsed.header;
         load_parsed_text_program(&mut self.program, parsed, section.context_handle())?;
         Ok(())
@@ -310,18 +299,16 @@ fn parses_surface_instruction_without_runtime_bytecode_traits() {
         &[],
         ".section main\n\
          .text\n\
-         \x20   fn @main() {\n\
-         \x20       surface.nop\n\
-         \x20   }\n",
+         @main:\n\
+         \x20   surface.nop\n",
     );
 
-    let parsed = ParsedModule::<SurfaceOnlyInst, TextType, NoHeader>::parse_section(
-        file.section("main").unwrap(),
-    )
-    .unwrap();
+    let parsed =
+        ParsedModule::<SurfaceOnlyInst, NoHeader>::parse_section(file.section("main").unwrap())
+            .unwrap();
 
-    assert_eq!(parsed.functions.len(), 1);
-    assert_eq!(parsed.functions[0].body, vec![SurfaceOnlyInst::Nop]);
+    assert_eq!(parsed.code, vec![SurfaceOnlyInst::Nop]);
+    assert_eq!(parsed.symbols[0].name, "main");
 }
 
 #[test]
@@ -372,15 +359,13 @@ fn text_sections_load_independently_by_name() {
         &["controller", "readout"],
         ".section controller\n\
          .text\n\
-         \x20   fn @main() {\n\
-         \x20       test.nop\n\
-         \x20   }\n\
+         @main:\n\
+         \x20   test.nop\n\
          \n\
          .section readout\n\
          .text\n\
-         \x20   fn @main() {\n\
-         \x20       test.alt\n\
-         \x20   }\n",
+         @main:\n\
+         \x20   test.alt\n",
     );
 
     let mut controller = TextLoadedDevice::default();
@@ -438,9 +423,8 @@ fn text_composite_loads_its_section_header() {
          .header\n\
          \x20   8\n\
          .text\n\
-         \x20   fn @main() {\n\
-         \x20       test.nop\n\
-         \x20   }\n",
+         @main:\n\
+         \x20   test.nop\n",
     );
 
     let mut machine = TextHeaderMachine::default();

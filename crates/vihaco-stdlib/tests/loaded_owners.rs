@@ -114,21 +114,23 @@ where
     M: HasInstructionSet,
     M::Syntax: Parse<'src> + 'src + Lower<MetadataLoweringContext, Runtime = M::Runtime>,
 {
-    let vihaco_syntax::ParsedModule { header, functions } =
-        vihaco_syntax::ParsedModule::<M::Syntax, Type, Header>::parse_section(section)?;
+    let vihaco_syntax::ParsedModule {
+        header,
+        code,
+        symbols,
+    } = vihaco_syntax::ParsedModule::<M::Syntax, Header>::parse_section(section)?;
     let metadata = header.0;
-    let mut context = MetadataLoweringContext::new(&metadata)?;
+    let mut context = MetadataLoweringContext::new(&metadata, &symbols)?;
     let module = vihaco_syntax::ParsedModule {
         header: (),
-        functions,
+        code,
+        symbols,
     }
     .lower_with_metadata(metadata, &mut context)?;
     Ok(Image::new(module))
 }
 
 fn section_source(name: &str, main: &str, helper: &str) -> String {
-    let helper_start = main.lines().count();
-    let end = helper_start + helper.lines().count();
     // Table order intentionally differs from executable function order.
     format!(
         r#".section {name}
@@ -136,20 +138,16 @@ fn section_source(name: &str, main: &str, helper: &str) -> String {
 metadata {{
     strings: ["main", "helper", "source.sst"],
     functions: [
-        {{ name: 1, signature: {{ params: [], ret: [u64] }}, local_count: 0,
-           start_address: {helper_start}, end_address: {end}, file: 2 }},
-        {{ name: 0, signature: {{ params: [], ret: [u64] }}, local_count: 0,
-           start_address: 0, end_address: {helper_start}, file: 2 }},
+        {{ name: 1, signature: {{ params: [], ret: [u64] }}, local_count: 0, file: 2 }},
+        {{ name: 0, signature: {{ params: [], ret: [u64] }}, local_count: 0, file: 2 }},
     ],
-    labels: [], constants: [], main_function: 1, source_symbols: [], extra: {{}},
+    constants: [], main_function: 1, source_symbols: [], extra: {{}},
 }}
 .text
-fn @main() -> u64 {{
+@main:
 {main}
-}}
-fn @helper() -> u64 {{
+@helper:
 {helper}
-}}
 "#
     )
 }

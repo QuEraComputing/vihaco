@@ -3,9 +3,8 @@
 
 //! chumsky-0.10 combinators for the parsed-syntax shape.
 //!
-//! `Parse` impls for `ParsedModule`/`ParsedFunction` are generic over the
-//! consumer's instruction type `I`, source type `Ty`, and device-header type
-//! `H`.
+//! [`ParsedModule::parse_section`] is generic over the consumer's instruction
+//! type `I` and section-header type `H`.
 
 use chumsky::error::Simple;
 use chumsky::extra;
@@ -15,14 +14,11 @@ use vihaco_parser::{Ident, Parse, QuotedString};
 use vihaco_bytecode::SSTHeader;
 use vihaco_bytecode::SSTSectionView;
 
-#[cfg(feature = "typed-declarations")]
-use crate::ParsedLabel;
-use crate::{Param, ParsedFunction, ParsedModule};
+use crate::{ParsedModule, Symbol};
 
-#[cfg(feature = "typed-declarations")]
-enum BodyItem<I> {
+enum TextItem<I> {
     Instruction(I),
-    Label(Ident),
+    Symbol(String),
 }
 
 type E<'src> = extra::Err<Simple<'src, char>>;
@@ -103,144 +99,94 @@ pub fn block_i64_pairs<'src>() -> impl Parser<'src, &'src str, Vec<(i64, i64)>, 
         .then_ignore(ws)
 }
 
-/// Parse a parameter name, excluding `:` from the identifier grammar so it
-/// can serve as the parameter/type separator.
-fn parameter_name<'src>() -> impl Parser<'src, &'src str, Ident, E<'src>> + Clone {
-    any()
-        .filter(|c: &char| {
-            !c.is_whitespace()
-                && !matches!(
-                    *c,
-                    ':' | ',' | ';' | '(' | ')' | '{' | '}' | '[' | ']' | '"' | '\'' | '`'
-                )
-                && *c != '@'
-        })
-        .repeated()
-        .at_least(1)
-        .collect::<String>()
-        .map(Ident)
-        .padded()
+/// `@name:` — a symbol definition. The name excludes `:` so the colon can
+/// terminate it.
+pub fn symbol_definition<'src>() -> impl Parser<'src, &'src str, String, E<'src>> + Clone {
+    just('@')
+        .ignore_then(
+            any()
+                .filter(|c: &char| {
+                    !c.is_whitespace()
+                        && !matches!(
+                            *c,
+                            ':' | '@'
+                                | ','
+                                | ';'
+                                | '('
+                                | ')'
+                                | '{'
+                                | '}'
+                                | '['
+                                | ']'
+                                | '"'
+                                | '\''
+                                | '`'
+                        )
+                })
+                .repeated()
+                .at_least(1)
+                .collect::<String>(),
+        )
+        .then_ignore(just(':'))
 }
 
-/// Parse a comma-separated list of `name: type` parameters.
-fn param_list<'src, Ty>() -> impl Parser<'src, &'src str, Vec<Param<Ty>>, E<'src>>
-where
-    Ty: Parse<'src> + 'src,
-{
-    let parameter = parameter_name()
-        .then_ignore(just(':').padded())
-        .then(Ty::parser().padded())
-        .map(|(name, ty)| Param { name, ty });
-
-    parameter
-        .separated_by(just(',').padded())
-        .collect::<Vec<_>>()
-        .delimited_by(just('(').padded(), just(')').padded())
-}
-
-fn functions<'src, I, Ty>() -> impl Parser<'src, &'src str, Vec<ParsedFunction<I, Ty>>, E<'src>>
+/// A `.text` stream: instructions and `@name:` symbol definitions, separated by
+/// whitespace and comments. Layout and indentation carry no meaning.
+fn text_stream<'src, I>() -> impl Parser<'src, &'src str, (Vec<I>, Vec<Symbol>), E<'src>>
 where
     I: Parse<'src> + 'src,
-    Ty: Parse<'src> + 'src,
 {
+    let item = symbol_definition()
+        .map(TextItem::Symbol)
+        .or(I::parser().map(TextItem::Instruction));
     skip()
-        .ignore_then(ParsedFunction::<I, Ty>::parser())
+        .ignore_then(item)
         .repeated()
         .collect::<Vec<_>>()
         .then_ignore(skip())
-}
-
-impl<'src, I, Ty> Parse<'src> for ParsedFunction<I, Ty>
-where
-    I: Parse<'src> + 'src,
-    Ty: Parse<'src> + 'src,
-{
-    fn parser() -> impl Parser<'src, &'src str, Self, E<'src>> {
-        let returns = Ty::parser()
-            .padded()
-            .separated_by(just(',').padded())
-            .allow_trailing()
-            .collect::<Vec<_>>()
-            .delimited_by(just('(').padded(), just(')').padded())
-            .or(Ty::parser().map(|ty| vec![ty]));
-        let return_types = just("->")
-            .padded()
-            .ignore_then(returns)
-            .or_not()
-            .map(Option::unwrap_or_default);
-        #[cfg(not(feature = "typed-declarations"))]
-        let body = skip()
-            .ignore_then(I::parser())
-            .repeated()
-            .collect::<Vec<_>>()
-            .then_ignore(skip());
-        #[cfg(feature = "typed-declarations")]
-        let body = {
-            let label = just("label")
-                .then_ignore(text::whitespace().at_least(1))
-                .ignore_then(just('@'))
-                .ignore_then(Ident::parser())
-                .map(BodyItem::Label);
-            skip()
-                .ignore_then(label.or(I::parser().map(BodyItem::Instruction)))
-                .repeated()
-                .collect::<Vec<_>>()
-                .map(|items| {
-                    let mut body = Vec::new();
-                    let mut labels = Vec::new();
-                    for item in items {
-                        match item {
-                            BodyItem::Instruction(instruction) => body.push(instruction),
-                            BodyItem::Label(name) => labels.push(ParsedLabel {
-                                name,
-                                instruction_index: body.len(),
-                            }),
-                        }
+        .then_ignore(end())
+        .try_map(|items, span| {
+            let mut code = Vec::new();
+            let mut symbols = Vec::new();
+            for item in items {
+                match item {
+                    TextItem::Instruction(instruction) => code.push(instruction),
+                    TextItem::Symbol(name) => {
+                        let address =
+                            u32::try_from(code.len()).map_err(|_| Simple::new(None, span))?;
+                        symbols.push(Symbol { name, address });
                     }
-                    (body, labels)
-                })
-                .then_ignore(skip())
-        };
-
-        just("fn")
-            .padded()
-            .ignore_then(just('@'))
-            .ignore_then(Ident::parser())
-            .then(param_list::<Ty>())
-            .then(return_types)
-            .then_ignore(just('{').padded())
-            .then(body)
-            .then_ignore(just('}').padded())
-            .map(|(((name, params), return_types), body)| {
-                #[cfg(feature = "typed-declarations")]
-                let (body, labels) = body;
-                ParsedFunction {
-                    name,
-                    params,
-                    return_types,
-                    body,
-                    #[cfg(feature = "typed-declarations")]
-                    labels,
                 }
-            })
-    }
+            }
+            Ok((code, symbols))
+        })
 }
 
-impl<I, Ty, H> ParsedModule<I, Ty, H> {
+impl<I, H> ParsedModule<I, H> {
     /// Parse a source section into its consumer instruction representation.
+    ///
+    /// Symbol names are not checked for uniqueness here; loading validates the
+    /// table against the header metadata.
     pub fn parse_section<'src, C>(section: SSTSectionView<'src, C>) -> eyre::Result<Self>
     where
         H: SSTHeader,
         I: vihaco_parser::Parse<'src> + 'src,
-        Ty: vihaco_parser::Parse<'src> + 'src,
     {
         let header = section.parse_header::<H>()?;
-        let text = section.text();
-        let functions = functions::<I, Ty>()
-            .parse(text)
+        let (code, symbols) = text_stream::<I>()
+            .parse(section.text())
             .into_result()
-            .map_err(|errors| eyre::eyre!("failed to parse SST functions: {:?}", errors))?;
-
-        Ok(Self { header, functions })
+            .map_err(|errors| {
+                eyre::eyre!(
+                    "failed to parse `.text` of section `{}`: {:?}",
+                    section.name(),
+                    errors
+                )
+            })?;
+        Ok(Self {
+            header,
+            code,
+            symbols,
+        })
     }
 }
