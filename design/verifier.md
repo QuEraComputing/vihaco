@@ -26,11 +26,13 @@ what cannot be known before execution.
 
 This design adopts the stack-validation RFC in #120, which is based on a
 validator running in production in bloqade-lanes: an intraprocedural CFG walk to
-a fixpoint, per-component stack effects, an embedder-defined value lattice,
-two-phase reporting, and structural checks. It generalizes the RFC in two
-directions: rules type values with vihaco's own types (structs and typed arrays
-now exist), and components can contribute abstract state beyond the operand
-stack.
+a fixpoint, per-component stack effects, two-phase reporting, and structural
+checks. It departs from the RFC in three ways: rules type values with vihaco's
+own types (structs, typed arrays, and named types), replacing the RFC's
+embedder-defined value lattice; checks on particular constant values move to
+runtime device checks; and components can contribute abstract state beyond the
+operand stack. bloqade-lanes is expected to move its validation onto this
+framework rather than keep its own.
 
 ## Use cases
 
@@ -38,14 +40,14 @@ The open issues that motivate the verifier, and what each needs from it:
 
 | Issue | Use case | What the design provides |
 |---|---|---|
-| #120 | bloqade-lanes composes `vihaco-cpu` with a lanes device whose operands are `LOCATION`, `LANE`, `ZONE` values, all `u64` to vihaco. It checks that device operands carry the right tag, and checks groups of constant addresses (no duplicate lanes in one `move`). | Embedder-defined slot values carrying tags and known constant bits ([Slots](#slots-and-types)); device rules bound on the embedder's slot trait. |
+| #120 | bloqade-lanes composes `vihaco-cpu` with a lanes device whose operands are `LOCATION`, `LANE`, `ZONE` values, all `u64` to vihaco. It checks that device operands carry the right tag, and checks groups of constant addresses (no duplicate lanes in one `move`). | Device operand kinds become [named types](#named-types) backed by `u64`, so a `LANE` passed as a `LOCATION` is a type error; groups of constant addresses are checked at runtime by the device ([Slots](#slots-and-types)). |
 | #120 | A frame-model hazard: a crafted program grew the stack to 68 GB through an out-of-range local index. | Declared local types bound every local index; a metadata cap bounds frame sizes ([Metadata](#required-metadata-changes)). |
 | #175 | Records and lists that components and hosts can rely on. | Rules type `struct_new`, `get_field`, and the `array_*` instructions against the struct table and element types. |
 | #175, #176 | Observers, debuggers and IDEs need to know what a stack word means at a breakpoint. | The verifier's converged per-block states, exported as **type maps** ([Outputs](#outputs)). |
 | #173 | Asynchronous components: `submit` pushes a handle, `wait` pops it and pushes the result later. Lanes' `measure n` pushes measurement futures. | Handles are values with a type; a component-defined slot tag today, a standard `future T` type once #173 lands ([Open questions](#open-questions)). |
 | #174 | Execution contexts: `spawn f(args)` and `join`. | Typed like calls: arguments checked against `f`'s signature, `join` pushes `f`'s results. Intraprocedural, so contexts add no new analysis. |
 | #176 | A module builder for external compilers. | The verifier is the check a builder's output goes through; builders emit declared local types. |
-| #5 | Components define their own runtime types. | The type vocabulary (`Ty`) and slot type are generic; a component's types participate in verification through its slot trait. |
+| #5 | Components define their own runtime types. | Word-backed [named types](#named-types) declared in the module, which component instructions name in their operands and rules. |
 | #169 | Instruction-set crates outside the composite's crate, with their own messages. | Rules live with the instruction type, and every capability trait is public and semver-covered, so no `#[doc(hidden)]` plumbing is needed to write a rule. |
 | #171 | Cast instructions. | Plain fixed-signature rules: `[i64] → [f64]`. |
 | #121 | Timing and latency annotations. | An example of component-defined abstract state (elapsed time per sequencer), with the widening guidance under [Merging](#merging). |
@@ -145,29 +147,8 @@ A rule that fails ends the analysis of its basic block; see
 
 ## Slots and types
 
-The abstract stack holds one **slot** per operand and per local. The slot type
-belongs to the verifier context (`OperandStack::Slot`), not to vihaco, because
-embedders track facts vihaco cannot know (#120: a lanes `LOCATION` and `LANE`
-are both `u64`).
-
-```rust,ignore
-/// A finite-height join semilattice of abstract values.
-pub trait Lattice: Clone + PartialEq + fmt::Display {
-    /// Least upper bound. Must have finite height so the fixpoint terminates.
-    fn join(&self, other: &Self) -> Self;
-}
-
-/// Slots that can represent vihaco's types. Standard CPU and program rules
-/// require only this, so they work with any embedder's slot.
-pub trait TypedSlot: Lattice {
-    fn of_type(ty: Type) -> Self;
-    /// Accept this slot where `expected` is required, or report a
-    /// `TypeMismatch`.
-    fn expect(&self, expected: &Type) -> Result<(), VerifyError>;
-}
-```
-
-vihaco provides the standard slot:
+The abstract stack holds one **slot** per operand and per local. A slot is a
+vihaco type, or a conflict where paths disagreed:
 
 ```rust,ignore
 pub enum TypeSlot {
@@ -178,27 +159,68 @@ pub enum TypeSlot {
 }
 ```
 
-An embedder layers its facts on top, and its device rules bound on its own
-slot trait:
+Every standard context and rule uses `TypeSlot`. Facts that components need
+beyond vihaco's types are expressed in one of two ways, so there is no
+embedder-defined slot type:
 
-```rust,ignore
-// bloqade-lanes
-struct LanesSlot {
-    ty: TypeSlot,
-    tag: Option<Tag>,    // LOCATION, LANE, ZONE, ...: kept only if every path agrees
-    bits: Option<u64>,   // known constant value: kept only if every path agrees
-}
-impl TypedSlot for LanesSlot { /* delegates to `ty` */ }
-impl TaggedSlot for LanesSlot { /* used by lanes device rules */ }
-```
+- **Distinct kinds of word-sized operand** become [named types](#named-types):
+  bloqade-lanes' `LOCATION`, `LANE`, and `ZONE` are distinct types backed by
+  `u64`, so mixing them up is an ordinary `TypeMismatch` (#120, #5).
+- **Facts about particular values**, such as "no duplicate lanes in one
+  `move`", are checked at runtime by the device. Tracking known constants
+  through the verifier would catch them only when every value is a literal,
+  and is what would force a pluggable slot type.
 
-`expect` checks vihaco types, so the standard rules are **sound** for type
-safety: a conflicted slot never satisfies a typed pop. (The RFC lets an unknown
-tag pass a typed pop; an embedder may still choose that for its own tags.)
+The engine's traits stay generic (`Lattice` for joins, `TypedSlot` for slots
+that can represent vihaco types, with `TypeSlot` implementing both), which
+keeps it testable with small fixture slots; that generality is not an
+extension point the standard contexts promise.
+
+The standard rules are **sound** for type safety: a conflicted slot never
+satisfies a typed pop. (The RFC lets an unknown tag pass a typed pop.)
 
 Compatibility for `vihaco_abi::Type`: equality, plus `Struct(n)` and `Array(_)`
 satisfy `HeapRef`, so instructions that accept any heap object (`heap_dealloc`)
-accept both. `HeapRef` satisfies neither.
+accept both. `HeapRef` satisfies neither, and a named type satisfies only
+itself.
+
+## Named types
+
+A module can declare **named types**: nominal types represented by a word-sized
+scalar. They exist only for verification; at runtime a value of a named type is
+the same word as its representation, with no tag and no cost.
+
+```text
+metadata {
+    strings: ["main", "lanes.sst", "location", "lane"],
+    types: [
+        { name: 2, repr: u64 },   // type 0: location
+        { name: 3, repr: u64 },   // type 1: lane
+    ],
+    // ...
+}
+```
+
+- `Type::Named(u32)`, written `type N`, an index into the `types` table, like
+  `struct N`. Instruction operands may name it, `@location`, resolved during
+  lowering.
+- `repr` is a scalar word type (`i32`, `i64`, `u32`, `u64`, `f32`, `f64`,
+  `bool`). Names are unique; module assembly checks every `type N` reference,
+  including inside arrays and struct fields.
+- **Nominal:** `type 0` satisfies only `type 0`, not its representation and not
+  another named type with the same representation. Two instructions convert
+  explicitly, and are no-ops at runtime:
+
+  | Instruction | Stack effect |
+  |---|---|
+  | `wrap @location` | `[u64] → [location]` |
+  | `unwrap @location` | `[location] → [u64]` |
+
+- Devices state their operand types by name: a lanes rule pops
+  `@location`, resolved against the module's table through a `NamedTypes`
+  capability, so a device works in any module that declares its types.
+- Function signatures, locals, struct fields, and array elements may all use
+  named types (`array location` for a group of addresses).
 
 ## Standard capabilities
 
@@ -500,9 +522,10 @@ unverified module requires an explicit, greppable escape hatch
 4. Metadata: `locals: [Ty]` replaces `local_count`, plus the frame-size cap;
    `Locals`, `Signatures`, `StructTypes`, `Constants`; `ModuleVerifier` built
    from module metadata.
-5. Rules for program instructions (control flow, calls, returns, locals,
-   `call_indirect` with an inline signature) and CPU instructions (arithmetic,
-   comparisons, casts, structs, arrays).
+5. Named types (`types` table, `Type::Named`, `wrap`/`unwrap`, a `NamedTypes`
+   capability). Rules for program instructions (control flow, calls, returns,
+   locals, `call_indirect` with an inline signature) and CPU instructions
+   (arithmetic, comparisons, casts, structs, arrays).
 6. `Verified<M>` enforcement in stdlib images, type maps, docs and guide
    examples. Closes #120.
 7. Follow-ups: array constants; `future T` with #173 and context handles with
@@ -512,8 +535,11 @@ unverified module requires an explicit, greppable escape hatch
 
 - **Futures and handles.** #173 and #174 need typed handles. A standard
   `future T` type (like `array T`) would let handles cross components and
-  hosts; until then, components use slot tags. Which comes first depends on
-  #173's chosen shape.
+  hosts; until then, a component can declare a named type per handle kind.
+  Which comes first depends on #173's chosen shape.
+- **Named type representations.** Whether a named type may wrap a heap type
+  (a named `array f64`, for example a `waveform`), which would need the runtime
+  heap tag to carry the name too, or only word-sized scalars as proposed.
 - **Deriving rules.** Program-image instructions already declare stack shapes
   as Rust types (`PopFromStack<(u64, u64)>`). Those are representation types
   (`u64` is also a heap reference, `Word` is anything), so they cannot express
