@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["lower_code","lower_code_with_metadata"],"mod":["parse","spanned"],"struct":["HeaderDeclarations","ParsedModule","Symbol"],"trait":["SurfaceInstruction"]};
