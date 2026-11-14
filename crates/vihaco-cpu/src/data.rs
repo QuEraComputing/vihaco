@@ -353,14 +353,22 @@ vihaco_runtime::component! {
         #[pattern = "'heap_len"]
         HeapLen,
 
-        /// Pop a heap reference and push the word stored in field `$0`.
-        #[pattern = "'get_field $0"]
-        GetField(u32),
+        /// Pop a heap reference to struct `$0` and push the word in field slot `$1`.
+        /// Fails if the object is not a live struct `$0`.
+        #[pattern = "'get_field $0 `,` $1"]
+        GetField(u32, u32),
 
-        /// Pop a value and a heap reference (pushed in that order: reference
-        /// first) and overwrite field `$0` with the value. Pushes nothing.
-        #[pattern = "'set_field $0"]
-        SetField(u32),
+        /// Pop a value and a heap reference to struct `$0` (reference pushed
+        /// first) and overwrite field slot `$1`. Pushes nothing. Fails if the
+        /// object is not a live struct `$0`.
+        #[pattern = "'set_field $0 `,` $1"]
+        SetField(u32, u32),
+
+        /// Pop `$1` field values (pushed in declaration order) and push a
+        /// reference to a new struct `$0`. `$1` must be the struct's field count;
+        /// typed dialects resolve it from the struct table instead.
+        #[pattern = "'struct_new $0 `,` $1"]
+        StructNew(u32, u32),
     }
 }
 
@@ -523,8 +531,21 @@ impl CPU {
         self.heap.alloc(values)
     }
 
+    /// The elements of an array object; struct objects are rejected.
     pub(crate) fn heap_object(&self, id: u32) -> eyre::Result<&[Word]> {
-        self.heap.get(id)
+        self.heap.array(id)
+    }
+
+    pub(crate) fn push_heap_struct(
+        &mut self,
+        layout: crate::StructLayout,
+        values: impl Into<Vec<Word>>,
+    ) -> eyre::Result<u32> {
+        self.heap.alloc_struct(layout, values)
+    }
+
+    pub(crate) fn heap_field(&self, id: u32, field: crate::FieldSlot) -> eyre::Result<Word> {
+        self.heap.field(id, field)
     }
 
     #[cfg(feature = "typed-declarations")]
@@ -537,8 +558,13 @@ impl CPU {
         self.heap.push(id, value)
     }
 
-    pub(crate) fn set_heap_item(&mut self, id: u32, index: usize, value: Word) -> eyre::Result<()> {
-        self.heap.set(id, index, value)
+    pub(crate) fn set_heap_field(
+        &mut self,
+        id: u32,
+        field: crate::FieldSlot,
+        value: Word,
+    ) -> eyre::Result<()> {
+        self.heap.set_field(id, field, value)
     }
 
     pub(crate) fn dealloc_heap_object(&mut self, id: u32) -> eyre::Result<()> {

@@ -268,7 +268,7 @@ fn @main() -> u64 {{
 fn @make_point() -> struct 0 {{
 execution::program::const_u64 7
 execution::program::const_u64 9
-cpu::cpu::heap_alloc 2
+cpu::cpu::struct_new @Point
 execution::program::ret 1
 }}
 .text(root).

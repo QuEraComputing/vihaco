@@ -167,8 +167,9 @@ mod parse_tests {
 
     #[test]
     fn parses_struct_field_access() {
-        assert_parses!("cpu.get_field 2", SurfaceInstruction::GetField(2));
-        assert_parses!("cpu.set_field 0", SurfaceInstruction::SetField(0));
+        assert_parses!("cpu.get_field 0, 2", SurfaceInstruction::GetField(0, 2));
+        assert_parses!("cpu.set_field 1, 0", SurfaceInstruction::SetField(1, 0));
+        assert_parses!("cpu.struct_new 0, 3", SurfaceInstruction::StructNew(0, 3));
     }
 
     #[test]

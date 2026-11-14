@@ -109,6 +109,23 @@ impl Execute<cpu::HeapLen> for CPU {
     }
 }
 
+impl Execute<cpu::StructNew> for CPU {
+    type Message = NoMessage;
+    type Effect = StepOutcome;
+    type Error = eyre::Report;
+
+    fn execute(&mut self, instruction: &cpu::StructNew, _: NoMessage) -> eyre::Result<StepOutcome> {
+        self.clear_pending_pc();
+        let n = instruction.0.field_count as usize;
+        self.require_operands(n)?;
+        let start = self.stack.len() - n;
+        let values: Vec<Word> = self.stack.drain(start..).collect();
+        let heap_id = self.push_heap_struct(instruction.0, values)?;
+        self.stack_push(encode_heap_ref(heap_id));
+        Ok(StepOutcome::Continue)
+    }
+}
+
 impl Execute<cpu::GetField> for CPU {
     type Message = NoMessage;
     type Effect = StepOutcome;
@@ -116,12 +133,8 @@ impl Execute<cpu::GetField> for CPU {
 
     fn execute(&mut self, instruction: &cpu::GetField, _: NoMessage) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
-        let index = instruction.0;
         let heap_id = decode_heap_ref(self.stack_pop()?);
-        let value = *self
-            .heap_object(heap_id)?
-            .get(index as usize)
-            .ok_or_else(|| eyre::eyre!("heap index {} out of bounds", index))?;
+        let value = self.heap_field(heap_id, instruction.0)?;
         self.stack_push(value);
         Ok(StepOutcome::Continue)
     }
@@ -137,7 +150,7 @@ impl Execute<cpu::SetField> for CPU {
         self.require_operands(2)?;
         let value = self.stack_pop()?;
         let heap_id = decode_heap_ref(self.stack_pop()?);
-        self.set_heap_item(heap_id, instruction.0 as usize, value)?;
+        self.set_heap_field(heap_id, instruction.0, value)?;
         Ok(StepOutcome::Continue)
     }
 }
@@ -145,40 +158,65 @@ impl Execute<cpu::SetField> for CPU {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{FieldSlot, StructLayout};
+
+    const POINT: StructLayout = StructLayout {
+        struct_id: 0,
+        field_count: 2,
+    };
+
+    fn slot(struct_id: u32, slot: u32) -> FieldSlot {
+        FieldSlot { struct_id, slot }
+    }
 
     #[test]
-    fn struct_fields_read_and_overwrite_in_place() {
+    fn struct_new_and_field_access_check_the_struct_type() {
         let mut cpu = CPU::default();
-        // Point { x: 1, y: 2 }
         cpu.stack_push(encode_u64(1));
         cpu.stack_push(encode_u64(2));
-        cpu.execute(&cpu::HeapAlloc(2), NoMessage::new()).unwrap();
+        cpu.execute(&cpu::StructNew(POINT), NoMessage::new())
+            .unwrap();
         let point = *cpu.stack_top().unwrap();
 
         cpu.stack_push(point);
         cpu.stack_push(encode_u64(7));
-        cpu.execute(&cpu::SetField(1), NoMessage::new()).unwrap();
+        cpu.execute(&cpu::SetField(slot(0, 1)), NoMessage::new())
+            .unwrap();
         assert_eq!(cpu.stack(), &[point]);
-
-        cpu.execute(&cpu::GetField(1), NoMessage::new()).unwrap();
+        cpu.execute(&cpu::GetField(slot(0, 1)), NoMessage::new())
+            .unwrap();
         assert_eq!(cpu.stack(), &[encode_u64(7)]);
+
+        cpu.stack_push(point);
+        let err = cpu
+            .execute(&cpu::GetField(slot(1, 0)), NoMessage::new())
+            .unwrap_err();
+        assert!(err.to_string().contains("expected struct 1"), "{err}");
+        cpu.stack_push(point);
+        assert!(cpu.execute(&cpu::HeapLen, NoMessage::new()).is_err());
+
+        cpu.stack_push(encode_u64(1));
+        cpu.stack_push(encode_u64(2));
+        cpu.execute(&cpu::HeapAlloc(2), NoMessage::new()).unwrap();
+        let err = cpu
+            .execute(&cpu::GetField(slot(0, 0)), NoMessage::new())
+            .unwrap_err();
+        assert!(err.to_string().contains("is an array"), "{err}");
     }
 
     #[test]
-    fn struct_field_access_rejects_out_of_bounds_and_missing_operands() {
+    fn struct_new_and_set_field_require_operands() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_u64(1));
-        cpu.execute(&cpu::HeapAlloc(1), NoMessage::new()).unwrap();
-        let object = *cpu.stack_top().unwrap();
-        assert!(cpu.execute(&cpu::GetField(1), NoMessage::new()).is_err());
-
-        cpu.stack_push(object);
-        cpu.stack_push(encode_u64(9));
-        assert!(cpu.execute(&cpu::SetField(1), NoMessage::new()).is_err());
-
-        let mut cpu = CPU::default();
-        cpu.stack_push(encode_u64(9));
-        assert!(cpu.execute(&cpu::SetField(0), NoMessage::new()).is_err());
+        assert!(
+            cpu.execute(&cpu::StructNew(POINT), NoMessage::new())
+                .is_err()
+        );
+        assert_eq!(cpu.stack(), &[encode_u64(1)]);
+        assert!(
+            cpu.execute(&cpu::SetField(slot(0, 0)), NoMessage::new())
+                .is_err()
+        );
     }
 
     #[test]

@@ -123,8 +123,20 @@ impl vihaco_stdlib::program::lower::StringIntern for NumericContext {
     }
 }
 
+// Numeric struct operands are still checked against a table: struct 0 has two
+// fields, struct 1 has one.
 impl vihaco_cpu::field::StructLookup for NumericContext {
-    fn field_index(&self, _: &str, _: &str) -> eyre::Result<u32> {
+    fn struct_index(&self, _: &str) -> eyre::Result<u32> {
+        Err(eyre::eyre!("numeric fixture"))
+    }
+    fn struct_field_count(&self, struct_index: u32) -> eyre::Result<u32> {
+        match struct_index {
+            0 => Ok(2),
+            1 => Ok(1),
+            _ => Err(eyre::eyre!("numeric fixture has no struct {struct_index}")),
+        }
+    }
+    fn field_index(&self, _: u32, _: &str) -> eyre::Result<u32> {
         Err(eyre::eyre!("numeric fixture"))
     }
 }
@@ -362,37 +374,56 @@ fn heap_transfers_use_program_operands_and_preserve_device_state() {
 }
 
 #[test]
-fn struct_fields_are_read_and_overwritten_by_static_index() {
+fn struct_new_allocates_tagged_structs_and_fields_are_type_checked() {
     // Point { x: 7, y: 9 }; point.y = 4; return (point.x, point.y)
     let (module, mut vm) = machine(&[
         "program::program::const_u64 7",
         "program::program::const_u64 9",
-        "cpu::cpu::heap_alloc 2",
+        "cpu::cpu::struct_new 0",
         "program::program::dup",
         "program::program::const_u64 4",
-        "cpu::cpu::set_field 1",
+        "cpu::cpu::set_field 0, 1",
         "program::program::dup",
-        "cpu::cpu::get_field 0",
+        "cpu::cpu::get_field 0, 0",
         "program::program::store_u64 0",
-        "cpu::cpu::get_field 1",
+        "cpu::cpu::get_field 0, 1",
         "program::program::load_u64 0",
         "program::program::ret 2",
     ]);
+    // `struct_new 0` popped exactly the table's two fields.
     execute(&module, &mut vm, &[]).unwrap();
     assert_eq!(vm.program.stack(), &[4, 7]);
 
-    // Out-of-bounds field writes fail at the faulting pc; like the other heap
-    // transfers, the popped operands are consumed (only local slot 0 remains).
+    // Reading a struct 1 object through a struct 0 field is a runtime type
+    // error at the faulting pc, even though slot 0 exists in both.
     let (module, mut vm) = machine(&[
         "program::program::const_u64 7",
-        "cpu::cpu::heap_alloc 1",
-        "program::program::const_u64 4",
-        "cpu::cpu::set_field 1",
+        "cpu::cpu::struct_new 1",
+        "cpu::cpu::get_field 0, 0",
     ]);
     let error = execute(&module, &mut vm, &[]).unwrap_err();
-    assert!(error.to_string().contains("out of bounds"));
-    assert_eq!(vm.program.stack(), &[0]);
-    assert_eq!(vm.program.pc(), 3);
+    assert!(
+        error.to_string().contains("is struct 1, expected struct 0"),
+        "{error:#}"
+    );
+    assert_eq!(vm.program.pc(), 2);
+
+    // An array is never a struct, and a struct is never an array.
+    let (module, mut vm) = machine(&[
+        "program::program::const_u64 7",
+        "program::program::const_u64 9",
+        "cpu::cpu::heap_alloc 2",
+        "cpu::cpu::get_field 0, 0",
+    ]);
+    let error = execute(&module, &mut vm, &[]).unwrap_err();
+    assert!(error.to_string().contains("is an array"), "{error:#}");
+    let (module, mut vm) = machine(&[
+        "program::program::const_u64 7",
+        "cpu::cpu::struct_new 1",
+        "cpu::cpu::heap_len",
+    ]);
+    let error = execute(&module, &mut vm, &[]).unwrap_err();
+    assert!(error.to_string().contains("expected an array"), "{error:#}");
 }
 
 #[vihaco_runtime::dialect]

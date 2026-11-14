@@ -108,8 +108,18 @@ impl CPU {
             HeapReserve => self.op_heap_reserve(),
             HeapPush => self.op_heap_push(),
             HeapLen => self.op_heap_len(),
-            GetField(index) => self.op_get_field(*index),
-            SetField(index) => self.op_set_field(*index),
+            GetField(struct_id, slot) => self.op_get_field(crate::FieldSlot {
+                struct_id: *struct_id,
+                slot: *slot,
+            }),
+            SetField(struct_id, slot) => self.op_set_field(crate::FieldSlot {
+                struct_id: *struct_id,
+                slot: *slot,
+            }),
+            StructNew(struct_id, field_count) => self.op_struct_new(crate::StructLayout {
+                struct_id: *struct_id,
+                field_count: *field_count,
+            }),
             ConstI32(v) | ConstI64(v) | ConstU32(v) | ConstU64(v) | ConstF32(v) | ConstF64(v)
             | ConstBool(v) | ConstString(v) | ConstFunctionRef(v) | ConstHeapRef(v) => {
                 self.op_const(*v)
@@ -472,22 +482,30 @@ impl CPU {
     }
 
     #[cfg(not(feature = "typed-declarations"))]
-    fn op_get_field(&mut self, index: u32) -> Result<StepOutcome> {
+    fn op_get_field(&mut self, field: crate::FieldSlot) -> Result<StepOutcome> {
         let heap_id = decode_heap_ref(self.stack_pop()?);
-        let value = *self
-            .heap_object(heap_id)?
-            .get(index as usize)
-            .ok_or_else(|| eyre::eyre!("heap index {} out of bounds", index))?;
+        let value = self.heap_field(heap_id, field)?;
         self.stack_push(value);
         Ok(StepOutcome::Continue)
     }
 
     #[cfg(not(feature = "typed-declarations"))]
-    fn op_set_field(&mut self, index: u32) -> Result<StepOutcome> {
+    fn op_set_field(&mut self, field: crate::FieldSlot) -> Result<StepOutcome> {
         self.require_operands(2)?;
         let value = self.stack_pop()?;
         let heap_id = decode_heap_ref(self.stack_pop()?);
-        self.set_heap_item(heap_id, index as usize, value)?;
+        self.set_heap_field(heap_id, field, value)?;
+        Ok(StepOutcome::Continue)
+    }
+
+    #[cfg(not(feature = "typed-declarations"))]
+    fn op_struct_new(&mut self, layout: crate::StructLayout) -> Result<StepOutcome> {
+        let n = layout.field_count as usize;
+        self.require_operands(n)?;
+        let start = self.stack.len() - n;
+        let values: Vec<Word> = self.stack.drain(start..).collect();
+        let heap_id = self.push_heap_struct(layout, values)?;
+        self.stack_push(encode_heap_ref(heap_id));
         Ok(StepOutcome::Continue)
     }
 
@@ -945,64 +963,57 @@ mod tests {
 
     #[test]
     #[cfg(not(feature = "typed-declarations"))]
-    fn struct_fields_read_and_overwrite_in_place() {
+    fn struct_new_and_field_access_check_the_struct_type() {
+        use RuntimeInstruction::{GetField, GetItem, HeapAlloc, SetField, StructNew};
         let mut cpu = CPU::default();
-        // Point { x: 1.5, y: -2 }
+        // Point { x: 1.5, y: -2 } is struct 0 with 2 fields.
         cpu.stack_push(encode_f64(1.5));
         cpu.stack_push(encode_i64(-2));
-        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(2))
-            .unwrap();
+        cpu.execute_instruction(StructNew(0, 2)).unwrap();
         let point = *cpu.stack_top().unwrap();
 
         cpu.stack_push(point);
         cpu.stack_push(encode_i64(7));
-        let outcome = cpu
-            .execute_instruction(RuntimeInstruction::SetField(1))
-            .unwrap();
+        let outcome = cpu.execute_instruction(SetField(0, 1)).unwrap();
         assert_eq!(outcome, StepOutcome::Continue);
         assert_eq!(cpu.stack(), &vec![point]);
+        cpu.execute_instruction(GetField(0, 1)).unwrap();
+        assert_eq!(cpu.stack(), &vec![encode_i64(7)]);
 
+        // Wrong struct type, missing slot, and array access all fail.
+        for (instruction, message) in [
+            (GetField(1, 0), "is struct 0, expected struct 1"),
+            (GetField(0, 2), "no field slot 2"),
+        ] {
+            cpu.stack_push(point);
+            let err = cpu.execute_instruction(instruction).unwrap_err();
+            assert!(err.to_string().contains(message), "{err}");
+        }
         cpu.stack_push(point);
-        cpu.execute_instruction(RuntimeInstruction::GetField(0))
-            .unwrap();
-        cpu.stack_push(point);
-        cpu.execute_instruction(RuntimeInstruction::GetField(1))
-            .unwrap();
-        assert_eq!(cpu.stack(), &vec![point, encode_f64(1.5), encode_i64(7)]);
+        cpu.stack_push(encode_u32(0));
+        let err = cpu.execute_instruction(GetItem).unwrap_err();
+        assert!(err.to_string().contains("expected an array"), "{err}");
+
+        // An array with the right length is still not a struct.
+        cpu.stack_push(encode_i64(1));
+        cpu.stack_push(encode_i64(2));
+        cpu.execute_instruction(HeapAlloc(2)).unwrap();
+        let err = cpu.execute_instruction(GetField(0, 0)).unwrap_err();
+        assert!(
+            err.to_string().contains("is an array, expected struct 0"),
+            "{err}"
+        );
     }
 
     #[test]
     #[cfg(not(feature = "typed-declarations"))]
-    fn struct_field_access_checks_bounds_and_operands() {
+    fn struct_new_and_set_field_require_operands() {
+        use RuntimeInstruction::{SetField, StructNew};
         let mut cpu = CPU::default();
         cpu.stack_push(encode_i64(1));
-        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
-            .unwrap();
-        let object = *cpu.stack_top().unwrap();
-
-        cpu.execute_instruction(RuntimeInstruction::GetField(0))
-            .unwrap();
+        assert!(cpu.execute_instruction(StructNew(0, 2)).is_err());
         assert_eq!(cpu.stack(), &vec![encode_i64(1)]);
-
-        cpu.stack_push(object);
-        let err = cpu
-            .execute_instruction(RuntimeInstruction::GetField(1))
-            .unwrap_err();
-        assert!(err.to_string().contains("out of bounds"));
-
-        cpu.stack_push(object);
-        cpu.stack_push(encode_i64(9));
-        let err = cpu
-            .execute_instruction(RuntimeInstruction::SetField(1))
-            .unwrap_err();
-        assert!(err.to_string().contains("out of bounds"));
-
-        let mut cpu = CPU::default();
-        cpu.stack_push(encode_i64(9));
-        assert!(
-            cpu.execute_instruction(RuntimeInstruction::SetField(0))
-                .is_err()
-        );
+        assert!(cpu.execute_instruction(SetField(0, 0)).is_err());
     }
 
     #[test]

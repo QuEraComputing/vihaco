@@ -128,16 +128,33 @@ Each function record contains:
 
 Each struct record is `{ name: string_index, fields: [{ name: string_index, ty: type }, ...] }`.
 Struct names must be unique, and field names must be unique within a struct.
-Field order defines the slot layout: field `i` is slot `i` of the heap object,
-so a struct is allocated with `heap_alloc N` (N = field count, fields pushed in
-order) and accessed with `get_field i` / `set_field i`. Typed CPU dialects also
-accept `get_field @Point.y`, resolved through this table during lowering.
+Field order defines the slot layout: field `i` is slot `i` of the heap object.
+The CPU instructions name the struct, by name or by table index:
+
+| Instruction | Effect |
+|---|---|
+| `struct_new @Point` or `struct_new 0` | Pop one value per field (pushed in declaration order) and push a reference to a new `Point`. |
+| `get_field @Point.y` or `get_field 0, 1` | Pop a `Point` reference and push field `y`. |
+| `set_field @Point.y` or `set_field 0, 1` | Pop a value, then a `Point` reference, and overwrite field `y`. |
+
+Lowering resolves every form against this table: the field count of
+`struct_new` always comes from the table, and an unknown struct, field, or slot
+is a load-time error. (The legacy CPU instruction enum has no lowering step and
+takes `struct_new 0, 2` and `get_field 0, 1` with explicit numbers.)
+
+Struct objects are type-checked at runtime. Each heap object records whether it
+is an array (`heap_alloc`, `heap_reserve`) or which struct it is
+(`struct_new`). `get_field` and `set_field` fail unless the reference is to a
+live struct of the field's struct type, and the array instructions (`get_item`,
+`heap_push`, `heap_len`) reject structs, so a struct's shape never changes.
+Field values themselves are untyped words; the CPU does not check that a value
+stored in an `f64` field is an `f64`.
 
 Types in signatures and fields may name a struct as `struct N`, its index in
-`structs`. At runtime such a value is an ordinary heap reference; the type is
-checked only when the module is assembled, which rejects `struct N` indices
-outside the table. Structs may refer to themselves or to each other, for
-example a linked node with a `next: struct 0` field.
+`structs`. At runtime such a value is a heap reference to a `struct N` object.
+Module assembly rejects `struct N` indices outside the table. Structs may refer
+to themselves or to each other, for example a linked node with a
+`next: struct 0` field.
 
 ```text
 metadata {

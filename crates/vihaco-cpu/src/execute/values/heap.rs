@@ -38,7 +38,7 @@ impl Execute<cpu::GetItem> for CPU {
         let index = usize::try_from(index)?;
         let value = *self
             .heap
-            .get(id)?
+            .array(id)?
             .get(index)
             .ok_or_else(|| eyre::eyre!("heap index {} out of bounds", index))?;
         Ok(PushToStack((value,)))
@@ -97,7 +97,31 @@ impl Execute<cpu::HeapLen> for CPU {
         _: &cpu::HeapLen,
         PopFromStack((id,)): Self::Message,
     ) -> eyre::Result<Self::Effect> {
-        Ok(PushToStack((u64::try_from(self.heap.get(id)?.len())?,)))
+        Ok(PushToStack((u64::try_from(self.heap.array(id)?.len())?,)))
+    }
+}
+
+impl StackInputCount<cpu::StructNew> for CPU {
+    fn input_count(instruction: &cpu::StructNew) -> eyre::Result<InputCount> {
+        Ok(InputCount::Immediate(usize::try_from(
+            instruction.0.field_count,
+        )?))
+    }
+}
+
+impl Execute<cpu::StructNew> for CPU {
+    type Message = PopFromStack<StackBatch<Word>>;
+    type Effect = PushToStack<(u32,)>;
+    type Error = eyre::Report;
+    fn execute(
+        &mut self,
+        instruction: &cpu::StructNew,
+        PopFromStack(values): Self::Message,
+    ) -> eyre::Result<Self::Effect> {
+        let values: Vec<Word> = values.into_iter().collect();
+        Ok(PushToStack((self
+            .heap
+            .alloc_struct(instruction.0, values)?,)))
     }
 }
 
@@ -110,13 +134,7 @@ impl Execute<cpu::GetField> for CPU {
         instruction: &cpu::GetField,
         PopFromStack((id,)): Self::Message,
     ) -> eyre::Result<Self::Effect> {
-        let index = instruction.0;
-        let value = *self
-            .heap
-            .get(id)?
-            .get(index as usize)
-            .ok_or_else(|| eyre::eyre!("heap index {} out of bounds", index))?;
-        Ok(PushToStack((value,)))
+        Ok(PushToStack((self.heap.field(id, instruction.0)?,)))
     }
 }
 
@@ -129,7 +147,7 @@ impl Execute<cpu::SetField> for CPU {
         instruction: &cpu::SetField,
         PopFromStack((id, value)): Self::Message,
     ) -> eyre::Result<Self::Effect> {
-        self.heap.set(id, instruction.0 as usize, value)?;
+        self.heap.set_field(id, instruction.0, value)?;
         Ok(PushToStack(()))
     }
 }
@@ -137,18 +155,35 @@ impl Execute<cpu::SetField> for CPU {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{FieldSlot, StructLayout};
+
+    const POINT: StructLayout = StructLayout {
+        struct_id: 0,
+        field_count: 2,
+    };
+
+    fn slot(struct_id: u32, slot: u32) -> FieldSlot {
+        FieldSlot { struct_id, slot }
+    }
 
     #[test]
-    fn struct_fields_read_and_overwrite_in_place() {
+    fn struct_fields_are_checked_against_the_object_struct_type() {
         let mut cpu = CPU::default();
-        let id = cpu.heap.alloc(vec![1, 2]);
-        cpu.execute(&cpu::SetField(1), PopFromStack((id, 7)))
+        let id = cpu.heap.alloc_struct(POINT, vec![1, 2]).unwrap();
+        cpu.execute(&cpu::SetField(slot(0, 1)), PopFromStack((id, 7)))
             .unwrap();
-        let PushToStack((value,)) = cpu.execute(&cpu::GetField(1), PopFromStack((id,))).unwrap();
+        let PushToStack((value,)) = cpu
+            .execute(&cpu::GetField(slot(0, 1)), PopFromStack((id,)))
+            .unwrap();
         assert_eq!(value, 7);
-        assert!(cpu.execute(&cpu::GetField(2), PopFromStack((id,))).is_err());
         assert!(
-            cpu.execute(&cpu::SetField(2), PopFromStack((id, 0)))
+            cpu.execute(&cpu::GetField(slot(1, 0)), PopFromStack((id,)))
+                .is_err()
+        );
+        assert!(cpu.execute(&cpu::HeapLen, PopFromStack((id,))).is_err());
+        let array = cpu.heap.alloc(vec![1, 2]);
+        assert!(
+            cpu.execute(&cpu::GetField(slot(0, 0)), PopFromStack((array,)))
                 .is_err()
         );
     }

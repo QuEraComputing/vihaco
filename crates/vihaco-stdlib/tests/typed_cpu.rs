@@ -45,9 +45,19 @@ impl StringIntern for NumericContext {
     }
 }
 
+// Numeric struct operands are still checked against a table: struct 0 has two fields.
 impl StructLookup for NumericContext {
-    fn field_index(&self, struct_name: &str, field: &str) -> eyre::Result<u32> {
-        Err(eyre::eyre!("unknown field {struct_name}.{field}"))
+    fn struct_index(&self, name: &str) -> eyre::Result<u32> {
+        Err(eyre::eyre!("unknown struct {name}"))
+    }
+    fn struct_field_count(&self, struct_index: u32) -> eyre::Result<u32> {
+        match struct_index {
+            0 => Ok(2),
+            _ => Err(eyre::eyre!("unknown struct {struct_index}")),
+        }
+    }
+    fn field_index(&self, struct_index: u32, field: &str) -> eyre::Result<u32> {
+        Err(eyre::eyre!("unknown field {struct_index}.{field}"))
     }
 }
 
@@ -77,7 +87,7 @@ macro_rules! steps {
             LoadI32, LoadI64, LoadU32, LoadU64, LoadF32, LoadF64,
             LoadBool, StoreI32, StoreI64, StoreU32, StoreU64, StoreF32,
             StoreF64, StoreBool, Dup, HeapAlloc, GetItem, HeapDealloc,
-            HeapReserve, HeapPush, HeapLen, GetField, SetField,
+            HeapReserve, HeapPush, HeapLen, GetField, SetField, StructNew,
             ConstI32, ConstI64, ConstU32, ConstU64, ConstF32, ConstF64,
             ConstBool, ConstString, ConstFunctionRef, ConstHeapRef, AddI32, AddF32,
             AddI64, AddU32, AddU64, AddF64, SubI32, SubI64,
@@ -759,15 +769,21 @@ fn every_executable_leaf_parses_directly_and_metadata_is_excluded() {
     check("ge_u64", cpu::GeU64);
     check("ge_f32", cpu::GeF32);
     check("ge_f64", cpu::GeF64);
-    check("get_field 0", cpu::GetField(0));
-    check("set_field 0", cpu::SetField(0));
+    let slot = |struct_id, slot| vihaco_cpu::FieldSlot { struct_id, slot };
+    check("get_field 0, 1", cpu::GetField(slot(0, 1)));
+    check("set_field 0, 0", cpu::SetField(slot(0, 0)));
+    let point = vihaco_cpu::StructLayout {
+        struct_id: 0,
+        field_count: 2,
+    };
+    check("struct_new 0", cpu::StructNew(point));
     assert_eq!(
         vihaco_runtime::__private::capabilities::<CPU>().count(),
-        144
+        145
     );
     assert_eq!(
         vihaco_runtime::__private::capabilities::<Machine>().count(),
-        288
+        290
     );
     assert!(
         !vihaco_runtime::__private::capabilities::<CPU>()
@@ -893,9 +909,15 @@ impl StringIntern for SymbolLoader {
 }
 
 impl StructLookup for SymbolLoader {
-    fn field_index(&self, struct_name: &str, field: &str) -> eyre::Result<u32> {
+    fn struct_index(&self, name: &str) -> eyre::Result<u32> {
+        Err(eyre::eyre!("fixture declares no struct {name}"))
+    }
+    fn struct_field_count(&self, struct_index: u32) -> eyre::Result<u32> {
+        Err(eyre::eyre!("fixture declares no struct {struct_index}"))
+    }
+    fn field_index(&self, struct_index: u32, field: &str) -> eyre::Result<u32> {
         Err(eyre::eyre!(
-            "fixture declares no struct {struct_name}.{field}"
+            "fixture declares no struct {struct_index}.{field}"
         ))
     }
 }

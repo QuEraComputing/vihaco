@@ -106,9 +106,12 @@ pub mod operand;
 #[doc(hidden)]
 pub use data::{__vihaco_fields_CPU, __vihaco_inventory_CPU};
 
+pub mod layout;
 #[cfg(not(feature = "program-image-execution"))]
 mod outcome;
 pub mod word;
+
+pub use layout::{FieldSlot, StructLayout};
 
 pub use data::CPU;
 

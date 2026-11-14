@@ -6,8 +6,8 @@
 #[vihaco_runtime::dialect]
 pub mod cpu {
     use crate::{
-        Word,
-        field::FieldOperand,
+        FieldSlot, StructLayout, Word,
+        field::{FieldOperand, StructOperand},
         literal::{F32Literal, F64Literal, I32Literal, I64Literal},
         operand::{StringOperand, Target},
     };
@@ -579,14 +579,22 @@ pub mod cpu {
     #[pattern = "'ge_f64"]
     pub struct GeF64;
 
-    /// Pop a heap reference and push the word stored in field `$0`.
+    /// Pop a reference to a struct and push the word in the given field.
+    /// Fails unless the object is a live struct of the field's struct type.
     #[instruction]
     #[pattern = "'get_field $0:FieldOperand"]
-    pub struct GetField(pub u32);
+    pub struct GetField(pub FieldSlot);
 
-    /// Pop a value and a heap reference (reference pushed first) and overwrite
-    /// field `$0` with the value. Pushes nothing.
+    /// Pop a value and a struct reference (reference pushed first) and overwrite
+    /// the given field. Pushes nothing. Fails unless the object is a live struct
+    /// of the field's struct type.
     #[instruction]
     #[pattern = "'set_field $0:FieldOperand"]
-    pub struct SetField(pub u32);
+    pub struct SetField(pub FieldSlot);
+
+    /// Pop the struct's fields (pushed in declaration order) and push a
+    /// reference to a new struct object tagged with its struct type.
+    #[instruction]
+    #[pattern = "'struct_new $0:StructOperand"]
+    pub struct StructNew(pub StructLayout);
 }

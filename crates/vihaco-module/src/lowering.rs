@@ -30,9 +30,18 @@ pub trait FunctionScope {
 pub struct MetadataLoweringContext {
     strings: HashMap<String, u32>,
     functions: HashMap<String, (u32, u32)>,
-    /// Struct name to (struct-table index, field name to slot index).
-    structs: HashMap<String, (u32, HashMap<String, u32>)>,
+    /// Struct name to struct-table index.
+    struct_names: HashMap<String, u32>,
+    /// Per struct-table entry: its name, field count, and field name to slot index.
+    structs: Vec<StructFields>,
     labels: HashMap<String, u32>,
+}
+
+#[derive(Debug)]
+struct StructFields {
+    name: String,
+    count: u32,
+    slots: HashMap<String, u32>,
 }
 
 impl MetadataLoweringContext {
@@ -74,31 +83,38 @@ impl MetadataLoweringContext {
                 .get(index as usize)
                 .ok_or_else(|| eyre::eyre!("{}: invalid string index {index}", what()))
         };
-        let mut structs = HashMap::new();
+        let mut struct_names = HashMap::new();
+        let mut structs = Vec::with_capacity(metadata.structs.len());
         for (index, info) in metadata.structs.iter().enumerate() {
             let name = name_at(info.name, &|| format!("metadata.structs[{index}].name"))?;
-            let mut fields = HashMap::new();
+            let mut slots = HashMap::new();
             for (slot, field) in info.fields.iter().enumerate() {
                 let field_name = name_at(field.name, &|| {
                     format!("metadata.structs[{index}].fields[{slot}].name")
                 })?;
                 eyre::ensure!(
-                    fields
+                    slots
                         .insert(field_name.clone(), u32::try_from(slot)?)
                         .is_none(),
                     "struct `{name}` has duplicate field `{field_name}`"
                 );
             }
             eyre::ensure!(
-                structs
-                    .insert(name.clone(), (u32::try_from(index)?, fields))
+                struct_names
+                    .insert(name.clone(), u32::try_from(index)?)
                     .is_none(),
                 "struct `{name}` has duplicate metadata"
             );
+            structs.push(StructFields {
+                name: name.clone(),
+                count: u32::try_from(info.fields.len())?,
+                slots,
+            });
         }
         Ok(Self {
             strings,
             functions,
+            struct_names,
             structs,
             labels: HashMap::new(),
         })
@@ -106,22 +122,34 @@ impl MetadataLoweringContext {
 
     /// Look up a struct's index in the supplied metadata struct table.
     pub fn struct_index(&self, name: &str) -> eyre::Result<u32> {
-        self.structs
+        self.struct_names
             .get(name)
-            .map(|info| info.0)
+            .copied()
             .ok_or_else(|| eyre::eyre!("undefined struct `{name}`"))
     }
 
-    /// Look up a field's slot index within a struct.
-    pub fn field_index(&self, struct_name: &str, field: &str) -> eyre::Result<u32> {
-        let (_, fields) = self
-            .structs
-            .get(struct_name)
-            .ok_or_else(|| eyre::eyre!("undefined struct `{struct_name}`"))?;
-        fields
+    fn struct_entry(&self, struct_index: u32) -> eyre::Result<&StructFields> {
+        self.structs.get(struct_index as usize).ok_or_else(|| {
+            eyre::eyre!(
+                "struct {struct_index} is outside the struct table of length {}",
+                self.structs.len()
+            )
+        })
+    }
+
+    /// The number of fields of a struct-table entry.
+    pub fn struct_field_count(&self, struct_index: u32) -> eyre::Result<u32> {
+        Ok(self.struct_entry(struct_index)?.count)
+    }
+
+    /// Look up a field's slot index within a struct-table entry.
+    pub fn field_index(&self, struct_index: u32, field: &str) -> eyre::Result<u32> {
+        let entry = self.struct_entry(struct_index)?;
+        entry
+            .slots
             .get(field)
             .copied()
-            .ok_or_else(|| eyre::eyre!("struct `{struct_name}` has no field `{field}`"))
+            .ok_or_else(|| eyre::eyre!("struct `{}` has no field `{field}`", entry.name))
     }
 
     /// Look up a function's executable start address.
@@ -265,12 +293,21 @@ mod tests {
         let mut metadata = metadata();
         let context = MetadataLoweringContext::new(&metadata)?;
         assert_eq!(context.struct_index("Point")?, 0);
-        assert_eq!(context.field_index("Point", "x")?, 0);
-        assert_eq!(context.field_index("Point", "y")?, 1);
-        let err = context.field_index("Point", "z").unwrap_err();
-        assert!(err.to_string().contains("no field `z`"), "{err}");
+        assert_eq!(context.struct_field_count(0)?, 2);
+        assert_eq!(context.field_index(0, "x")?, 0);
+        assert_eq!(context.field_index(0, "y")?, 1);
+        let err = context.field_index(0, "z").unwrap_err();
+        assert!(
+            err.to_string().contains("struct `Point` has no field `z`"),
+            "{err}"
+        );
         assert!(context.struct_index("Line").is_err());
-        assert!(context.field_index("Line", "x").is_err());
+        let err = context.struct_field_count(1).unwrap_err();
+        assert!(
+            err.to_string().contains("outside the struct table"),
+            "{err}"
+        );
+        assert!(context.field_index(1, "x").is_err());
 
         metadata.structs.push(metadata.structs[0].clone());
         let err = MetadataLoweringContext::new(&metadata).unwrap_err();

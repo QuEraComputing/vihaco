@@ -71,8 +71,8 @@ pub struct Parameter<Ty> {
 }
 
 /// A struct type declaration. `Type::Struct(i)` refers to entry `i` of the
-/// struct table. At runtime a struct is a heap object with one word slot per
-/// field, in declaration order; `get_field`/`set_field` take that slot index.
+/// struct table. At runtime a struct is a heap object tagged with its struct
+/// index, with one word slot per field in declaration order.
 #[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
 #[syntax_class(metadata, open = "{", close = "}")]
 pub struct StructInfo<Ty> {
