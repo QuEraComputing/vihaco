@@ -822,6 +822,7 @@ dependencies = [
  "eyre",
  "smallvec",
  "vihaco-abi",
+ "vihaco-module",
  "vihaco-runtime",
 ]
 

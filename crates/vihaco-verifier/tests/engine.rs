@@ -7,9 +7,9 @@ use std::cell::Cell;
 use std::collections::BTreeSet;
 
 use vihaco_verifier::{
-    AbstractState, Diagnostic, DiagnosticKind, Flow, Frame, FrameState, FunctionSpan, OperandStack,
-    Rejection, Severity, Type, TypeSlot, TypedSlot, Verification, Verify, VerifyError,
-    VerifyOptions, stack_effect, verify_functions,
+    AbstractState, Diagnostic, DiagnosticKind, Flow, Frame, FrameState, FunctionSpan, Locals,
+    OperandStack, Rejection, Severity, Type, TypeSlot, TypedSlot, Verification, Verify,
+    VerifyError, VerifyOptions, stack_effect, verify_functions,
 };
 
 thread_local! {

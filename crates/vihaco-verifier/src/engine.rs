@@ -28,6 +28,19 @@ pub struct FunctionSpan<S> {
     pub entry: S,
 }
 
+impl<S> FunctionSpan<S> {
+    /// The same span with its entry state transformed, for example to pair a
+    /// standard frame with a wrapping context's own entry state.
+    pub fn map_entry<T>(self, map: impl FnOnce(S) -> T) -> FunctionSpan<T> {
+        FunctionSpan {
+            function: self.function,
+            start: self.start,
+            end: self.end,
+            entry: map(self.entry),
+        }
+    }
+}
+
 /// Options for [`verify_functions`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct VerifyOptions {

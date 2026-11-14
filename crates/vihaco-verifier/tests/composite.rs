@@ -8,10 +8,12 @@
 
 use std::collections::BTreeSet;
 
+use vihaco_module::module::{FunctionInfo, LocalModule, Signature};
 use vihaco_runtime::{HasInstructionSet, Lower as _, component, composite, dialect};
 use vihaco_verifier::{
-    AbstractState, DiagnosticKind, Flow, Frame, FrameState, FunctionSpan, OperandStack, Type,
-    TypeSlot, TypedSlot, Verify, VerifyError, VerifyOptions, stack_effect, verify_functions,
+    AbstractState, ComponentState, DiagnosticKind, Flow, Frame, FrameState, FunctionSpan,
+    ModuleVerifier, OperandStack, Type, TypeSlot, TypedSlot, Value, Verify, VerifyError,
+    VerifyOptions, WithState, stack_effect, verify_functions,
 };
 
 /// A component-specific capability: which channels are open.
@@ -328,5 +330,83 @@ fn the_generated_aggregate_reports_each_components_errors() {
                 found: "i64 | f64".into()
             }
         )]
+    );
+}
+
+/// The same component state for the standard module context: the sequencer's
+/// open channels, joined by intersection.
+#[derive(Clone, Debug, Default)]
+struct OpenChannels(BTreeSet<u32>);
+
+impl ComponentState for OpenChannels {
+    fn join(&mut self, incoming: &Self) -> Result<bool, VerifyError> {
+        let before = self.0.len();
+        self.0.retain(|channel| incoming.0.contains(channel));
+        Ok(self.0.len() != before)
+    }
+}
+
+impl Channels for WithState<'_, OpenChannels> {
+    fn open(&mut self, channel: u32) {
+        self.state_mut().0.insert(channel);
+    }
+    fn require_open(&self, channel: u32) -> Result<(), VerifyError> {
+        if self.state().0.contains(&channel) {
+            Ok(())
+        } else {
+            Err(VerifyError::rule(format!("channel {channel} is not open")))
+        }
+    }
+}
+
+#[test]
+fn the_generated_aggregate_verifies_through_a_wrapped_module_verifier() {
+    let verify = |program: &[&str]| {
+        let code: Vec<Instruction> = program.iter().map(|source| parse(source)).collect();
+        let module: LocalModule<Instruction, Value, Type> = LocalModule {
+            functions: vec![FunctionInfo {
+                name: 0,
+                signature: Signature {
+                    params: vec![],
+                    ret: vec![],
+                },
+                locals: vec![],
+                start_address: 0,
+                end_address: code.len() as u32,
+                file: 0,
+            }],
+            code,
+            strings: vec!["main".into()],
+            main_function: Some(0),
+            ..Default::default()
+        };
+        let mut cx = ModuleVerifier::new(&module).with_state(OpenChannels::default());
+        cx.verify(&module.code, VerifyOptions::default())
+            .map(|_| ())
+            .map_err(|rejection| {
+                rejection
+                    .diagnostics
+                    .into_iter()
+                    .map(|d| (d.address, d.kind))
+                    .collect::<Vec<_>>()
+            })
+    };
+    verify(&[
+        "seq::sequencer::open 1", // 0
+        "seq::sequencer::play 1", // 1
+        "cpu::compute::halt",     // 2
+    ])
+    .unwrap();
+    assert_eq!(
+        verify(&[
+            "cpu::compute::const_bool", // 0
+            "cpu::compute::br_if 2, 4", // 1
+            "seq::sequencer::open 1",   // 2
+            "cpu::compute::br 4",       // 3
+            "seq::sequencer::play 1",   // 4: join, open on one path only
+            "cpu::compute::halt",       // 5
+        ])
+        .unwrap_err(),
+        [(4, DiagnosticKind::Rule("channel 1 is not open".into()))]
     );
 }

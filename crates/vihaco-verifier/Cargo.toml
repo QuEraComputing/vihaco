@@ -11,6 +11,7 @@ authors.workspace = true
 eyre = { workspace = true }
 smallvec = { workspace = true }
 vihaco-abi = { workspace = true }
+vihaco-module = { workspace = true }
 
 [features]
 default = []

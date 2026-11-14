@@ -1,0 +1,152 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
+//! Standard verifier capabilities beyond the operand stack.
+//!
+//! Each capability is a small trait, so a rule bounds its context only on
+//! what it uses. [`ModuleVerifier`](crate::ModuleVerifier) provides all of
+//! them from a module's metadata; a machine context that wraps it delegates
+//! them (see [`WithState`](crate::WithState)).
+
+use vihaco_abi::Type;
+use vihaco_module::module::Signature;
+
+use crate::diagnostic::VerifyError;
+use crate::slot::TypedSlot;
+use crate::stack::OperandStack;
+
+/// Capability: the abstract locals of the function being verified.
+///
+/// Locals share the operand stack's [`Slot`](OperandStack::Slot) type, so a
+/// rule can move slots between the two (`load_*` pushes a local, `store_*`
+/// pops into one). Every index is bounds-checked against the function's
+/// declared locals; an out-of-range index is a
+/// [`DiagnosticKind::LocalIndexOutOfRange`](crate::DiagnosticKind::LocalIndexOutOfRange).
+pub trait Locals: OperandStack {
+    /// The number of locals the function declares, parameters included.
+    fn local_count(&self) -> u32;
+
+    /// Local `index`.
+    fn local(&self, index: u32) -> Result<&Self::Slot, VerifyError>;
+
+    /// Overwrite local `index` with `slot`.
+    fn set_local(&mut self, index: u32, slot: Self::Slot) -> Result<(), VerifyError>;
+}
+
+/// Capability: function signatures, for calls, returns and function
+/// references.
+///
+/// Function indices are positions in the module's function table. Lookups of
+/// an unknown function or address report a [`DiagnosticKind::Rule`] error.
+///
+/// [`DiagnosticKind::Rule`]: crate::DiagnosticKind::Rule
+pub trait Signatures<Ty> {
+    /// The number of functions in the function table.
+    fn function_count(&self) -> usize;
+
+    /// The signature of function `function`.
+    fn signature(&self, function: u32) -> Result<&Signature<Ty>, VerifyError>;
+
+    /// The index of the function whose first instruction is at `address`, as
+    /// a direct `call` by address resolves it at runtime (the first such entry
+    /// in table order).
+    fn function_at(&self, address: u32) -> Result<u32, VerifyError>;
+
+    /// The index of the function being verified.
+    fn current_function(&self) -> u32;
+
+    /// The signature of the function being verified, for `ret`.
+    fn current_signature(&self) -> Result<&Signature<Ty>, VerifyError> {
+        self.signature(self.current_function())
+    }
+}
+
+/// Capability: the struct table, for `struct_new`, `get_field` and
+/// `set_field`.
+///
+/// Struct indices are positions in the struct table (`struct N`); field slots
+/// are positions in a struct's field list. Unknown indices report a
+/// [`DiagnosticKind::Rule`] error.
+///
+/// [`DiagnosticKind::Rule`]: crate::DiagnosticKind::Rule
+pub trait StructTypes<Ty> {
+    /// The number of structs in the struct table.
+    fn struct_count(&self) -> usize;
+
+    /// The number of fields struct `struct_id` declares.
+    fn field_count(&self, struct_id: u32) -> Result<usize, VerifyError>;
+
+    /// The declared type of field `slot` of struct `struct_id`.
+    fn field_type(&self, struct_id: u32, slot: u32) -> Result<&Ty, VerifyError>;
+}
+
+/// Capability: the constant and string tables, for constant loads and
+/// `const_string`.
+///
+/// Constant indices are positions in the constant table, string indices
+/// positions in the string table. Unknown constants report a
+/// [`DiagnosticKind::Rule`] error.
+///
+/// [`DiagnosticKind::Rule`]: crate::DiagnosticKind::Rule
+pub trait Constants<V, Ty> {
+    /// The number of constants in the constant table.
+    fn constant_count(&self) -> usize;
+
+    /// Constant `index`.
+    fn constant(&self, index: u32) -> Result<&V, VerifyError>;
+
+    /// The type of constant `index`, as pushed by a constant load.
+    fn constant_type(&self, index: u32) -> Result<Ty, VerifyError>;
+
+    /// The number of entries in the string table.
+    fn string_count(&self) -> usize;
+}
+
+/// Apply the stack effect of a direct call to function `callee` passing
+/// `arguments` operands: check the count against the callee's declared
+/// parameters ([`DiagnosticKind::CallArityMismatch`]), pop the arguments and
+/// check each against its parameter type, then push the declared results.
+///
+/// [`DiagnosticKind::CallArityMismatch`]: crate::DiagnosticKind::CallArityMismatch
+pub fn call_effect<C>(cx: &mut C, callee: u32, arguments: usize) -> eyre::Result<()>
+where
+    C: OperandStack + Signatures<Type> + ?Sized,
+    C::Slot: TypedSlot,
+{
+    let signature = cx.signature(callee)?.clone();
+    let declared = signature.params.len();
+    if arguments != declared {
+        return Err(VerifyError::call_arity_mismatch(callee, declared, arguments).into());
+    }
+    let popped = cx.pop_n(declared)?;
+    for (argument, parameter) in popped.iter().zip(&signature.params) {
+        argument.expect(&parameter.ty)?;
+    }
+    for ty in signature.ret {
+        cx.push(C::Slot::of_type(ty));
+    }
+    Ok(())
+}
+
+/// Check a return keeping the top `count` operands against the current
+/// function's declared results: `count` must equal the declared result count
+/// ([`DiagnosticKind::ReturnCountMismatch`]) and each kept operand must match
+/// its result type. The kept operands are popped; anything below them is
+/// dropped at runtime and needs no check.
+///
+/// [`DiagnosticKind::ReturnCountMismatch`]: crate::DiagnosticKind::ReturnCountMismatch
+pub fn return_effect<C>(cx: &mut C, count: usize) -> eyre::Result<()>
+where
+    C: OperandStack + Signatures<Type> + ?Sized,
+    C::Slot: TypedSlot,
+{
+    let results = cx.current_signature()?.ret.clone();
+    if count != results.len() {
+        return Err(VerifyError::return_count_mismatch(results.len(), count).into());
+    }
+    let kept = cx.pop_n(count)?;
+    for (value, ty) in kept.iter().zip(&results) {
+        value.expect(ty)?;
+    }
+    Ok(())
+}
