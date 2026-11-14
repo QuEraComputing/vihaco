@@ -35,7 +35,7 @@ sst v1
                 {
                     name: 0,
                     signature: { params: [], ret: [u64] },
-                    local_count: 0,
+                    locals: [],
                     start_address: 0,
                     end_address: 2,
                     file: 1,
@@ -121,7 +121,7 @@ Each function record contains:
 |---|---|
 | `name` | Index of the function name in `strings`, without the source `@` prefix. Function names must be unique for standard metadata-backed lookup. |
 | `signature` | `{ params: [{ name: string_index, ty: type }, ...], ret: [type, ...] }`. Parameter names, order, and types and return types must match the source declaration. |
-| `local_count` | Total reserved local slots, including parameters. Must be at least the parameter count; the loader does not infer extra locals. |
+| `locals` | The declared type of every local slot, parameters first: `[u64, f64]`. The leading entries must equal the parameter types, so there are at least as many locals as parameters; the loader does not infer extra locals. At most 65,536 entries (`MAX_LOCALS`). |
 | `start_address` | Index of the first instruction in this function's body in the concatenated code vector. |
 | `end_address` | Exclusive end of that body's instruction range. |
 | `file` | Index of the source filename in `strings`. |

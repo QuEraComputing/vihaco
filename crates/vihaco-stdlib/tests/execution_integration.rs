@@ -162,7 +162,7 @@ fn machine(code: &[&str]) -> (Program, Machine) {
                 params: vec![],
                 ret: vec![],
             },
-            local_count: 1,
+            locals: vec![vihaco_abi::Type::U64],
             start_address: 0,
             end_address: code.len() as u32,
             file: 0,
@@ -202,7 +202,7 @@ fn generated_execution_routes_calls_locals_computation_and_root_results() {
             }],
             ret: vec![],
         },
-        local_count: 1,
+        locals: vec![vihaco_abi::Type::U64],
         start_address: 7,
         end_address: 11,
         file: 0,
@@ -236,7 +236,7 @@ fn recursive_execution_preserves_continuations_and_multiple_results() {
         "cpu::cpu::add_u64",
         "program::program::ret 2",
     ]);
-    module.functions[0].local_count = 0;
+    module.functions[0].locals.clear();
     module.functions[0].end_address = 4;
     module.functions[0].signature.ret = vec![vihaco_abi::Type::U64; 2];
     module.functions.push(FunctionInfo {
@@ -248,7 +248,7 @@ fn recursive_execution_preserves_continuations_and_multiple_results() {
             }],
             ret: vec![vihaco_abi::Type::U64; 2],
         },
-        local_count: 1,
+        locals: vec![vihaco_abi::Type::U64],
         start_address: 4,
         end_address: 16,
         file: 0,
