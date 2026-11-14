@@ -1,0 +1,2 @@
+window.ALL_CRATES = ["vihaco","vihaco_cpu","vihaco_module","vihaco_parser","vihaco_parser_derive","vihaco_runtime","vihaco_stdlib","vihaco_syntax"];
+//{"start":21,"fragment_lengths":[8,13,16,16,23,17,16,16]}
