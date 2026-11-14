@@ -80,6 +80,26 @@ pub trait StructTypes<Ty> {
     fn field_type(&self, struct_id: u32, slot: u32) -> Result<&Ty, VerifyError>;
 }
 
+/// Capability: the named-type table, for `wrap`, `unwrap`, and component
+/// rules whose operands have named types.
+///
+/// Named-type indices are positions in the table (`type N`). A device rule
+/// names its operand types by name (`named_type_index("location")`), so it
+/// works in any module that declares them. Unknown names and indices report a
+/// [`DiagnosticKind::Rule`] error.
+///
+/// [`DiagnosticKind::Rule`]: crate::DiagnosticKind::Rule
+pub trait NamedTypes<Ty> {
+    /// The number of entries in the named-type table.
+    fn named_type_count(&self) -> usize;
+
+    /// The index of the named type called `name`.
+    fn named_type_index(&self, name: &str) -> Result<u32, VerifyError>;
+
+    /// The scalar representation of named type `index`.
+    fn named_type_repr(&self, index: u32) -> Result<&Ty, VerifyError>;
+}
+
 /// Capability: the constant and string tables, for constant loads and
 /// `const_string`.
 ///

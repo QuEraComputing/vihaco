@@ -7,7 +7,7 @@
 pub mod cpu {
     use crate::{
         FieldSlot, StructLayout,
-        field::{FieldOperand, StructOperand, TypeOperand},
+        field::{FieldOperand, NamedTypeOperand, StructOperand, TypeOperand},
     };
     use vihaco_abi::Type;
 
@@ -480,4 +480,17 @@ pub mod cpu {
     #[instruction]
     #[pattern = "'struct_new $0:StructOperand"]
     pub struct StructNew(pub StructLayout);
+
+    /// Reinterpret the top word, of the named type's representation, as a
+    /// value of the named type (by named-type-table index). A runtime no-op:
+    /// named types exist only for verification.
+    #[instruction]
+    #[pattern = "'wrap $0:NamedTypeOperand"]
+    pub struct Wrap(pub u32);
+
+    /// Reinterpret the top word, of the named type, as its representation. A
+    /// runtime no-op.
+    #[instruction]
+    #[pattern = "'unwrap $0:NamedTypeOperand"]
+    pub struct Unwrap(pub u32);
 }

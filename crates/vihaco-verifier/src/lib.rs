@@ -22,9 +22,10 @@
 //! - [`verify_functions`]: the engine, returning a [`Verification`] (possibly
 //!   with warnings and [`TypeMaps`]) or a [`Rejection`] listing every
 //!   diagnostic.
-//! - [`Locals`], [`Signatures`], [`StructTypes`] and [`Constants`]: the
-//!   standard capabilities beyond the operand stack, with [`call_effect`] and
-//!   [`return_effect`] for calls and returns checked against signatures.
+//! - [`Locals`], [`Signatures`], [`StructTypes`], [`NamedTypes`] and
+//!   [`Constants`]: the standard capabilities beyond the operand stack, with
+//!   [`call_effect`] and [`return_effect`] for calls and returns checked
+//!   against signatures.
 //! - [`ModuleVerifier`]: the standard context for a [`LocalModule`] using
 //!   vihaco's [`Type`] and [`Value`], providing every standard capability
 //!   from the module's metadata. [`verify_module`] verifies a whole module
@@ -97,7 +98,9 @@ mod slot;
 mod stack;
 mod state;
 
-pub use capability::{Constants, Locals, Signatures, StructTypes, call_effect, return_effect};
+pub use capability::{
+    Constants, Locals, NamedTypes, Signatures, StructTypes, call_effect, return_effect,
+};
 pub use diagnostic::{Diagnostic, DiagnosticKind, Severity, VerifyError};
 pub use engine::{
     FunctionSpan, Rejection, TypeMaps, Verification, VerifyOptions, verify_functions,

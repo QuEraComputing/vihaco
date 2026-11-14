@@ -110,6 +110,8 @@ impl CPU {
             ArrayReserve(elem) => self.op_array_reserve(elem),
             ArrayPush(elem) => self.op_array_push(elem),
             ArrayLen => self.op_array_len(),
+            // Named types exist only for verification: the word is unchanged.
+            Wrap(_) | Unwrap(_) => self.stack_top().map(|_| StepOutcome::Continue),
             GetField(struct_id, slot) => self.op_get_field(crate::FieldSlot {
                 struct_id: *struct_id,
                 slot: *slot,
@@ -715,6 +717,21 @@ mod tests {
         assert_eq!(outcome, StepOutcome::Continue);
 
         assert_eq!(cpu.stack(), &vec![encode_i64(999)],);
+    }
+
+    #[test]
+    fn wrap_and_unwrap_leave_the_word_unchanged() {
+        let mut cpu = CPU::default();
+        assert!(
+            cpu.execute_instruction(RuntimeInstruction::Wrap(0))
+                .is_err()
+        );
+        cpu.stack_push(encode_u64(7));
+        for instruction in [RuntimeInstruction::Wrap(0), RuntimeInstruction::Unwrap(0)] {
+            let outcome = cpu.execute_instruction(instruction).unwrap();
+            assert_eq!(outcome, StepOutcome::Continue);
+            assert_eq!(cpu.stack(), &vec![encode_u64(7)]);
+        }
     }
 
     #[test]

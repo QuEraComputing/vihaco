@@ -146,6 +146,7 @@ mod metadata_context_tests {
     fn metadata_context_supplies_cpu_capabilities_without_extending_strings() -> eyre::Result<()> {
         let metadata: ProgramMetadata = ProgramMetadata {
             structs: vec![],
+            types: vec![],
             strings: vec!["helper".into(), "main".into(), "hello".into()],
             functions: vec![
                 FunctionInfo {

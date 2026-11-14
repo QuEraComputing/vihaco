@@ -8,7 +8,7 @@
 
 use vihaco_cpu::{
     CPU, StepOutcome, cpu, encode_f32, encode_f64, encode_function_ref, encode_i64,
-    field::StructLookup,
+    field::{NamedTypeLookup, StructLookup},
     lower::{FunctionLookup, LabelLookup, StringIntern},
     message,
     operand::Target,
@@ -62,6 +62,17 @@ impl StructLookup for NumericContext {
     }
 }
 
+// Numeric named-type operands are checked too: the table has one entry.
+impl NamedTypeLookup for NumericContext {
+    fn named_type_index(&self, name: &str) -> eyre::Result<u32> {
+        Err(eyre::eyre!("unknown named type {name}"))
+    }
+    fn check_named_type(&self, index: u32) -> eyre::Result<()> {
+        eyre::ensure!(index == 0, "unknown named type {index}");
+        Ok(())
+    }
+}
+
 pub use vihaco_cpu::{__vihaco_fields_CPU, __vihaco_inventory_CPU};
 
 #[composite]
@@ -107,7 +118,7 @@ macro_rules! steps {
             LtU32, LtU64, LtF32, LtF64, GtI32, GtI64,
             GtU32, GtU64, GtF32, GtF64, LeI32, LeI64,
             LeU32, LeU64, LeF32, LeF64, GeI32, GeI64,
-            GeU32, GeU64, GeF32, GeF64
+            GeU32, GeU64, GeF32, GeF64, Wrap, Unwrap
         );
         impl Step<$route, cpu::Call> for $machine {
             fn step(&mut self, instruction: &cpu::Call, _: &()) -> eyre::Result<()> {
@@ -797,18 +808,45 @@ fn every_executable_leaf_parses_directly_and_metadata_is_excluded() {
         field_count: 2,
     };
     check("struct_new 0", cpu::StructNew(point));
+    check("wrap 0", cpu::Wrap(0));
+    check("unwrap 0", cpu::Unwrap(0));
     assert_eq!(
         vihaco_runtime::__private::capabilities::<CPU>().count(),
-        145
+        147
     );
     assert_eq!(
         vihaco_runtime::__private::capabilities::<Machine>().count(),
-        290
+        294
     );
     assert!(
         !vihaco_runtime::__private::capabilities::<CPU>()
             .any(|leaf| matches!(leaf.instruction, "label" | "func_start" | "func_end"))
     );
+}
+
+#[test]
+fn wrap_and_unwrap_leave_the_word_unchanged() {
+    let mut cpu = CPU::default();
+    assert!(cpu.execute(&cpu::Wrap(0), NoMessage::new()).is_err());
+    cpu.stack_push(7_u64);
+    assert_eq!(
+        cpu.execute(&cpu::Wrap(0), NoMessage::new()).unwrap(),
+        StepOutcome::Continue
+    );
+    assert_eq!(cpu.stack(), &[7]);
+    assert_eq!(
+        cpu.execute(&cpu::Unwrap(0), NoMessage::new()).unwrap(),
+        StepOutcome::Continue
+    );
+    assert_eq!(cpu.stack(), &[7]);
+
+    // Through the composite, with lowering checking the operand.
+    let mut machine = machine();
+    step(&mut machine, "ctl::host::cpu::const_u64 9").unwrap();
+    step(&mut machine, "ctl::host::cpu::wrap 0").unwrap();
+    step(&mut machine, "ctl::host::cpu::unwrap 0").unwrap();
+    assert_eq!(machine.controller.cpu.stack(), &[9]);
+    assert!(step(&mut machine, "ctl::host::cpu::wrap 1").is_err());
 }
 
 #[test]
@@ -945,6 +983,15 @@ impl StructLookup for SymbolLoader {
         Err(eyre::eyre!(
             "fixture declares no struct {struct_index}.{field}"
         ))
+    }
+}
+
+impl NamedTypeLookup for SymbolLoader {
+    fn named_type_index(&self, name: &str) -> eyre::Result<u32> {
+        Err(eyre::eyre!("fixture declares no named type {name}"))
+    }
+    fn check_named_type(&self, index: u32) -> eyre::Result<()> {
+        Err(eyre::eyre!("fixture declares no named type {index}"))
     }
 }
 

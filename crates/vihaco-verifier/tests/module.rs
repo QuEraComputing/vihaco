@@ -7,12 +7,13 @@
 use std::collections::BTreeSet;
 
 use vihaco_module::module::{
-    FieldInfo, FunctionInfo, LocalModule, NoInfo, Parameter, ProgramMetadata, Signature, StructInfo,
+    FieldInfo, FunctionInfo, LocalModule, NamedTypeInfo, NoInfo, Parameter, ProgramMetadata,
+    Signature, StructInfo,
 };
 use vihaco_verifier::{
     AbstractState, ComponentState, Constants, DiagnosticKind, Flow, Frame, Locals, ModuleVerifier,
-    OperandStack, Signatures, StructTypes, Type, TypeSlot, TypedSlot, Value, Verify, VerifyError,
-    VerifyOptions, WithState, call_effect, return_effect, verify_module,
+    NamedTypes, OperandStack, Signatures, StructTypes, Type, TypeSlot, TypedSlot, Value, Verify,
+    VerifyError, VerifyOptions, WithState, call_effect, return_effect, verify_module,
 };
 
 /// A fixture dialect written only against the standard capabilities.
@@ -145,6 +146,16 @@ fn module<I>(code: Vec<I>, functions: Vec<Decl>) -> LocalModule<I, Value, Type> 
                 },
             ],
         }],
+        types: vec![
+            NamedTypeInfo {
+                name: 5,
+                repr: Type::U64,
+            },
+            NamedTypeInfo {
+                name: 6,
+                repr: Type::Bool,
+            },
+        ],
         labels: vec![],
         constants: vec![Value::U64(7), Value::F64(1.5), Value::String(4)],
         strings: vec![
@@ -153,6 +164,8 @@ fn module<I>(code: Vec<I>, functions: Vec<Decl>) -> LocalModule<I, Value, Type> 
             "x".into(),
             "y".into(),
             "hello".into(),
+            "location".into(),
+            "flag".into(),
         ],
         main_function: Some(0),
         source_symbols: vec![],
@@ -616,7 +629,7 @@ fn signatures_resolve_addresses_and_the_current_function() {
     assert!(cx.field_count(1).is_err());
     assert_eq!(cx.constant_count(), 3);
     assert_eq!(cx.constant(0).unwrap(), &Value::U64(7));
-    assert_eq!(cx.string_count(), 5);
+    assert_eq!(cx.string_count(), 7);
     assert_eq!(cx.function_spans().len(), 3);
     assert_eq!(
         cx.entry_frame(1),
@@ -837,5 +850,34 @@ fn a_wrapper_can_reach_the_inner_verifier() {
     assert_eq!(cx.function_spans()[0].entry, (Frame::new(vec![]), ()));
     assert!(cx.verify(&module.code, VerifyOptions::default()).is_ok());
     let inner = cx.into_verifier();
-    assert_eq!(inner.strings().len(), 5);
+    assert_eq!(inner.strings().len(), 7);
+}
+
+#[test]
+fn named_types_resolve_names_and_representations() {
+    let module = module(
+        vec![Const(Type::U64), Ret(1)],
+        vec![decl(&[], &[Type::U64], &[], (0, 2))],
+    );
+    let cx = ModuleVerifier::new(&module);
+    assert_eq!(cx.types().len(), 2);
+    assert_eq!(cx.named_type_count(), 2);
+    assert_eq!(cx.named_type_index("location").unwrap(), 0);
+    assert_eq!(cx.named_type_index("flag").unwrap(), 1);
+    assert_eq!(cx.named_type_repr(0).unwrap(), &Type::U64);
+    assert_eq!(cx.named_type_repr(1).unwrap(), &Type::Bool);
+    assert_eq!(
+        cx.named_type_index("Point").unwrap_err().kind(),
+        &rule("undefined named type `Point`")
+    );
+    assert_eq!(
+        cx.named_type_repr(2).unwrap_err().kind(),
+        &rule("named type 2 is outside the named-type table of length 2")
+    );
+
+    // A wrapping context delegates the capability.
+    let cx = cx.with_state(());
+    assert_eq!(cx.named_type_count(), 2);
+    assert_eq!(cx.named_type_index("flag").unwrap(), 1);
+    assert_eq!(cx.named_type_repr(0).unwrap(), &Type::U64);
 }
