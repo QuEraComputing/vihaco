@@ -16,9 +16,6 @@ mod common;
 #[cfg(not(feature = "typed-declarations"))]
 mod component;
 
-#[cfg(not(feature = "program-image-execution"))]
-mod composite_loader;
-
 mod derive_message;
 
 #[cfg(not(feature = "typed-declarations"))]
@@ -56,6 +53,7 @@ pub fn composite(_attr: TokenStream, item: TokenStream) -> TokenStream {
         for field in &mut fields.named {
             field.attrs.retain(|attr| {
                 let path = attr.path();
+                // `loadable` is stripped so its removal diagnostic stands alone.
                 !(path.is_ident("device") || path.is_ident("loadable"))
             });
         }

@@ -20,42 +20,40 @@ Use the [dependency setup](/guide). You'll need two files: the program in
 > format plus a disassembler. It is not a promised long-term compiler target.
 > See [emitting SST from a compiler](/guide/sst-reference) for the current contract.
 
-Save this as `src/first-machine.sst`. The `.text(root)` block contains our four
-instructions. The header describes the function and its tables so the loader
-can check the program before running it.
+Save this as `src/first-machine.sst`. It has one section, `main`; its `.text`
+block contains our four instructions. The `.header` block describes the function
+and its tables so the loader can check the program before running it.
 
 ```text
-sst v1
-.section(root):
-    .header(root):
-        metadata {
-            strings: ["main", "first-machine.sst"],
-            functions: [
-                {
-                    name: 0,
-                    signature: { params: [], ret: [u64] },
-                    local_count: 0,
-                    start_address: 0,
-                    end_address: 4,
-                    file: 1,
-                },
-            ],
-            labels: [],
-            constants: [],
-            main_function: 0,
-            source_symbols: [],
-            extra: {},
-        };
-    .header(root).
-    .text(root):
-        fn @main() -> u64 {
-            execution::program::const_u64 20
-            execution::program::const_u64 22
-            calculator::arithmetic::add
-            execution::program::ret 1
-        }
-    .text(root).
-.section(root).
+sst v2
+
+.section main
+.header
+    metadata {
+        strings: ["main", "first-machine.sst"],
+        functions: [
+            {
+                name: 0,
+                signature: { params: [], ret: [u64] },
+                local_count: 0,
+                start_address: 0,
+                end_address: 4,
+                file: 1,
+            },
+        ],
+        labels: [],
+        constants: [],
+        main_function: 0,
+        source_symbols: [],
+        extra: {},
+    };
+.text
+    fn @main() -> u64 {
+        execution::program::const_u64 20
+        execution::program::const_u64 22
+        calculator::arithmetic::add
+        execution::program::ret 1
+    }
 ```
 
 ## The complete machine
@@ -189,12 +187,15 @@ where
 
 pub fn main() -> eyre::Result<()> {
     let source = include_str!("first-machine.sst");
-    let file = SstFile::<NoContext>::from_text(source)?;
+    let file = SSTFile::<NoContext>::from_text(source)?;
+    let section = file
+        .section("main")
+        .ok_or_else(|| eyre::eyre!("missing main section"))?;
     let ParsedModule { header, functions } = ParsedModule::<
         SourceInstruction,
         Type,
         HeaderDeclarations<ProgramMetadata>,
-    >::parse_section(file.root())?;
+    >::parse_section(section)?;
 
     let mut declarations = header.into_iter();
     let metadata = declarations
@@ -246,10 +247,10 @@ delegate to reusable message recipes. Standard recipes move operands into
 `PopFromStack`, and `Apply` inserts the `PushToStack` result. The runner fetches instructions and
 moves to the next one; program instructions handle calls, branches, and returns.
 
-`SstFile` reads the file's section structure. `ParsedModule` then parses the
-root section's metadata declarations and function bodies, using the machine's
-public syntax instruction type. That avoids relying on generated enum variant
-names.
+`SSTFile` reads the file's flat list of sections, and `section("main")` picks
+ours. `ParsedModule` then parses that section's metadata declarations and
+function bodies, using the machine's public syntax instruction type. That avoids
+relying on generated enum variant names.
 
 This example expects exactly one metadata declaration. Once it has that,
 `MetadataLoweringContext` prepares symbol lookup and

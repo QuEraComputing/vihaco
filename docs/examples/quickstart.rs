@@ -116,12 +116,15 @@ where
 
 pub fn main() -> eyre::Result<()> {
     let source = include_str!("first-machine.sst");
-    let file = SstFile::<NoContext>::from_text(source)?;
+    let file = SSTFile::<NoContext>::from_text(source)?;
+    let section = file
+        .section("main")
+        .ok_or_else(|| eyre::eyre!("missing main section"))?;
     let ParsedModule { header, functions } = ParsedModule::<
         SourceInstruction,
         Type,
         HeaderDeclarations<ProgramMetadata>,
-    >::parse_section(file.root())?;
+    >::parse_section(section)?;
 
     let mut declarations = header.into_iter();
     let metadata = declarations

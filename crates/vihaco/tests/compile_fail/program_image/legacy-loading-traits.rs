@@ -1,5 +1,3 @@
-use vihaco::loader::{
-    LoadBytecodeSection, LoadOwnBytecodeSection, LoadOwnSstSection, LoadSstSection,
-};
+use vihaco::loader::{LoadBytecodeSection, LoadSSTSection};
 
 fn main() {}

@@ -5,7 +5,7 @@
 
 use std::ops::ControlFlow;
 use vihaco_abi::{Type, Value, traits::FromText};
-use vihaco_bytecode::{NoContext, SstFile, SstHeader, SstSectionView};
+use vihaco_bytecode::{NoContext, SSTFile, SSTHeader, SSTSectionView};
 use vihaco_cpu::CPU;
 use vihaco_module::{
     loader::MetadataLoweringContext,
@@ -146,10 +146,10 @@ impl FromText for Header {
     }
 }
 
-impl SstHeader for Header {}
+impl SSTHeader for Header {}
 
 fn construct_image<'src, M>(
-    section: SstSectionView<'src, NoContext>,
+    section: SSTSectionView<'src, NoContext>,
 ) -> eyre::Result<MachineImage<M>>
 where
     M: HasInstructionSet,
@@ -172,8 +172,8 @@ fn section_source(name: &str, main: &str, helper: &str) -> String {
     let end = helper_start + helper.lines().count();
     // Table order intentionally differs from executable function order.
     format!(
-        r#".section({name}):
-.header({name}):
+        r#".section {name}
+.header
 metadata {{
     strings: ["main", "helper", "source.sst"],
     functions: [
@@ -184,16 +184,13 @@ metadata {{
     ],
     labels: [], constants: [], main_function: 1, source_symbols: [], extra: {{}},
 }}
-.header({name}).
-.text({name}):
+.text
 fn @main() -> u64 {{
 {main}
 }}
 fn @helper() -> u64 {{
 {helper}
 }}
-.text({name}).
-.section({name}).
 "#
     )
 }
@@ -201,15 +198,15 @@ fn @helper() -> u64 {{
 fn controller_image(value: u64) -> MachineImage<ControllerMachine> {
     let source = format!(
         "sst v{}\n{}",
-        vihaco_bytecode::VERSION,
+        vihaco_bytecode::SST_VERSION,
         section_source(
-            "root",
+            "controller",
             "execution::program::call 0, @helper\nexecution::program::ret 1",
             &format!("execution::program::const_u64 {value}\nexecution::program::ret 1"),
         )
     );
-    let file = SstFile::<NoContext>::from_text(&source).unwrap();
-    construct_image::<ControllerMachine>(file.root()).unwrap()
+    let file = SSTFile::<NoContext>::from_text(&source).unwrap();
+    construct_image::<ControllerMachine>(file.section("controller").unwrap()).unwrap()
 }
 
 fn controller() -> Loadable<MachineImage<ControllerMachine>, ControllerMachine> {
@@ -234,20 +231,20 @@ fn sibling_loadables_construct_and_execute_independent_programs() {
         "execution::program::call 0, @helper\nexecution::program::const_u64 2\ncpu::cpu::mul_u64\nexecution::program::ret 1",
         "execution::program::const_u64 21\nexecution::program::ret 1",
     );
-    let root = section_source(
-        "root",
+    let controller = section_source(
+        "controller",
         "execution::program::call 0, @helper\nexecution::program::ret 1",
         "execution::program::const_u64 11\nexecution::program::ret 1",
     );
     let source = format!(
-        "sst v{}\n{}",
-        vihaco_bytecode::VERSION,
-        root.replace(".section(root).", &format!("{child}.section(root).")),
+        "sst v{}\n{controller}\n{child}",
+        vihaco_bytecode::SST_VERSION,
     );
-    let file = SstFile::<NoContext>::from_text(&source).unwrap();
-    let controller_program = construct_image::<ControllerMachine>(file.root()).unwrap();
+    let file = SSTFile::<NoContext>::from_text(&source).unwrap();
+    let controller_program =
+        construct_image::<ControllerMachine>(file.section("controller").unwrap()).unwrap();
     let sequencer_image =
-        construct_image::<SequencerMachine>(file.root().child("sequencer").unwrap()).unwrap();
+        construct_image::<SequencerMachine>(file.section("sequencer").unwrap()).unwrap();
     let mut runtime = Runtime {
         controller: Loadable::new(
             controller_program,
@@ -375,16 +372,16 @@ fn failed_image_construction_leaves_installed_program_unchanged() {
     let mut loaded = controller();
     let source = format!(
         "sst v{}\n{}",
-        vihaco_bytecode::VERSION,
+        vihaco_bytecode::SST_VERSION,
         section_source(
-            "root",
+            "controller",
             "execution::program::call 0, @missing\nexecution::program::ret 1",
             "execution::program::const_u64 17\nexecution::program::ret 1",
         )
     );
-    let file = SstFile::<NoContext>::from_text(&source).unwrap();
+    let file = SSTFile::<NoContext>::from_text(&source).unwrap();
     let image_pointer = loaded.image().module.code.as_ptr();
-    assert!(construct_image::<ControllerMachine>(file.root()).is_err());
+    assert!(construct_image::<ControllerMachine>(file.section("controller").unwrap()).is_err());
     assert_eq!(loaded.image().module.code.as_ptr(), image_pointer);
     assert_eq!(loaded.machine().visits, 0);
     loaded.execute(&[]).unwrap();

@@ -8,34 +8,13 @@ use quote::{ToTokens, format_ident, quote};
 use std::collections::{BTreeMap, BTreeSet};
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
-use syn::{Data, DeriveInput, Fields, GenericParam, Lifetime, LitStr, Token};
+use syn::{Data, DeriveInput, Fields, GenericParam, Lifetime, Token};
 
 use crate::common::resolve_root;
-use crate::composite_loader::SectionLoadField;
 
 struct DeviceArgs {
     code: u8,
     aliases: Vec<syn::LitStr>,
-}
-
-struct SectionLoadArgs {
-    section_name: Option<LitStr>,
-}
-
-impl Parse for SectionLoadArgs {
-    /// Read an optional explicit section name from a loadable field helper.
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let section_name = if input.is_empty() {
-            None
-        } else {
-            let section_name = input.parse::<LitStr>()?;
-            if !input.is_empty() {
-                return Err(input.error("unexpected tokens in loadable attribute"));
-            }
-            Some(section_name)
-        };
-        Ok(SectionLoadArgs { section_name })
-    }
 }
 
 impl Parse for DeviceArgs {
@@ -81,23 +60,6 @@ fn pascal_case(ident: &syn::Ident) -> syn::Ident {
         }
     }
     format_ident!("{}", out)
-}
-
-/// Reject section names that cannot form a nonempty section path segment.
-fn validate_loadable_name(name: &str, span: proc_macro2::Span) -> syn::Result<()> {
-    if name.is_empty() {
-        return Err(syn::Error::new(
-            span,
-            "loadable section name cannot be empty",
-        ));
-    }
-    if name.contains('/') {
-        return Err(syn::Error::new(
-            span,
-            "loadable section name cannot contain `/`",
-        ));
-    }
-    Ok(())
 }
 
 /// Search nested token groups for a particular type or const parameter identifier.
@@ -183,7 +145,7 @@ pub fn expand(input: TokenStream) -> TokenStream {
     }
 }
 
-/// Validate legacy device wiring and emit aggregate instructions, metadata, and loaders.
+/// Validate legacy device wiring and emit aggregate instructions and metadata.
 fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
     let root = resolve_root(&input.attrs)?;
     let ident = input.ident;
@@ -208,57 +170,22 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
     };
 
     let mut devices = Vec::new();
-    let mut loadables = Vec::<SectionLoadField>::new();
 
     for field in fields {
         let field_ident = field.ident.expect("named field");
         let field_ty = field.ty;
-        let mut is_device = false;
-        let mut loadable_args = None;
         for attr in &field.attrs {
             let path = attr.path();
             if path.is_ident("device") {
-                is_device = true;
                 let args = attr.parse_args::<DeviceArgs>()?;
                 devices.push((field_ident.clone(), field_ty.clone(), args));
             } else if path.is_ident("loadable") {
-                if loadable_args.is_some() {
-                    return Err(syn::Error::new(
-                        attr.span(),
-                        format!("duplicate loadable attribute on field `{}`", field_ident),
-                    ));
-                }
-                loadable_args = Some(if matches!(&attr.meta, syn::Meta::Path(_)) {
-                    SectionLoadArgs { section_name: None }
-                } else {
-                    attr.parse_args::<SectionLoadArgs>()?
-                });
-            }
-        }
-        if let Some(args) = loadable_args {
-            if !is_device {
                 return Err(syn::Error::new(
-                    field_ident.span(),
-                    format!(
-                        "field `{}` marked #[loadable] must also be marked #[device(...)]",
-                        field_ident
-                    ),
+                    attr.span(),
+                    "#[loadable] was removed: sections are flat; implement \
+                     LoadSSTSection/LoadBytecodeSection and select a section by name",
                 ));
             }
-            let section_name = if let Some(lit) = args.section_name {
-                let value = lit.value();
-                validate_loadable_name(&value, lit.span())?;
-                value
-            } else {
-                let value = field_ident.to_string();
-                validate_loadable_name(&value, field_ident.span())?;
-                value
-            };
-            loadables.push(SectionLoadField {
-                field: field_ident.clone(),
-                ty: field_ty.clone(),
-                section_name,
-            });
         }
     }
 
@@ -306,21 +233,6 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
                     ),
                 ));
             }
-        }
-    }
-
-    let mut seen_loadable_names = BTreeMap::<String, syn::Ident>::new();
-    for loadable in &loadables {
-        if let Some(existing) =
-            seen_loadable_names.insert(loadable.section_name.clone(), loadable.field.clone())
-        {
-            return Err(syn::Error::new(
-                loadable.field.span(),
-                format!(
-                    "duplicate loadable section name `{}` for fields `{}` and `{}`",
-                    loadable.section_name, existing, loadable.field
-                ),
-            ));
         }
     }
 
@@ -389,8 +301,6 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
         quote! { #root::chumsky::primitive::choice((#(#syntax_parser_alternatives),*)) }
     };
 
-    let loaders = crate::composite_loader::emit(&ident, &generics, &root, &loadables, &[])?;
-
     Ok(quote! {
         #[doc(hidden)]
         pub mod #module_ident {
@@ -444,6 +354,5 @@ fn try_expand(input: DeriveInput) -> syn::Result<TokenStream2> {
             type Syntax = #module_ident::syntax::Instruction;
         }
 
-        #loaders
     })
 }

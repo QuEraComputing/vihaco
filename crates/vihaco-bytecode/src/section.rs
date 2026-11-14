@@ -7,25 +7,24 @@ use vihaco_abi::traits::Instruction;
 
 use super::{
     context::ContextHandle,
-    format::{BytecodeHeader, SstHeader},
+    format::{BytecodeHeader, SSTHeader},
 };
 
-use crate::container::SectionNode;
-pub use crate::container::SectionPath;
+use crate::container::SectionEntry;
 
-/// A lightweight view into a parsed bytecode section.
+/// A lightweight view into one section of a bytecode file.
 pub struct BytecodeSectionView<'bc, C> {
     contents: &'bc [u8],
     context: ContextHandle<C>,
-    node: &'bc SectionNode,
+    entry: &'bc SectionEntry,
 }
 
-impl<'bc, C> Clone for BytecodeSectionView<'bc, C> {
+impl<C> Clone for BytecodeSectionView<'_, C> {
     fn clone(&self) -> Self {
         Self {
             contents: self.contents,
             context: self.context.clone(),
-            node: self.node,
+            entry: self.entry,
         }
     }
 }
@@ -34,65 +33,33 @@ impl<'bc, C> BytecodeSectionView<'bc, C> {
     pub(crate) fn from_parts(
         contents: &'bc [u8],
         context: ContextHandle<C>,
-        node: &'bc SectionNode,
+        entry: &'bc SectionEntry,
     ) -> Self {
         Self {
             contents,
             context,
-            node,
+            entry,
         }
     }
 
-    pub fn path(&self) -> &'bc SectionPath {
-        &self.node.path
-    }
-
-    pub fn display_path(&self) -> &'bc SectionPath {
-        &self.node.path
+    /// The section's name. Names only select sections; execution uses addresses.
+    pub fn name(&self) -> &'bc str {
+        &self.entry.name
     }
 
     pub fn context_handle(&self) -> ContextHandle<C> {
         self.context.clone()
     }
 
-    pub fn children(&self) -> impl Iterator<Item = BytecodeSectionView<'bc, C>> + '_ {
-        self.node.children.iter().map(|node| BytecodeSectionView {
-            contents: self.contents,
-            context: self.context.clone(),
-            node,
-        })
-    }
-
-    pub fn child(&self, local_name: &str) -> Option<BytecodeSectionView<'bc, C>> {
-        self.node
-            .children
-            .iter()
-            .find(|child| {
-                child
-                    .path
-                    .local_name()
-                    .is_some_and(|name| name == local_name)
-            })
-            .map(|node| BytecodeSectionView {
-                contents: self.contents,
-                context: self.context.clone(),
-                node,
-            })
-    }
-
-    pub fn local_name(&self) -> Option<&str> {
-        self.node.path.local_name()
-    }
-
     pub fn header_bytes(&self) -> &'bc [u8] {
-        &self.contents[self.node.header.clone()]
+        &self.contents[self.entry.header.clone()]
     }
 
     pub fn bytecode(&self) -> &'bc [u8] {
-        &self.contents[self.node.bytecode.clone()]
+        &self.contents[self.entry.code.clone()]
     }
 
-    /// Decode the specified composite header from raw header bytes.
+    /// Decode the specified header from raw header bytes.
     pub fn decode_header<H: BytecodeHeader>(&self) -> eyre::Result<H> {
         let bytes = self.header_bytes();
         let mut cursor = Cursor::new(bytes);
@@ -100,7 +67,7 @@ impl<'bc, C> BytecodeSectionView<'bc, C> {
         if cursor.position() as usize != bytes.len() {
             return Err(eyre::eyre!(
                 "section `{}` header has {} trailing bytes",
-                self.display_path(),
+                self.name(),
                 bytes.len() - cursor.position() as usize
             ));
         }
@@ -116,108 +83,75 @@ impl<'bc, C> BytecodeSectionView<'bc, C> {
 impl<C> std::fmt::Debug for BytecodeSectionView<'_, C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BytecodeSectionView")
-            .field("path", &self.display_path().to_string())
+            .field("name", &self.name())
             .field("header_len", &self.header_bytes().len())
             .field("bytecode_len", &self.bytecode().len())
-            .field("child_count", &self.node.children.len())
             .finish()
     }
 }
 
-/// A lightweight view into a parsed SST section.
-pub struct SstSectionView<'bc, C> {
+/// A lightweight view into one section of an SST file.
+pub struct SSTSectionView<'bc, C> {
     contents: &'bc str,
     context: ContextHandle<C>,
-    node: &'bc SectionNode,
+    entry: &'bc SectionEntry,
 }
 
-impl<'bc, C> Clone for SstSectionView<'bc, C> {
+impl<C> Clone for SSTSectionView<'_, C> {
     fn clone(&self) -> Self {
         Self {
             contents: self.contents,
             context: self.context.clone(),
-            node: self.node,
+            entry: self.entry,
         }
     }
 }
 
-impl<'bc, C> SstSectionView<'bc, C> {
+impl<'bc, C> SSTSectionView<'bc, C> {
     pub(crate) fn from_parts(
         contents: &'bc str,
         context: ContextHandle<C>,
-        node: &'bc SectionNode,
+        entry: &'bc SectionEntry,
     ) -> Self {
         Self {
             contents,
             context,
-            node,
+            entry,
         }
     }
 
-    pub fn path(&self) -> &'bc SectionPath {
-        &self.node.path
-    }
-
-    pub fn display_path(&self) -> &'bc SectionPath {
-        &self.node.path
+    /// The section's name (from `.section <name>`). Names only select
+    /// sections; execution uses addresses.
+    pub fn name(&self) -> &'bc str {
+        &self.entry.name
     }
 
     pub fn context_handle(&self) -> ContextHandle<C> {
         self.context.clone()
     }
 
-    pub fn children(&self) -> impl Iterator<Item = SstSectionView<'bc, C>> + '_ {
-        self.node.children.iter().map(|node| SstSectionView {
-            contents: self.contents,
-            context: self.context.clone(),
-            node,
-        })
-    }
-
-    pub fn child(&self, local_name: &str) -> Option<SstSectionView<'bc, C>> {
-        self.node
-            .children
-            .iter()
-            .find(|child| {
-                child
-                    .path
-                    .local_name()
-                    .is_some_and(|name| name == local_name)
-            })
-            .map(|node| SstSectionView {
-                contents: self.contents,
-                context: self.context.clone(),
-                node,
-            })
-    }
-
-    pub fn local_name(&self) -> Option<&str> {
-        self.node.path.local_name()
-    }
-
+    /// The raw text of the section's `.header` block (empty when omitted).
     pub fn header_text(&self) -> &'bc str {
-        &self.contents[self.node.header.clone()]
+        &self.contents[self.entry.header.clone()]
     }
 
-    pub fn sst(&self) -> &'bc str {
-        &self.contents[self.node.bytecode.clone()]
+    /// The raw text of the section's `.text` block (empty when omitted).
+    pub fn text(&self) -> &'bc str {
+        &self.contents[self.entry.code.clone()]
     }
 
-    /// Parse the specified composite header from SST header text.
-    pub fn parse_header<H: SstHeader>(&self) -> eyre::Result<H> {
-        let text = self.header_text();
-        let header = H::from_text(text)?;
-        Ok(header)
+    /// Parse the specified header from the section's header text.
+    pub fn parse_header<H: SSTHeader>(&self) -> eyre::Result<H> {
+        H::from_text(self.header_text())
     }
 }
 
-impl<C> std::fmt::Debug for SstSectionView<'_, C> {
+impl<C> std::fmt::Debug for SSTSectionView<'_, C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SstSectionView")
-            .field("path", &self.display_path().to_string())
+        f.debug_struct("SSTSectionView")
+            .field("name", &self.name())
             .field("header_len", &self.header_text().len())
-            .field("sst_len", &self.sst().len())
-            .field("child_count", &self.node.children.len())
+            .field("text_len", &self.text().len())
             .finish()
     }
 }

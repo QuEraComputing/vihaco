@@ -12,8 +12,8 @@ use chumsky::extra;
 use chumsky::prelude::*;
 use vihaco_parser::{Ident, Parse, QuotedString};
 
-use vihaco_bytecode::SstHeader;
-use vihaco_bytecode::SstSectionView;
+use vihaco_bytecode::SSTHeader;
+use vihaco_bytecode::SSTSectionView;
 
 #[cfg(feature = "typed-declarations")]
 use crate::ParsedLabel;
@@ -228,14 +228,14 @@ where
 
 impl<I, Ty, H> ParsedModule<I, Ty, H> {
     /// Parse a source section into its consumer instruction representation.
-    pub fn parse_section<'src, C>(section: SstSectionView<'src, C>) -> eyre::Result<Self>
+    pub fn parse_section<'src, C>(section: SSTSectionView<'src, C>) -> eyre::Result<Self>
     where
-        H: SstHeader,
+        H: SSTHeader,
         I: vihaco_parser::Parse<'src> + 'src,
         Ty: vihaco_parser::Parse<'src> + 'src,
     {
         let header = section.parse_header::<H>()?;
-        let text = section.sst();
+        let text = section.text();
         let functions = functions::<I, Ty>()
             .parse(text)
             .into_result()

@@ -20,54 +20,64 @@ declarations and lowering rules.
 
 ## File and section structure
 
-Emit `sst v1` first, followed by an optional `.global:` / `.global.` block and
-exactly one root section named `root`. Put structural markers on their own
-lines. This is a complete program for a machine with an `execution` device
-using the standard program dialect:
+SST is a line-based, assembly-style file. Emit `sst v2` first, then an optional
+`.global` block, then one or more named sections. Each directive sits on its own
+line and opens a block that runs until the next directive or the end of the
+file; there are no closing markers. This is a complete program for a machine
+with an `execution` device using the standard program dialect:
 
 ```text
-sst v1
-.section(root):
-    .header(root):
-        metadata {
-            strings: ["main", "output.sst"],
-            functions: [
-                {
-                    name: 0,
-                    signature: { params: [], ret: [u64] },
-                    local_count: 0,
-                    start_address: 0,
-                    end_address: 2,
-                    file: 1,
-                },
-            ],
-            labels: [],
-            constants: [],
-            main_function: 0,
-            source_symbols: [],
-            extra: {},
-        };
-    .header(root).
-    .text(root):
-        fn @main() -> u64 {
-            execution::program::const_u64 42
-            execution::program::ret 1
-        }
-    .text(root).
-.section(root).
+sst v2
+
+.section main
+.header
+    metadata {
+        strings: ["main", "output.sst"],
+        functions: [
+            {
+                name: 0,
+                signature: { params: [], ret: [u64] },
+                local_count: 0,
+                start_address: 0,
+                end_address: 2,
+                file: 1,
+            },
+        ],
+        labels: [],
+        constants: [],
+        main_function: 0,
+        source_symbols: [],
+        extra: {},
+    };
+.text
+    fn @main() -> u64 {
+        execution::program::const_u64 42
+        execution::program::ret 1
+    }
 ```
 
-Each section may contain one header block, one text block, and nested
-`.section(child):` / `.section(child).` blocks. Header and text marker names
-must match their containing section's local name. Sibling section names must
-be unique. A section without header or text yields an empty block to the
-consumer; a runnable program still needs the content its loader requires.
+The directives are:
 
-Sections identify independently loadable units, not instruction destinations.
-All program tables and instruction addresses below are local to the selected
-section. A `.global` block has a consumer-defined grammar; omit it for loaders
-using `NoContext`. Structural framing is line-based; use `//` comments inside
-headers and function bodies rather than appending them to marker lines.
+| Directive | Meaning |
+|---|---|
+| `sst v2` | Format version. Must be the first non-blank line. |
+| `.global` | Optional global context in a consumer-defined grammar. Must come before any `.section`; omit it for loaders using `NoContext`. |
+| `.section <name>` | Starts a new section. Names are required, unique within the file, and contain no whitespace. |
+| `.header` | The current section's header: declarations such as `metadata { ... };`. |
+| `.text` | The current section's code: function bodies. |
+
+Sections are a flat list; there is no nesting and no implicit root. Each may
+contain at most one `.header` and one `.text`, in either order. An omitted block
+yields empty text to the consumer; a runnable program still needs the content
+its loader requires. Indentation is free-form, and directive lines may end with
+a `//` comment. Every other line belongs to the enclosing block and is passed to
+the target's grammar unchanged.
+
+A section is an independently loadable unit. Its name exists only so a loader
+can select it with `file.section(name)`. Execution relies on instruction
+addresses, which are local to the section. Anything that ties an address to a
+name, such as functions and labels, belongs in the header metadata described
+below.
 
 ## Target instruction and function syntax
 
@@ -155,7 +165,7 @@ custom contexts.
 ## Validate compiler output
 
 Load emitted files through the same path as the target application:
-`SstFile::from_text`, `ParsedModule::parse_section`, declaration preparation,
+`SSTFile::from_text`, `ParsedModule::parse_section`, declaration preparation,
 `MetadataLoweringContext::new`, `lower_functions_with_metadata`, then
 `metadata.into_module(code)`. This checks function declarations against the
 supplied tables, verifies source labels and instruction ranges, resolves symbols,
@@ -165,7 +175,7 @@ not invent missing metadata or select an entry function for you.
 For the minimal file above, this loader validates and assembles the program:
 
 ```rust
-use vihaco::{HasInstructionSet, NoContext, SstFile, Type, composite};
+use vihaco::{HasInstructionSet, NoContext, SSTFile, Type, composite};
 use vihaco::loader::MetadataLoweringContext;
 use vihaco::module::ProgramMetadata;
 use vihaco::syntax::{HeaderDeclarations, ParsedModule, lower_functions_with_metadata};
@@ -178,10 +188,13 @@ struct Machine {
 
 fn validate(source: &str) -> eyre::Result<()> {
     type SourceInstruction = <Machine as HasInstructionSet>::Syntax;
-    let file = SstFile::<NoContext>::from_text(source)?;
+    let file = SSTFile::<NoContext>::from_text(source)?;
+    let section = file
+        .section("main")
+        .ok_or_else(|| eyre::eyre!("missing main section"))?;
     let ParsedModule { header, functions } = ParsedModule::<
         SourceInstruction, Type, HeaderDeclarations<ProgramMetadata>
-    >::parse_section(file.root())?;
+    >::parse_section(section)?;
     let mut declarations = header.into_iter();
     let metadata = declarations.next().ok_or_else(|| eyre::eyre!("missing metadata"))?;
     eyre::ensure!(declarations.next().is_none(), "duplicate metadata");

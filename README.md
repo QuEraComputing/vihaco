@@ -101,7 +101,7 @@ Loaders implement `LabelLookup` for function-local labels and `FunctionLookup`
 for section function addresses and indices. `StringIntern` supplies string-table
 indices; `vihaco_stdlib::ProgramImage` implements it with deduplication of decoded contents.
 Prepare functions and label positions before calling
-`LoadOwnSstSection::lower_instructions` so forward references resolve. The
+`LoadSSTSection::lower_instructions` so forward references resolve. The
 generated composite aggregate enforces these capabilities even for programs
 using only numeric operands. Heap-reference constants continue to accept numeric IDs.
 
@@ -160,10 +160,11 @@ state while retaining devices. Image construction happens outside the wrapper,
 so failures do not roll back mutations performed by a consumer's construction
 code.
 
-Without `program-image-execution`, the legacy `#[loadable]` attribute and four
-section-loading traits remain available. Generated routing uses each composite's
-own-section hook and forwards child sections to marked fields. These hooks and
-generated routing are unavailable with program-image execution enabled.
+Without `program-image-execution`, the `LoadSSTSection` and
+`LoadBytecodeSection` traits remain available for loading one section into a
+machine. Files hold a flat list of named sections; select one with
+`file.section(name)`. These traits are unavailable with program-image execution
+enabled.
 
 The runner captures a code reference before its loop. Instructions borrow that
 external module while Dispatch mutably borrows the machine, requiring no instruction
