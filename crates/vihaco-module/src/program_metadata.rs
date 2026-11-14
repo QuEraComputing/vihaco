@@ -24,12 +24,13 @@ use vihaco_abi::{Type, Value};
 
 /// All non-code fields of a `LocalModule` that a section header supplies.
 /// The ordinary metadata derive owns object parsing, including nested records.
+/// Fields parse in any order; `Print` writes them in declaration order.
 #[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
 #[syntax_class(metadata, head = "metadata", open = "{", close = "}")]
 pub struct ProgramMetadata<V = Value, Ty = Type, Info = NoInfo> {
+    pub strings: Vec<String>,
     pub functions: Vec<FunctionDecl<Ty>>,
     pub constants: Vec<V>,
-    pub strings: Vec<String>,
     pub main_function: Option<u32>,
     pub source_symbols: Vec<SourceSymbolInfo>,
     pub extra: Info,

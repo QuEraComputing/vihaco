@@ -88,22 +88,26 @@ sst v2
 .section main
 .header
     metadata {
+        strings: [\"main\", \"first-machine.sst\"],
         functions: [
             {
-                name: 0,   //! \"main\"
+                //! \"main\"
+                name: 0,
                 signature: { params: [], ret: [u64] },
                 local_count: 0,
-                file: 1,   //! \"first-machine.sst\"
+                //! \"first-machine.sst\"
+                file: 1,
             },
         ],
         constants: [],
-        strings: [\"main\", \"first-machine.sst\"],
-        main_function: 0,  //! @main
+        //! @main
+        main_function: 0,
         source_symbols: [],
         extra: {},
     };
 .text
-@main:  //! fn main() -> u64, locals 0, functions[0]
+//! fn main() -> u64, locals 0, functions[0]
+@main:
     execution::program::const_u64 20
     execution::program::const_u64 22
     calculator::arithmetic::add

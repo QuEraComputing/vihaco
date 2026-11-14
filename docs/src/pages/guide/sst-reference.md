@@ -82,12 +82,12 @@ on their own line, after an instruction or declaration, or between the fields of
 a `metadata { ... }` record. They are never part of a string literal. The
 `.global` block is consumer-defined and decides its own comment rules.
 
-Comments that start with `//!` are *generated*: tools such as the
-[formatter](#formatting-sst-files) write them to explain the file and replace
-them every time they run, so do not write `//!` comments by hand. `//!` starts
-generated text wherever it appears, including inside a `//` comment: in
-`name: 1, // the helper //! "helper"`, `// the helper` is yours and
-`//! "helper"` is generated. Parsers treat both kinds as ordinary comments.
+A comment on its own line that starts with `//!` is *generated*: tools such as
+the [formatter](#formatting-sst-files) write it directly above the item it
+explains and replace it every time they run, so do not write such lines by
+hand. Every other comment is yours, including a trailing comment that starts
+with `//!` or contains it, such as `call 0, @helper  // see //! notes`. Parsers
+treat both kinds as ordinary comments.
 
 ## Target instruction and function syntax
 
@@ -400,7 +400,7 @@ fn main() {
 
     // Without generated comments, only the layout changes.
     let plain = format_program::<Machine>(&source, FormatOptions::without_generated_comments());
-    assert!(!plain.unwrap().contains("//!"));
+    assert!(!plain.unwrap().lines().any(|line| line.trim_start().starts_with("//!")));
 #   let page = std::include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/src/pages/guide/sst-reference.md"));
 #   let section = page.split_once("## Formatting SST files").unwrap().1;
 #   let expected = section.split_once("```text\n").unwrap().1.split_once("```").unwrap().0;
@@ -416,22 +416,26 @@ sst v2
 .section main
 .header
     metadata {
+        strings: ["main", "first-machine.sst"],
         functions: [
             {
-                name: 0,   //! "main"
+                //! "main"
+                name: 0,
                 signature: { params: [], ret: [u64] },
                 local_count: 0,
-                file: 1,   //! "first-machine.sst"
+                //! "first-machine.sst"
+                file: 1,
             },
         ],
         constants: [],
-        strings: ["main", "first-machine.sst"],
-        main_function: 0,  //! @main
+        //! @main
+        main_function: 0,
         source_symbols: [],
         extra: {},
     };
 .text
-@main:  //! fn main() -> u64, locals 0, functions[0]
+//! fn main() -> u64, locals 0, functions[0]
+@main:
     execution::program::const_u64 20
     execution::program::const_u64 22
     calculator::arithmetic::add
@@ -456,19 +460,22 @@ has the same headers, code, symbols, and comments as the input.
   whitespace and trailing blank lines are removed.
 - Header declarations are indented four spaces and end with `;`. A
   `metadata { ... }` record always puts one field per line. Nested records and
-  lists stay on one line when they fit in `max_width` (100 columns by default)
+  lists stay on one line when they fit in `max_width` (80 columns by default)
   and contain no comments; otherwise they are broken one item per line with a
   trailing comma, like rustfmt. Record fields appear in their declaration
-  order, so the standard record starts with `functions`. Tuples and
-  declarations whose pattern needs its punctuation on one line are never
-  broken.
+  order: the standard record is `strings`, `functions`, `constants`,
+  `main_function`, `source_symbols`, `extra` (any order is accepted when
+  parsing). Tuples and declarations whose pattern needs its punctuation on one
+  line are never broken.
 - In `.text`, each symbol definition and each instruction gets its own line:
-  `@name:` at column 0 and instructions indented four spaces.
+  `@name:` at column 0 and instructions indented four spaces, with no `;`.
 - Blank lines between items are kept, collapsed to at most one. Blank lines at
   the start of a block and inside a declaration are removed.
-- Trailing comments of a block are aligned to one column: two spaces past the
-  longest commented line, but no further than `comment_column` (column 60 by
-  default). Longer lines put their comment two spaces after the code.
+- Generated `//!` comments always sit on their own lines, directly above the
+  item they describe and at its indentation, one line per note.
+- Trailing user comments of a block are aligned to one column: two spaces past
+  the longest commented line, but no further than `comment_column` (column 60
+  by default). Longer lines put their comment two spaces after the code.
 - Lines have no trailing whitespace, line endings become `\n`, and the file
   ends with a single newline.
 
@@ -477,30 +484,42 @@ has the same headers, code, symbols, and comments as the input.
 A `//` comment on its own line stays above the item that follows it. A trailing
 comment stays at the end of its item's line; inside a header record, the item
 is the field or list entry, and it travels with that field when `Print`
-reorders fields. Comments at the end of a block stay there, unless a blank line
-separates them from the last item: then they introduce the next directive and
-are printed just above it. When one item had several trailing comments, the
-first stays trailing and the others move above the item. If a comment's
-position inside a declaration cannot be matched to the printed declaration, it
-is moved above the declaration.
+reorders fields. A comment never leaves the block it was written in: comments
+after the last item of a `.header` or `.text` stay at the end of that block, at
+its indentation, after a blank line if there was one. When one item had several
+trailing comments, the first stays trailing and the others move above the item.
+If a comment's position inside a declaration cannot be matched to the printed
+declaration, it is moved above the declaration.
 
-Generated comments are rewritten every time. Without them
-(`FormatOptions::without_generated_comments()`), existing `//!` comments are
-still removed. The formatter writes:
+Generated comments are rewritten every time: every own-line `//!` comment is
+removed and fresh ones are written. Without them
+(`FormatOptions::without_generated_comments()`), existing own-line `//!`
+comments are still removed. Each note is written on the line above the item it
+describes:
 
-| Where | Generated comment |
+| Item | Generated comment |
 |---|---|
-| Function symbol | `@main:  //! fn main() -> u64, locals 0, functions[1]` |
-| Other symbol | `@done:  //! 0x0005` (its address) |
-| `@name` operand | `br @done  //! @done = 0x0005`; functions add their index: `//! @helper = 0x0006 (functions[0])` |
-| String literal operand | `print "hi"  //! "hi" = strings[3]` |
-| `functions[i].name`, `.file` | `name: 1,  //! "helper"` and `file: 2,  //! "loadable.sst"` |
+| Function symbol `@main:` | `//! fn main() -> u64, locals 0, functions[1]` |
+| Other symbol `@done:` | `//! 0x0005` (its address) |
+| Instruction with an `@name` operand | `//! @done = 0x0005`; functions add their index: `//! @helper = 0x0006 (functions[0])` |
+| Instruction with a string literal | `//! "hi" = strings[3]` |
+| `functions[i].name`, `.file` | `//! "helper"`, `//! "loadable.sst"` |
 | `functions[i].signature` with parameters | `//! fn helper(x: u64) -> u64` |
-| `main_function` | `main_function: 1,  //! @main` |
-| `str N` / `fn N` constants | `str 3,  //! "hi"` and `fn 0,  //! @helper` |
+| `main_function` | `//! @main` |
+| `str N` / `fn N` constants | `//! "hi"`, `//! @helper` |
 
-Notes are looked up in the section's metadata and symbol table. Several notes
-on one line are separated by `; `. Machine-specific notes can be added with
+For example:
+
+```text
+//! fn main() -> u64, locals 0, functions[1]
+@main:
+    //! @helper = 0x0006 (functions[0])
+    execution::program::call 0, @helper
+    execution::program::const_u64 999  // never reached
+```
+
+Notes are looked up in the section's metadata and symbol table. An item with
+several notes gets one `//!` line per note. Machine-specific notes can be added with
 `Formatter::with_annotator`, which receives each instruction with its address,
 the symbol table, and the string table. For an application header, use
 `Formatter::with_checker` with the same checker you would use for

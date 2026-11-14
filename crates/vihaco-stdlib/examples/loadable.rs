@@ -258,37 +258,47 @@ mod tests {
 .header
     experiment.description "Loadable SST example: 21 * 2";
     metadata {
+        strings: ["main", "helper", "loadable.sst"],
         // Table order is independent of executable function order.
         functions: [
             {
-                name: 1,   // strings[1]: helper //! "helper"
+                //! "helper"
+                name: 1,   // strings[1]: helper
                 signature: { params: [], ret: [u64] },
                 local_count: 0,
-                file: 2,   //! "loadable.sst"
+                //! "loadable.sst"
+                file: 2,
             },
             {
-                name: 0,   // strings[0]: main //! "main"
+                //! "main"
+                name: 0,   // strings[0]: main
                 signature: { params: [], ret: [u64] },
                 local_count: 0,
-                file: 2,   //! "loadable.sst"
+                //! "loadable.sst"
+                file: 2,
             },
         ],
         constants: [],
-        strings: ["main", "helper", "loadable.sst"],
-        main_function: 1,  // functions[1], not instruction address 1. //! @main
+        //! @main
+        main_function: 1,  // functions[1], not instruction address 1.
         source_symbols: [],
         extra: {},
     };
 .text
-@main:                                   //! fn main() -> u64, locals 0, functions[1]
-    execution::program::call 0, @helper  //! @helper = 0x0006 (functions[0])
+//! fn main() -> u64, locals 0, functions[1]
+@main:
+    //! @helper = 0x0006 (functions[0])
+    execution::program::call 0, @helper
     execution::program::const_u64 2
     cpu::cpu::mul_u64
-    execution::program::br @done         //! @done = 0x0005
+    //! @done = 0x0005
+    execution::program::br @done
     execution::program::const_u64 999
-@done:                                   //! 0x0005
+//! 0x0005
+@done:
     execution::program::ret 1
-@helper:                                 //! fn helper() -> u64, locals 0, functions[0]
+//! fn helper() -> u64, locals 0, functions[0]
+@helper:
     execution::program::const_u64 21
     execution::program::ret 1
 "#;

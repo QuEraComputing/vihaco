@@ -70,11 +70,10 @@ fn loadable_example_header_and_code_round_trip() {
         [
             r#"experiment.description "Loadable SST example: 21 * 2""#,
             concat!(
-                "metadata { functions: [",
+                r#"metadata { strings: ["main", "helper", "loadable.sst"], functions: ["#,
                 "{ name: 1, signature: { params: [], ret: [u64] }, local_count: 0, file: 2 }, ",
                 "{ name: 0, signature: { params: [], ret: [u64] }, local_count: 0, file: 2 }",
-                r#"], constants: [], strings: ["main", "helper", "loadable.sst"], "#,
-                "main_function: 1, source_symbols: [], extra: {} }",
+                "], constants: [], main_function: 1, source_symbols: [], extra: {} }",
             ),
         ]
     );
