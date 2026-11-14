@@ -9,17 +9,12 @@
 use chumsky::error::Simple;
 use chumsky::extra;
 use chumsky::prelude::*;
-use vihaco_parser::{Ident, Parse, QuotedString};
+use vihaco_parser::{Ident, QuotedString};
 
 use vihaco_bytecode::SSTHeader;
 use vihaco_bytecode::SSTSectionView;
 
-use crate::{ParsedModule, Symbol};
-
-enum TextItem<I> {
-    Instruction(I),
-    Symbol(String),
-}
+use crate::ParsedModule;
 
 type E<'src> = extra::Err<Simple<'src, char>>;
 
@@ -130,63 +125,37 @@ pub fn symbol_definition<'src>() -> impl Parser<'src, &'src str, String, E<'src>
         .then_ignore(just(':'))
 }
 
-/// A `.text` stream: instructions and `@name:` symbol definitions, separated by
-/// whitespace and comments. Layout and indentation carry no meaning.
-fn text_stream<'src, I>() -> impl Parser<'src, &'src str, (Vec<I>, Vec<Symbol>), E<'src>>
-where
-    I: Parse<'src> + 'src,
-{
-    let item = symbol_definition()
-        .map(TextItem::Symbol)
-        .or(I::parser().map(TextItem::Instruction));
-    skip()
-        .ignore_then(item)
-        .repeated()
-        .collect::<Vec<_>>()
-        .then_ignore(skip())
-        .then_ignore(end())
-        .try_map(|items, span| {
-            let mut code = Vec::new();
-            let mut symbols = Vec::new();
-            for item in items {
-                match item {
-                    TextItem::Instruction(instruction) => code.push(instruction),
-                    TextItem::Symbol(name) => {
-                        let address =
-                            u32::try_from(code.len()).map_err(|_| Simple::new(None, span))?;
-                        symbols.push(Symbol { name, address });
-                    }
-                }
-            }
-            Ok((code, symbols))
-        })
-}
-
 impl<I, H> ParsedModule<I, H> {
     /// Parse a source section into its consumer instruction representation.
     ///
     /// Symbol names are not checked for uniqueness here; loading validates the
-    /// table against the header metadata.
+    /// table against the header metadata. On failure the error names the first
+    /// problem by file line and column; [`crate::spanned::parse_text`] reports
+    /// every problem with its span.
     pub fn parse_section<'src, C>(section: SSTSectionView<'src, C>) -> eyre::Result<Self>
     where
         H: SSTHeader,
         I: vihaco_parser::Parse<'src> + 'src,
     {
         let header = section.parse_header::<H>()?;
-        let (code, symbols) = text_stream::<I>()
-            .parse(section.text())
-            .into_result()
-            .map_err(|errors| {
-                eyre::eyre!(
-                    "failed to parse `.text` of section `{}`: {:?}",
-                    section.name(),
-                    errors
-                )
-            })?;
+        let parsed = crate::spanned::parse_text::<I>(section.text());
+        if let Some(first) = parsed.errors.first() {
+            let offset = section.text_span().start + first.span.start;
+            let (line, column) = crate::spanned::line_column(section.file_text(), offset);
+            let more = match parsed.errors.len() - 1 {
+                0 => String::new(),
+                1 => " (and 1 more error)".to_owned(),
+                n => format!(" (and {n} more errors)"),
+            };
+            eyre::bail!(
+                "failed to parse `.text` of section `{}`: line {line}, column {column}: {first}{more}",
+                section.name(),
+            );
+        }
         Ok(Self {
             header,
-            code,
-            symbols,
+            code: parsed.code.into_iter().map(|item| item.value).collect(),
+            symbols: parsed.symbols.into_iter().map(|item| item.value).collect(),
         })
     }
 }

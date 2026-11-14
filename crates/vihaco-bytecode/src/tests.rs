@@ -585,3 +585,58 @@ fn rejects_sst_malformed_directives() {
         "{err}"
     );
 }
+
+#[test]
+fn scan_reports_every_framing_error_with_locations() {
+    let text = "sst v2\nstray\nmore\n.section a b\n.section cpu\n.header\n.header\n.section cpu\n.text x\n";
+    let layout = crate::scan_sst(text);
+    let errors: Vec<_> = layout
+        .errors
+        .iter()
+        .map(|error| {
+            (
+                error.line,
+                &text[error.span.clone()],
+                error.message.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        errors,
+        [
+            (
+                2,
+                "stray",
+                "unexpected content; expected `.global` or `.section <name>`"
+            ),
+            (4, "a b", "`.section` expects a single name, found `a b`"),
+            (7, ".header", "section `cpu` declares duplicate `.header`"),
+            (8, "cpu", "duplicate section `cpu`"),
+            (9, "x", "`.text` takes no arguments, found `x`"),
+        ]
+    );
+    let (related, note) = layout.errors[3].related.clone().unwrap();
+    assert_eq!(
+        (&text[related], note.as_str()),
+        ("cpu", "first defined here")
+    );
+    assert_eq!(layout.sections.len(), 3);
+    let header = layout.sections[1].header.clone().unwrap();
+    assert_eq!(&text[header.directive], ".header");
+    assert_eq!(&text[header.body], "");
+    // The fail-fast parser reports the first classification error.
+    let err = SSTFile::<NoContext>::from_text(text).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "line 4: `.section` expects a single name, found `a b`"
+    );
+}
+
+#[test]
+fn section_views_expose_file_spans() {
+    let text = "sst v2\n.section main\n.header\nh\n.text\nt\n";
+    let file = SSTFile::<NoContext>::from_text(text).unwrap();
+    let section = file.section("main").unwrap();
+    assert_eq!(&section.file_text()[section.header_span()], "h\n");
+    assert_eq!(&section.file_text()[section.text_span()], "t\n");
+}

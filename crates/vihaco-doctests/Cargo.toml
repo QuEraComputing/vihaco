@@ -27,5 +27,6 @@ vihaco-cpu = { workspace = true }
 vihaco-stdlib = { workspace = true }
 vihaco-parser = { workspace = true }
 vihaco-parser-derive = { workspace = true }
+vihaco-sst = { workspace = true }
 chumsky = { workspace = true }
 eyre = { workspace = true }

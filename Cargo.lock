@@ -703,6 +703,7 @@ dependencies = [
  "vihaco-cpu",
  "vihaco-parser",
  "vihaco-parser-derive",
+ "vihaco-sst",
  "vihaco-stdlib",
 ]
 
@@ -770,6 +771,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "vihaco-sst"
+version = "0.8.1"
+dependencies = [
+ "chumsky",
+ "codespan-reporting",
+ "eyre",
+ "vihaco-abi",
+ "vihaco-bytecode",
+ "vihaco-module",
+ "vihaco-parser",
+ "vihaco-parser-derive",
+ "vihaco-runtime",
+ "vihaco-syntax",
+]
+
+[[package]]
 name = "vihaco-stdlib"
 version = "0.8.1"
 dependencies = [
@@ -782,6 +799,7 @@ dependencies = [
  "vihaco-parser",
  "vihaco-parser-derive",
  "vihaco-runtime",
+ "vihaco-sst",
  "vihaco-syntax",
 ]
 
