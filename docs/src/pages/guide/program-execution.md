@@ -40,8 +40,9 @@ storage for reuse. Use `stack()`, `frames()`, and `pc()` for read-only inspectio
 
 ## Frames and locals
 
-A function's `local_count` reserves slots for its locals, including parameters.
-Arguments occupy the first slots, and extra locals start at zero. Temporary
+A function's `locals` metadata declares the type of each local slot,
+parameters first, and the frame reserves one slot per entry. Arguments occupy
+the first slots, and extra locals start at zero. Temporary
 operands sit above that reserved region. Popping operands can't consume the
 locals, and storing to a local can't enlarge the region.
 

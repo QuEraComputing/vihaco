@@ -49,11 +49,26 @@ pub struct SourceSymbolInfo {
 pub struct FunctionInfo<Type> {
     pub name: u32, // index into the string interner
     pub signature: Signature<Type>,
-    /// Reserved local slots, including parameters, for this function.
-    pub local_count: u32,
+    /// The declared type of every local slot, parameters first: the leading
+    /// `signature.params.len()` entries are the parameter types. Written
+    /// `locals: [u64, f64]` in metadata headers. At most [`MAX_LOCALS`]
+    /// entries, checked by [`ProgramMetadata::validate`].
+    pub locals: Vec<Type>,
     pub start_address: u32, // corresponds to a label noop
     pub end_address: u32,   // corresponds to a label noop
     pub file: u32,
+}
+
+/// The largest number of local slots, parameters included, a function may
+/// declare. [`ProgramMetadata::validate`] enforces it, and runtime frame entry
+/// re-checks it before allocating, since modules can also be built directly.
+pub const MAX_LOCALS: usize = 65_536;
+
+impl<Type> FunctionInfo<Type> {
+    /// The number of local slots, parameters included (`locals.len()`).
+    pub fn local_count(&self) -> usize {
+        self.locals.len()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]

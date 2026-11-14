@@ -14,7 +14,8 @@
 //! Custom extra records use the same delimited metadata derive as the header.
 
 use crate::module::{
-    FunctionInfo, LabelInfo, LocalModule, NoInfo, SourceSymbolInfo, StructInfo, StructTypeRef,
+    FunctionInfo, LabelInfo, LocalModule, MAX_LOCALS, NoInfo, SourceSymbolInfo, StructInfo,
+    StructTypeRef,
 };
 use vihaco_abi::{Type, Value};
 
@@ -58,8 +59,13 @@ impl<V, Ty, Info> ProgramMetadata<V, Ty, Info> {
             extra: map(self.extra),
         }
     }
+}
 
+impl<V, Ty: PartialEq, Info> ProgramMetadata<V, Ty, Info> {
     /// Validate references and instruction ranges without altering supplied metadata.
+    ///
+    /// Each function declares at most [`MAX_LOCALS`] locals, at least as many
+    /// as its parameters, and its leading locals are its parameter types.
     pub fn validate(&self, instruction_count: usize) -> eyre::Result<()> {
         eyre::ensure!(
             u32::try_from(instruction_count).is_ok(),
@@ -80,15 +86,24 @@ impl<V, Ty, Info> ProgramMetadata<V, Ty, Info> {
                 function.end_address
             );
             eyre::ensure!(
-                function.local_count as usize >= function.signature.params.len(),
-                "{path}.local_count: fewer slots than parameters"
+                function.locals.len() <= MAX_LOCALS,
+                "{path}.locals: {} locals exceed the maximum of {MAX_LOCALS}",
+                function.locals.len()
             );
-            for parameter in &function.signature.params {
+            eyre::ensure!(
+                function.locals.len() >= function.signature.params.len(),
+                "{path}.locals: fewer locals than parameters"
+            );
+            for (param, parameter) in function.signature.params.iter().enumerate() {
                 check_index(
                     parameter.name,
                     self.strings.len(),
                     &format!("{path}.signature.params.name"),
                 )?;
+                eyre::ensure!(
+                    function.locals[param] == parameter.ty,
+                    "{path}.locals[{param}]: type differs from parameter {param}"
+                );
             }
         }
         let mut struct_names = std::collections::BTreeSet::new();
@@ -135,7 +150,7 @@ impl<V, Ty, Info> ProgramMetadata<V, Ty, Info> {
 }
 
 impl<V, Ty: StructTypeRef, Info> ProgramMetadata<V, Ty, Info> {
-    /// Check that every struct type in signatures and struct fields names an
+    /// Check that every struct type in signatures, locals and struct fields names an
     /// entry of the struct table. Structs may refer to themselves or each other.
     pub fn validate_struct_types(&self) -> eyre::Result<()> {
         let check = |ty: &Ty, what: &dyn Fn() -> String| {
@@ -155,6 +170,11 @@ impl<V, Ty: StructTypeRef, Info> ProgramMetadata<V, Ty, Info> {
             for (ret, ty) in function.signature.ret.iter().enumerate() {
                 check(ty, &|| format!("{path}.ret[{ret}]"))?;
             }
+            for (local, ty) in function.locals.iter().enumerate() {
+                check(ty, &|| {
+                    format!("metadata.functions[{index}].locals[{local}]")
+                })?;
+            }
         }
         for (index, info) in self.structs.iter().enumerate() {
             for (field, info) in info.fields.iter().enumerate() {
@@ -167,7 +187,7 @@ impl<V, Ty: StructTypeRef, Info> ProgramMetadata<V, Ty, Info> {
     }
 }
 
-impl<Ty: StructTypeRef, Info> ProgramMetadata<Value, Ty, Info> {
+impl<Ty: PartialEq + StructTypeRef, Info> ProgramMetadata<Value, Ty, Info> {
     /// Assemble the standard value model, checking the supplied tables once.
     /// Custom value models can assemble `LocalModule` directly after `validate`
     /// and `validate_struct_types`.

@@ -60,7 +60,7 @@
 //!     structs: vec![],
 //!     functions: vec![FunctionInfo {
 //!         name: 0, signature: Signature { params: vec![], ret: vec![Type::U64] },
-//!         local_count: 0, start_address: 0, end_address: 4, file: 0,
+//!         locals: vec![], start_address: 0, end_address: 4, file: 0,
 //!     }],
 //!     ..Default::default()
 //! };
@@ -84,7 +84,7 @@
 //! ```
 use crate::program::program;
 use vihaco_abi::{frame::Frame, word::Word};
-use vihaco_module::module::LocalModule;
+use vihaco_module::module::{LocalModule, MAX_LOCALS};
 
 mod execution;
 mod messages;
@@ -151,7 +151,13 @@ fn function_entry<I, V, Ty, Info>(
         .functions
         .get(index)
         .ok_or_else(|| unknown_function(index))?;
-    if (function.local_count as usize) < function.signature.params.len() {
+    let locals = function.local_count();
+    // Modules can be built without `ProgramMetadata::validate`, so re-check
+    // the frame bound before any caller reserves or resizes storage.
+    if locals > MAX_LOCALS {
+        return Err(too_many_locals(locals));
+    }
+    if locals < function.signature.params.len() {
         return Err(invalid_local_count());
     }
     if (function.start_address as usize) >= module.code.len() {
@@ -159,7 +165,7 @@ fn function_entry<I, V, Ty, Info>(
     }
     Ok((
         function.signature.params.len(),
-        function.local_count as usize,
+        locals,
         function.start_address,
     ))
 }
@@ -168,6 +174,12 @@ fn function_entry<I, V, Ty, Info>(
 #[inline(never)]
 fn unknown_function(index: usize) -> eyre::Report {
     eyre::eyre!("unknown function reference {index}")
+}
+
+#[cold]
+#[inline(never)]
+fn too_many_locals(locals: usize) -> eyre::Report {
+    eyre::eyre!("function declares {locals} locals, more than the maximum of {MAX_LOCALS}")
 }
 
 #[cold]

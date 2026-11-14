@@ -347,6 +347,13 @@ impl CPU {
         local_count: u32,
         function: Option<usize>,
     ) -> eyre::Result<StepOutcome> {
+        // Function metadata can bypass `ProgramMetadata::validate`, so bound
+        // the frame before growing the stack.
+        eyre::ensure!(
+            local_count as usize <= vihaco_module::module::MAX_LOCALS,
+            "function declares {local_count} locals, more than the maximum of {}",
+            vihaco_module::module::MAX_LOCALS
+        );
         self.require_operands(arity as usize)?;
         self.ensure_local_count_is_at_least_arity(arity, local_count)?;
         let base = self.stack.len() - arity as usize;

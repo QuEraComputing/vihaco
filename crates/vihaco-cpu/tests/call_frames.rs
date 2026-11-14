@@ -182,6 +182,22 @@ fn entry_rejects_local_count_smaller_than_arity_without_mutating_state() {
 }
 
 #[test]
+fn entry_rejects_oversized_frames_before_growing_the_stack() {
+    let mut cpu = CPU::default();
+    cpu.stack_mut().extend([10_u64]);
+
+    // Without the cap this would try to allocate `u32::MAX` words.
+    let err = cpu.start_function(1, 0, u32::MAX, 0).unwrap_err();
+    assert!(err.to_string().contains("more than the maximum"), "{err}");
+    assert_eq!(cpu.stack(), &[10]);
+    assert!(cpu.get_frame().is_err());
+    let limit = vihaco_module::module::MAX_LOCALS as u32;
+    assert!(cpu.start_function(1, 0, limit + 1, 0).is_err());
+    cpu.start_function(1, 0, limit, 0).unwrap();
+    assert_eq!(cpu.stack().len(), limit as usize);
+}
+
+#[test]
 fn start_function_rejects_active_invocation_without_mutating_state() {
     let mut cpu = CPU::default();
     cpu.start_function(0, 5, 1, 3).unwrap();

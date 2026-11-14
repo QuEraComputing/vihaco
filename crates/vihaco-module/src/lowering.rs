@@ -244,7 +244,7 @@ mod tests {
                         params: vec![],
                         ret: vec![],
                     },
-                    local_count: 3,
+                    locals: vec![Type::U64, Type::F64, Type::Struct(0)],
                     start_address: 7,
                     end_address: 9,
                     file: 0,
@@ -255,7 +255,7 @@ mod tests {
                         params: vec![],
                         ret: vec![],
                     },
-                    local_count: 0,
+                    locals: vec![],
                     start_address: 0,
                     end_address: 7,
                     file: 0,
@@ -336,6 +336,7 @@ mod tests {
             name: 0,
             ty: Type::Struct(1),
         });
+        bad.functions[0].locals[0] = Type::Struct(1);
         let err = into_module(bad).unwrap_err();
         assert!(err.to_string().contains("signature.params[0].ty"), "{err}");
         let mut bad = metadata();
@@ -350,6 +351,10 @@ mod tests {
             .push(Type::array(Type::array(Type::Struct(1))));
         let err = into_module(bad).unwrap_err();
         assert!(err.to_string().contains("signature.ret[0]"), "{err}");
+        let mut bad = metadata();
+        bad.functions[0].locals[2] = Type::array(Type::Struct(1));
+        let err = into_module(bad).unwrap_err();
+        assert!(err.to_string().contains("functions[0].locals[2]"), "{err}");
         let mut arrays = metadata();
         arrays.structs[0].fields[0].ty = Type::array(Type::Struct(0));
         assert!(into_module(arrays).is_ok());
@@ -374,6 +379,59 @@ mod tests {
             err.to_string().contains("duplicate struct `Point`"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn declared_locals_are_validated() {
+        let into_module = |metadata: ProgramMetadata| metadata.into_module(vec![(); 9]);
+
+        // At most `MAX_LOCALS` locals.
+        let mut bad = metadata();
+        bad.functions[1].locals = vec![Type::U64; crate::module::MAX_LOCALS + 1];
+        let err = into_module(bad).unwrap_err();
+        assert!(err.to_string().contains("exceed the maximum"), "{err}");
+        let mut most = metadata();
+        most.functions[1].locals = vec![Type::U64; crate::module::MAX_LOCALS];
+        assert!(into_module(most).is_ok());
+
+        // At least one local per parameter.
+        let mut bad = metadata();
+        bad.functions[1].signature.params = vec![Parameter {
+            name: 0,
+            ty: Type::U64,
+        }];
+        let err = into_module(bad).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("functions[1].locals: fewer locals than parameters"),
+            "{err}"
+        );
+
+        // The leading locals are the parameter types.
+        let mut bad = metadata();
+        bad.functions[0].signature.params = vec![
+            Parameter {
+                name: 0,
+                ty: Type::U64,
+            },
+            Parameter {
+                name: 0,
+                ty: Type::I64,
+            },
+        ];
+        let err = into_module(bad).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("functions[0].locals[1]: type differs from parameter 1"),
+            "{err}"
+        );
+        let mut good = metadata();
+        good.functions[0].signature.params = vec![Parameter {
+            name: 0,
+            ty: Type::U64,
+        }];
+        assert!(into_module(good).is_ok());
+        assert_eq!(metadata().functions[0].local_count(), 3);
     }
 
     #[test]

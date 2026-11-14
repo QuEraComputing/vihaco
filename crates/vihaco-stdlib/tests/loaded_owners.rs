@@ -136,9 +136,9 @@ fn section_source(name: &str, main: &str, helper: &str) -> String {
 metadata {{
     strings: ["main", "helper", "source.sst"],
     functions: [
-        {{ name: 1, signature: {{ params: [], ret: [u64] }}, local_count: 0,
+        {{ name: 1, signature: {{ params: [], ret: [u64] }}, locals: [],
            start_address: {helper_start}, end_address: {end}, file: 2 }},
-        {{ name: 0, signature: {{ params: [], ret: [u64] }}, local_count: 0,
+        {{ name: 0, signature: {{ params: [], ret: [u64] }}, locals: [],
            start_address: 0, end_address: {helper_start}, file: 2 }},
     ],
     structs: [], labels: [], constants: [], main_function: 1, source_symbols: [],
@@ -253,9 +253,9 @@ metadata {{
         {{ name: 3, fields: [{{ name: 4, ty: u64 }}, {{ name: 5, ty: u64 }}] }},
     ],
     functions: [
-        {{ name: 0, signature: {{ params: [], ret: [u64] }}, local_count: 0,
+        {{ name: 0, signature: {{ params: [], ret: [u64] }}, locals: [],
            start_address: 0, end_address: 6, file: 2 }},
-        {{ name: 1, signature: {{ params: [], ret: [struct 0] }}, local_count: 0,
+        {{ name: 1, signature: {{ params: [], ret: [struct 0] }}, locals: [],
            start_address: 6, end_address: 10, file: 2 }},
     ],
     labels: [], constants: [], main_function: 0, source_symbols: [], extra: {{}},
@@ -506,7 +506,7 @@ fn execution_borrows_non_clone_instructions_from_the_paired_image() {
                 params: vec![],
                 ret: vec![],
             },
-            local_count: 0,
+            locals: vec![],
             start_address: 0,
             end_address: 1,
             file: 0,
