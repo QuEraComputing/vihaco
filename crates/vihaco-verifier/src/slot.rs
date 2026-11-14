@@ -37,6 +37,11 @@ pub trait TypedSlot: Lattice {
     /// Accept this slot where a value of type `expected` is required, or
     /// report a [`DiagnosticKind::TypeMismatch`](crate::DiagnosticKind::TypeMismatch).
     fn expect(&self, expected: &Type) -> Result<(), VerifyError>;
+
+    /// The type every path agrees this slot has, or `None` (for example after
+    /// a conflict). Rules that accept a family of types, such as any
+    /// `array T`, inspect it.
+    fn known_type(&self) -> Option<&Type>;
 }
 
 /// Whether a value of type `found` may be used where `expected` is required.
@@ -86,6 +91,13 @@ impl TypedSlot for TypeSlot {
         match self {
             TypeSlot::Known(found) if type_satisfies(found, expected) => Ok(()),
             _ => Err(VerifyError::type_mismatch(expected, self)),
+        }
+    }
+
+    fn known_type(&self) -> Option<&Type> {
+        match self {
+            TypeSlot::Known(ty) => Some(ty),
+            TypeSlot::Conflict(..) => None,
         }
     }
 }

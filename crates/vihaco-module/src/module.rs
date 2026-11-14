@@ -80,6 +80,31 @@ pub struct Signature<Ty> {
     pub ret: Vec<Ty>,
 }
 
+impl<Ty> Signature<Ty> {
+    /// Whether this signature has exactly the parameter and result types of
+    /// `ty`, ignoring parameter names; `call_indirect` checks its target this
+    /// way before calling.
+    pub fn matches(&self, ty: &vihaco_abi::FunctionType) -> bool
+    where
+        Ty: PartialEq<vihaco_abi::Type>,
+    {
+        self.params.len() == ty.params.len()
+            && self.ret.len() == ty.results.len()
+            && self.params.iter().zip(&ty.params).all(|(p, t)| p.ty == *t)
+            && self.ret.iter().zip(&ty.results).all(|(r, t)| r == t)
+    }
+}
+
+impl Signature<vihaco_abi::Type> {
+    /// The parameter and result types, without parameter names.
+    pub fn function_type(&self) -> vihaco_abi::FunctionType {
+        vihaco_abi::FunctionType {
+            params: self.params.iter().map(|param| param.ty.clone()).collect(),
+            results: self.ret.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
 #[syntax_class(metadata, open = "{", close = "}")]
 pub struct Parameter<Ty> {
@@ -321,6 +346,30 @@ mod tests {
         let text = module.to_string();
         assert!(text.contains("0x0000 Point { x: f64, y: i64 }\n"), "{text}");
         assert!(text.contains("0x0001 Point {}\n"), "{text}");
+    }
+
+    #[test]
+    fn signatures_match_function_types_ignoring_parameter_names() {
+        use vihaco_abi::{FunctionType, Type};
+        let signature = Signature {
+            params: vec![
+                Parameter {
+                    name: 3,
+                    ty: Type::U64,
+                },
+                Parameter {
+                    name: 4,
+                    ty: Type::F64,
+                },
+            ],
+            ret: vec![Type::Bool],
+        };
+        let ty = FunctionType::new([Type::U64, Type::F64], [Type::Bool]);
+        assert_eq!(signature.function_type(), ty);
+        assert!(signature.matches(&ty));
+        assert!(!signature.matches(&FunctionType::new([Type::U64, Type::F64], [])));
+        assert!(!signature.matches(&FunctionType::new([Type::U64], [Type::Bool])));
+        assert!(!signature.matches(&FunctionType::new([Type::F64, Type::U64], [Type::Bool])));
     }
 
     #[test]

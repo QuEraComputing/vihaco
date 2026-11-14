@@ -37,6 +37,10 @@ pub mod lower;
 #[cfg(feature = "program-image-execution")]
 pub mod operand;
 
+/// Load-time typing rules (`Verify`) for every program instruction.
+#[cfg(feature = "program-image-execution")]
+mod verify;
+
 use vihaco_abi::{Type, Value};
 use vihaco_bytecode::{ConstantId, ContextHandle};
 use vihaco_module::{

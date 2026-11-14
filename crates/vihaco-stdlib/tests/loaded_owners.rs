@@ -208,6 +208,8 @@ fn sibling_loadables_construct_and_execute_independent_programs() {
     let controller_program = construct_image::<ControllerMachine>(file.root()).unwrap();
     let sequencer_image =
         construct_image::<SequencerMachine>(file.root().child("sequencer").unwrap()).unwrap();
+    assert_verifies::<ControllerMachine>(&controller_program.module);
+    assert_verifies::<SequencerMachine>(&sequencer_image.module);
     let mut runtime = Runtime {
         controller: Loadable::new(
             controller_program,
@@ -242,7 +244,9 @@ fn sibling_loadables_construct_and_execute_independent_programs() {
 }
 
 fn struct_program(main_body: &str) -> String {
-    // main: 6 instructions (0..6); make_point: 4 instructions (6..10).
+    // main: 0..n; make_point: 4 instructions after it.
+    let main_end = main_body.lines().count();
+    let point_end = main_end + 4;
     format!(
         r#"sst v{version}
 .section(root):
@@ -255,9 +259,9 @@ metadata {{
     types: [{{ name: 6, repr: u64 }}],
     functions: [
         {{ name: 0, signature: {{ params: [], ret: [u64] }}, locals: [],
-           start_address: 0, end_address: 6, file: 2 }},
+           start_address: 0, end_address: {main_end}, file: 2 }},
         {{ name: 1, signature: {{ params: [], ret: [struct 0] }}, locals: [],
-           start_address: 6, end_address: 10, file: 2 }},
+           start_address: {main_end}, end_address: {point_end}, file: 2 }},
     ],
     labels: [], constants: [], main_function: 0, source_symbols: [], extra: {{}},
 }}
@@ -279,6 +283,20 @@ execution::program::ret 1
     )
 }
 
+/// Well-formed fixture programs also pass load-time verification against the
+/// composite's generated rules.
+fn assert_verifies<M>(module: &Module<M>)
+where
+    M: HasInstructionSet,
+    M::Runtime: for<'m> vihaco_verifier::Verify<vihaco_verifier::ModuleVerifier<'m>>,
+{
+    if let Err(rejection) =
+        vihaco_verifier::verify_module(module, vihaco_verifier::VerifyOptions::default())
+    {
+        panic!("{rejection:?}");
+    }
+}
+
 fn load_struct_program(main_body: &str) -> eyre::Result<MachineImage<SequencerMachine>> {
     let source = struct_program(main_body);
     let file = SstFile::<NoContext>::from_text(&source)?;
@@ -297,6 +315,7 @@ cpu::cpu::get_field @Point.y
 execution::program::ret 1",
     )
     .unwrap();
+    assert_verifies::<SequencerMachine>(&image.module);
     assert_eq!(image.module.structs.len(), 1);
     assert_eq!(image.module.functions[1].signature.ret, [Type::Struct(0)]);
     let mut loaded = Loadable::new(
@@ -311,8 +330,9 @@ execution::program::ret 1",
 }
 
 fn run_struct_program(main_body: &str) -> eyre::Result<Vec<u64>> {
+    let image = load_struct_program(main_body)?;
     let mut loaded = Loadable::new(
-        load_struct_program(main_body)?,
+        image,
         SequencerMachine {
             execution: ExecutionState::new(),
             cpu: CPU::default(),
@@ -325,27 +345,37 @@ fn run_struct_program(main_body: &str) -> eyre::Result<Vec<u64>> {
 #[test]
 fn arrays_of_named_structs_are_built_indexed_and_type_checked() {
     // let points = [make_point()]; return points[0].y
-    let stack = run_struct_program(
-        "execution::program::call 0, @make_point
+    let source = "execution::program::call 0, @make_point
 cpu::cpu::array_new struct @Point, 1
 execution::program::const_u64 0
 cpu::cpu::array_get struct @Point
 cpu::cpu::get_field @Point.y
-execution::program::ret 1",
-    )
-    .unwrap();
+execution::program::ret 1";
+    assert_verifies::<SequencerMachine>(&load_struct_program(source).unwrap().module);
+    let stack = run_struct_program(source).unwrap();
     assert_eq!(stack, [9]);
 
-    // Reading the same array as `array u64` is a runtime type error.
-    let error = run_struct_program(
-        "execution::program::call 0, @make_point
+    // Reading the same array as `array u64` is a runtime type error, and the
+    // verifier rejects the program before it runs.
+    let ill_typed = "execution::program::call 0, @make_point
 cpu::cpu::array_new struct @Point, 1
 execution::program::const_u64 0
 cpu::cpu::array_get u64
 cpu::cpu::get_field @Point.y
-execution::program::ret 1",
+execution::program::ret 1";
+    let rejection = vihaco_verifier::verify_module(
+        &load_struct_program(ill_typed).unwrap().module,
+        vihaco_verifier::VerifyOptions::default(),
     )
     .unwrap_err();
+    assert_eq!(
+        rejection.diagnostics[0].kind,
+        vihaco_verifier::DiagnosticKind::TypeMismatch {
+            expected: "array u64".into(),
+            found: "array struct 0".into()
+        }
+    );
+    let error = run_struct_program(ill_typed).unwrap_err();
     assert!(
         format!("{error:#}").contains("is array struct 0, expected array u64"),
         "{error:#}"
@@ -369,14 +399,16 @@ execution::program::ret 1",
 
 #[test]
 fn named_types_resolve_by_name_through_the_metadata_type_table() {
-    // let locations = [wrap(7)]; return locations[0]
+    // let locations = [wrap(7)]; return unwrap(locations[0])
     let source = "execution::program::const_u64 7
 cpu::cpu::wrap @location
 cpu::cpu::array_new type @location, 1
 execution::program::const_u64 0
 cpu::cpu::array_get type @location
+cpu::cpu::unwrap @location
 execution::program::ret 1";
     let image = load_struct_program(source).unwrap();
+    assert_verifies::<SequencerMachine>(&image.module);
     assert_eq!(image.module.types.len(), 1);
     let code = format!("{:?}", image.module.code);
     assert!(code.contains("ArrayNew(Named(0), 1)"), "{code}");
@@ -388,9 +420,7 @@ execution::program::ret 1";
         "execution::program::const_u64 7
 cpu::cpu::wrap 0
 cpu::cpu::unwrap @location
-execution::program::ret 1
-execution::program::halt
-execution::program::halt",
+execution::program::ret 1",
     )
     .unwrap();
     assert_eq!(stack, [7]);
@@ -409,10 +439,7 @@ execution::program::halt",
         let error = load_struct_program(&format!(
             "execution::program::const_u64 7
 {body}
-execution::program::ret 1
-execution::program::halt
-execution::program::halt
-execution::program::halt"
+execution::program::ret 1"
         ))
         .unwrap_err();
         assert!(format!("{error:#}").contains(message), "{body}: {error:#}");

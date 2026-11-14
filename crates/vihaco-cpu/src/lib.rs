@@ -103,6 +103,10 @@ pub mod message;
 ))]
 pub mod operand;
 
+/// Load-time typing rules (`Verify`) for every CPU instruction.
+#[cfg(feature = "typed-declarations")]
+mod verify;
+
 #[cfg(feature = "typed-declarations")]
 #[doc(hidden)]
 pub use data::{__vihaco_fields_CPU, __vihaco_inventory_CPU};

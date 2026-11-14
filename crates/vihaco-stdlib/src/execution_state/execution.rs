@@ -375,6 +375,36 @@ impl Execute<program::StoreBool> for ExecutionState {
     }
 }
 
+// The untyped forms copy a word like the typed ones; only verification differs.
+impl Execute<program::Load> for ExecutionState {
+    type Message = NoMessage;
+    type Effect = ();
+    type Error = eyre::Report;
+
+    #[inline]
+    fn execute(&mut self, instruction: &program::Load, _: NoMessage) -> eyre::Result<()> {
+        self.ensure_running()?;
+        let address = self.local_address(instruction.0)?;
+        self.stack.push(self.stack[address]);
+        Ok(())
+    }
+}
+
+impl Execute<program::Store> for ExecutionState {
+    type Message = NoMessage;
+    type Effect = ();
+    type Error = eyre::Report;
+
+    #[inline]
+    fn execute(&mut self, instruction: &program::Store, _: NoMessage) -> eyre::Result<()> {
+        self.ensure_running()?;
+        let address = self.local_address(instruction.0)?;
+        let value = <Self as PopStack<Word>>::pop(self)?;
+        self.stack[address] = value;
+        Ok(())
+    }
+}
+
 impl Execute<program::Dup> for ExecutionState {
     type Message = NoMessage;
     type Effect = ();

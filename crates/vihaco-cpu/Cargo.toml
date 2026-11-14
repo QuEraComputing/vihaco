@@ -9,7 +9,7 @@ authors.workspace = true
 
 [features]
 default = []
-typed-declarations = ["vihaco-runtime/typed-declarations"]
+typed-declarations = ["vihaco-runtime/typed-declarations", "dep:vihaco-verifier"]
 program-image-execution = ["typed-declarations", "vihaco-runtime/program-image-execution"]
 
 [dependencies]
@@ -23,6 +23,7 @@ vihaco-module = { workspace = true }
 vihaco-runtime = { workspace = true }
 vihaco-parser = { workspace = true }
 vihaco-parser-derive = { workspace = true }
+vihaco-verifier = { workspace = true, optional = true }
 
 [dev-dependencies]
 trybuild = "1.0"

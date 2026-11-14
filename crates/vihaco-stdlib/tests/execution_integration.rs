@@ -152,6 +152,15 @@ impl vihaco_cpu::field::NamedTypeLookup for NumericContext {
     }
 }
 
+/// Well-formed fixtures also pass load-time verification.
+fn assert_verifies(module: &Program) {
+    if let Err(rejection) =
+        vihaco_verifier::verify_module(module, vihaco_verifier::VerifyOptions::default())
+    {
+        panic!("{rejection:?}");
+    }
+}
+
 fn machine(code: &[&str]) -> (Program, Machine) {
     let module = LocalModule {
         code: code
@@ -205,6 +214,8 @@ fn generated_execution_routes_calls_locals_computation_and_root_results() {
         "cpu::cpu::add_u64",
         "program::program::ret 1",
     ]);
+    module.functions[0].end_address = 7;
+    module.functions[0].signature.ret = vec![vihaco_abi::Type::U64];
     module.functions.push(FunctionInfo {
         name: 0,
         signature: Signature {
@@ -212,13 +223,14 @@ fn generated_execution_routes_calls_locals_computation_and_root_results() {
                 name: 0,
                 ty: vihaco_abi::Type::U64,
             }],
-            ret: vec![],
+            ret: vec![vihaco_abi::Type::U64],
         },
         locals: vec![vihaco_abi::Type::U64],
         start_address: 7,
         end_address: 11,
         file: 0,
     });
+    assert_verifies(&module);
     execute(&module, &mut vm, &[]).unwrap();
     assert_eq!(vm.program.stack(), &[42]);
     assert!(vm.program.frames().is_empty());
@@ -233,10 +245,12 @@ fn recursive_execution_preserves_continuations_and_multiple_results() {
     let (mut module, mut vm) = machine(&[
         "program::program::const_u64 3",
         "program::program::const_fn_ref 1",
-        "program::program::call_indirect",
+        "program::program::call_indirect (u64) -> (u64, u64)",
         "program::program::ret 2",
         "program::program::load_u64 0",
-        "program::program::cond_br 9, 6",
+        "program::program::const_u64 0",
+        "cpu::cpu::ne_u64",
+        "program::program::cond_br 11, 8",
         "program::program::const_u64 10",
         "program::program::const_u64 20",
         "program::program::ret 2",
@@ -262,9 +276,10 @@ fn recursive_execution_preserves_continuations_and_multiple_results() {
         },
         locals: vec![vihaco_abi::Type::U64],
         start_address: 4,
-        end_address: 16,
+        end_address: 18,
         file: 0,
     });
+    assert_verifies(&module);
     execute(&module, &mut vm, &[]).unwrap();
     assert_eq!(vm.program.stack(), &[10, 26]); // 20 + each restored caller's 1, 2, 3.
     assert!(vm.program.frames().is_empty());
@@ -317,11 +332,84 @@ fn execution_failures_preserve_consumption_and_faulting_pc() {
     }
     let (module, mut vm) = machine(&[
         "program::program::const_fn_ref 999",
-        "program::program::call_indirect",
+        "program::program::call_indirect () -> ()",
     ]);
     assert!(execute(&module, &mut vm, &[]).is_err());
     assert_eq!(vm.program.pc(), 1);
     assert_eq!(vm.program.stack(), &[0, 999]); // Invalid reference remains unconsumed.
+}
+
+#[test]
+fn untyped_loads_and_stores_copy_words_like_typed_ones() {
+    let (module, mut vm) = machine(&[
+        "program::program::const_f64 2.5",
+        "program::program::store 0",
+        "program::program::load 0",
+        "program::program::load 0",
+        "program::program::ret 2",
+    ]);
+    execute(&module, &mut vm, &[]).unwrap();
+    assert_eq!(vm.program.stack(), &[encode_f64(2.5), encode_f64(2.5)]);
+
+    let (module, mut vm) = machine(&["program::program::load 1"]);
+    assert!(execute(&module, &mut vm, &[]).is_err());
+    let (module, mut vm) = machine(&["program::program::store 0"]);
+    assert!(execute(&module, &mut vm, &[]).is_err());
+}
+
+#[test]
+fn indirect_calls_check_the_target_signature_before_entering() {
+    let program = |signature: &str| {
+        let (mut module, vm) = machine(&[
+            "program::program::const_u64 3",
+            "program::program::const_fn_ref 1",
+            &format!("program::program::call_indirect {signature}"),
+            "program::program::ret 1",
+            "program::program::load_u64 0",
+            "program::program::ret 1",
+        ]);
+        module.functions[0].locals.clear();
+        module.functions[0].end_address = 4;
+        module.functions[0].signature.ret = vec![vihaco_abi::Type::U64];
+        module.functions.push(FunctionInfo {
+            name: 0,
+            signature: Signature {
+                params: vec![vihaco_module::module::Parameter {
+                    name: 0,
+                    ty: vihaco_abi::Type::U64,
+                }],
+                ret: vec![vihaco_abi::Type::U64],
+            },
+            locals: vec![vihaco_abi::Type::U64],
+            start_address: 4,
+            end_address: 6,
+            file: 0,
+        });
+        (module, vm)
+    };
+    let (module, mut vm) = program("(u64) -> u64");
+    execute(&module, &mut vm, &[]).unwrap();
+    assert_eq!(vm.program.stack(), &[3]);
+
+    for (signature, found) in [
+        ("(i64) -> u64", "(i64) -> u64"),
+        ("(u64) -> ()", "(u64) -> ()"),
+        ("(u64, u64) -> u64", "(u64, u64) -> u64"),
+    ] {
+        let (module, mut vm) = program(signature);
+        let error = execute(&module, &mut vm, &[]).unwrap_err();
+        assert!(
+            error.to_string().contains(&format!(
+                "call_indirect expects a function of type {found}, but the referenced function \
+                 has type (u64) -> (u64)"
+            )),
+            "{error:#}"
+        );
+        // Nothing was consumed and no frame was entered.
+        assert_eq!(vm.program.pc(), 2);
+        assert_eq!(vm.program.stack(), &[3, encode_function_ref(1)]);
+        assert_eq!(vm.program.frames().len(), 1);
+    }
 }
 
 #[test]
@@ -509,6 +597,38 @@ mod batches {
     #[instruction]
     #[pattern = "'gather_counted"]
     pub struct GatherCounted;
+}
+
+// The collector's own typing rules, so the machine is verifiable.
+impl<C: ?Sized> vihaco_runtime::Verify<C> for batches::CodeLength {
+    fn verify(&self, _: &mut C) -> eyre::Result<()> {
+        Ok(())
+    }
+}
+
+/// Pops `n` words; the collector accepts any `u64`s.
+impl<C> vihaco_runtime::Verify<C> for batches::Gather
+where
+    C: vihaco_verifier::OperandStack + ?Sized,
+    C::Slot: vihaco_verifier::TypedSlot,
+{
+    fn verify(&self, cx: &mut C) -> eyre::Result<()> {
+        use vihaco_verifier::TypedSlot as _;
+        for value in cx.pop_n(self.0 as usize)? {
+            value.expect(&vihaco_abi::Type::U64)?;
+        }
+        Ok(())
+    }
+}
+
+/// The count comes from the stack, so the operands cannot be typed before
+/// the program runs.
+impl<C: ?Sized> vihaco_runtime::Verify<C> for batches::GatherCounted {
+    fn verify(&self, _: &mut C) -> eyre::Result<()> {
+        Err(eyre::eyre!(
+            "gather_counted pops a dynamic number of operands"
+        ))
+    }
 }
 
 #[vihaco_runtime::component]

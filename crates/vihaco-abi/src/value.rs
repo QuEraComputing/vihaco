@@ -220,6 +220,103 @@ impl Type {
     }
 }
 
+/// A function type: parameter and result types, without names.
+///
+/// Written `(u64, f64) -> u64`: parameters in parentheses, then `->` and the
+/// results, as one type or a parenthesized list (`-> ()` for none,
+/// `-> (u64, u64)` for several). `call_indirect` carries one as its expected
+/// signature, which the runtime compares with the target function's declared
+/// signature before calling.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct FunctionType {
+    pub params: Vec<Type>,
+    pub results: Vec<Type>,
+}
+
+impl FunctionType {
+    /// A function type with the given parameter and result types.
+    pub fn new(params: impl Into<Vec<Type>>, results: impl Into<Vec<Type>>) -> Self {
+        Self {
+            params: params.into(),
+            results: results.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for FunctionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn list(f: &mut std::fmt::Formatter<'_>, types: &[Type]) -> std::fmt::Result {
+            f.write_str("(")?;
+            for (index, ty) in types.iter().enumerate() {
+                if index > 0 {
+                    f.write_str(", ")?;
+                }
+                write!(f, "{ty}")?;
+            }
+            f.write_str(")")
+        }
+        list(f, &self.params)?;
+        f.write_str(" -> ")?;
+        match self.results.as_slice() {
+            [single] => write!(f, "{single}"),
+            results => list(f, results),
+        }
+    }
+}
+
+impl<'src> vihaco_parser::Parse<'src> for FunctionType {
+    fn parser() -> impl Parser<'src, &'src str, Self, ValueParseExtra<'src>> {
+        function_type_text_parser()
+    }
+}
+
+impl crate::traits::FromText for FunctionType {
+    fn from_text(text: &str) -> eyre::Result<Self>
+    where
+        Self: Sized,
+    {
+        function_type_text_parser()
+            .then_ignore(end())
+            .parse(text)
+            .into_result()
+            .map_err(|errors| format_value_parse_errors(text, errors))
+    }
+}
+
+/// Encoded as the parameter count (`u32` LE), the parameter types, the result
+/// count, and the result types.
+impl crate::traits::FromBytes for FunctionType {
+    fn from_bytes<R: std::io::Read>(bytes: &mut R) -> eyre::Result<Self>
+    where
+        Self: Sized,
+    {
+        let list = |bytes: &mut R| -> eyre::Result<Vec<Type>> {
+            let count = bytes.read_u32::<LittleEndian>()?;
+            // Grow as types decode, so a corrupt count cannot force a huge allocation.
+            let mut types = Vec::new();
+            for _ in 0..count {
+                types.push(<Type as crate::traits::FromBytes>::from_bytes(bytes)?);
+            }
+            Ok(types)
+        };
+        let params = list(bytes)?;
+        let results = list(bytes)?;
+        Ok(Self { params, results })
+    }
+}
+
+impl crate::traits::WriteBytes for FunctionType {
+    fn write_bytes<W: std::io::Write>(&self, io: &mut W) -> eyre::Result<()> {
+        for types in [&self.params, &self.results] {
+            io.write_u32::<LittleEndian>(u32::try_from(types.len())?)?;
+            for ty in types {
+                crate::traits::WriteBytes::write_bytes(ty, io)?;
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Parse type syntax directly into the runtime type vocabulary.
 impl<'src> vihaco_parser::Parse<'src> for Type {
     fn parser() -> impl Parser<'src, &'src str, Self, ValueParseExtra<'src>> {
@@ -621,6 +718,20 @@ fn element_type_text_parser<'src>()
             just("heap").to(Type::HeapRef),
         ))
     }
+}
+
+fn function_type_text_parser<'src>()
+-> impl Parser<'src, &'src str, FunctionType, ValueParseExtra<'src>> + Clone {
+    let ws = one_of(" \t").repeated();
+    let list = type_text_parser()
+        .separated_by(just(',').padded_by(ws))
+        .collect::<Vec<_>>()
+        .padded_by(ws)
+        .delimited_by(just('('), just(')'));
+    let results = list.clone().or(type_text_parser().map(|ty| vec![ty]));
+    list.then_ignore(just("->").padded_by(ws))
+        .then(results)
+        .map(|(params, results)| FunctionType { params, results })
 }
 
 fn value_text_parser<'src>() -> impl Parser<'src, &'src str, Value, ValueParseExtra<'src>> + Clone {

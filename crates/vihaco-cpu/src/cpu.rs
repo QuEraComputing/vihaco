@@ -11,7 +11,7 @@ pub mod cpu {
         literal::{F32Literal, F64Literal, I32Literal, I64Literal},
         operand::{StringOperand, Target},
     };
-    use vihaco_abi::Type;
+    use vihaco_abi::{FunctionType, Type};
     #[instruction]
     #[pattern = "'span $0 $1 $2"]
     pub struct Span(pub u32, pub u32, pub u32);
@@ -32,9 +32,13 @@ pub mod cpu {
     #[pattern = "'ret $0"]
     pub struct Return(pub u32);
 
+    /// Call the function referenced by the top operand (`fn`), passing the
+    /// arguments below it. The operand is the expected signature, written
+    /// `call_indirect (u64, f64) -> u64`; the call fails at runtime unless the
+    /// referenced function declares exactly this signature.
     #[instruction]
-    #[pattern = "'call_indirect"]
-    pub struct IndirectCall;
+    #[pattern = "'call_indirect $0"]
+    pub struct IndirectCall(pub FunctionType);
 
     #[instruction]
     #[pattern = "'call $0 `,` $1:Target"]
@@ -103,6 +107,19 @@ pub mod cpu {
     #[instruction]
     #[pattern = "'store_bool $0"]
     pub struct StoreBool(pub u32);
+
+    /// Push local `$0`, whatever its declared type. Unlike the typed loads,
+    /// this can load struct, array, named-type, `fn`, and `str` locals.
+    #[instruction]
+    #[pattern = "'load $0"]
+    pub struct Load(pub u32);
+
+    /// Pop the top operand into local `$0`, which must have the operand's
+    /// declared type. Unlike the typed stores, this can store struct, array,
+    /// named-type, `fn`, and `str` values.
+    #[instruction]
+    #[pattern = "'store $0"]
+    pub struct Store(pub u32);
 
     #[instruction]
     #[pattern = "'dup"]

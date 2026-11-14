@@ -111,16 +111,22 @@ impl<P, F, Code, V, Ty, Info>
     PrepareMessage<P, F, program::IndirectCall, LocalModule<Code, V, Ty, Info>> for CallMessage
 where
     P: HasProgram<Program = ExecutionState>,
+    Ty: PartialEq<vihaco_abi::Type> + std::fmt::Display,
 {
     #[inline]
     fn prepare(
         parent: &mut P,
-        _: &program::IndirectCall,
+        instruction: &program::IndirectCall,
         module: &LocalModule<Code, V, Ty, Info>,
     ) -> eyre::Result<Self> {
         parent.program().ensure_running()?;
         let function = decode_function_ref(parent.program().peek_operand()?) as usize;
         let (arity, locals, target) = function_entry(module, function)?;
+        // A function reference is only callable at its declared signature.
+        let signature = &module.functions[function].signature;
+        if !signature.matches(&instruction.0) {
+            return Err(indirect_signature_mismatch(&instruction.0, signature));
+        }
         Ok(Self {
             function,
             arity,
@@ -135,6 +141,26 @@ where
 #[inline(never)]
 fn unknown_call_target(target: u32) -> eyre::Report {
     eyre::eyre!("unknown call target {target}")
+}
+
+#[cold]
+#[inline(never)]
+fn indirect_signature_mismatch<Ty: std::fmt::Display>(
+    expected: &vihaco_abi::FunctionType,
+    found: &vihaco_module::module::Signature<Ty>,
+) -> eyre::Report {
+    let list = |types: &mut dyn Iterator<Item = &Ty>| {
+        types
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let params = list(&mut found.params.iter().map(|param| &param.ty));
+    let results = list(&mut found.ret.iter());
+    eyre::eyre!(
+        "call_indirect expects a function of type {expected}, but the referenced function has \
+         type ({params}) -> ({results})"
+    )
 }
 
 #[cold]

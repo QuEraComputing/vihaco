@@ -226,6 +226,23 @@ mod tests {
     }
 
     #[test]
+    fn the_example_program_passes_load_time_verification() -> eyre::Result<()> {
+        let runtime = Runtime::from_sst(include_str!("loadable.sst"))?;
+        let verification = vihaco_verifier::verify_module(
+            &runtime.controller.image().module,
+            vihaco_verifier::VerifyOptions::default(),
+        )
+        .map_err(|rejection| eyre::eyre!("{rejection:?}"))?;
+        // `const_u64 999` after the branch to `@done` never runs.
+        assert_eq!(verification.warnings.len(), 1);
+        assert_eq!(
+            verification.warnings[0].kind,
+            vihaco_verifier::DiagnosticKind::Unreachable
+        );
+        Ok(())
+    }
+
+    #[test]
     fn duplicate_declarations_are_rejected_during_collection() {
         let source = include_str!("loadable.sst").replace(
             "experiment.description \"Loadable SST example: 21 * 2\";",

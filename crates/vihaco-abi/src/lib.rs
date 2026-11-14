@@ -23,7 +23,7 @@ pub mod instruction {
 
 pub use effect::Effects;
 pub use lower::{Lower, Runtime, Syntax};
-pub use program::{Type, Value};
+pub use program::{FunctionType, Type, Value};
 pub use verify::{Flow, Verify};
 
 #[cfg(feature = "derive")]

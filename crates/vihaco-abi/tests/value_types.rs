@@ -215,3 +215,47 @@ fn scalar_instruction_traits_use_narrow_widths() {
     assert_eq!(encoded(&1.0_f32), 1.0_f32.to_le_bytes());
     assert_eq!(encoded(&-7_i32), (-7_i32).to_le_bytes());
 }
+
+#[test]
+fn function_types_round_trip_through_text_and_bytes() {
+    use vihaco_abi::FunctionType;
+    let cases = [
+        (
+            FunctionType::new([Type::U64, Type::F64], [Type::U64]),
+            "(u64, f64) -> u64",
+        ),
+        (FunctionType::new([], []), "() -> ()"),
+        (
+            FunctionType::new([Type::array(Type::Struct(1))], [Type::I64, Type::Named(2)]),
+            "(array struct 1) -> (i64, type 2)",
+        ),
+    ];
+    for (ty, text) in cases {
+        assert_eq!(ty.to_string(), text);
+        assert_eq!(FunctionType::from_text(text).unwrap(), ty);
+        let bytes = encoded(&ty);
+        let decoded = FunctionType::from_bytes(&mut std::io::Cursor::new(bytes)).unwrap();
+        assert_eq!(decoded, ty);
+    }
+    // Spacing is free within a line, and one result may be parenthesized.
+    assert_eq!(
+        FunctionType::from_text("(u64,f64)->(u64)").unwrap(),
+        FunctionType::new([Type::U64, Type::F64], [Type::U64])
+    );
+    assert_eq!(
+        encoded(&FunctionType::new([Type::U64], [])),
+        vec![1, 0, 0, 0, 0x05, 0, 0, 0, 0]
+    );
+    for bad in [
+        "u64 -> u64",
+        "(u64)",
+        "(u64) ->",
+        "(u64,) -> u64",
+        "(nope) -> u64",
+    ] {
+        assert!(FunctionType::from_text(bad).is_err(), "{bad}");
+    }
+    // A truncated encoding is an error, not a panic or a huge allocation.
+    let truncated = vec![0xFF, 0xFF, 0xFF, 0xFF, 0x05];
+    assert!(FunctionType::from_bytes(&mut std::io::Cursor::new(truncated)).is_err());
+}

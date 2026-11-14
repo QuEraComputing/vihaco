@@ -235,3 +235,34 @@ impl Execute<cpu::StoreBool> for CPU {
         Ok(StepOutcome::Continue)
     }
 }
+
+// The untyped forms copy a word like the typed ones; only verification differs.
+impl Execute<cpu::Load> for CPU {
+    type Message = NoMessage;
+    type Effect = StepOutcome;
+    type Error = eyre::Report;
+
+    fn execute(&mut self, instruction: &cpu::Load, _: NoMessage) -> eyre::Result<StepOutcome> {
+        self.clear_pending_pc();
+        let value = self.get_local(instruction.0 as usize)?;
+        self.stack_push(*value);
+        Ok(StepOutcome::Continue)
+    }
+}
+
+impl Execute<cpu::Store> for CPU {
+    type Message = NoMessage;
+    type Effect = StepOutcome;
+    type Error = eyre::Report;
+
+    fn execute(&mut self, instruction: &cpu::Store, _: NoMessage) -> eyre::Result<StepOutcome> {
+        self.clear_pending_pc();
+        let address = self.local_address(instruction.0 as usize)?;
+        let value: Word = self.stack_pop()?;
+        *self
+            .stack
+            .get_mut(address)
+            .ok_or_else(|| eyre::eyre!("local index out of bounds"))? = value;
+        Ok(StepOutcome::Continue)
+    }
+}

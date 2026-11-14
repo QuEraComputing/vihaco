@@ -589,6 +589,28 @@ object payload (kind, capacity, element storage) stays vihaco's own.
 | Entry arguments from the host | Arity is checked at entry today; values are words. The host is trusted to pass the declared types, as with any foreign call. |
 | Host-supplied values (messages, completions of pending instructions) | Outside the instruction stream. The component's rule declares the type it pushes and the component guarantees it at runtime. |
 
+Settled in implementation (step 5):
+
+- The `call_indirect` operand is a `vihaco_abi::FunctionType`, written like a
+  function header's types: `(u64, f64) -> u64`, `() -> ()`, or
+  `(u64) -> (u64, f64)`. Types are numeric (`struct 0`, `type 0`); names are
+  not resolved inside it. The function reference is on top, above the
+  arguments. The stdlib program device compares the operand with the target's
+  metadata signature; the `typed-declarations` CPU receives the target's
+  signature in a new `message::IndirectCallee` and compares it. The legacy enum
+  build keeps an operand-free `call_indirect` with no check.
+- Untyped locals are `load i` and `store i`. A typed `load_<t>` / `store_<t>`
+  requires the local to be declared exactly `<t>`. Every store checks the
+  operand against the declared type and leaves the local's slot unchanged, so
+  locals keep their declared types for the whole function.
+- `TypedSlot::known_type` exposes a slot's type, so rules can accept a family
+  of types (`array_len` takes any `array _`). Shared helpers in
+  vihaco-verifier (`load_local`, `store_local`, `direct_call_effect`,
+  `indirect_call_effect`, `string_constant`, `function_constant`, `pop_array`)
+  keep the CPU and program-device rules identical.
+- `struct_new` also checks that its lowered field count matches the struct
+  table, because the runtime pops the lowered count.
+
 ## Enforcement
 
 Verification should not be optional for execution: a `Verified<M>` wrapper

@@ -4,4 +4,4 @@
 #[path = "value.rs"]
 pub mod value;
 
-pub use value::{Type, Value};
+pub use value::{FunctionType, Type, Value};

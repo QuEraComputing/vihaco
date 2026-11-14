@@ -26,6 +26,10 @@
 //!   [`Constants`]: the standard capabilities beyond the operand stack, with
 //!   [`call_effect`] and [`return_effect`] for calls and returns checked
 //!   against signatures.
+//! - Shared rule helpers for instructions several dialects implement:
+//!   [`load_local`] and [`store_local`], [`direct_call_effect`] and
+//!   [`indirect_call_effect`], [`string_constant`] and [`function_constant`],
+//!   and [`pop_array`].
 //! - [`ModuleVerifier`]: the standard context for a [`LocalModule`] using
 //!   vihaco's [`Type`] and [`Value`], providing every standard capability
 //!   from the module's metadata. [`verify_module`] verifies a whole module
@@ -94,6 +98,7 @@ mod capability;
 mod diagnostic;
 mod engine;
 mod module;
+mod rules;
 mod slot;
 mod stack;
 mod state;
@@ -106,8 +111,12 @@ pub use engine::{
     FunctionSpan, Rejection, TypeMaps, Verification, VerifyOptions, verify_functions,
 };
 pub use module::{ComponentState, ModuleVerifier, WithState, verify_module};
+pub use rules::{
+    direct_call_effect, function_constant, indirect_call_effect, load_local, pop_array,
+    store_local, string_constant,
+};
 pub use slot::{Lattice, TypeSlot, TypedSlot, type_satisfies};
 pub use stack::{Frame, FrameState, OperandStack, stack_effect};
 pub use state::AbstractState;
 
-pub use vihaco_abi::{Flow, Type, Value, Verify};
+pub use vihaco_abi::{Flow, FunctionType, Type, Value, Verify};

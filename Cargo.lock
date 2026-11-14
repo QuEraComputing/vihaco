@@ -708,6 +708,7 @@ dependencies = [
  "vihaco-parser",
  "vihaco-parser-derive",
  "vihaco-runtime",
+ "vihaco-verifier",
 ]
 
 [[package]]
@@ -800,6 +801,7 @@ dependencies = [
  "vihaco-parser-derive",
  "vihaco-runtime",
  "vihaco-syntax",
+ "vihaco-verifier",
 ]
 
 [[package]]
