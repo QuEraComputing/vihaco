@@ -363,6 +363,8 @@ pub enum DiagnosticKind {
     ReturnCountMismatch { declared: usize, found: usize },
     LocalIndexOutOfRange { index: u32, count: u32 },
     InvalidControlFlowTarget { target: u32 },
+    /// A function's `start..end` is reversed or extends past the code.
+    InvalidFunctionSpan { start: u32, end: u32, code_len: usize },
     MissingTerminator,
     Unreachable,
     /// A component-defined error, from a rule or capability.
@@ -372,11 +374,18 @@ pub enum DiagnosticKind {
 
 - Standard capabilities return a `VerifyError` that maps to a structured kind;
   any other error a rule returns becomes `Rule`.
-- A rule error ends its block's replay, so a block reports at most one rule
-  error; blocks downstream still report from their own converged states.
-- Consecutive underflows at one address collapse into one.
+- A rule error ends its block, so a block reports at most one rule error, and
+  the block passes no state to its successors. Blocks with states from other
+  paths still report; code reachable only through the failed block is not
+  analysed, which is safe because verification has already failed.
+- Consecutive underflows at one address collapse into one: a rule returns one
+  result per address, and the replay visits each address once.
 - `Unreachable` is a **warning**: unreachable code never runs, and code
-  generators emit it routinely. Every other kind is an error.
+  generators emit it routinely. One warning is reported per contiguous run of
+  unreachable code, at its first address; unreachable code is not verified and
+  its jump targets are not checked. Every other kind is an error.
+- Diagnostics are sorted by function and address. `DiagnosticKind`
+  is `#[non_exhaustive]`, so new structural checks are not breaking changes.
 
 ## Outputs
 
@@ -386,7 +395,9 @@ A successful verification produces:
   [Enforcement](#enforcement)).
 - Optionally, **type maps**: each leader's converged state. Any address's state
   is one block replay away, so debuggers and observers can show what each local
-  and operand slot holds at a breakpoint (#175, #176). Off by default.
+  and operand slot holds at a breakpoint (#175, #176). Off by default, and
+  produced only when verification succeeds; returning them with a rejection
+  (for an IDE showing types next to errors) is a possible extension.
 
 ## Required metadata changes
 
