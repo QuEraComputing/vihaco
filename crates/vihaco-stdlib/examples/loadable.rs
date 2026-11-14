@@ -12,7 +12,7 @@ use vihaco_bytecode::{NoContext, SSTFile};
 use vihaco_cpu::CPU;
 use vihaco_module::{
     loader::MetadataLoweringContext,
-    module::{LocalModule, ProgramMetadata},
+    module::{LocalModule, ProgramDirective, ProgramHeader, StandardDirective},
 };
 use vihaco_runtime::{
     Apply, BuildMessage, Execute, HasInstructionSet, ReusableMessageRecipe, Step, composite, field,
@@ -107,35 +107,42 @@ struct ExperimentInfo {
     description: String,
 }
 
-type Metadata = ProgramMetadata<Value, Type>;
-
-// A header is a collection of declarations. Each entry is collected separately;
-// metadata can appear before or after other entries.
+// A header is a list of directives, one per line. The standard directives
+// (`.file`, `.func`, `.entry`, `.const`, `.source_symbol`) describe the
+// program; `experiment.description` is this application's own directive.
 #[derive(Debug, vihaco_parser_derive::Parse)]
 #[syntax_class(metadata)]
 enum HeaderDeclaration {
     #[pattern = "$0"]
-    Metadata(Metadata),
+    Standard(ProgramDirective<Value, Type>),
     #[pattern = "experiment.description $0"]
     Description(String),
 }
 
+// Lets the checker and formatter find the standard directives.
+impl StandardDirective for HeaderDeclaration {
+    type Value = Value;
+    type Type = Type;
+
+    fn as_standard(&self) -> Option<&ProgramDirective<Value, Type>> {
+        match self {
+            Self::Standard(directive) => Some(directive),
+            Self::Description(_) => None,
+        }
+    }
+}
+
 #[derive(Default)]
 struct HeaderDeclarationsState {
-    metadata: Option<Metadata>,
+    program: ProgramHeader<Value, Type>,
     description: Option<String>,
 }
 
 impl HeaderDeclaration {
     fn collect_into(self, declarations: &mut HeaderDeclarationsState) -> eyre::Result<()> {
         match self {
-            Self::Metadata(metadata) => {
-                eyre::ensure!(
-                    declarations.metadata.is_none(),
-                    "duplicate metadata declaration"
-                );
-                declarations.metadata = Some(metadata);
-            }
+            // Standard directives are assembled in header order.
+            Self::Standard(directive) => declarations.program.push(directive),
             Self::Description(description) => {
                 eyre::ensure!(
                     declarations.description.is_none(),
@@ -153,14 +160,14 @@ impl HeaderDeclaration {
 }
 
 impl HeaderDeclarationsState {
-    fn finish_program(self) -> eyre::Result<(Metadata, ExperimentInfo)> {
-        let metadata = self
-            .metadata
-            .ok_or_else(|| eyre::eyre!("missing program metadata"))?;
+    /// Assemble the program tables, with the description as `extra` metadata.
+    fn finish_program(
+        self,
+    ) -> eyre::Result<vihaco_module::module::ProgramMetadata<Value, Type, ExperimentInfo>> {
         let description = self
             .description
             .ok_or_else(|| eyre::eyre!("missing experiment.description"))?;
-        Ok((metadata, ExperimentInfo { description }))
+        self.program.finish(ExperimentInfo { description })
     }
 }
 
@@ -188,19 +195,21 @@ impl Runtime {
             HeaderDeclarations<HeaderDeclaration>,
         >::parse_section(section)?;
 
-        // 3. Collect declarations and reject duplicates, then check the required
-        // metadata and description for this program.
+        // 3. Collect declarations and reject duplicates, then assemble the
+        // program tables and require the description.
         let mut header_state = HeaderDeclarationsState::default();
         for declaration in header {
             declaration.collect_into(&mut header_state)?;
         }
-        let (metadata, info) = header_state.finish_program()?;
+        let mut metadata = header_state.finish_program()?;
 
         // 4. Build symbol capabilities from the metadata and the section's symbol
         // table, validate declarations/tables, and lower the code stream.
+        // Lowering interns string literals after the header's strings.
         let mut context = MetadataLoweringContext::new(&metadata, &symbols)?;
         let code = lower_code_with_metadata(code, &symbols, &metadata, &mut context)?;
-        let module = metadata.map_extra(|_| info).into_module(code, symbols)?;
+        metadata.strings = context.into_strings();
+        let module = metadata.into_module(code, symbols)?;
 
         // 5. Wrap the completed module and pair it with a fresh execution machine.
         let image = Image::new(module);
@@ -257,19 +266,6 @@ mod tests {
         Ok(())
     }
 
-    impl vihaco_sst::check::MetadataDeclaration for HeaderDeclaration {
-        type Value = Value;
-        type Type = Type;
-        type Info = vihaco_module::module::NoInfo;
-
-        fn as_metadata(&self) -> Option<&Metadata> {
-            match self {
-                Self::Metadata(metadata) => Some(metadata),
-                Self::Description(_) => None,
-            }
-        }
-    }
-
     fn check(source: &str) -> Vec<String> {
         let source = vihaco_sst::SourceFile::new("loadable.sst", source);
         vihaco_sst::ProgramChecker::<Machine>::new()
@@ -286,34 +282,16 @@ mod tests {
 
 .section controller
 .header
-    experiment.description "Loadable SST example: 21 * 2"
-    metadata {
-        strings: ["main", "helper", "loadable.sst"],
-        ; Table order is independent of executable function order.
-        functions: [
-            {
-                ;; "helper"
-                name: 1,   ; strings[1]: helper
-                signature: { params: [], ret: [u64] },
-                local_count: 0,
-                ;; "loadable.sst"
-                file: 2,
-            },
-            {
-                ;; "main"
-                name: 0,   ; strings[0]: main
-                signature: { params: [], ret: [u64] },
-                local_count: 0,
-                ;; "loadable.sst"
-                file: 2,
-            },
-        ],
-        constants: [],
-        ;; @main
-        main_function: 1,  ; functions[1], not instruction address 1.
-        source_symbols: [],
-        extra: {},
-    }
+experiment.description "Loadable SST example: 21 * 2"
+;; strings[2]
+.file "loadable.sst"
+; Function table order is independent of executable function order.
+;; functions[0], @helper = 0x0006..0x0008
+.func @helper() -> u64, locals 0
+;; functions[1], @main = 0x0000..0x0006
+.func @main() -> u64, locals 0
+;; functions[1]
+.entry @main  ; a function, not an instruction address
 .text
 ;; fn main() -> u64, locals 0, functions[1]
 @main:
@@ -358,7 +336,7 @@ mod tests {
             vihaco_sst::FormatOptions::without_generated_comments(),
         );
         assert!(!plain.contains(";;"));
-        assert!(plain.contains("                name: 1,   ; strings[1]: helper\n"));
+        assert!(plain.contains("\n.entry @main  ; a function, not an instruction address\n"));
         let mut runtime = Runtime::from_sst(&plain)?;
         runtime.controller.execute(&[])?;
         assert_eq!(runtime.controller.machine().execution.stack(), &[42]);
@@ -375,16 +353,15 @@ mod tests {
         let source = include_str!("loadable.sst")
             .replace("@helper:", "@helpr:")
             .replace("br @done", "br @finish")
-            .replace("main_function: 1,", "main_function: 2,");
+            .replace(".entry @main", ".entry @mian");
         assert_eq!(
             check(&source),
             [
-                "11:23: error: function `@helper` (metadata.functions[0]) has no `@helper:` \
-                 symbol definition",
-                "24:24: error: metadata.main_function: function index 2 is out of range \
-                 (metadata.functions has 2 entries)",
-                "30:33: error: function `@helper` has no `@helper:` symbol definition",
-                "33:28: error: undefined symbol `@finish`",
+                "8:7: error: function `@helper` (functions[0]) has no `@helper:` symbol \
+                 definition",
+                "10:8: error: `.entry @mian` names no `.func` directive",
+                "13:33: error: function `@helper` has no `@helper:` symbol definition",
+                "16:28: error: undefined symbol `@finish`",
             ]
         );
     }
@@ -393,7 +370,7 @@ mod tests {
     fn duplicate_declarations_are_rejected_during_collection() {
         let source = include_str!("loadable.sst").replace(
             "experiment.description \"Loadable SST example: 21 * 2\"",
-            "experiment.description \"first\"\n    experiment.description \"second\"",
+            "experiment.description \"first\"\nexperiment.description \"second\"",
         );
         let error = Runtime::from_sst(&source)
             .err()

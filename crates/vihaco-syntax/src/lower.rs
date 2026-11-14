@@ -6,6 +6,7 @@
 use crate::{ParsedModule, Symbol};
 use eyre::WrapErr;
 use vihaco_abi::{Lower, Value};
+use vihaco_module::loader::InternedStrings;
 use vihaco_module::module::{LocalModule, ProgramMetadata};
 
 /// Describe an address relative to the nearest preceding symbol, e.g. `@main+3`.
@@ -57,7 +58,10 @@ where
 /// itself; neither is moved or cloned by this function.
 ///
 /// Function declarations, the symbol table, and table bounds are validated
-/// before lowering starts. The returned code can be assembled with
+/// before lowering starts. Lowering may intern string literals in the
+/// context; store the context's completed string table in the metadata
+/// (`metadata.strings = context.into_strings()` for
+/// `MetadataLoweringContext`) and assemble the returned code with
 /// [`ProgramMetadata::into_module`], which also checks standard value
 /// references.
 ///
@@ -82,7 +86,8 @@ where
 impl<I, H> ParsedModule<I, H> {
     /// Validate declarations, symbols, and tables, lower instructions with the
     /// supplied context, and assemble a module without inventing or reordering
-    /// metadata.
+    /// metadata. The module's string table is the context's: the metadata's
+    /// strings followed by those interned during lowering.
     ///
     /// The consumer extracts the metadata from its chosen header schema and
     /// prepares section-wide context capabilities (for example
@@ -99,9 +104,12 @@ impl<I, H> ParsedModule<I, H> {
     ) -> eyre::Result<LocalModule<I::Runtime, Value, Ty, Info>>
     where
         I: Lower<C>,
+        C: InternedStrings,
     {
         metadata.validate(&self.symbols, self.code.len())?;
         let code = lower_code(self.code, &self.symbols, context)?;
+        let mut metadata = metadata;
+        metadata.strings = context.take_strings();
         metadata.into_module(code, self.symbols)
     }
 }

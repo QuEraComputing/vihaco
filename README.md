@@ -144,7 +144,8 @@ program's image.
 
 The complete [Loadable example](crates/vihaco-stdlib/examples/loadable.rs) and its
 [SST source](crates/vihaco-stdlib/examples/loadable.sst) show section selection,
-individual header-declaration preparation, metadata validation, symbolic function/label lowering,
+standard header directives (`.func`, `.entry`, …) composed with an application directive,
+metadata validation, symbolic function/label lowering,
 image construction, authored Steps, and execution. Run it from the repository root:
 
 ```sh

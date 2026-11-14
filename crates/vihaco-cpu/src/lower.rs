@@ -144,7 +144,7 @@ mod metadata_context_tests {
     use vihaco_parser::{Ident, QuotedString};
 
     #[test]
-    fn metadata_context_supplies_cpu_capabilities_without_extending_strings() -> eyre::Result<()> {
+    fn metadata_context_supplies_cpu_capabilities_and_interns_strings() -> eyre::Result<()> {
         let metadata: ProgramMetadata = ProgramMetadata {
             strings: vec!["helper".into(), "main".into(), "hello".into()],
             functions: vec![
@@ -193,12 +193,11 @@ mod metadata_context_tests {
             cpu::ConstString::<Syntax>(StringOperand::Literal(QuotedString("hello".into())))
                 .lower(&mut context)?;
         assert_eq!(string, cpu::ConstString(crate::encode_string_id(2)));
-        assert!(
-            cpu::ConstString::<Syntax>(StringOperand::Literal(QuotedString("missing".into())))
-                .lower(&mut context)
-                .is_err()
-        );
+        let new = cpu::ConstString::<Syntax>(StringOperand::Literal(QuotedString("new".into())))
+            .lower(&mut context)?;
+        assert_eq!(new, cpu::ConstString(crate::encode_string_id(3)));
         assert_eq!(metadata.strings, ["helper", "main", "hello"]);
+        assert_eq!(context.into_strings(), ["helper", "main", "hello", "new"]);
         Ok(())
     }
 }

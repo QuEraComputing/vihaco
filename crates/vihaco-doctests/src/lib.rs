@@ -45,19 +45,28 @@ mod ex_quickstart {
         let source = include_str!("../../../docs/examples/first-machine.sst");
         let file = SSTFile::<NoContext>::from_text(source).unwrap();
         let parsed =
-            ParsedModule::<SourceInstruction, HeaderDeclarations<ProgramMetadata>>::parse_section(
+            ParsedModule::<SourceInstruction, HeaderDeclarations<ProgramDirective>>::parse_section(
                 file.section("main").unwrap(),
             )
             .unwrap();
 
-        for metadata in &parsed.header.0 {
-            let printed = metadata.to_source().unwrap();
-            let reparsed = ProgramMetadata::parser()
-                .parse(printed.as_str())
-                .into_result()
-                .unwrap();
-            assert_eq!(&reparsed, metadata, "{printed}");
-        }
+        let header = source.split(".header\n").nth(1).unwrap();
+        let header = header.split(".text").next().unwrap();
+        let printed: Vec<_> = parsed
+            .header
+            .0
+            .iter()
+            .map(|directive| {
+                let printed = directive.to_source().unwrap();
+                let reparsed = ProgramDirective::parser()
+                    .parse(printed.as_str())
+                    .into_result()
+                    .unwrap();
+                assert_eq!(&reparsed, directive, "{printed}");
+                printed
+            })
+            .collect();
+        assert_eq!(printed, header.lines().collect::<Vec<_>>());
 
         let text = source.split(".text").nth(1).unwrap();
         let lines: Vec<_> = text
@@ -87,24 +96,12 @@ sst v2
 
 .section main
 .header
-    metadata {
-        strings: [\"main\", \"first-machine.sst\"],
-        functions: [
-            {
-                ;; \"main\"
-                name: 0,
-                signature: { params: [], ret: [u64] },
-                local_count: 0,
-                ;; \"first-machine.sst\"
-                file: 1,
-            },
-        ],
-        constants: [],
-        ;; @main
-        main_function: 0,
-        source_symbols: [],
-        extra: {},
-    }
+;; strings[1]
+.file \"first-machine.sst\"
+;; functions[0], @main = 0x0000..0x0004
+.func @main() -> u64, locals 0
+;; functions[0]
+.entry @main
 .text
 ;; fn main() -> u64, locals 0, functions[0]
 @main:
@@ -124,15 +121,16 @@ sst v2
             header,
             code,
             symbols,
-        } = ParsedModule::<SourceInstruction, HeaderDeclarations<ProgramMetadata>>::parse_section(
+        } = ParsedModule::<SourceInstruction, HeaderDeclarations<ProgramDirective>>::parse_section(
             section,
         )?;
-        let metadata = header
+        let mut metadata = header
             .into_iter()
-            .next()
-            .ok_or_else(|| eyre::eyre!("missing program metadata"))?;
+            .collect::<ProgramHeader>()
+            .finish(NoInfo)?;
         let mut context = MetadataLoweringContext::new(&metadata, &symbols)?;
         let code = lower_code_with_metadata(code, &symbols, &metadata, &mut context)?;
+        metadata.strings = context.into_strings();
         let module = metadata.into_module(code, symbols)?;
         let machine = Machine {
             execution: ExecutionState::new(),

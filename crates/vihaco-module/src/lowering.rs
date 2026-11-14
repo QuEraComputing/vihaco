@@ -1,24 +1,43 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Symbol lookups for metadata-backed instruction lowering.
+//! Symbol lookups and string interning for metadata-backed instruction
+//! lowering.
 
 use crate::module::{ProgramMetadata, Symbol};
 use std::collections::HashMap;
 
-/// Symbol lookups backed by explicit, immutable program metadata and the
+/// A lowering context that interns string literals into the section's string
+/// table.
+///
+/// `vihaco_syntax::ParsedModule::lower_with_metadata` uses it to move the
+/// completed table into the module. Contexts that wrap
+/// [`MetadataLoweringContext`] implement it by delegating.
+pub trait InternedStrings {
+    /// Take the string table: the metadata's strings followed by every string
+    /// interned during lowering, in first-occurrence order.
+    fn take_strings(&mut self) -> Vec<String>;
+}
+
+/// Symbol lookups and string interning backed by program metadata and the
 /// section's symbol table.
 ///
 /// Every `@name` operand resolves through one section-wide symbol table:
 /// [`label_address`](Self::label_address) accepts any symbol, while
 /// [`function_address`](Self::function_address) additionally requires a
 /// function declaration with that name. Function indices retain metadata table
-/// order, independently of executable addresses. String lookups never append to
-/// or reorder the supplied table. The context is independent of any
-/// instruction set; dialect crates implement their lowering-capability traits
-/// for it.
+/// order, independently of executable addresses.
+///
+/// [`string_index`](Self::string_index) interns: a string already in the
+/// table keeps its index, and a new one is appended. Lowering a code stream
+/// in address order therefore appends its literals in address order, after
+/// the strings the header derived. Take the completed table with
+/// [`into_strings`](Self::into_strings) and store it in the metadata before
+/// assembling the module. The context is independent of any instruction set;
+/// dialect crates implement their lowering-capability traits for it.
 #[derive(Debug)]
 pub struct MetadataLoweringContext {
+    table: Vec<String>,
     strings: HashMap<String, u32>,
     functions: HashMap<String, u32>,
     symbols: HashMap<String, u32>,
@@ -40,6 +59,7 @@ impl MetadataLoweringContext {
         for (index, text) in metadata.strings.iter().enumerate() {
             strings.entry(text.clone()).or_insert(u32::try_from(index)?);
         }
+        let string_table = metadata.strings.clone();
         let mut functions = HashMap::new();
         for index in 0..metadata.functions.len() {
             let name = metadata.function_name(index)?;
@@ -59,6 +79,7 @@ impl MetadataLoweringContext {
             );
         }
         Ok(Self {
+            table: string_table,
             strings,
             functions,
             symbols: table,
@@ -93,13 +114,39 @@ impl MetadataLoweringContext {
             .ok_or_else(|| eyre::eyre!("undefined symbol `@{name}`"))
     }
 
-    /// Look up decoded string contents without modifying the supplied table.
-    /// Equal strings resolve to the first matching table entry.
-    pub fn string_index(&self, text: &str) -> eyre::Result<u32> {
-        self.strings
-            .get(text)
-            .copied()
-            .ok_or_else(|| eyre::eyre!("string literal `{text}` is missing from metadata.strings"))
+    /// Intern decoded string contents: the index of the first equal entry, or
+    /// of a new entry appended to the table.
+    ///
+    /// # Errors
+    /// Fails only if the table cannot represent another `u32` index.
+    pub fn string_index(&mut self, text: &str) -> eyre::Result<u32> {
+        if let Some(&index) = self.strings.get(text) {
+            return Ok(index);
+        }
+        let index = u32::try_from(self.table.len())
+            .map_err(|_| eyre::eyre!("string table exceeds u32 index space"))?;
+        self.table.push(text.to_owned());
+        self.strings.insert(text.to_owned(), index);
+        Ok(index)
+    }
+
+    /// The string table so far: the metadata's strings, then every interned
+    /// string.
+    pub fn strings(&self) -> &[String] {
+        &self.table
+    }
+
+    /// The completed string table, for `metadata.strings` before
+    /// `metadata.into_module(...)`.
+    pub fn into_strings(self) -> Vec<String> {
+        self.table
+    }
+}
+
+impl InternedStrings for MetadataLoweringContext {
+    fn take_strings(&mut self) -> Vec<String> {
+        self.strings.clear();
+        std::mem::take(&mut self.table)
     }
 }
 
@@ -146,7 +193,7 @@ mod tests {
     #[test]
     fn lookups_preserve_table_indices_and_resolve_through_symbols() -> eyre::Result<()> {
         let metadata = metadata();
-        let context = MetadataLoweringContext::new(&metadata, &symbols())?;
+        let mut context = MetadataLoweringContext::new(&metadata, &symbols())?;
         assert_eq!(context.function_index("later")?, 0);
         assert_eq!(context.function_address("later")?, 7);
         assert_eq!(context.function_index("first")?, 1);
@@ -155,8 +202,13 @@ mod tests {
         // Function symbols are ordinary symbols too.
         assert_eq!(context.label_address("later")?, 7);
         assert_eq!(context.string_index("hello")?, 2);
-        assert!(context.string_index("missing").is_err());
+        // New strings are appended once, in first-occurrence order.
+        assert_eq!(context.string_index("new")?, 4);
+        assert_eq!(context.string_index("newer")?, 5);
+        assert_eq!(context.string_index("new")?, 4);
         assert_eq!(metadata.strings.len(), 4);
+        assert_eq!(&context.strings()[4..], ["new", "newer"]);
+        assert_eq!(context.into_strings().len(), 6);
         Ok(())
     }
 

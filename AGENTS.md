@@ -110,7 +110,12 @@ self-contained component you can use directly or copy as a starting point.
 - **`syntax/`** — typed SST parsing and module construction. A section's
   `.text` is a flat instruction stream with `@name:` symbol definitions; the
   parser yields a `ParsedModule` with `code: Vec<I>` and a symbol table.
-  Function signatures live only in the header metadata.
+  SST is line-based like assembly: one statement per line (continued only
+  inside open brackets), `;` comments, generated `;;` notes. The standard
+  header is flat directives (`.file`, `.func`, `.entry`, `.const`,
+  `.source_symbol`, `vihaco_module::module::ProgramDirective`) that
+  `ProgramHeader` assembles into `ProgramMetadata`, deriving every table;
+  function signatures live only in `.func` directives.
   Pattern-derived instruction enums implement `SurfaceInstruction`
   automatically; consumers use `Resolve` to turn the typed parsed module into
   their runtime module.
