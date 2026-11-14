@@ -99,12 +99,12 @@ line and may appear wherever the header and <code>.text</code> grammars allow wh
 on their own line, after an instruction or declaration, or between the fields of
 a <code>metadata { ... }</code> record. They are never part of a string literal. The
 <code>.global</code> block is consumer-defined and decides its own comment rules.</p>
-<p>Comments that start with <code>//!</code> are <em>generated</em>: tools such as the
-<a href="#formatting-sst-files">formatter</a> write them to explain the file and replace
-them every time they run, so do not write <code>//!</code> comments by hand. <code>//!</code> starts
-generated text wherever it appears, including inside a <code>//</code> comment: in
-<code>name: 1, // the helper //! "helper"</code>, <code>// the helper</code> is yours and
-<code>//! "helper"</code> is generated. Parsers treat both kinds as ordinary comments.</p>
+<p>A comment on its own line that starts with <code>//!</code> is <em>generated</em>: tools such as
+the <a href="#formatting-sst-files">formatter</a> write it directly above the item it
+explains and replace it every time they run, so do not write such lines by
+hand. Every other comment is yours, including a trailing comment that starts
+with <code>//!</code> or contains it, such as <code>call 0, @helper  // see //! notes</code>. Parsers
+treat both kinds as ordinary comments.</p>
 <h2 id="target-instruction-and-function-syntax">Target instruction and function syntax</h2>
 <p>The target composite’s <code>&#x3C;Machine as HasInstructionSet>::Syntax</code> determines which
 instructions the loader accepts. Emit the device route, dialect, and mnemonic,
@@ -386,7 +386,7 @@ fn main() {
 
     // Without generated comments, only the layout changes.
     let plain = format_program::&#x3C;Machine>(&#x26;source, FormatOptions::without_generated_comments());
-    assert!(!plain.unwrap().contains("//!"));
+    assert!(!plain.unwrap().lines().any(|line| line.trim_start().starts_with("//!")));
 }
 </code></pre>
 <p>For <a href="/vihaco/pr-preview/pr-188/guide/first-machine"><code>first-machine.sst</code></a> the result is:</p>
@@ -395,22 +395,26 @@ fn main() {
 .section main
 .header
     metadata {
+        strings: ["main", "first-machine.sst"],
         functions: [
             {
-                name: 0,   //! "main"
+                //! "main"
+                name: 0,
                 signature: { params: [], ret: [u64] },
                 local_count: 0,
-                file: 1,   //! "first-machine.sst"
+                //! "first-machine.sst"
+                file: 1,
             },
         ],
         constants: [],
-        strings: ["main", "first-machine.sst"],
-        main_function: 0,  //! @main
+        //! @main
+        main_function: 0,
         source_symbols: [],
         extra: {},
     };
 .text
-@main:  //! fn main() -> u64, locals 0, functions[0]
+//! fn main() -> u64, locals 0, functions[0]
+@main:
     execution::program::const_u64 20
     execution::program::const_u64 22
     calculator::arithmetic::add
@@ -433,19 +437,22 @@ after two spaces. One blank line precedes <code>.global</code> and every <code>.
 whitespace and trailing blank lines are removed.</li>
 <li>Header declarations are indented four spaces and end with <code>;</code>. A
 <code>metadata { ... }</code> record always puts one field per line. Nested records and
-lists stay on one line when they fit in <code>max_width</code> (100 columns by default)
+lists stay on one line when they fit in <code>max_width</code> (80 columns by default)
 and contain no comments; otherwise they are broken one item per line with a
 trailing comma, like rustfmt. Record fields appear in their declaration
-order, so the standard record starts with <code>functions</code>. Tuples and
-declarations whose pattern needs its punctuation on one line are never
-broken.</li>
+order: the standard record is <code>strings</code>, <code>functions</code>, <code>constants</code>,
+<code>main_function</code>, <code>source_symbols</code>, <code>extra</code> (any order is accepted when
+parsing). Tuples and declarations whose pattern needs its punctuation on one
+line are never broken.</li>
 <li>In <code>.text</code>, each symbol definition and each instruction gets its own line:
-<code>@name:</code> at column 0 and instructions indented four spaces.</li>
+<code>@name:</code> at column 0 and instructions indented four spaces, with no <code>;</code>.</li>
 <li>Blank lines between items are kept, collapsed to at most one. Blank lines at
 the start of a block and inside a declaration are removed.</li>
-<li>Trailing comments of a block are aligned to one column: two spaces past the
-longest commented line, but no further than <code>comment_column</code> (column 60 by
-default). Longer lines put their comment two spaces after the code.</li>
+<li>Generated <code>//!</code> comments always sit on their own lines, directly above the
+item they describe and at its indentation, one line per note.</li>
+<li>Trailing user comments of a block are aligned to one column: two spaces past
+the longest commented line, but no further than <code>comment_column</code> (column 60
+by default). Longer lines put their comment two spaces after the code.</li>
 <li>Lines have no trailing whitespace, line endings become <code>\n</code>, and the file
 ends with a single newline.</li>
 </ul>
@@ -453,15 +460,17 @@ ends with a single newline.</li>
 <p>A <code>//</code> comment on its own line stays above the item that follows it. A trailing
 comment stays at the end of its item’s line; inside a header record, the item
 is the field or list entry, and it travels with that field when <code>Print</code>
-reorders fields. Comments at the end of a block stay there, unless a blank line
-separates them from the last item: then they introduce the next directive and
-are printed just above it. When one item had several trailing comments, the
-first stays trailing and the others move above the item. If a comment’s
-position inside a declaration cannot be matched to the printed declaration, it
-is moved above the declaration.</p>
-<p>Generated comments are rewritten every time. Without them
-(<code>FormatOptions::without_generated_comments()</code>), existing <code>//!</code> comments are
-still removed. The formatter writes:</p>
+reorders fields. A comment never leaves the block it was written in: comments
+after the last item of a <code>.header</code> or <code>.text</code> stay at the end of that block, at
+its indentation, after a blank line if there was one. When one item had several
+trailing comments, the first stays trailing and the others move above the item.
+If a comment’s position inside a declaration cannot be matched to the printed
+declaration, it is moved above the declaration.</p>
+<p>Generated comments are rewritten every time: every own-line <code>//!</code> comment is
+removed and fresh ones are written. Without them
+(<code>FormatOptions::without_generated_comments()</code>), existing own-line <code>//!</code>
+comments are still removed. Each note is written on the line above the item it
+describes:</p>
 
 
 
@@ -503,9 +512,16 @@ still removed. The formatter writes:</p>
 
 
 
-<table><thead><tr><th>Where</th><th>Generated comment</th></tr></thead><tbody><tr><td>Function symbol</td><td><code>@main:  //! fn main() -> u64, locals 0, functions[1]</code></td></tr><tr><td>Other symbol</td><td><code>@done:  //! 0x0005</code> (its address)</td></tr><tr><td><code>@name</code> operand</td><td><code>br @done  //! @done = 0x0005</code>; functions add their index: <code>//! @helper = 0x0006 (functions[0])</code></td></tr><tr><td>String literal operand</td><td><code>print "hi"  //! "hi" = strings[3]</code></td></tr><tr><td><code>functions[i].name</code>, <code>.file</code></td><td><code>name: 1,  //! "helper"</code> and <code>file: 2,  //! "loadable.sst"</code></td></tr><tr><td><code>functions[i].signature</code> with parameters</td><td><code>//! fn helper(x: u64) -> u64</code></td></tr><tr><td><code>main_function</code></td><td><code>main_function: 1,  //! @main</code></td></tr><tr><td><code>str N</code> / <code>fn N</code> constants</td><td><code>str 3,  //! "hi"</code> and <code>fn 0,  //! @helper</code></td></tr></tbody></table>
-<p>Notes are looked up in the section’s metadata and symbol table. Several notes
-on one line are separated by <code>; </code>. Machine-specific notes can be added with
+<table><thead><tr><th>Item</th><th>Generated comment</th></tr></thead><tbody><tr><td>Function symbol <code>@main:</code></td><td><code>//! fn main() -> u64, locals 0, functions[1]</code></td></tr><tr><td>Other symbol <code>@done:</code></td><td><code>//! 0x0005</code> (its address)</td></tr><tr><td>Instruction with an <code>@name</code> operand</td><td><code>//! @done = 0x0005</code>; functions add their index: <code>//! @helper = 0x0006 (functions[0])</code></td></tr><tr><td>Instruction with a string literal</td><td><code>//! "hi" = strings[3]</code></td></tr><tr><td><code>functions[i].name</code>, <code>.file</code></td><td><code>//! "helper"</code>, <code>//! "loadable.sst"</code></td></tr><tr><td><code>functions[i].signature</code> with parameters</td><td><code>//! fn helper(x: u64) -> u64</code></td></tr><tr><td><code>main_function</code></td><td><code>//! @main</code></td></tr><tr><td><code>str N</code> / <code>fn N</code> constants</td><td><code>//! "hi"</code>, <code>//! @helper</code></td></tr></tbody></table>
+<p>For example:</p>
+<pre><code class="language-text">//! fn main() -> u64, locals 0, functions[1]
+@main:
+    //! @helper = 0x0006 (functions[0])
+    execution::program::call 0, @helper
+    execution::program::const_u64 999  // never reached
+</code></pre>
+<p>Notes are looked up in the section’s metadata and symbol table. An item with
+several notes gets one <code>//!</code> line per note. Machine-specific notes can be added with
 <code>Formatter::with_annotator</code>, which receives each instruction with its address,
 the symbol table, and the string table. For an application header, use
 <code>Formatter::with_checker</code> with the same checker you would use for
