@@ -251,6 +251,80 @@ mod tests {
             .collect()
     }
 
+    /// `loadable.sst` in the formatter's canonical layout.
+    const FORMATTED: &str = r#"sst v2
+
+.section controller
+.header
+    experiment.description "Loadable SST example: 21 * 2";
+    metadata {
+        // Table order is independent of executable function order.
+        functions: [
+            {
+                name: 1,   // strings[1]: helper //! "helper"
+                signature: { params: [], ret: [u64] },
+                local_count: 0,
+                file: 2,   //! "loadable.sst"
+            },
+            {
+                name: 0,   // strings[0]: main //! "main"
+                signature: { params: [], ret: [u64] },
+                local_count: 0,
+                file: 2,   //! "loadable.sst"
+            },
+        ],
+        constants: [],
+        strings: ["main", "helper", "loadable.sst"],
+        main_function: 1,  // functions[1], not instruction address 1. //! @main
+        source_symbols: [],
+        extra: {},
+    };
+.text
+@main:                                   //! fn main() -> u64, locals 0, functions[1]
+    execution::program::call 0, @helper  //! @helper = 0x0006 (functions[0])
+    execution::program::const_u64 2
+    cpu::cpu::mul_u64
+    execution::program::br @done         //! @done = 0x0005
+    execution::program::const_u64 999
+@done:                                   //! 0x0005
+    execution::program::ret 1
+@helper:                                 //! fn helper() -> u64, locals 0, functions[0]
+    execution::program::const_u64 21
+    execution::program::ret 1
+"#;
+
+    fn format(text: &str, options: vihaco_sst::FormatOptions) -> String {
+        let source = vihaco_sst::SourceFile::new("loadable.sst", text);
+        let checker = vihaco_sst::ProgramChecker::<Machine>::new()
+            .with_header::<vihaco_sst::Declarations<HeaderDeclaration>>();
+        vihaco_sst::Formatter::with_checker(checker)
+            .options(options)
+            .format(&source)
+            .unwrap_or_else(|report| panic!("{}", report.render(&source)))
+    }
+
+    #[test]
+    fn the_formatted_example_is_pinned_and_still_runs() -> eyre::Result<()> {
+        let formatted = format(include_str!("loadable.sst"), Default::default());
+        assert_eq!(formatted, FORMATTED);
+        assert_eq!(format(&formatted, Default::default()), formatted);
+        assert_eq!(check(&formatted), Vec::<String>::new());
+        let mut runtime = Runtime::from_sst(&formatted)?;
+        runtime.controller.execute(&[])?;
+        assert_eq!(runtime.controller.machine().execution.stack(), &[42]);
+
+        let plain = format(
+            &formatted,
+            vihaco_sst::FormatOptions::without_generated_comments(),
+        );
+        assert!(!plain.contains("//!"));
+        assert!(plain.contains("                name: 1,   // strings[1]: helper\n"));
+        let mut runtime = Runtime::from_sst(&plain)?;
+        runtime.controller.execute(&[])?;
+        assert_eq!(runtime.controller.machine().execution.stack(), &[42]);
+        Ok(())
+    }
+
     #[test]
     fn the_example_source_checks_clean_without_executing() {
         assert_eq!(check(include_str!("loadable.sst")), Vec::<String>::new());
