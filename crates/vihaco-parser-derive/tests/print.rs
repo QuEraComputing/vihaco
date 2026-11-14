@@ -155,7 +155,7 @@ enum Operand {
     Items {
         items: Vec<u32>,
     },
-    #[pattern = "`block` `{` $0 `;` $1 `}`"]
+    #[pattern = "`block` `{` $0 `,` $1 `}`"]
     Block(u32, u32),
     #[pattern = "`key` $0 `:` $1"]
     Keyed(Ident, BareToken),
@@ -177,7 +177,7 @@ fn value_patterns_cover_every_punctuation_literal() {
             },
             "list[[1, 2, 3]]",
         ),
-        (Operand::Block(1, 2), "block{1; 2}"),
+        (Operand::Block(1, 2), "block{1, 2}"),
         // A capture before `:` gets a space so a token cannot absorb the colon.
         (
             Operand::Keyed(ident("a:b"), BareToken("@c".into())),
@@ -204,7 +204,7 @@ enum Prim {
 enum Ty {
     #[pattern = "$0"]
     Prim(Prim),
-    #[pattern = "`array` `[` $0 `;` $1 `]`"]
+    #[pattern = "`array` `[` $0 `,` $1 `]`"]
     Array(Prim, u32),
     #[pattern = "`fn` `(` $0 `)`"]
     Function(Vec<Prim>),
@@ -214,7 +214,7 @@ enum Ty {
 fn type_patterns_round_trip() {
     let cases = [
         (Ty::Prim(Prim::Int), "int"),
-        (Ty::Array(Prim::Bool, 4), "array[bool; 4]"),
+        (Ty::Array(Prim::Bool, 4), "array[bool, 4]"),
         (Ty::Function(vec![Prim::Int, Prim::Bool]), "fn([int, bool])"),
         (Ty::Function(vec![]), "fn([])"),
     ];

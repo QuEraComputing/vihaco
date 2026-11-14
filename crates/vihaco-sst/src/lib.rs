@@ -12,8 +12,8 @@
 //!   typed [`ProgramChecker`] for a `#[composite]` machine
 //!   ([`check_program`]). Checking never executes a program.
 //! - [`format`](mod@format) — a [`Formatter`] that rewrites a checked file into a
-//!   canonical layout ([`format_program`]), keeping user `//` comments and
-//!   regenerating `//!` annotations, without changing what the file means.
+//!   canonical layout ([`format_program`]), keeping user `;` comments and
+//!   regenerating `;;` annotations, without changing what the file means.
 //!
 //! Framing checks need no machine:
 //!

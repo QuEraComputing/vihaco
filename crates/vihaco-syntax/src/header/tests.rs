@@ -18,7 +18,7 @@ enum Declaration {
 #[test]
 fn declarations_preserve_order_and_support_comments_and_owned_iteration() -> eyre::Result<()> {
     let headers = HeaderDeclarations::<Declaration>::from_text(
-        "// configuration\ndevice gain 2; device name \"controller\"; // end\n",
+        "; configuration\ndevice gain 2\n  device name \"controller\" ; end\n",
     )?;
     assert_eq!(
         headers.into_iter().collect::<Vec<_>>(),
@@ -30,7 +30,7 @@ fn declarations_preserve_order_and_support_comments_and_owned_iteration() -> eyr
 #[test]
 fn empty_headers_are_valid_collections() -> eyre::Result<()> {
     assert!(
-        HeaderDeclarations::<Declaration>::from_text(" // no declarations\n")?
+        HeaderDeclarations::<Declaration>::from_text(" ; no declarations\n\n")?
             .0
             .is_empty()
     );
@@ -38,12 +38,14 @@ fn empty_headers_are_valid_collections() -> eyre::Result<()> {
 }
 
 #[test]
-fn invalid_declarations_and_missing_terminators_are_rejected() {
+fn invalid_declarations_and_statements_sharing_a_line_are_rejected() {
     for source in [
-        "device gain 2",
-        "device unknown 2;",
-        "device gain invalid;",
-        "device gain 2; trailing",
+        "device gain",
+        "device unknown 2",
+        "device gain invalid",
+        "device gain 2 trailing",
+        "device gain 2 device gain 3",
+        "device gain\n2",
     ] {
         assert!(HeaderDeclarations::<Declaration>::from_text(source).is_err());
     }
@@ -58,7 +60,7 @@ fn collections_are_parsed_through_the_section_header_interface() -> eyre::Result
     }
 
     let file = SSTFile::<NoContext>::from_text(
-        "sst v2\n.section main\n.header\ndevice gain 2;\n.text\n@main: example.halt\n",
+        "sst v2\n.section main\n.header\ndevice gain 2\n.text\n@main: example.halt\n",
     )?;
     let parsed = ParsedModule::<Instruction, HeaderDeclarations<Declaration>>::parse_section(
         file.section("main").expect("main section"),

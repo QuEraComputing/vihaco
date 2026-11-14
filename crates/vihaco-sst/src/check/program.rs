@@ -103,7 +103,7 @@ pub type LocatedMetadata<'h, H> = (
     Span,
 );
 
-/// Located `;`-terminated header declarations: the grammar of
+/// Located header declarations, one per line: the grammar of
 /// `vihaco_syntax::HeaderDeclarations<D>`, with spans.
 ///
 /// As a [`CheckHeader`], exactly one declaration must carry program metadata.
@@ -111,7 +111,7 @@ pub type LocatedMetadata<'h, H> = (
 pub struct Declarations<D>(pub Vec<Spanned<D>>);
 
 /// The standard header: `HeaderDeclarations<ProgramMetadata>` syntax, with
-/// one `metadata { ... };` declaration.
+/// one `metadata { ... }` declaration.
 pub type StandardHeader = Declarations<ProgramMetadata>;
 
 impl<D> CheckHeader for Declarations<D>
@@ -166,7 +166,7 @@ where
                         section.name()
                     ),
                 )
-                .with_label("expected `metadata { ... };` in this header")
+                .with_label("expected `metadata { ... }` in this header")
                 .with_note(
                     "every loadable section declares its strings, functions, constants, \
                      entry function, source symbols, and extra metadata",
@@ -482,7 +482,7 @@ where
 }
 
 /// Check every section of `source` as a program for machine `M`, with the
-/// standard `metadata { ... };` header and `MetadataLoweringContext`
+/// standard `metadata { ... }` header and `MetadataLoweringContext`
 /// lowering.
 pub fn check_program<M>(source: &SourceFile) -> Report
 where

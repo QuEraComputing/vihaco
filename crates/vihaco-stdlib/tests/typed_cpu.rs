@@ -293,7 +293,7 @@ fn parse_text(
 
 #[test]
 fn sst_symbols_are_readability_metadata_and_do_not_occupy_runtime_slots() {
-    let parsed = parse_text("@entry: ctl::host::cpu::br 1 @later: spare::cpu::halt").unwrap();
+    let parsed = parse_text("@entry: ctl::host::cpu::br 1\n@later: spare::cpu::halt").unwrap();
     assert_eq!(parsed.code.len(), 2);
     assert_eq!(
         parsed
@@ -1003,13 +1003,13 @@ fn failed_symbol_resolution_keeps_executable_code_and_rejects_duplicates() {
         assert_eq!(loader.image.module.code, prior);
     }
     assert!(
-        load_symbolic(&mut loader, "@main: @same: spare::cpu::halt @same:")
+        load_symbolic(&mut loader, "@main:\n@same: spare::cpu::halt\n@same:")
             .unwrap_err()
             .to_string()
             .contains("duplicate symbol same")
     );
     assert!(
-        load_symbolic(&mut loader, "@main: @main:")
+        load_symbolic(&mut loader, "@main:\n@main:")
             .unwrap_err()
             .to_string()
             .contains("duplicate symbol main")

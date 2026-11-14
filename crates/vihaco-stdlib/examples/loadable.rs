@@ -286,48 +286,48 @@ mod tests {
 
 .section controller
 .header
-    experiment.description "Loadable SST example: 21 * 2";
+    experiment.description "Loadable SST example: 21 * 2"
     metadata {
         strings: ["main", "helper", "loadable.sst"],
-        // Table order is independent of executable function order.
+        ; Table order is independent of executable function order.
         functions: [
             {
-                //! "helper"
-                name: 1,   // strings[1]: helper
+                ;; "helper"
+                name: 1,   ; strings[1]: helper
                 signature: { params: [], ret: [u64] },
                 local_count: 0,
-                //! "loadable.sst"
+                ;; "loadable.sst"
                 file: 2,
             },
             {
-                //! "main"
-                name: 0,   // strings[0]: main
+                ;; "main"
+                name: 0,   ; strings[0]: main
                 signature: { params: [], ret: [u64] },
                 local_count: 0,
-                //! "loadable.sst"
+                ;; "loadable.sst"
                 file: 2,
             },
         ],
         constants: [],
-        //! @main
-        main_function: 1,  // functions[1], not instruction address 1.
+        ;; @main
+        main_function: 1,  ; functions[1], not instruction address 1.
         source_symbols: [],
         extra: {},
-    };
+    }
 .text
-//! fn main() -> u64, locals 0, functions[1]
+;; fn main() -> u64, locals 0, functions[1]
 @main:
-    //! @helper = 0x0006 (functions[0])
+    ;; @helper = 0x0006 (functions[0])
     execution::program::call 0, @helper
     execution::program::const_u64 2
     cpu::cpu::mul_u64
-    //! @done = 0x0005
+    ;; @done = 0x0005
     execution::program::br @done
     execution::program::const_u64 999
-//! 0x0005
+;; 0x0005
 @done:
     execution::program::ret 1
-//! fn helper() -> u64, locals 0, functions[0]
+;; fn helper() -> u64, locals 0, functions[0]
 @helper:
     execution::program::const_u64 21
     execution::program::ret 1
@@ -357,8 +357,8 @@ mod tests {
             &formatted,
             vihaco_sst::FormatOptions::without_generated_comments(),
         );
-        assert!(!plain.contains("//!"));
-        assert!(plain.contains("                name: 1,   // strings[1]: helper\n"));
+        assert!(!plain.contains(";;"));
+        assert!(plain.contains("                name: 1,   ; strings[1]: helper\n"));
         let mut runtime = Runtime::from_sst(&plain)?;
         runtime.controller.execute(&[])?;
         assert_eq!(runtime.controller.machine().execution.stack(), &[42]);
@@ -392,8 +392,8 @@ mod tests {
     #[test]
     fn duplicate_declarations_are_rejected_during_collection() {
         let source = include_str!("loadable.sst").replace(
-            "experiment.description \"Loadable SST example: 21 * 2\";",
-            "experiment.description \"first\"; experiment.description \"second\";",
+            "experiment.description \"Loadable SST example: 21 * 2\"",
+            "experiment.description \"first\"\n    experiment.description \"second\"",
         );
         let error = Runtime::from_sst(&source)
             .err()

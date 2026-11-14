@@ -41,7 +41,7 @@ pub(crate) struct Item {
     pub leading: Vec<String>,
     /// User comments printed after the item on its last line.
     pub trailing: Vec<String>,
-    /// Generated notes, printed as `//!` lines above the item.
+    /// Generated notes, printed as `;;` lines above the item.
     pub notes: Vec<String>,
 }
 
@@ -345,7 +345,7 @@ fn locate(group: &Group, mut path: Vec<Step>, offset: usize, own_line: bool) -> 
 pub(crate) struct Placement {
     /// Own-line comments to print before the declaration.
     pub leading: Vec<String>,
-    /// Comments to print after the declaration's `;`.
+    /// Comments to print at the end of the declaration's last line.
     pub trailing: Vec<String>,
 }
 
@@ -509,7 +509,7 @@ pub(crate) struct Line {
     pub code: String,
     /// User comments after the code.
     pub trailing: Vec<String>,
-    /// Generated notes, printed as one `//!` line each above the code.
+    /// Generated notes, printed as one `;;` line each above the code.
     pub notes: Vec<String>,
 }
 
@@ -644,8 +644,7 @@ impl Renderer<'_> {
     }
 }
 
-/// Lay out the printed declaration `text` with tree `root` at `indent`,
-/// ending with `;`.
+/// Lay out the printed declaration `text` with tree `root` at `indent`.
 pub(crate) fn render(
     root: &Group,
     text: &str,
@@ -666,7 +665,6 @@ pub(crate) fn render(
         let suffix = if index + 1 == root.items.len() { 1 } else { 0 };
         renderer.nodes(item, indent, suffix)?;
     }
-    renderer.push(";");
     renderer.flush(indent);
     Ok(renderer.lines)
 }
@@ -688,7 +686,7 @@ mod tests {
     fn groups_stay_flat_when_they_fit() {
         assert_eq!(
             layout("a { b: [1, 2], c: (1, 2) }", 80),
-            "a { b: [1, 2], c: (1, 2) };\n"
+            "a { b: [1, 2], c: (1, 2) }\n"
         );
     }
 
@@ -696,25 +694,25 @@ mod tests {
     fn groups_break_one_item_per_line_when_too_wide() {
         assert_eq!(
             layout("a { b: [1, 2], c: \"x\" }", 16),
-            "a {\n    b: [1, 2],\n    c: \"x\",\n};\n"
+            "a {\n    b: [1, 2],\n    c: \"x\",\n}\n"
         );
         assert_eq!(
             layout("a { b: [111, 222] }", 12),
-            "a {\n    b: [\n        111,\n        222,\n    ],\n};\n"
+            "a {\n    b: [\n        111,\n        222,\n    ],\n}\n"
         );
     }
 
     #[test]
     fn record_keys_match_reordered_fields() {
-        let source = "{ b: 1, // on b\n a: 2 }";
-        let comment_start = source.find("//").unwrap();
+        let source = "{ b: 1, ; on b\n a: 2 }";
+        let comment_start = source.find(';').unwrap();
         let comments = [Comment {
-            text: "// on b".to_owned(),
+            text: "; on b".to_owned(),
             start: comment_start,
             own_line: false,
             blank_before: false,
         }];
-        let comment = comment_start..comment_start + 7;
+        let comment = comment_start..comment_start + 6;
         let source_tree = parse_tree(source, std::slice::from_ref(&comment)).unwrap();
         let printed = "{ a: 2, b: 1 }";
         let mut printed_tree = parse_tree(printed, &[]).unwrap();
@@ -724,6 +722,6 @@ mod tests {
         let Node::Group(record) = &printed_tree.items[0].nodes[0] else {
             panic!()
         };
-        assert_eq!(record.items[1].trailing, ["// on b"]);
+        assert_eq!(record.items[1].trailing, ["; on b"]);
     }
 }

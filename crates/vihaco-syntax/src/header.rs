@@ -7,12 +7,14 @@ use vihaco_abi::traits::FromText;
 use vihaco_bytecode::SSTHeader;
 use vihaco_parser::Parse;
 
-/// Semicolon-terminated declarations parsed from one section header.
+/// Declarations parsed from one section header, one per line.
 ///
 /// Available with `program-image-execution`. `D` selects the declarations that
 /// the application accepts, such as device directives and program metadata.
-/// Whitespace and line comments may separate declarations; empty headers are
-/// valid. Consumers apply each declaration to their own preparation context
+/// Each declaration ends at the end of its line and continues onto the next
+/// line only inside an open `(`, `[`, or `{`; there is no terminator. Blank
+/// lines and `;` comments may separate declarations; empty headers are valid.
+/// Consumers apply each declaration to their own preparation context
 /// and decide which declarations are required and when to resolve dependencies.
 /// This collection imposes no lowering or image-construction policy.
 #[derive(Debug, Clone, PartialEq)]

@@ -27,13 +27,13 @@ pub(crate) enum Segment<'a> {
 
 use Segment::{Index, Key};
 
-/// Skip whitespace and `//` comments starting at `index`.
+/// Skip whitespace and `;` comments starting at `index`.
 fn skip_trivia(text: &str, mut index: usize) -> usize {
     loop {
         let rest = &text[index..];
         let trimmed = rest.trim_start();
         index += rest.len() - trimmed.len();
-        if trimmed.starts_with("//") {
+        if trimmed.starts_with(';') {
             index += trimmed.find('\n').unwrap_or(trimmed.len());
         } else {
             return index;
@@ -65,7 +65,7 @@ fn items(text: &str, open: usize) -> Vec<Range<usize>> {
                     index += if bytes[index] == b'\\' { 2 } else { 1 };
                 }
             }
-            b'/' if bytes.get(index + 1) == Some(&b'/') => {
+            b';' => {
                 index += text[index..].find('\n').unwrap_or(text.len() - index);
                 continue;
             }

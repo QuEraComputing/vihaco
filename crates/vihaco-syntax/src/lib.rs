@@ -16,8 +16,11 @@
 //!
 //! `@name:` binds a symbol to the address of the next instruction and occupies
 //! no slot; `@name` in an operand refers to a symbol and is resolved through the
-//! section's symbol table during lowering. Layout and indentation carry no
-//! meaning. What a symbol *is* lives in the header: a function is a symbol with
+//! section's symbol table during lowering. Each statement (a symbol definition,
+//! an instruction, or `@name:` followed by an instruction) ends at the end of
+//! its line and continues onto the next line only inside an open bracket; see
+//! [`statements`]. Indentation carries no meaning and `;` starts a comment.
+//! What a symbol *is* lives in the header: a function is a symbol with
 //! a matching declaration in `vihaco_module::module::ProgramMetadata`, which
 //! supplies its signature and locals. Its executable range runs from its symbol
 //! to the next function symbol.
@@ -30,7 +33,7 @@
 //! consumer capabilities.
 //!
 //! With `program-image-execution`, `HeaderDeclarations<D>` parses a collection
-//! of semicolon-terminated declarations. Consumers apply declarations separately
+//! of declarations, one per line. Consumers apply declarations separately
 //! to an application-owned preparation context, then call
 //! `lower_code_with_metadata` with the completed metadata and instruction
 //! context. This supports contexts borrowing prepared configuration without
@@ -60,6 +63,7 @@ pub mod parse;
 #[cfg(not(feature = "typed-declarations"))]
 pub mod resolve;
 pub mod spanned;
+pub mod statements;
 
 pub use types::{ParsedModule, Symbol};
 pub use vihaco_parser::SurfaceInstruction;
@@ -68,8 +72,10 @@ pub use parse::{block_i64_flat, block_i64_pairs, skip, symbol_definition};
 #[cfg(not(feature = "typed-declarations"))]
 pub use resolve::Resolve;
 pub use spanned::{
-    ParsedDeclarations, ParsedText, Spanned, SyntaxError, parse_declarations, parse_text,
+    ParsedDeclarations, ParsedText, Spanned, SyntaxError, parse_declarations,
+    parse_declarations_at, parse_text, parse_text_at,
 };
+pub use statements::{Statement, Statements, statements};
 
 #[cfg(test)]
 mod tests {
@@ -125,17 +131,29 @@ mod tests {
     }
 
     #[test]
-    fn layout_and_indentation_carry_no_meaning() {
+    fn indentation_carries_no_meaning() {
         let flat = parse("@main:\nstub.halt\n@done:\nstub.print\n").unwrap();
         let indented = parse("    @main:\n\t\tstub.halt\n  @done:   stub.print   \n").unwrap();
-        let one_line = parse("@main: stub.halt @done: stub.print").unwrap();
+        let crlf = parse("@main: stub.halt\r\n@done: stub.print\r\n").unwrap();
         assert_eq!(flat, indented);
-        assert_eq!(flat, one_line);
+        assert_eq!(flat, crlf);
+    }
+
+    #[test]
+    fn statements_end_at_the_end_of_the_line() {
+        let err = parse("@main: stub.halt stub.print\n").unwrap_err();
+        assert!(
+            err.to_string().contains(
+                "expected end of line after the instruction `stub.halt`, found `stub.print`"
+            ),
+            "{err}"
+        );
+        assert!(parse("@main: @done: stub.halt\n").is_err());
     }
 
     #[test]
     fn skips_line_comments() {
-        let parsed = parse("// leading\n@main: // the entry\n    stub.halt // stop\n").unwrap();
+        let parsed = parse("; leading\n@main: ; the entry\n    stub.halt ; stop\n").unwrap();
         assert_eq!(parsed.code, [StubInst::Halt]);
         assert_eq!(symbols(&parsed), [("main", 0)]);
     }

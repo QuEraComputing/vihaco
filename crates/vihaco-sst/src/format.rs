@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 //! Format SST files into a canonical layout, keeping user comments and
-//! regenerating `//!` annotations.
+//! regenerating `;;` annotations.
 //!
 //! Formatting never changes what a file means. The file is checked first
 //! (with a [`ProgramChecker`]) and a file with errors is returned as its
@@ -14,7 +14,7 @@
 //!
 //! Comments come in two kinds:
 //!
-//! - Own-line comments starting with `//!` are generated. The formatter
+//! - Own-line comments starting with `;;` (but not `;;;`) are generated. The formatter
 //!   removes them and writes fresh ones, one line per note directly above the
 //!   item it describes, so formatting is idempotent. Turn them off with
 //!   [`FormatOptions::generated_comments`].
@@ -51,7 +51,7 @@ use crate::source::{SourceFile, Span};
 /// Formatter settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormatOptions {
-    /// Write generated `//!` comments. Existing own-line `//!` comments are
+    /// Write generated `;;` comments. Existing own-line `;;` comments are
     /// removed either way. Default: `true`.
     pub generated_comments: bool,
     /// The line width that header records are broken to fit. Default: `80`.
@@ -97,7 +97,7 @@ pub struct InstructionContext<'a> {
 
 /// A hook that adds machine-specific generated notes to instructions.
 ///
-/// Each returned string becomes part of the instruction's `//!` comment,
+/// Each returned string becomes a generated `;;` line above the instruction,
 /// after the formatter's own notes. Closures
 /// `FnMut(&I, &InstructionContext) -> Vec<String>` implement it.
 pub trait Annotate<I> {
@@ -113,8 +113,8 @@ where
     }
 }
 
-/// Formats SST files for machine `M` whose headers are `;`-terminated
-/// declarations `D`.
+/// Formats SST files for machine `M` whose headers are declarations `D`, one
+/// per line.
 ///
 /// The checker that gates formatting is a [`ProgramChecker`] with header
 /// `Declarations<D>`, lowering `L`, and global context `C`; replace it with
@@ -130,7 +130,7 @@ where
 }
 
 impl<M: HasInstructionSet> Formatter<M> {
-    /// The standard formatter: `metadata { ... };` headers, checked with
+    /// The standard formatter: `metadata { ... }` headers, checked with
     /// `ProgramChecker::<M>::new()`, and default options.
     pub fn new() -> Self {
         Self::with_checker(ProgramChecker::new())
@@ -227,7 +227,7 @@ where
 }
 
 /// Format every section of `source` as a program for machine `M` with the
-/// standard `metadata { ... };` header.
+/// standard `metadata { ... }` header.
 pub fn format_program<M>(source: &SourceFile, options: FormatOptions) -> Result<String, Report>
 where
     M: HasInstructionSet,
@@ -312,7 +312,7 @@ fn directive_comment(text: &str, directive: Span) -> Option<String> {
         .find('\n')
         .map_or(text.len(), |index| directive.end + index);
     let rest = text[directive.end..end].trim();
-    rest.starts_with("//")
+    rest.starts_with(';')
         .then(|| user_part(rest, false))
         .flatten()
 }
@@ -470,7 +470,7 @@ where
                 source,
                 block.span(),
                 items,
-                &[';'],
+                &[],
                 out,
                 |entry, found, raw| {
                     entry.value.inner = found;
@@ -625,11 +625,11 @@ fn trailing_text(line: &Line) -> String {
     line.trailing.join(" ")
 }
 
-/// Write the generated notes of `line`, one `//!` line each, above it.
+/// Write the generated notes of `line`, one `;;` line each, above it.
 fn push_notes(line: &Line, output: &mut String) {
     for note in &line.notes {
         output.push_str(&" ".repeat(line.indent));
-        output.push_str("//! ");
+        output.push_str(";; ");
         output.push_str(note);
         output.push('\n');
     }
@@ -822,7 +822,7 @@ where
         let one_line = LaidOut {
             leading: hoisted(),
             trailing: Vec::new(),
-            lines: vec![Line::new(INDENT, format!("{printed};"))],
+            lines: vec![Line::new(INDENT, printed.clone())],
         };
 
         let source_text = self.source.slice(entry.span);
@@ -958,7 +958,7 @@ where
     D: Print + 'static,
 {
     let printed = value.to_source().map_err(|_| UNPRINTABLE.to_owned())?;
-    let parsed = vihaco_syntax::parse_declarations::<D>(&format!("{printed};"));
+    let parsed = vihaco_syntax::parse_declarations::<D>(&printed);
     match parsed.declarations.as_slice() {
         [single]
             if parsed.errors.is_empty()

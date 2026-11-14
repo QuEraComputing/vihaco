@@ -45,7 +45,7 @@ sst v2
         main_function: 0,
         source_symbols: [],
         extra: {},
-    };
+    }
 .text
 @main:
     execution::program::const_u64 42
@@ -59,14 +59,14 @@ The directives are:
 | `sst v2` | Format version. Must be the first non-blank line. |
 | `.global` | Optional global context in a consumer-defined grammar. Must come before any `.section`; omit it for loaders using `NoContext`. |
 | `.section <name>` | Starts a new section. Names are required, unique within the file, and contain no whitespace. |
-| `.header` | The current section's header: declarations such as `metadata { ... };`. |
+| `.header` | The current section's header: declarations such as `metadata { ... }`. |
 | `.text` | The current section's code: a flat instruction stream with `@name:` symbol definitions. |
 
 Sections are a flat list; there is no nesting and no implicit root. Each may
 contain at most one `.header` and one `.text`, in either order. An omitted block
 yields empty text to the consumer; a runnable program still needs the content
 its loader requires. Indentation is free-form, and directive lines may end with
-a `//` comment. Every other line belongs to the enclosing block and is passed to
+a `;` comment. Every other line belongs to the enclosing block and is passed to
 the target's grammar unchanged.
 
 A section is an independently loadable unit. Its name exists only so a loader
@@ -74,20 +74,30 @@ can select it with `file.section(name)`. Execution relies on instruction
 addresses, which are local to the section. Names for addresses within a
 section come from its symbol definitions, described below.
 
-### Comments
+### Lines and comments
 
-A comment runs from `//` to the end of the line. Comments may end a directive
-line and may appear wherever the header and `.text` grammars allow whitespace:
-on their own line, after an instruction or declaration, or between the fields of
-a `metadata { ... }` record. They are never part of a string literal. The
-`.global` block is consumer-defined and decides its own comment rules.
+SST reads like assembly: every statement (a declaration in `.header`, a symbol
+definition or instruction in `.text`) ends at the end of its line. There is no
+statement terminator. A statement continues onto the next line only while a
+`(`, `[`, or `{` is open, as in Python; there is no `\` continuation. Two
+statements on one line, or an operand moved to the next line outside brackets,
+is an error. Indentation and spacing carry no meaning, and `\r\n` is a newline.
+A bracket left open at the end of a block is reported where it was opened, as
+``unclosed `[` opened at line N``.
 
-A comment on its own line that starts with `//!` is *generated*: tools such as
-the [formatter](#formatting-sst-files) write it directly above the item it
-explains and replace it every time they run, so do not write such lines by
-hand. Every other comment is yours, including a trailing comment that starts
-with `//!` or contains it, such as `call 0, @helper  // see //! notes`. Parsers
-treat both kinds as ordinary comments.
+A comment runs from `;` to the end of the line. Comments may end any line,
+including directive lines, and may stand on their own line. Inside a
+bracket-continued statement they may also end each continued line. A `;`
+inside a string literal is part of the string. The `.global` block is
+consumer-defined and decides its own comment rules.
+
+A comment on its own line that starts with `;;` (but not `;;;`) is
+*generated*: tools such as the [formatter](#formatting-sst-files) write it
+directly above the item it explains and replace it every time they run, so do
+not write such lines by hand. Every other comment is yours, including a
+trailing comment that starts with `;;` or contains it, such as
+`call 0, @helper  ; see ;; notes`, and `;;;` headings. Parsers treat both kinds
+as ordinary comments.
 
 ## Target instruction and function syntax
 
@@ -126,8 +136,9 @@ address order, plus symbol definitions:
 - Symbol names are unique within a section. There is no per-function scope; a
   compiler that reuses local label names should qualify them, for example
   `@main.done`.
-- Layout and indentation carry no meaning. Instructions and symbol definitions
-  are separated by whitespace or `//` comments, and may share a line.
+- Each instruction and each symbol definition goes on its own line, except
+  that a symbol definition may be followed by one instruction on its line, as
+  in `@done: execution::program::ret 1`. Indentation carries no meaning.
 
 A function is a symbol that has a declaration in the header's `functions` table
 with the same name. Its signature and locals come only from that declaration.
@@ -143,8 +154,10 @@ punctuation are dialect-specific; see the
 ## The metadata header
 
 The standard loading path uses `HeaderDeclarations<ProgramMetadata>` or an
-application declaration enum containing `ProgramMetadata`. Declarations end in
-`;`. The first-machine loader requires exactly one `metadata { ... };` record;
+application declaration enum containing `ProgramMetadata`. Each declaration
+starts on its own line; the record continues onto the following lines because
+its `{` is open. The first-machine loader requires exactly one
+`metadata { ... }` record;
 other loaders choose their own required declarations and duplicate policy.
 
 Emit every field below, including empty arrays. Records use named fields and
@@ -336,7 +349,7 @@ error: unexpected `x` in operands of `execution::program::const_u64`
    |                                   ^ unexpected operand
 ```
 
-`check_program` checks every section with the standard `metadata { ... };`
+`check_program` checks every section with the standard `metadata { ... }`
 header and `MetadataLoweringContext` lowering. It reports framing errors,
 header and `.text` syntax errors, duplicate symbols, metadata table errors,
 functions without a symbol, and instructions that fail to lower, such as an
@@ -350,7 +363,7 @@ context. `check_framing` needs no machine, and `check_file` accepts any
 
 `vihaco-sst` also formats SST files into one canonical layout. Like the checker,
 the formatter is generic over your machine and never executes anything. It
-keeps your `//` comments and writes `//!` comments that spell out what indices
+keeps your `;` comments and writes `;;` comments that spell out what indices
 and symbols refer to:
 
 ```rust
@@ -400,7 +413,7 @@ fn main() {
 
     // Without generated comments, only the layout changes.
     let plain = format_program::<Machine>(&source, FormatOptions::without_generated_comments());
-    assert!(!plain.unwrap().lines().any(|line| line.trim_start().starts_with("//!")));
+    assert!(!plain.unwrap().lines().any(|line| line.trim_start().starts_with(";;")));
 #   let page = std::include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/src/pages/guide/sst-reference.md"));
 #   let section = page.split_once("## Formatting SST files").unwrap().1;
 #   let expected = section.split_once("```text\n").unwrap().1.split_once("```").unwrap().0;
@@ -419,22 +432,22 @@ sst v2
         strings: ["main", "first-machine.sst"],
         functions: [
             {
-                //! "main"
+                ;; "main"
                 name: 0,
                 signature: { params: [], ret: [u64] },
                 local_count: 0,
-                //! "first-machine.sst"
+                ;; "first-machine.sst"
                 file: 1,
             },
         ],
         constants: [],
-        //! @main
+        ;; @main
         main_function: 0,
         source_symbols: [],
         extra: {},
-    };
+    }
 .text
-//! fn main() -> u64, locals 0, functions[0]
+;; fn main() -> u64, locals 0, functions[0]
 @main:
     execution::program::const_u64 20
     execution::program::const_u64 22
@@ -458,7 +471,7 @@ has the same headers, code, symbols, and comments as the input.
   `.header` and `.text` follow without a blank line and keep their order.
 - `.global` content is consumer-defined and kept verbatim, except that trailing
   whitespace and trailing blank lines are removed.
-- Header declarations are indented four spaces and end with `;`. A
+- Header declarations are indented four spaces. A
   `metadata { ... }` record always puts one field per line. Nested records and
   lists stay on one line when they fit in `max_width` (80 columns by default)
   and contain no comments; otherwise they are broken one item per line with a
@@ -468,10 +481,10 @@ has the same headers, code, symbols, and comments as the input.
   parsing). Tuples and declarations whose pattern needs its punctuation on one
   line are never broken.
 - In `.text`, each symbol definition and each instruction gets its own line:
-  `@name:` at column 0 and instructions indented four spaces, with no `;`.
+  `@name:` at column 0 and instructions indented four spaces.
 - Blank lines between items are kept, collapsed to at most one. Blank lines at
   the start of a block and inside a declaration are removed.
-- Generated `//!` comments always sit on their own lines, directly above the
+- Generated `;;` comments always sit on their own lines, directly above the
   item they describe and at its indentation, one line per note.
 - Trailing user comments of a block are aligned to one column: two spaces past
   the longest commented line, but no further than `comment_column` (column 60
@@ -481,7 +494,7 @@ has the same headers, code, symbols, and comments as the input.
 
 ### Comments
 
-A `//` comment on its own line stays above the item that follows it. A trailing
+A `;` comment on its own line stays above the item that follows it. A trailing
 comment stays at the end of its item's line; inside a header record, the item
 is the field or list entry, and it travels with that field when `Print`
 reorders fields. A comment never leaves the block it was written in: comments
@@ -491,35 +504,35 @@ trailing comments, the first stays trailing and the others move above the item.
 If a comment's position inside a declaration cannot be matched to the printed
 declaration, it is moved above the declaration.
 
-Generated comments are rewritten every time: every own-line `//!` comment is
+Generated comments are rewritten every time: every own-line `;;` comment is
 removed and fresh ones are written. Without them
-(`FormatOptions::without_generated_comments()`), existing own-line `//!`
+(`FormatOptions::without_generated_comments()`), existing own-line `;;`
 comments are still removed. Each note is written on the line above the item it
 describes:
 
 | Item | Generated comment |
 |---|---|
-| Function symbol `@main:` | `//! fn main() -> u64, locals 0, functions[1]` |
-| Other symbol `@done:` | `//! 0x0005` (its address) |
-| Instruction with an `@name` operand | `//! @done = 0x0005`; functions add their index: `//! @helper = 0x0006 (functions[0])` |
-| Instruction with a string literal | `//! "hi" = strings[3]` |
-| `functions[i].name`, `.file` | `//! "helper"`, `//! "loadable.sst"` |
-| `functions[i].signature` with parameters | `//! fn helper(x: u64) -> u64` |
-| `main_function` | `//! @main` |
-| `str N` / `fn N` constants | `//! "hi"`, `//! @helper` |
+| Function symbol `@main:` | `;; fn main() -> u64, locals 0, functions[1]` |
+| Other symbol `@done:` | `;; 0x0005` (its address) |
+| Instruction with an `@name` operand | `;; @done = 0x0005`; functions add their index: `;; @helper = 0x0006 (functions[0])` |
+| Instruction with a string literal | `;; "hi" = strings[3]` |
+| `functions[i].name`, `.file` | `;; "helper"`, `;; "loadable.sst"` |
+| `functions[i].signature` with parameters | `;; fn helper(x: u64) -> u64` |
+| `main_function` | `;; @main` |
+| `str N` / `fn N` constants | `;; "hi"`, `;; @helper` |
 
 For example:
 
 ```text
-//! fn main() -> u64, locals 0, functions[1]
+;; fn main() -> u64, locals 0, functions[1]
 @main:
-    //! @helper = 0x0006 (functions[0])
+    ;; @helper = 0x0006 (functions[0])
     execution::program::call 0, @helper
-    execution::program::const_u64 999  // never reached
+    execution::program::const_u64 999  ; never reached
 ```
 
 Notes are looked up in the section's metadata and symbol table. An item with
-several notes gets one `//!` line per note. Machine-specific notes can be added with
+several notes gets one `;;` line per note. Machine-specific notes can be added with
 `Formatter::with_annotator`, which receives each instruction with its address,
 the symbol table, and the string table. For an application header, use
 `Formatter::with_checker` with the same checker you would use for

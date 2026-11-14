@@ -9,16 +9,17 @@
 //!
 //! ```text
 //! sst v2
-//! .global              // optional, consumer-defined context
-//! .section controller  // start a named section
-//! .header              // the current section's header
-//! .text                // the current section's code
+//! .global              ; optional, consumer-defined context
+//! .section controller  ; start a named section
+//! .header              ; the current section's header
+//! .text                ; the current section's code
 //! .section readout
 //! .text
 //! ```
 //!
-//! Directive lines may carry a trailing `//` comment. Every other line belongs
-//! to the enclosing block and is passed through to the consumer verbatim.
+//! Directive lines may carry a trailing `;` comment, which runs to the end of
+//! the line. Every other line belongs to the enclosing block and is passed
+//! through to the consumer verbatim.
 //!
 //! [`scan`] locates every directive and block and collects all framing errors;
 //! [`parse_file`] is the fail-fast form used by `SSTFile::from_text`.
@@ -482,9 +483,9 @@ fn classify_line(line: &str) -> Classified {
         };
     }
 
-    // Directives may end with a `//` comment.
+    // Directives may end with a `;` comment.
     let directive = trimmed
-        .split_once("//")
+        .split_once(';')
         .map_or(trimmed, |(code, _)| code)
         .trim_end();
     let (keyword, rest) = directive

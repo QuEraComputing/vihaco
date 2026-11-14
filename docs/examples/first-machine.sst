@@ -16,7 +16,7 @@ sst v2
         main_function: 0,
         source_symbols: [],
         extra: {},
-    };
+    }
 .text
 @main:
     execution::program::const_u64 20

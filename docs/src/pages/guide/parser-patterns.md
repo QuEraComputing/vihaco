@@ -233,9 +233,11 @@ Keywords and symbols match exactly. Ordinary pattern boundaries don't consume
 indentation, line endings, or comments; the surrounding module or list parser
 handles those.
 
-The punctuation literals `:`, `;`, `{`, `}`, `[`, `]`, `(`, and `)` accept
-optional whitespace and line comments on either side. Delimited metadata
+The punctuation literals `:`, `{`, `}`, `[`, `]`, `(`, and `)` accept
+optional whitespace and `;` line comments on either side. Delimited metadata
 records use these rules too. Commas and at signs keep the spacing rules above.
+`;` is not a punctuation literal: it starts a comment in SST, so a pattern
+that contains it is rejected at compile time.
 
 ## Printing
 
@@ -246,7 +248,7 @@ the printed text gives that value back. The output is canonical:
 - An ordinary boundary prints as one space.
 - A `` `,` `` prints as `, ` and a `` `@` `` prints as ` @`, so <code>$0 `,` `@` $1</code>
   prints as `1, @target`.
-- `:` and `;` are followed by a space. Other bracket and brace literals print
+- `:` is followed by a space. Other bracket and brace literals print
   without surrounding spaces, like `pair(1, 2)`. A binding followed by `:` gets a
   space before the colon, because an identifier would otherwise absorb it.
 - An instruction `head` prints as `head.` and a metadata `head` as `head `.
@@ -273,7 +275,7 @@ struct Channel {
 }
 
 let channel = Channel::parser()
-    .parse("{ gain: 0.5, // trailing comment\n name: \"rf\", }")
+    .parse("{ gain: 0.5, ; trailing comment\n name: \"rf\", }")
     .into_result()
     .unwrap();
 assert_eq!(channel.to_source().unwrap(), r#"{ name: "rf", gain: 0.5 }"#);
@@ -354,7 +356,7 @@ can't also have a `#[pattern]`.
 
 Each Rust field becomes a bare or double-quoted key, followed by `:` and a value
 parsed with the field type's `Parse` impl. Fields can appear in any order.
-Commas separate entries, and the parser accepts trailing commas and `//` comments.
+Commas separate entries, and the parser accepts trailing commas and `;` comments.
 Arrays use brackets and accept comments and trailing commas too.
 
 Unknown, duplicate, and missing keys are errors. That includes `Option<T>` fields:

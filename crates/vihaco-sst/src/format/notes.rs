@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Generated `//!` notes: facts looked up in a section's metadata and symbol
+//! Generated `;;` notes: facts looked up in a section's metadata and symbol
 //! table, attached to the header fields and `.text` items they explain.
 //!
 //! Each note is produced by one small function, so adding an annotation means
