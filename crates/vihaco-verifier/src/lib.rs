@@ -22,10 +22,22 @@
 //! - [`verify_functions`]: the engine, returning a [`Verification`] (possibly
 //!   with warnings and [`TypeMaps`]) or a [`Rejection`] listing every
 //!   diagnostic.
+//! - [`Locals`], [`Signatures`], [`StructTypes`] and [`Constants`]: the
+//!   standard capabilities beyond the operand stack, with [`call_effect`] and
+//!   [`return_effect`] for calls and returns checked against signatures.
+//! - [`ModuleVerifier`]: the standard context for a [`LocalModule`] using
+//!   vihaco's [`Type`] and [`Value`], providing every standard capability
+//!   from the module's metadata. [`verify_module`] verifies a whole module
+//!   with it. [`WithState`] wraps it with a component's own
+//!   [`ComponentState`], for machines whose components need more.
+//!
+//! [`LocalModule`]: vihaco_module::module::LocalModule
 //!
 //! # Example
 //!
-//! A tiny instruction set with typed rules, verified with the standard frame:
+//! A tiny instruction set with typed rules, verified with the bare engine and
+//! the standard frame (a module is usually verified with [`verify_module`]
+//! instead, which builds the entry states from its metadata):
 //!
 //! ```
 //! use vihaco_verifier::{
@@ -77,18 +89,22 @@
 //! );
 //! ```
 
+mod capability;
 mod diagnostic;
 mod engine;
+mod module;
 mod slot;
 mod stack;
 mod state;
 
+pub use capability::{Constants, Locals, Signatures, StructTypes, call_effect, return_effect};
 pub use diagnostic::{Diagnostic, DiagnosticKind, Severity, VerifyError};
 pub use engine::{
     FunctionSpan, Rejection, TypeMaps, Verification, VerifyOptions, verify_functions,
 };
+pub use module::{ComponentState, ModuleVerifier, WithState, verify_module};
 pub use slot::{Lattice, TypeSlot, TypedSlot, type_satisfies};
 pub use stack::{Frame, FrameState, OperandStack, stack_effect};
 pub use state::AbstractState;
 
-pub use vihaco_abi::{Flow, Type, Verify};
+pub use vihaco_abi::{Flow, Type, Value, Verify};

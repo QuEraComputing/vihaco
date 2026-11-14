@@ -239,6 +239,18 @@ external crates need nothing hidden, #169).
 Pops are bounded: `pop_n(n)` costs at most `O(depth)` and yields one underflow,
 so a huge count in a crafted program cannot blow up verification.
 
+Settled in implementation:
+
+- `Locals` extends `OperandStack`, so locals and operands share one `Slot`
+  type and a rule bounding `C: Locals` names `C::Slot` unambiguously.
+- `Signatures::function_at(address)` resolves a direct `call` by address the
+  way the runtime does: the first function in table order starting there.
+- `Constants<V, Ty>` also answers `constant_type(i)`, the type a constant load
+  pushes (`Value::type_of` for the standard model).
+- `call_effect(cx, callee, n)` and `return_effect(cx, k)` implement the call
+  and return rules below over `OperandStack + Signatures<Type>`, so program
+  and CPU rules (and external dialects) share one implementation.
+
 ## Component-specific capabilities and state
 
 A component whose correctness depends on more than operand types defines its
@@ -260,7 +272,13 @@ impl<C: ChannelState + ?Sized> Verify<C> for seq::Play {
 ```
 
 The machine's verifier context wraps `ModuleVerifier`, delegates the standard
-capabilities, and implements `ChannelState` with its own state. That state
+capabilities, and implements `ChannelState` with its own state. The framework
+provides this wrapper as `WithState<'m, S>`: `S: ComponentState` (a `join`
+with the same contract as `AbstractState::join`; tuples combine several
+components' states) is snapshotted and joined alongside the frame, and the
+component crate implements its capability trait for `WithState<'_, S>`. A
+hand-written context can instead delegate to `ModuleVerifier` directly and
+build its entry states with `function_spans()` and `FunctionSpan::map_entry`. That state
 takes part in snapshots and joins (below) like the operand stack, so a channel
 opened on only one branch is not open after the join (the join intersects the
 open sets).
@@ -409,7 +427,12 @@ A successful verification produces:
 - **Frame size cap.** `ExecutionState` sizes each frame from the metadata, so a
   header claiming four billion locals makes function entry try to allocate
   about 32 GB. With declared local types a frame is bounded by the header's own
-  size; metadata validation also enforces an explicit maximum.
+  size; metadata validation also enforces an explicit maximum,
+  `MAX_LOCALS = 65_536` slots. The stdlib `ExecutionState` and the CPU's
+  frame entry re-check it before allocating, and `ModuleVerifier` reports a
+  function whose frame metadata breaks these rules (too many locals, fewer
+  locals than parameters, or locals disagreeing with parameter types), since
+  modules can be built without metadata validation.
 - **Array types.** Arrays are first-class and typed by element; see
   [Arrays](#arrays).
 

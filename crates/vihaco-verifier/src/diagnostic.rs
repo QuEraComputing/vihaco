@@ -229,6 +229,28 @@ impl VerifyError {
         Self::new(DiagnosticKind::StackDepthMismatch { expected, found })
     }
 
+    /// A [`DiagnosticKind::CallArityMismatch`]: a call to `callee` passes
+    /// `found` arguments where it declares `declared` parameters.
+    pub fn call_arity_mismatch(callee: u32, declared: usize, found: usize) -> Self {
+        Self::new(DiagnosticKind::CallArityMismatch {
+            callee,
+            declared,
+            found,
+        })
+    }
+
+    /// A [`DiagnosticKind::ReturnCountMismatch`]: a return keeps `found`
+    /// values where the function declares `declared` results.
+    pub fn return_count_mismatch(declared: usize, found: usize) -> Self {
+        Self::new(DiagnosticKind::ReturnCountMismatch { declared, found })
+    }
+
+    /// A [`DiagnosticKind::LocalIndexOutOfRange`]: local `index` of a function
+    /// declaring `count` locals.
+    pub fn local_index_out_of_range(index: u32, count: u32) -> Self {
+        Self::new(DiagnosticKind::LocalIndexOutOfRange { index, count })
+    }
+
     /// A component-defined [`DiagnosticKind::Rule`] error.
     pub fn rule(message: impl fmt::Display) -> Self {
         Self::new(DiagnosticKind::Rule(message.to_string()))
