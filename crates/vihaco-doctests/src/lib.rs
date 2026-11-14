@@ -91,22 +91,22 @@ sst v2
         strings: [\"main\", \"first-machine.sst\"],
         functions: [
             {
-                //! \"main\"
+                ;; \"main\"
                 name: 0,
                 signature: { params: [], ret: [u64] },
                 local_count: 0,
-                //! \"first-machine.sst\"
+                ;; \"first-machine.sst\"
                 file: 1,
             },
         ],
         constants: [],
-        //! @main
+        ;; @main
         main_function: 0,
         source_symbols: [],
         extra: {},
-    };
+    }
 .text
-//! fn main() -> u64, locals 0, functions[0]
+;; fn main() -> u64, locals 0, functions[0]
 @main:
     execution::program::const_u64 20
     execution::program::const_u64 22

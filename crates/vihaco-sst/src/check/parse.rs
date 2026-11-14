@@ -34,7 +34,8 @@ pub fn parse_instructions<'src, I>(block: &Block<'src>, out: &mut Diagnostics<'_
 where
     I: Parse<'src> + 'src,
 {
-    let parsed = vihaco_syntax::parse_text::<I>(block.text());
+    let first_line = out.source().location(block.span().start).line;
+    let parsed = vihaco_syntax::parse_text_at::<I>(block.text(), first_line);
     let base = block.span().start;
     report(block, parsed.errors, out);
     ParsedText {
@@ -52,7 +53,7 @@ where
     }
 }
 
-/// Parse a `.header` block as `;`-terminated declarations `D` (the grammar of
+/// Parse a `.header` block as declarations `D`, one per line (the grammar of
 /// `vihaco_syntax::HeaderDeclarations<D>`), reporting every syntax error.
 ///
 /// Returns `None` if any declaration was malformed. Spans are file offsets.
@@ -63,7 +64,8 @@ pub fn parse_declarations<'src, D>(
 where
     D: Parse<'src> + 'src,
 {
-    let parsed = vihaco_syntax::parse_declarations::<D>(block.text());
+    let first_line = out.source().location(block.span().start).line;
+    let parsed = vihaco_syntax::parse_declarations_at::<D>(block.text(), first_line);
     let ok = parsed.errors.is_empty();
     report(block, parsed.errors, out);
     let base = block.span().start;

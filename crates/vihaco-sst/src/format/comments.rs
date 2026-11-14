@@ -1,17 +1,17 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Finding `//` comments in source text and separating user comments from
-//! generated `//!` ones.
+//! Finding `;` comments in source text and separating user comments from
+//! generated `;;` ones.
 
 use std::ops::Range;
 
 /// A user comment found in the source, with its generated part removed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Comment {
-    /// The user part, starting with `//` and without trailing whitespace.
+    /// The user part, starting with `;` and without trailing whitespace.
     pub text: String,
-    /// The file offset of the leading `//`.
+    /// The file offset of the leading `;`.
     pub start: usize,
     /// Whether only whitespace precedes the comment on its line.
     pub own_line: bool,
@@ -20,19 +20,26 @@ pub(crate) struct Comment {
     pub blank_before: bool,
 }
 
-/// A raw comment (`//` to end of line) without trailing whitespace, or `None`
+/// A raw comment (`;` to end of line) without trailing whitespace, or `None`
 /// when it is generated.
 ///
-/// Generated comments are exactly the own-line comments starting with `//!`;
-/// a trailing `//!` comment, or a `//!` inside a `//` comment, is the user's.
+/// Generated comments are exactly the own-line comments starting with `;;`
+/// but not `;;;`; a trailing `;;` comment, a `;;` inside a `;` comment, and a
+/// `;;;` heading are the user's.
 pub(crate) fn user_part(raw: &str, own_line: bool) -> Option<String> {
     let raw = raw.trim_end();
-    (!(own_line && raw.starts_with("//!"))).then(|| raw.to_owned())
+    (!(own_line && is_generated(raw))).then(|| raw.to_owned())
+}
+
+/// Whether an own-line comment is generated: it starts with `;;` but not
+/// `;;;`.
+pub(crate) fn is_generated(comment: &str) -> bool {
+    comment.starts_with(";;") && !comment.starts_with(";;;")
 }
 
 /// What a scan of a source range found besides comments.
 pub(crate) struct Scan {
-    /// Raw comments: from `//` to the end of the line (excluding `\r\n`).
+    /// Raw comments: from `;` to the end of the line (excluding `\r\n`).
     pub comments: Vec<Range<usize>>,
     /// The first character that is neither whitespace, a comment, nor an
     /// allowed punctuation character, if any.
@@ -53,7 +60,7 @@ pub(crate) fn scan(text: &str, range: Range<usize>, any_content: bool, allowed: 
     let mut index = range.start;
     while index < end {
         let c = bytes[index];
-        if c == b'/' && bytes.get(index + 1) == Some(&b'/') && index + 1 < end {
+        if c == b';' {
             let line_end = text[index..end]
                 .find('\n')
                 .map_or(end, |offset| index + offset);
@@ -114,34 +121,38 @@ mod tests {
 
     #[test]
     fn user_parts_drop_generated_comments() {
-        assert_eq!(user_part("// hello  ", true), Some("// hello".to_owned()));
-        assert_eq!(user_part("//! generated", true), None);
+        assert_eq!(user_part("; hello  ", true), Some("; hello".to_owned()));
+        assert_eq!(user_part(";; generated", true), None);
+        assert_eq!(user_part(";;", true), None);
         assert_eq!(
-            user_part("//! trailing", false),
-            Some("//! trailing".to_owned())
+            user_part(";; trailing", false),
+            Some(";; trailing".to_owned())
         );
         assert_eq!(
-            user_part("// note //! kept", true),
-            Some("// note //! kept".to_owned())
+            user_part("; note ;; kept", true),
+            Some("; note ;; kept".to_owned())
         );
-        assert_eq!(user_part("/// doc", true), Some("/// doc".to_owned()));
-        assert_eq!(user_part("//", true), Some("//".to_owned()));
+        assert_eq!(
+            user_part(";;; heading", true),
+            Some(";;; heading".to_owned())
+        );
+        assert_eq!(user_part(";", true), Some(";".to_owned()));
     }
 
     #[test]
     fn scans_skip_strings_and_report_stray_content() {
-        let text = "t.print \"a // b\" // c\r\n; x";
+        let text = "t.print \"a ; b\" ; c\r\n, x";
         let found = scan(text, 0..text.len(), true, &[]);
-        assert_eq!(found.comments, vec![17..21]);
-        let found = scan(text, 21..text.len(), false, &[';']);
-        assert_eq!(found.unexpected, Some(25));
+        assert_eq!(found.comments, vec![16..19]);
+        let found = scan(text, 19..text.len(), false, &[',']);
+        assert_eq!(found.unexpected, Some(23));
     }
 
     #[test]
     fn blank_lines_are_whitespace_only_lines() {
-        let text = "a\n  \n//! x\nb";
-        assert!(blank_line_between(text, 1, 11));
-        let text = "a\n//! x\nb";
-        assert!(!blank_line_between(text, 1, 8));
+        let text = "a\n  \n;; x\nb";
+        assert!(blank_line_between(text, 1, 10));
+        let text = "a\n;; x\nb";
+        assert!(!blank_line_between(text, 1, 7));
     }
 }

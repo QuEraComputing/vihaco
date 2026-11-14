@@ -18,7 +18,10 @@ use crate::ParsedModule;
 
 type E<'src> = extra::Err<Simple<'src, char>>;
 
-/// Whitespace and `//`-to-end-of-line comments. Zero-or-more.
+/// Whitespace and `;`-to-end-of-line comments. Zero-or-more.
+///
+/// This skips newlines too; SST statements are split at line ends before the
+/// combinators run (see [`crate::statements`]).
 pub fn skip<'src>() -> impl Parser<'src, &'src str, (), E<'src>> + Clone {
     vihaco_parser::trivia()
 }
@@ -138,7 +141,9 @@ impl<I, H> ParsedModule<I, H> {
         I: vihaco_parser::Parse<'src> + 'src,
     {
         let header = section.parse_header::<H>()?;
-        let parsed = crate::spanned::parse_text::<I>(section.text());
+        let (first_line, _) =
+            crate::spanned::line_column(section.file_text(), section.text_span().start);
+        let parsed = crate::spanned::parse_text_at::<I>(section.text(), first_line);
         if let Some(first) = parsed.errors.first() {
             let offset = section.text_span().start + first.span.start;
             let (line, column) = crate::spanned::line_column(section.file_text(), offset);

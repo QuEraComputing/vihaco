@@ -392,7 +392,7 @@ fn parse_sst(body: &str) -> eyre::Result<SSTFile<TextContext>> {
 fn parses_sst_context_and_flat_sections() {
     let parsed = parse_sst(
         "\n.global\n    cpu\n    alu\n\n\
-         .section cpu  // the controller\n\
+         .section cpu  ; the controller\n\
          .header\n    cpu header\n\
          .text\n    cpu text\n\n\
          .section alu\n\
@@ -426,7 +426,7 @@ fn sst_blocks_may_appear_in_either_order() {
 #[test]
 fn sst_block_content_is_passed_through_verbatim() {
     // Lines that merely resemble directives belong to the enclosing block.
-    let body = "  .texture 1\n  sst value\n  // comment\n  .section_like x\n";
+    let body = "  .texture 1\n  sst value\n  ; comment\n  .section_like x\n";
     let parsed = parse_sst(&format!(".section main\n.text\n{body}")).unwrap();
     assert_eq!(parsed.section("main").unwrap().text(), body);
 }

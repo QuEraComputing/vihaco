@@ -57,17 +57,11 @@ enum PatternLiteral<'p> {
 
 impl PatternLiteral<'_> {
     fn suppresses_leading_whitespace(&self) -> bool {
-        matches!(
-            self,
-            Symbol(',' | ':' | ';' | '{' | '}' | '[' | ']' | '(' | ')')
-        )
+        matches!(self, Symbol(',' | ':' | '{' | '}' | '[' | ']' | '(' | ')'))
     }
 
     fn suppresses_trailing_whitespace(&self) -> bool {
-        matches!(
-            self,
-            Symbol('@' | ':' | ';' | '{' | '}' | '[' | ']' | '(' | ')')
-        )
+        matches!(self, Symbol('@' | ':' | '{' | '}' | '[' | ']' | '(' | ')'))
     }
 }
 
@@ -179,7 +173,7 @@ fn pattern_syntax_parser<'p>(
         })
         .boxed();
 
-    let symbol = chumsky::primitive::one_of(",@:;{}[]()").map(Symbol).boxed();
+    let symbol = chumsky::primitive::one_of(",@:{}[]()").map(Symbol).boxed();
 
     let dotted_ident = ident
         .then(just('.').ignore_then(ident).repeated())
@@ -636,10 +630,7 @@ fn build_parser_syntax_parts(
             Literal(literal) => {
                 let suppresses_leading_whitespace = literal.suppresses_leading_whitespace();
                 let suppresses_trailing_whitespace = literal.suppresses_trailing_whitespace();
-                let flexible = matches!(
-                    literal,
-                    Symbol(':' | ';' | '{' | '}' | '[' | ']' | '(' | ')')
-                );
+                let flexible = matches!(literal, Symbol(':' | '{' | '}' | '[' | ']' | '(' | ')'));
                 let symbol = match literal {
                     Symbol(symbol) => Some(symbol),
                     Keyword(_) => None,
@@ -725,7 +716,7 @@ impl<'p> ValidatedPatternInfo<'p> {
 
         // The printer mirrors the parser chain: it writes one space exactly
         // where the parser requires whitespace and none where it forbids it.
-        // Beyond that, it adds a space after `:`/`;` and between a capture and
+        // Beyond that, it adds a space after `:` and between a capture and
         // a following `:`. Both literals accept surrounding trivia, and the
         // latter keeps a token-like capture from absorbing the colon.
         let mut print_pieces = Vec::<PrintPiece>::new();
@@ -755,7 +746,7 @@ impl<'p> ValidatedPatternInfo<'p> {
                     }
                     push_print_text(&mut print_pieces, &text);
                     previous_was_capture = false;
-                    space_after_previous = matches!(symbol, Some(':' | ';'));
+                    space_after_previous = symbol == Some(':');
 
                     chain = Some(match chain {
                         Some(chain) if requires_whitespace => {

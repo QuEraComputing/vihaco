@@ -73,7 +73,7 @@ pub fn header(strings: &str, functions: &str, main: &str) -> String {
     format!(
         "    metadata {{\n        strings: [{strings}],\n        functions: [{functions}],\n        \
          constants: [],\n        main_function: {main},\n        source_symbols: [],\n        \
-         extra: {{}},\n    }};\n"
+         extra: {{}},\n    }}\n"
     )
 }
 

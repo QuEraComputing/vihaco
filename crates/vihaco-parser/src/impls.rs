@@ -220,10 +220,16 @@ fn token_text<'src>(
         .collect::<String>()
 }
 
-/// Whitespace and line comments shared by metadata records and collections.
+/// Whitespace and `;` line comments shared by metadata records and
+/// collections.
+///
+/// A comment runs from `;` to the end of the line. Newlines are ordinary
+/// whitespace here: SST statements end at the end of their line, and the SST
+/// parsers split a block into statements before running these combinators, so
+/// a newline only reaches them inside an open `(`, `[`, or `{`.
 pub fn trivia<'src>() -> impl Parser<'src, &'src str, (), E<'src>> + Clone {
     let whitespace = any().filter(|c: &char| c.is_whitespace()).ignored();
-    let comment = just("//")
+    let comment = just(';')
         .then(any().and_is(just('\n').not()).repeated())
         .ignored();
     whitespace.or(comment).repeated().collect::<()>()

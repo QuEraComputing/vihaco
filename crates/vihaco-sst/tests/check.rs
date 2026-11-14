@@ -31,7 +31,7 @@ fn a_well_formed_program_checks_clean() {
         r#""main", "helper", "f.sst", "hi""#,
         &[function(0, 2), function(1, 2)],
         "@main:\n    t.call 0, @helper\n    t.print \"hi\"\n    t.br @done\n@done: t.halt\n\
-         @helper:\n    t.push 21 // the answer, halved\n    t.halt\n",
+         @helper:\n    t.push 21 ; the answer, halved\n    t.halt\n",
     );
     assert_eq!(check(&text), Vec::<String>::new());
 }
@@ -93,7 +93,7 @@ fn version_line_problems() {
 #[test]
 fn header_syntax_errors_are_all_reported() {
     let text = "sst v2\n.section main\n.header\n    metadata {\n        strings: [\"main\"],\n        \
-                functins: [],\n    };\n    bogus;\n.text\n@main:\n    t.halt\n";
+                functins: [],\n    }\n    bogus ; was terminated\n.text\n@main:\n    t.halt\n";
     assert_eq!(
         check(text),
         [
@@ -120,6 +120,7 @@ fn text_syntax_errors_are_all_reported() {
             "17:14: expected more operands for `t.call`, found end of line",
             "18:5: expected a symbol name after `@`",
             "19:12: invalid operand `99999999999999999999` for `t.push`",
+            "20:12: expected end of line after the instruction `t.halt`, found `t.halt`",
         ]
     );
 }
@@ -169,7 +170,7 @@ fn metadata_table_errors_are_all_reported() {
         main_function: 3,
         source_symbols: [{ index: 1, name: "a" }, { index: 1, name: "b" }],
         extra: {},
-    };
+    }
 .text
 @main: t.halt
 "#;
@@ -329,15 +330,18 @@ fn custom_header_declarations() {
     let report = ProgramChecker::<Machine>::new()
         .with_header::<Declarations<Declaration>>()
         .check(&source(&text));
-    assert_eq!(
-        summary(&report),
-        ["4:31: expected `;` after `experiment.description` declaration"]
-    );
-    let fixed = text.replace("\"x\"\n", "\"x\";\n");
+    assert!(report.is_ok(), "{:?}", summary(&report));
+    let shared = text.replace("\"x\"\n", "\"x\" experiment.description \"y\"\n");
     let report = ProgramChecker::<Machine>::new()
         .with_header::<Declarations<Declaration>>()
-        .check(&source(&fixed));
-    assert!(report.is_ok(), "{:?}", summary(&report));
+        .check(&source(&shared));
+    assert_eq!(
+        summary(&report),
+        [
+            "4:32: expected end of line after the declaration `experiment.description \"x\"`, \
+             found `experiment.description`"
+        ]
+    );
 }
 
 #[test]

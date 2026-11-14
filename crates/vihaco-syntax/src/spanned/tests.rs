@@ -37,7 +37,7 @@ fn errors(text: &str, errors: &[SyntaxError]) -> Vec<(String, String, String)> {
 
 #[test]
 fn text_items_keep_their_spans() {
-    let text = "@main:\n    stub.push 1  // one\n@done: stub.halt\n";
+    let text = "@main:\n    stub.push 1  ; one\n@done: stub.halt\n";
     let parsed = parse_text::<Stub>(text);
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
     let code: Vec<_> = parsed
@@ -56,7 +56,7 @@ fn text_items_keep_their_spans() {
 
 #[test]
 fn text_errors_are_readable_and_all_reported() {
-    let text = "@main:\n  foo bar\n  stub.push x\n  @done\n  stub.pair 1,\n  @: stub.halt\n  stub.push 99999999999\n  stub.halt\n";
+    let text = "@main:\n  foo bar\n  stub.push x\n  @done\n  stub.pair 1,\n  @: stub.halt\n  stub.push 99999999999\n  stub.halt stub.halt\n  stub.push\n  1\n  stub.halt\n";
     let parsed = parse_text::<Stub>(text);
     assert_eq!(
         errors(text, &parsed.errors),
@@ -91,6 +91,21 @@ fn text_errors_are_readable_and_all_reported() {
                 "99999999999".into(),
                 "invalid operand `99999999999` for `stub.push`".into()
             ),
+            (
+                "8:13".into(),
+                "stub.halt".into(),
+                "expected end of line after the instruction `stub.halt`, found `stub.halt`".into()
+            ),
+            (
+                "9:12".into(),
+                "".into(),
+                "expected more operands for `stub.push`, found end of line".into()
+            ),
+            (
+                "10:3".into(),
+                "1".into(),
+                "expected an instruction, found `1`".into()
+            ),
         ]
     );
     // Recovered items keep the addresses of the instructions around them.
@@ -105,7 +120,7 @@ fn text_errors_are_readable_and_all_reported() {
 
 #[test]
 fn declarations_keep_spans_and_report_every_error() {
-    let text = "device gain 2;\ndevice gain x;\nbogus;\ndevice name \"a\"\ndevice gain 3;\n";
+    let text = "device gain 2\ndevice gain x\nbogus ; old terminator\ndevice name \"a\" device gain 4\ndevice gain 3\n";
     let parsed = parse_declarations::<Declaration>(text);
     assert_eq!(
         errors(text, &parsed.errors),
@@ -121,9 +136,10 @@ fn declarations_keep_spans_and_report_every_error() {
                 "expected a header declaration, found `bogus`".into()
             ),
             (
-                "4:16".into(),
-                "".into(),
-                "expected `;` after `device` declaration".into()
+                "4:17".into(),
+                "device".into(),
+                "expected end of line after the declaration `device name \"a\"`, found `device`"
+                    .into()
             ),
         ]
     );
@@ -132,22 +148,45 @@ fn declarations_keep_spans_and_report_every_error() {
         .iter()
         .map(|item| &text[item.span.clone()])
         .collect();
-    assert_eq!(
-        spans,
-        ["device gain 2", "device name \"a\"", "device gain 3"]
-    );
+    assert_eq!(spans, ["device gain 2", "device gain 3"]);
 }
 
 #[test]
-fn unterminated_trailing_declaration_is_reported_at_the_end() {
-    let text = "device gain 2;\ndevice name\n";
+fn incomplete_declaration_is_reported_at_the_end_of_its_line() {
+    let text = "device gain 2\ndevice name ; no value\ndevice gain 3\n";
     let parsed = parse_declarations::<Declaration>(text);
     assert_eq!(
         errors(text, &parsed.errors),
         [(
             "2:12".into(),
             "".into(),
-            "unexpected end of header in `device` declaration".into()
+            "expected the rest of the `device` declaration, found end of line".into()
+        )]
+    );
+    assert_eq!(parsed.declarations.len(), 2);
+}
+
+#[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
+#[syntax_class(metadata, head = "list")]
+#[pattern = "$0"]
+struct List(Vec<u64>);
+
+#[test]
+fn brackets_continue_a_declaration_and_unclosed_ones_are_reported() {
+    let text = "list [1, ; one\n  2,\n]\nlist [3,\nlist [4]\n";
+    let parsed = parse_declarations_at::<List>(text, 20);
+    let values: Vec<_> = parsed
+        .declarations
+        .iter()
+        .map(|item| item.value.0.clone())
+        .collect();
+    assert_eq!(values, [vec![1, 2], vec![4]]);
+    assert_eq!(
+        errors(text, &parsed.errors),
+        [(
+            "4:6".into(),
+            "[".into(),
+            "unclosed `[` opened at line 23".into()
         )]
     );
 }

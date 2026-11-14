@@ -7,24 +7,24 @@
 //! [`parse_text`] and [`parse_declarations`] accept exactly the inputs that
 //! [`ParsedModule::parse_section`](crate::ParsedModule::parse_section) and
 //! `HeaderDeclarations` accept, but keep the byte span of every instruction,
-//! symbol definition, and declaration, and keep going after a malformed item so
-//! that every problem is reported as a human-readable [`SyntaxError`].
+//! symbol definition, and declaration, and keep going after a malformed
+//! statement so that every problem is reported as a human-readable
+//! [`SyntaxError`].
 //!
-//! Spans are byte ranges relative to the parsed block. Recovery is
-//! line-based in `.text` (a malformed item skips the rest of its line) and
-//! `;`-based in headers (a malformed declaration skips to its terminator).
+//! Both split their block into statements first (see
+//! [`statements`](crate::statements)): one statement per line, continued onto
+//! following lines only inside an open bracket. Each statement is parsed on
+//! its own, so recovery is per line and every bad line is reported once.
+//! Spans are byte ranges relative to the parsed block.
 
 use std::ops::Range;
 
 use chumsky::error::Simple;
-use chumsky::extra;
 use chumsky::prelude::*;
-use chumsky::recovery::via_parser;
 use vihaco_parser::Parse;
 
 use crate::Symbol;
-
-type E<'src> = extra::Err<Simple<'src, char>>;
+use crate::statements::statements;
 
 /// A parsed value and the byte range of its source text.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,7 +37,7 @@ pub struct Spanned<T> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyntaxError {
     /// The offending text, relative to the parsed block. May be empty to mark
-    /// a position, such as a missing terminator.
+    /// a position, such as a missing operand at the end of a line.
     pub span: Range<usize>,
     /// What went wrong, for example ``expected an instruction, found `foo` ``.
     pub message: String,
@@ -57,9 +57,11 @@ impl std::error::Error for SyntaxError {}
 /// definitions in source order, and every syntax error.
 ///
 /// When [`errors`](Self::errors) is non-empty the other fields hold what could
-/// be recovered: malformed items are skipped and occupy no address.
+/// be recovered: malformed statements are skipped and occupy no address.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParsedText<I> {
+    /// Each instruction's span covers the instruction, without a symbol
+    /// definition before it on its line or a trailing comment.
     pub code: Vec<Spanned<I>>,
     /// Each symbol's span covers its whole `@name:` definition.
     pub symbols: Vec<Spanned<Symbol>>,
@@ -69,7 +71,8 @@ pub struct ParsedText<I> {
 /// Located header declarations and every syntax error.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParsedDeclarations<D> {
-    /// Each declaration's span excludes its `;` terminator.
+    /// Each declaration's span covers its statement, without a trailing
+    /// comment.
     pub declarations: Vec<Spanned<D>>,
     pub errors: Vec<SyntaxError>,
 }
@@ -84,14 +87,8 @@ pub fn line_column(text: &str, offset: usize) -> (usize, usize) {
     )
 }
 
-enum TextItem<I> {
-    Instruction(I),
-    Symbol { name: String, colon: bool },
-    Invalid,
-}
-
 /// Characters allowed in a symbol name: see [`crate::symbol_definition`].
-fn symbol_name_char(c: char) -> bool {
+pub(crate) fn symbol_name_char(c: char) -> bool {
     !c.is_whitespace()
         && !matches!(
             c,
@@ -99,26 +96,10 @@ fn symbol_name_char(c: char) -> bool {
         )
 }
 
-/// Everything up to (excluding) the end of the current line; at least one
-/// character. The fallback for a malformed `.text` item.
-fn rest_of_line<'src>() -> impl Parser<'src, &'src str, (), E<'src>> + Clone {
-    any()
-        .and_is(just('\n').not())
-        .repeated()
-        .at_least(1)
-        .ignored()
-}
-
-/// Shrink `span` so it does not end in whitespace.
-fn trim_end(text: &str, span: Range<usize>) -> Range<usize> {
-    let trimmed = text[span.clone()].trim_end();
-    span.start..span.start + trimmed.len()
-}
-
-/// The token starting at `offset`: a run of non-whitespace, non-delimiter
-/// characters, or a single delimiter.
-fn token_at(text: &str, offset: usize) -> Range<usize> {
-    let rest = &text[offset..];
+/// The token starting at `offset`, ending at `limit` at the latest: a run of
+/// non-whitespace, non-delimiter characters, or a single delimiter.
+fn token_at(text: &str, offset: usize, limit: usize) -> Range<usize> {
+    let rest = &text[offset..limit.max(offset)];
     let delimiter = |c: char| matches!(c, ',' | ';' | '(' | ')' | '{' | '}' | '[' | ']');
     let mut chars = rest.char_indices();
     match chars.next() {
@@ -138,26 +119,10 @@ fn token_at(text: &str, offset: usize) -> Range<usize> {
     }
 }
 
-/// The first whitespace-delimited word starting at `offset`.
-fn word_at(text: &str, offset: usize) -> Range<usize> {
-    let rest = &text[offset..];
-    offset..offset + rest.find(char::is_whitespace).unwrap_or(rest.len())
-}
-
-/// The end of the non-blank content of the line containing `offset`.
-fn line_content_end(text: &str, offset: usize) -> usize {
-    let end = text[offset..]
-        .find('\n')
-        .map_or(text.len(), |index| offset + index);
-    trim_end(text, offset..end).end
-}
-
-/// What a chumsky error inside an item found, as text.
-struct Found {
-    span: Range<usize>,
-    /// A well-formed token whose value was rejected, such as an overflowing
-    /// integer.
-    rejected: bool,
+/// The first whitespace-delimited word of `text[span]`.
+fn word_at(text: &str, span: &Range<usize>) -> Range<usize> {
+    let rest = &text[span.clone()];
+    span.start..span.start + rest.find(char::is_whitespace).unwrap_or(rest.len())
 }
 
 /// Whether `token` is shaped like a number literal.
@@ -169,287 +134,310 @@ fn numeric(token: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '+' | '-'))
 }
 
-fn found(text: &str, error: &Simple<'_, char>) -> Found {
-    let span = error.span().into_range();
-    let start = span.start.min(text.len());
-    let at_end = match error.found() {
-        None => span.is_empty(),
-        Some(c) => c.is_whitespace(),
+/// What kind of statement failed to parse, for wording its error.
+#[derive(Clone, Copy)]
+enum Kind {
+    Instruction,
+    Declaration,
+}
+
+/// Explain why the statement at `statement` failed to parse.
+///
+/// `parses` reports whether a prefix of the statement is a complete statement
+/// by itself, which tells a second statement on the line apart from a
+/// malformed operand.
+fn statement_error<'s>(
+    text: &'s str,
+    statement: Range<usize>,
+    error: &Simple<'_, char>,
+    kind: Kind,
+    parses: impl Fn(&'s str) -> bool,
+) -> SyntaxError {
+    let head = match kind {
+        Kind::Instruction => word_at(text, &statement),
+        Kind::Declaration => token_at(text, statement.start, statement.end),
     };
-    if at_end {
-        // The end of input, or of an operand list that cannot continue on the
-        // next line.
-        return Found {
-            span: start..start,
-            rejected: false,
-        };
-    }
-    // A value rejected after lexing (such as an overflowing integer) reports
-    // no token but spans the value; otherwise the span is the first character.
-    let token = token_at(text, start);
-    let span = start..token.end.max(span.end.min(text.len()));
-    Found {
-        rejected: numeric(&text[span.clone()]),
-        span,
-    }
-}
-
-/// Explain an error raised while parsing the `.text` item starting at `start`.
-fn text_error(text: &str, start: usize, error: &Simple<'_, char>) -> SyntaxError {
-    let head = word_at(text, start);
     let head_text = &text[head.clone()];
-    if head_text.starts_with('@') {
+    if let Some((prefix, after)) = complete_prefix(text, &statement, &parses) {
+        let (what, label) = match kind {
+            Kind::Instruction => ("instruction", "one instruction per line"),
+            Kind::Declaration => ("declaration", "one declaration per line"),
+        };
+        let span = token_at(text, after, statement.end);
         return SyntaxError {
-            span: start..start + 1,
-            message: "expected a symbol name after `@`".to_owned(),
-            label: "symbol definitions are written `@name:`".to_owned(),
+            message: format!(
+                "expected end of line after the {what} `{}`, found `{}`",
+                &text[prefix],
+                &text[span.clone()]
+            ),
+            span,
+            label: label.to_owned(),
         };
     }
-    let found = found(text, error);
-    let line_end = line_content_end(text, start);
-    if found.span.start < head.end {
-        SyntaxError {
-            message: format!("expected an instruction, found `{head_text}`"),
-            span: head,
-            label: "unknown instruction".to_owned(),
-        }
-    } else if found.span.start > line_end || found.span.is_empty() {
-        SyntaxError {
-            span: line_end..line_end,
-            message: format!("expected more operands for `{head_text}`, found end of line"),
-            label: "operand expected here".to_owned(),
-        }
-    } else if found.rejected {
-        SyntaxError {
-            message: format!(
-                "invalid operand `{}` for `{head_text}`",
-                &text[found.span.clone()]
-            ),
-            span: found.span,
-            label: "value out of range or malformed".to_owned(),
-        }
+    let relative = error.span().into_range();
+    let at = (statement.start + relative.start).min(statement.end);
+    // A value rejected after lexing (such as an overflowing integer) reports
+    // no token but spans the value.
+    let rejected = error.found().is_none() && !relative.is_empty();
+    let rest = &text[at..statement.end];
+    let next = at + rest.len() - rest.trim_start().len();
+
+    if !rejected && next >= statement.end {
+        let end = statement.end;
+        return match kind {
+            Kind::Instruction => SyntaxError {
+                span: end..end,
+                message: format!("expected more operands for `{head_text}`, found end of line"),
+                label: "operand expected here".to_owned(),
+            },
+            Kind::Declaration => SyntaxError {
+                span: end..end,
+                message: format!(
+                    "expected the rest of the `{head_text}` declaration, found end of line"
+                ),
+                label: "declaration is incomplete".to_owned(),
+            },
+        };
+    }
+    if next < head.end {
+        return match kind {
+            Kind::Instruction => SyntaxError {
+                message: format!("expected an instruction, found `{head_text}`"),
+                span: head,
+                label: "unknown instruction".to_owned(),
+            },
+            Kind::Declaration => SyntaxError {
+                message: format!("expected a header declaration, found `{head_text}`"),
+                span: head,
+                label: "unknown declaration".to_owned(),
+            },
+        };
+    }
+    let token = token_at(text, next, statement.end);
+    let span = if rejected {
+        next..token
+            .end
+            .max((statement.start + relative.end).min(statement.end))
     } else {
-        SyntaxError {
-            message: format!(
-                "unexpected `{}` in operands of `{head_text}`",
-                &text[found.span.clone()]
-            ),
-            span: found.span,
+        token
+    };
+    let found = &text[span.clone()];
+    match (kind, numeric(found)) {
+        (Kind::Instruction, true) => SyntaxError {
+            message: format!("invalid operand `{found}` for `{head_text}`"),
+            span,
+            label: "value out of range or malformed".to_owned(),
+        },
+        (Kind::Instruction, false) => SyntaxError {
+            message: format!("unexpected `{found}` in operands of `{head_text}`"),
+            span,
             label: "unexpected operand".to_owned(),
-        }
+        },
+        (Kind::Declaration, true) => SyntaxError {
+            message: format!("invalid value `{found}` in `{head_text}` declaration"),
+            span,
+            label: "value out of range or malformed".to_owned(),
+        },
+        (Kind::Declaration, false) => SyntaxError {
+            message: format!("unexpected `{found}` in `{head_text}` declaration"),
+            span,
+            label: "unexpected token".to_owned(),
+        },
     }
 }
 
-/// Assign a chumsky error to the malformed item it belongs to: the last item
-/// starting at or before the error.
-fn owner(starts: &[usize], error: &Simple<'_, char>) -> Option<usize> {
-    let offset = error.span().start;
-    starts
-        .iter()
-        .copied()
-        .take_while(|start| *start <= offset)
-        .last()
-        .or_else(|| starts.first().copied())
+/// The longest proper prefix of `statement` that ends before whitespace
+/// (outside string literals) and parses as a complete statement, and the
+/// offset of the text after it.
+fn complete_prefix<'s>(
+    text: &'s str,
+    statement: &Range<usize>,
+    parses: impl Fn(&'s str) -> bool,
+) -> Option<(Range<usize>, usize)> {
+    let line = &text[statement.clone()];
+    let mut boundaries = Vec::new();
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut previous_space = true;
+    for (index, c) in line.char_indices() {
+        if in_string {
+            match (escaped, c) {
+                (true, _) => escaped = false,
+                (false, '\\') => escaped = true,
+                (false, '"') => in_string = false,
+                _ => {}
+            }
+            previous_space = false;
+            continue;
+        }
+        let space = c.is_whitespace();
+        if space && !previous_space {
+            boundaries.push(index);
+        }
+        in_string = c == '"';
+        previous_space = space;
+    }
+    boundaries.into_iter().rev().find_map(|end| {
+        let prefix = statement.start..statement.start + end;
+        let rest = &text[prefix.end..statement.end];
+        let after = prefix.end + rest.len() - rest.trim_start().len();
+        (after < statement.end && parses(&text[prefix.clone()])).then_some((prefix, after))
+    })
 }
 
-/// Parse a `.text` stream, keeping spans and recovering after malformed items.
+/// The error chumsky reports furthest into the statement.
+fn furthest<'a, 'src>(errors: &'a [Simple<'src, char>]) -> Option<&'a Simple<'src, char>> {
+    errors.iter().max_by_key(|error| error.span().start)
+}
+
+/// Parse a `.text` stream, keeping spans and recovering after malformed
+/// statements.
 ///
 /// Accepts exactly the streams accepted by
-/// [`ParsedModule::parse_section`](crate::ParsedModule::parse_section). A
-/// symbol written without its trailing `:` is reported as an error but still
-/// recorded, so later checks do not report it as missing.
+/// [`ParsedModule::parse_section`](crate::ParsedModule::parse_section): one
+/// statement per line, each an `@name:` symbol definition, an instruction, or
+/// a symbol definition followed by an instruction. A symbol written without
+/// its trailing `:` is reported as an error but still recorded, so later
+/// checks do not report it as missing.
+///
+/// Line numbers in messages count from 1 at the start of `text`; use
+/// [`parse_text_at`] when `text` is part of a larger file.
 pub fn parse_text<'src, I>(text: &'src str) -> ParsedText<I>
 where
     I: Parse<'src> + 'src,
 {
-    let symbol = just('@')
-        .ignore_then(
-            any()
-                .filter(|c: &char| symbol_name_char(*c))
-                .repeated()
-                .at_least(1)
-                .collect::<String>(),
-        )
-        .then(just(':').or_not().map(|colon| colon.is_some()))
-        .map(|(name, colon)| TextItem::Symbol { name, colon });
-    let item = symbol
-        .or(I::parser().map(TextItem::Instruction))
-        .map_with(|item, e| (item, e.span().into_range()))
-        .recover_with(via_parser(
-            rest_of_line().map_with(|(), e| (TextItem::Invalid, e.span().into_range())),
-        ));
-    let (items, errors) = crate::skip()
-        .ignore_then(item)
-        .repeated()
-        .collect::<Vec<_>>()
-        .then_ignore(crate::skip())
-        .then_ignore(end())
-        .parse(text)
-        .into_output_errors();
+    parse_text_at(text, 1)
+}
 
+/// [`parse_text`] for a block that starts on file line `first_line`.
+pub fn parse_text_at<'src, I>(text: &'src str, first_line: usize) -> ParsedText<I>
+where
+    I: Parse<'src> + 'src,
+{
+    let split = statements(text, first_line);
     let mut parsed = ParsedText {
         code: Vec::new(),
         symbols: Vec::new(),
-        errors: Vec::new(),
+        errors: split.errors,
     };
-    let items = items.unwrap_or_default();
-    let invalid_starts: Vec<usize> = items
-        .iter()
-        .filter(|(item, _)| matches!(item, TextItem::Invalid))
-        .map(|(_, span)| span.start)
-        .collect();
-    for (item, span) in items {
-        match item {
-            TextItem::Instruction(value) => parsed.code.push(Spanned {
-                value,
-                span: trim_end(text, span),
-            }),
-            TextItem::Symbol { name, colon } => {
-                if !colon {
-                    parsed.errors.push(SyntaxError {
-                        span: span.clone(),
-                        message: format!("expected `:` after symbol name `@{name}`"),
-                        label: format!("write `@{name}:` to define this symbol"),
-                    });
-                }
-                let Ok(address) = u32::try_from(parsed.code.len()) else {
-                    parsed.errors.push(SyntaxError {
-                        span,
-                        message: "instruction stream exceeds u32 address space".to_owned(),
-                        label: String::new(),
-                    });
-                    continue;
-                };
-                parsed.symbols.push(Spanned {
-                    value: Symbol { name, address },
-                    span,
+    let parser = I::parser().then_ignore(end());
+    let parses = |prefix: &'src str| !prefix.is_empty() && !parser.parse(prefix).has_errors();
+    for statement in split.statements {
+        if !statement.balanced {
+            continue;
+        }
+        let mut start = statement.span.start;
+        let end = statement.span.end;
+        if let Some(rest) = text[start..end].strip_prefix('@') {
+            let name_len = rest.find(|c| !symbol_name_char(c)).unwrap_or(rest.len());
+            if name_len == 0 {
+                parsed.errors.push(SyntaxError {
+                    span: start..start + 1,
+                    message: "expected a symbol name after `@`".to_owned(),
+                    label: "symbol definitions are written `@name:`".to_owned(),
+                });
+                continue;
+            }
+            let name = rest[..name_len].to_owned();
+            let colon = rest[name_len..].starts_with(':');
+            let span = start..start + 1 + name_len + usize::from(colon);
+            if !colon {
+                parsed.errors.push(SyntaxError {
+                    span: span.clone(),
+                    message: format!("expected `:` after symbol name `@{name}`"),
+                    label: format!("write `@{name}:` to define this symbol"),
                 });
             }
-            TextItem::Invalid => {}
+            let Ok(address) = u32::try_from(parsed.code.len()) else {
+                parsed.errors.push(SyntaxError {
+                    span,
+                    message: "instruction stream exceeds u32 address space".to_owned(),
+                    label: String::new(),
+                });
+                continue;
+            };
+            parsed.symbols.push(Spanned {
+                value: Symbol { name, address },
+                span: span.clone(),
+            });
+            if !colon {
+                continue;
+            }
+            let after = &text[span.end..end];
+            start = span.end + after.len() - after.trim_start().len();
+            if start >= end {
+                continue;
+            }
         }
-    }
-    for error in &errors {
-        let start = owner(&invalid_starts, error).unwrap_or(error.span().start);
-        parsed.errors.push(text_error(text, start, error));
+        let statement = start..end;
+        match parser.parse(&text[statement.clone()]).into_result() {
+            Ok(value) => parsed.code.push(Spanned {
+                value,
+                span: statement,
+            }),
+            Err(errors) => {
+                if let Some(error) = furthest(&errors) {
+                    parsed.errors.push(statement_error(
+                        text,
+                        statement,
+                        error,
+                        Kind::Instruction,
+                        parses,
+                    ));
+                }
+            }
+        }
     }
     parsed.errors.sort_by_key(|error| error.span.start);
     parsed
 }
 
-enum DeclarationItem<D> {
-    Declaration {
-        value: D,
-        span: Range<usize>,
-        terminated: bool,
-    },
-    Invalid(usize),
-}
-
-/// Explain an error raised while parsing the declaration starting at `start`.
-fn declaration_error(text: &str, start: usize, error: &Simple<'_, char>) -> SyntaxError {
-    let head = token_at(text, start);
-    let head_text = &text[head.clone()];
-    let found = found(text, error);
-    if found.span.start < head.end {
-        SyntaxError {
-            message: format!("expected a header declaration, found `{head_text}`"),
-            span: head,
-            label: "unknown declaration".to_owned(),
-        }
-    } else if found.span.is_empty() {
-        let end = trim_end(text, 0..text.len()).end;
-        SyntaxError {
-            span: end..end,
-            message: format!("unexpected end of header in `{head_text}` declaration"),
-            label: "declaration is incomplete".to_owned(),
-        }
-    } else if found.rejected {
-        SyntaxError {
-            message: format!(
-                "invalid value `{}` in `{head_text}` declaration",
-                &text[found.span.clone()]
-            ),
-            span: found.span,
-            label: "value out of range or malformed".to_owned(),
-        }
-    } else {
-        SyntaxError {
-            message: format!(
-                "unexpected `{}` in `{head_text}` declaration",
-                &text[found.span.clone()]
-            ),
-            span: found.span,
-            label: "unexpected token".to_owned(),
-        }
-    }
-}
-
-/// Parse `;`-terminated header declarations, keeping spans and recovering
-/// after malformed declarations.
+/// Parse header declarations, one per statement, keeping spans and
+/// recovering after malformed declarations.
 ///
-/// Accepts exactly the headers accepted by `HeaderDeclarations<D>`:
-/// declarations separated by whitespace and `//` comments, each terminated by
-/// `;`. A declaration missing its `;` is reported but still recorded.
+/// Accepts exactly the headers accepted by `HeaderDeclarations<D>`: one
+/// declaration per line, continued onto following lines only inside an open
+/// bracket, with `;` comments. Line numbers in messages count from 1 at the
+/// start of `text`; use [`parse_declarations_at`] when `text` is part of a
+/// larger file.
 pub fn parse_declarations<'src, D>(text: &'src str) -> ParsedDeclarations<D>
 where
     D: Parse<'src> + 'src,
 {
-    let declaration = D::parser()
-        .map_with(|value, e| (value, e.span().into_range()))
-        .then(crate::skip().ignore_then(just(';')).or_not())
-        .map(|((value, span), terminator)| DeclarationItem::Declaration {
-            value,
-            span,
-            terminated: terminator.is_some(),
-        });
-    let fallback = any()
-        .and_is(just(';').not())
-        .repeated()
-        .then(just(';').or_not())
-        .to_slice()
-        .filter(|skipped: &&str| !skipped.is_empty())
-        .map_with(|_, e| {
-            let span: SimpleSpan = e.span();
-            DeclarationItem::Invalid(span.start)
-        });
-    let (items, errors) = crate::skip()
-        .ignore_then(declaration.recover_with(via_parser(fallback)))
-        .repeated()
-        .collect::<Vec<_>>()
-        .then_ignore(crate::skip())
-        .then_ignore(end())
-        .parse(text)
-        .into_output_errors();
+    parse_declarations_at(text, 1)
+}
 
+/// [`parse_declarations`] for a block that starts on file line `first_line`.
+pub fn parse_declarations_at<'src, D>(text: &'src str, first_line: usize) -> ParsedDeclarations<D>
+where
+    D: Parse<'src> + 'src,
+{
+    let split = statements(text, first_line);
     let mut parsed = ParsedDeclarations {
         declarations: Vec::new(),
-        errors: Vec::new(),
+        errors: split.errors,
     };
-    let mut invalid_starts = Vec::new();
-    for item in items.unwrap_or_default() {
-        match item {
-            DeclarationItem::Declaration {
-                value,
-                span,
-                terminated,
-            } => {
-                let span = trim_end(text, span);
-                if !terminated {
-                    let head: &str = &text[token_at(text, span.start)];
-                    parsed.errors.push(SyntaxError {
-                        span: span.end..span.end,
-                        message: format!("expected `;` after `{head}` declaration"),
-                        label: "declarations end with `;`".to_owned(),
-                    });
-                }
-                parsed.declarations.push(Spanned { value, span });
-            }
-            DeclarationItem::Invalid(start) => invalid_starts.push(start),
+    let parser = D::parser().then_ignore(end());
+    let parses = |prefix: &'src str| !prefix.is_empty() && !parser.parse(prefix).has_errors();
+    for statement in split.statements {
+        if !statement.balanced {
+            continue;
         }
-    }
-    for error in &errors {
-        let start = owner(&invalid_starts, error).unwrap_or(error.span().start);
-        parsed.errors.push(declaration_error(text, start, error));
+        let span = statement.span;
+        match parser.parse(&text[span.clone()]).into_result() {
+            Ok(value) => parsed.declarations.push(Spanned { value, span }),
+            Err(errors) => {
+                if let Some(error) = furthest(&errors) {
+                    parsed.errors.push(statement_error(
+                        text,
+                        span,
+                        error,
+                        Kind::Declaration,
+                        parses,
+                    ));
+                }
+            }
+        }
     }
     parsed.errors.sort_by_key(|error| error.span.start);
     parsed

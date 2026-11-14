@@ -95,11 +95,9 @@ fn is_token_char(c: char) -> bool {
 
 /// Write an unquoted token after checking that the token parser reads it back.
 ///
-/// A leading `//` would be read as a line comment by surrounding collection
-/// and record parsers, so it is rejected too.
+/// Tokens never contain `;`, which starts a line comment.
 fn print_token(text: &str, allow_at: bool, out: &mut dyn fmt::Write) -> fmt::Result {
     if text.is_empty()
-        || text.starts_with("//")
         || !text
             .chars()
             .all(|c| is_token_char(c) && (allow_at || c != '@'))
@@ -290,7 +288,7 @@ mod tests {
         assert_eq!(round_trip(Ident("AOD0:T1:A".into())), "AOD0:T1:A");
         assert_eq!(round_trip(Ident("a.b.c".into())), "a.b.c");
         assert_eq!(round_trip(BareToken("@target".into())), "@target");
-        for bad in ["", "two words", "a,b", "@x", "q\"", "//c", "x)"] {
+        for bad in ["", "two words", "a,b", "@x", "q\"", ";c", "x)"] {
             assert!(Ident(bad.into()).to_source().is_err(), "{bad:?}");
         }
         assert!(BareToken("".into()).to_source().is_err());
