@@ -81,6 +81,39 @@ impl<'src> vihaco_parser::Parse<'src> for Value {
     }
 }
 
+/// Print the canonical spelling of each type (the short form where the parser
+/// accepts aliases, e.g. `str` and `fn`).
+impl vihaco_parser::Print for Type {
+    fn print(&self, out: &mut dyn std::fmt::Write) -> std::fmt::Result {
+        write!(out, "{self}")
+    }
+}
+
+/// Print a type-tagged value such as `u64 3` or `f64 -0.5`.
+///
+/// Finite floats print as their shortest round-tripping decimal. NaN and the
+/// infinities print as `f64_bits`/`f32_bits` so the exact bit pattern
+/// (including NaN payloads) survives a reparse.
+impl vihaco_parser::Print for Value {
+    fn print(&self, out: &mut dyn std::fmt::Write) -> std::fmt::Result {
+        match self {
+            Value::Undefined => out.write_str("undefined"),
+            Value::String(index) => write!(out, "str {index}"),
+            Value::Bool(value) => write!(out, "bool {value}"),
+            Value::I64(value) => write!(out, "i64 {value}"),
+            Value::I32(value) => write!(out, "i32 {value}"),
+            Value::U32(value) => write!(out, "u32 {value}"),
+            Value::U64(value) => write!(out, "u64 {value}"),
+            Value::F64(value) if value.is_finite() => write!(out, "f64 {value:?}"),
+            Value::F64(value) => write!(out, "f64_bits {}", value.to_bits()),
+            Value::F32(value) if value.is_finite() => write!(out, "f32 {value:?}"),
+            Value::F32(value) => write!(out, "f32_bits {}", value.to_bits()),
+            Value::FunctionRef(index) => write!(out, "fn {index}"),
+            Value::HeapRef(index) => write!(out, "heap {index}"),
+        }
+    }
+}
+
 impl AsRef<Type> for Type {
     fn as_ref(&self) -> &Type {
         self

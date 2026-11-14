@@ -125,7 +125,7 @@ pub use vihaco_bytecode::{BytecodeSectionView, SSTSectionView};
 pub use vihaco_module::loader;
 #[doc(hidden)]
 pub use vihaco_parser::trivia;
-pub use vihaco_parser::{Parse, SurfaceInstruction};
+pub use vihaco_parser::{Parse, Print, SurfaceInstruction};
 
 pub use generated::{
     Component, Composite, CompositeMetadata, GeneratedComponent, HasInstructionSet,
