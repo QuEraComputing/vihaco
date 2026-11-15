@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"struct":["FieldInfo","FunctionInfo","LabelInfo","LocalModule","NoInfo","Parameter","ProgramMetadata","Signature","SourceSymbolInfo","StructInfo"],"trait":["StructTypeRef"]};
