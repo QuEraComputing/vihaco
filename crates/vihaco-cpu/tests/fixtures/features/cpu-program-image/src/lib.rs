@@ -3,7 +3,7 @@
 
 //! The facade opt-in forwards through stdlib to CPU and the runtime protocols.
 
-pub use vm::{execute, resume};
+pub use vm::execution_state::{execute, resume};
 
 pub fn instruction() -> host::cpu::AddU64
 where
