@@ -7,7 +7,7 @@ Component authors choose messages/effects, without implementing stack logic.</p>
 <div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>vihaco_abi::{Type, Value};
 <span class="kw">use </span>vihaco_module::module::{LocalModule, FunctionInfo, Signature};
 <span class="kw">use </span>vihaco_runtime::{composite, field, Apply, BuildMessage, Execute, HasInstructionSet, Step};
-<span class="kw">use </span>vihaco_stdlib::{ExecutionState, Image, execution_state::execute, program::program};
+<span class="kw">use </span>vihaco_stdlib::{ExecutionState, Image, Verified, execution_state::execute, program::program};
 <span class="kw">use </span>vihaco_cpu::{CPU, cpu};
 
 <span class="attr">#[composite]
@@ -67,11 +67,11 @@ Component authors choose messages/effects, without implementing stack logic.</p>
 }
 <span class="kw">impl </span>Loaded {
     <span class="kw">fn </span>run(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; eyre::Result&lt;()&gt; {
-        execute(<span class="kw-2">&amp;</span><span class="self">self</span>.image.module, <span class="kw-2">&amp;mut </span><span class="self">self</span>.machine, <span class="kw-2">&amp;</span>[])
+        execute(<span class="self">self</span>.image.module(), <span class="kw-2">&amp;mut </span><span class="self">self</span>.machine, <span class="kw-2">&amp;</span>[])
     }
 }
 <span class="kw">let </span><span class="kw-2">mut </span>loaded = Loaded {
-    image: Image::new(module),
+    image: Image::new(Verified::new(module)<span class="question-mark">?</span>),
     machine: Machine { execution: ExecutionState::new(), cpu: CPU::default() },
 };
 loaded.run()<span class="question-mark">?</span>;

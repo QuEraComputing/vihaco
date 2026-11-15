@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["FieldOperand","NamedTypeOperand","StructOperand","TypeOperand"],"trait":["NamedTypeLookup","StructLookup"]};
+window.SIDEBAR_ITEMS = {"enum":["FieldOperand","NamedTypeOperand","StructOperand","TypeOperand"],"fn":["resolve_function_type"],"struct":["FunctionTypeOperand"],"trait":["NamedTypeLookup","StructLookup"]};

@@ -10,7 +10,7 @@
         document.documentElement.setAttribute("data-theme", resolved);
         document.documentElement.setAttribute("data-theme-pref", stored);
       })();
-    </script><link rel="stylesheet" href="/vihaco/pr-preview/pr-191/_astro/Base.Wd5z-zFf.css"></head> <body> <header class="masthead"> <div class="masthead-inner"> <a class="brand" href="/vihaco/pr-preview/pr-191/"> <span class="brand-mark" aria-hidden="true"></span> <span class="brand-mono">vihaco</span> <span class="brand-sub">/ virtual ISA &amp; machine framework</span> </a> <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Open navigation menu"> <span class="nav-toggle-bars" aria-hidden="true"></span> </button> <nav class="nav-links" id="primary-nav"> <a href="/vihaco/pr-preview/pr-191/">Overview</a><a href="/vihaco/pr-preview/pr-191/quickstart">Quick Start</a><a href="/vihaco/pr-preview/pr-191/guide" aria-current="page">Author’s Guide</a><a href="/vihaco/pr-preview/pr-191/reference">Reference</a> <div class="theme-toggle" role="group" aria-label="Theme"> <button type="button" data-theme-set="light" title="Light theme" aria-label="Light theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <circle cx="12" cy="12" r="4"></circle> <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path> </svg> </button> <button type="button" data-theme-set="dark" title="Dark theme" aria-label="Dark theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path> </svg> </button> <button type="button" data-theme-set="auto" title="Match system theme" aria-label="Auto (follow system)" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <rect x="3" y="4" width="18" height="13" rx="2"></rect> <path d="M8 21h8M12 17v4"></path> </svg> </button> </div> </nav> </div> </header> <main> <div class="page-shell page-shell--3col"> <details class="page-sections side-nav" aria-label="Author’s guide"> <summary class="page-toc-label">Author’s guide</summary> <ol> <li> <a href="/vihaco/pr-preview/pr-191/guide">Start here</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/mental-model">The mental model</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/first-machine" aria-current="page">Your first machine</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/essentials">Essential concepts</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/instructions">Dialects and instructions</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/components">Writing components</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/messages">Preparing messages</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/stack">Stack inputs and outputs</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/composites">Writing composites</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/execution">Executing one instruction</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/effects">Handling effects</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/program-execution">Running programs</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/loadables">Images and Loadables</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/parser">Parsing source</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/parser-advanced">Loading SST programs</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/sst-reference">Emitting SST from a compiler</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/instructions-advanced">Binary formats</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/patterns">Patterns for larger machines</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/testing">Testing and extending</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/parser-patterns">Pattern parser reference</a> </li> </ol> </details> <div class="page-toc-content">  <article class="shell narrow guide-body"> <h1 id="your-first-machine">Your first machine</h1>
+    </script><link rel="stylesheet" href="/vihaco/pr-preview/pr-191/_astro/Base.Wd5z-zFf.css"></head> <body> <header class="masthead"> <div class="masthead-inner"> <a class="brand" href="/vihaco/pr-preview/pr-191/"> <span class="brand-mark" aria-hidden="true"></span> <span class="brand-mono">vihaco</span> <span class="brand-sub">/ virtual ISA &amp; machine framework</span> </a> <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Open navigation menu"> <span class="nav-toggle-bars" aria-hidden="true"></span> </button> <nav class="nav-links" id="primary-nav"> <a href="/vihaco/pr-preview/pr-191/">Overview</a><a href="/vihaco/pr-preview/pr-191/quickstart">Quick Start</a><a href="/vihaco/pr-preview/pr-191/guide" aria-current="page">Author’s Guide</a><a href="/vihaco/pr-preview/pr-191/reference">Reference</a> <div class="theme-toggle" role="group" aria-label="Theme"> <button type="button" data-theme-set="light" title="Light theme" aria-label="Light theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <circle cx="12" cy="12" r="4"></circle> <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path> </svg> </button> <button type="button" data-theme-set="dark" title="Dark theme" aria-label="Dark theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path> </svg> </button> <button type="button" data-theme-set="auto" title="Match system theme" aria-label="Auto (follow system)" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <rect x="3" y="4" width="18" height="13" rx="2"></rect> <path d="M8 21h8M12 17v4"></path> </svg> </button> </div> </nav> </div> </header> <main> <div class="page-shell page-shell--3col"> <details class="page-sections side-nav" aria-label="Author’s guide"> <summary class="page-toc-label">Author’s guide</summary> <ol> <li> <a href="/vihaco/pr-preview/pr-191/guide">Start here</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/mental-model">The mental model</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/first-machine" aria-current="page">Your first machine</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/essentials">Essential concepts</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/instructions">Dialects and instructions</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/components">Writing components</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/messages">Preparing messages</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/stack">Stack inputs and outputs</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/composites">Writing composites</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/execution">Executing one instruction</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/effects">Handling effects</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/program-execution">Running programs</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/loadables">Images and Loadables</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/verification">Verification</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/parser">Parsing source</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/parser-advanced">Loading SST programs</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/sst-reference">Emitting SST from a compiler</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/instructions-advanced">Binary formats</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/patterns">Patterns for larger machines</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/testing">Testing and extending</a> </li><li> <a href="/vihaco/pr-preview/pr-191/guide/parser-patterns">Pattern parser reference</a> </li> </ol> </details> <div class="page-toc-content">  <article class="shell narrow guide-body"> <h1 id="your-first-machine">Your first machine</h1>
 <p>Our first machine has a small job: push <code>20</code> and <code>22</code>, add them, and return <code>42</code>.
 You’ll write the <code>Calculator</code>; the standard <code>ExecutionState</code> will handle the
 program’s operands and control flow.</p>
@@ -68,10 +68,12 @@ at compile time, so the example doesn’t depend on your working directory.</p>
 
 use vihaco::{
     Apply, BuildMessage, Execute, ExecutionState, HasInstructionSet, Image, Loadable, NoContext,
-    PopFromStack, PushToStack, SstFile, Step, Type, Value, component, composite, dialect, field,
+    PopFromStack, PushToStack, SstFile, Step, Type, Value, Verified, Verify, component, composite,
+    dialect, field,
     loader::MetadataLoweringContext,
     module::{LocalModule, ProgramMetadata},
     syntax::{HeaderDeclarations, ParsedModule, lower_functions_with_metadata},
+    verifier::{OperandStack, TypedSlot, stack_effect},
 };
 
 #[dialect]
@@ -102,6 +104,17 @@ impl Execute&#x3C;arithmetic::Add> for Calculator {
             .ok_or_else(|| eyre::eyre!("addition overflow"))?;
         self.additions += 1;
         Ok(PushToStack((sum,)))
+    }
+}
+
+// The load-time typing rule: `add` pops two `u64` operands and pushes one.
+impl&#x3C;C> Verify&#x3C;C> for arithmetic::Add
+where
+    C: OperandStack + ?Sized,
+    C::Slot: TypedSlot,
+{
+    fn verify(&#x26;self, cx: &#x26;mut C) -> eyre::Result&#x3C;()> {
+        stack_effect(cx, [Type::U64, Type::U64], [Type::U64])
     }
 }
 
@@ -174,7 +187,7 @@ pub fn main() -> eyre::Result&#x3C;()> {
     );
     let mut context = MetadataLoweringContext::new(&#x26;metadata)?;
     let code = lower_functions_with_metadata(functions, &#x26;metadata, &#x26;mut context)?;
-    let module = metadata.into_module(code)?;
+    let module = Verified::new(metadata.into_module(code)?)?;
     let machine = Machine {
         execution: ExecutionState::new(),
         calculator: Calculator::default(),
@@ -200,6 +213,11 @@ program instructions change execution state directly, while calculator
 instructions take operands, compute, and put the answer back.</p>
 <p>The generic bounds on those steps let you use the same body for other
 instructions that meet the same requirements.</p>
+<p>The <code>Verify</code> implementation is <code>add</code>’s typing rule: it pops two <code>u64</code> operands
+and pushes a <code>u64</code>. The verifier uses it, together with the rules the standard
+program instructions already have, to check the whole program before it runs.
+A machine can only be verified if every instruction in it has a rule, and the
+compiler checks that.</p>
 <h2 id="what-vihaco-supplies">What vihaco supplies</h2>
 <p>The macros handle instruction parsing, field routes, and dispatch through the
 combined instruction set. Standard builders move operands into <code>PopFromStack</code>,
@@ -221,9 +239,14 @@ headers and multiple sections.</p>
 instructions <code>0..4</code>, returns one <code>u64</code>, and has no parameters or reserved locals.
 Its name and source filename refer into <code>strings</code>.
 <code>ProgramMetadata::into_module</code> checks and assembles the tables and code.</p>
-<p>Finally, <code>Image::new</code> wraps the module, and <code>Loadable::new</code> pairs it with the
-machine. Calling <code>execute(&#x26;[])</code> enters the selected function with no host
-arguments.</p>
+<p><code>Verified::new</code> then verifies the module: every function is checked against
+its declared signature and locals, so a program that would add a string or
+return the wrong number of values is rejected before it runs, with a
+diagnostic for each problem. An image only accepts a verified module.
+<a href="/vihaco/pr-preview/pr-191/guide/verification">Verification</a> covers rules and diagnostics in depth.</p>
+<p>Finally, <code>Image::new</code> wraps the verified module, and <code>Loadable::new</code> pairs it
+with the machine. Calling <code>execute(&#x26;[])</code> enters the selected function with no
+host arguments.</p>
 <p><a href="/vihaco/pr-preview/pr-191/guide/essentials">Essential concepts</a> summarizes the minimum needed to define
 instructions, implement components, and wire a VM before you explore each topic.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/pr-preview/pr-191/guide/mental-model" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">The mental model</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/pr-preview/pr-191/guide/essentials" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Essential concepts</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#the-sst-program" data-toc-link="#the-sst-program">The SST program</a></li><li><a href="#the-complete-machine" data-toc-link="#the-complete-machine">The complete machine</a></li><li><a href="#what-you-authored" data-toc-link="#what-you-authored">What you authored</a></li><li><a href="#what-vihaco-supplies" data-toc-link="#what-vihaco-supplies">What vihaco supplies</a></li><li><a href="#why-there-is-metadata" data-toc-link="#why-there-is-metadata">Why there is metadata</a></li> </ol> </details> </div> </main> <script>
         // Scroll-spy: mark the TOC link for the section currently in view.
@@ -377,7 +400,7 @@ instructions, implement components, and wire a VM before you explore each topic.
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-11-14</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-11-15</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

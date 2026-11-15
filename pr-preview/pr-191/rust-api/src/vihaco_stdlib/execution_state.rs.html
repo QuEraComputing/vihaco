@@ -12,7 +12,7 @@
 <a href=#12 id=12 data-nosnippet>12</a>//! use vihaco_abi::{Type, Value};
 <a href=#13 id=13 data-nosnippet>13</a>//! use vihaco_module::module::{LocalModule, FunctionInfo, Signature};
 <a href=#14 id=14 data-nosnippet>14</a>//! use vihaco_runtime::{composite, field, Apply, BuildMessage, Execute, HasInstructionSet, Step};
-<a href=#15 id=15 data-nosnippet>15</a>//! use vihaco_stdlib::{ExecutionState, Image, execution_state::execute, program::program};
+<a href=#15 id=15 data-nosnippet>15</a>//! use vihaco_stdlib::{ExecutionState, Image, Verified, execution_state::execute, program::program};
 <a href=#16 id=16 data-nosnippet>16</a>//! use vihaco_cpu::{CPU, cpu};
 <a href=#17 id=17 data-nosnippet>17</a>//!
 <a href=#18 id=18 data-nosnippet>18</a>//! #[composite]
@@ -72,11 +72,11 @@
 <a href=#72 id=72 data-nosnippet>72</a>//! }
 <a href=#73 id=73 data-nosnippet>73</a>//! impl Loaded {
 <a href=#74 id=74 data-nosnippet>74</a>//!     fn run(&amp;mut self) -&gt; eyre::Result&lt;()&gt; {
-<a href=#75 id=75 data-nosnippet>75</a>//!         execute(&amp;self.image.module, &amp;mut self.machine, &amp;[])
+<a href=#75 id=75 data-nosnippet>75</a>//!         execute(self.image.module(), &amp;mut self.machine, &amp;[])
 <a href=#76 id=76 data-nosnippet>76</a>//!     }
 <a href=#77 id=77 data-nosnippet>77</a>//! }
 <a href=#78 id=78 data-nosnippet>78</a>//! let mut loaded = Loaded {
-<a href=#79 id=79 data-nosnippet>79</a>//!     image: Image::new(module),
+<a href=#79 id=79 data-nosnippet>79</a>//!     image: Image::new(Verified::new(module)?),
 <a href=#80 id=80 data-nosnippet>80</a>//!     machine: Machine { execution: ExecutionState::new(), cpu: CPU::default() },
 <a href=#81 id=81 data-nosnippet>81</a>//! };
 <a href=#82 id=82 data-nosnippet>82</a>//! loaded.run()?;
