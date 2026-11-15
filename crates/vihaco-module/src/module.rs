@@ -3,7 +3,7 @@
 
 use crate::color::Themed;
 pub use crate::names::{Location, ModuleNames};
-pub use crate::program_metadata::{ProgramMetadata, explain_metadata};
+pub use crate::program_metadata::{ProgramMetadata, Table, explain_metadata};
 pub use crate::source_type::{ResolveType, SourceType, TypeLookup};
 
 /// A module for a single section.

@@ -15,7 +15,7 @@ use std::fmt;
 
 use vihaco_abi::Type;
 use vihaco_abi::names::{InstructionText, SymbolNames, TypeNames};
-use vihaco_module::module::{FrameError, LocalModule};
+use vihaco_module::module::{FrameError, LocalModule, Location};
 
 use crate::slot::TypeSlot;
 
@@ -107,43 +107,9 @@ pub enum Predecessor {
     Jump(u32),
 }
 
-/// A metadata table an index refers to, in [`DiagnosticKind::UnknownEntry`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum Table {
-    /// The function table.
-    Functions,
-    /// The struct table.
-    Structs,
-    /// The named-type table.
-    NamedTypes,
-    /// The constant table.
-    Constants,
-    /// The string table.
-    Strings,
-}
-
-impl Table {
-    fn entry(self) -> &'static str {
-        match self {
-            Table::Functions => "function",
-            Table::Structs => "struct",
-            Table::NamedTypes => "named type",
-            Table::Constants => "constant",
-            Table::Strings => "string",
-        }
-    }
-
-    fn name(self) -> &'static str {
-        match self {
-            Table::Functions => "function table",
-            Table::Structs => "struct table",
-            Table::NamedTypes => "named-type table",
-            Table::Constants => "constant table",
-            Table::Strings => "string table",
-        }
-    }
-}
+/// A metadata table an index refers to, in [`DiagnosticKind::UnknownEntry`];
+/// the same table names metadata validation uses.
+pub use vihaco_module::module::Table;
 
 /// What a [`Diagnostic`] reports.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -470,30 +436,34 @@ impl<'a> Renderer<'a> {
         }
     }
 
+    /// Where `address` is within the diagnostic's function, by name, if the
+    /// names know the function's name and start. The same [`Location`] form
+    /// module messages use.
+    fn named_location(&self, address: u32) -> Option<Location<'a>> {
+        let function = self.diagnostic.function;
+        let names = self.names?;
+        let name = names.function_name(function)?;
+        let offset = address.checked_sub(names.function_start(function)?)?;
+        Some(Location::in_function(Some(name), function, offset, address))
+    }
+
     /// `@main+2` or `address 2`, inside the diagnostic's function.
     fn short_location(&self, address: u32) -> String {
-        let function = self.diagnostic.function;
-        match self.names.and_then(|names| {
-            let name = names.function_name(function)?;
-            let offset = address.checked_sub(names.function_start(function)?)?;
-            Some((name, offset))
-        }) {
-            Some((name, offset)) => format!("@{name}+{offset}"),
+        match self.named_location(address) {
+            Some(location) => location.short().to_string(),
             None => format!("address {address}"),
         }
     }
 
     /// `@main+2 (address 2)`, or `function 0, address 2` without names.
     fn location(&self, f: &mut fmt::Formatter<'_>, address: u32) -> fmt::Result {
-        let short = self.short_location(address);
-        if short.starts_with('@') {
-            write!(f, "{short} (address {address})")
-        } else {
-            write!(
+        match self.named_location(address) {
+            Some(location) => fmt::Display::fmt(&location, f),
+            None => write!(
                 f,
                 "function {}, address {address}",
                 self.diagnostic.function
-            )
+            ),
         }
     }
 

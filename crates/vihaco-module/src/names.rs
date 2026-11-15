@@ -129,16 +129,18 @@ impl<'a, Ty> ModuleNames<'a, Ty> {
     /// Where `address` is, relative to the start of `function` (when given
     /// and known).
     pub fn location_in(&self, function: Option<u32>, address: u32) -> Location<'a> {
-        let function = function.and_then(|function| {
-            let info = self.function(function)?;
-            let offset = address.checked_sub(info.start_address)?;
-            let name = match self.string(info.name) {
-                Some(name) => FunctionName::Named(name),
-                None => FunctionName::Index(function),
-            };
-            Some((name, offset))
-        });
-        Location { function, address }
+        function
+            .and_then(|function| {
+                let info = self.function(function)?;
+                let offset = address.checked_sub(info.start_address)?;
+                Some(Location::in_function(
+                    self.string(info.name),
+                    function,
+                    offset,
+                    address,
+                ))
+            })
+            .unwrap_or(Location::outside(address))
     }
 }
 
@@ -188,10 +190,49 @@ pub struct Location<'a> {
     address: u32,
 }
 
-impl Location<'_> {
+impl<'a> Location<'a> {
+    /// `address`, at `offset` within function `function` (shown by `name`
+    /// when given): `@main+2 (address 2)` or `function 0+2 (address 2)`.
+    pub fn in_function(name: Option<&'a str>, function: u32, offset: u32, address: u32) -> Self {
+        let name = match name {
+            Some(name) => FunctionName::Named(name),
+            None => FunctionName::Index(function),
+        };
+        Location {
+            function: Some((name, offset)),
+            address,
+        }
+    }
+
+    /// `address`, outside every known function: `address 7`.
+    pub fn outside(address: u32) -> Self {
+        Location {
+            function: None,
+            address,
+        }
+    }
+
     /// The section-local instruction address.
     pub fn address(&self) -> u32 {
         self.address
+    }
+
+    /// The location without the address: `@main+2`, `function 0+2`, or
+    /// `address 7` outside every function.
+    pub fn short(&self) -> impl fmt::Display + '_ {
+        struct Short<'l, 'a>(&'l Location<'a>);
+        impl fmt::Display for Short<'_, '_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                match self.0.function {
+                    Some((FunctionName::Named(name), offset)) => write!(f, "@{name}+{offset}"),
+                    Some((FunctionName::Index(index), offset)) => {
+                        write!(f, "function {index}+{offset}")
+                    }
+                    None => write!(f, "address {}", self.0.address),
+                }
+            }
+        }
+        Short(self)
     }
 }
 

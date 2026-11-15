@@ -55,33 +55,43 @@ pub struct ProgramMetadata<V = Value, Ty = SourceType, Info = NoInfo> {
     pub extra: Info,
 }
 
-/// A metadata table that indices refer to, for messages.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Table {
-    Strings,
+/// A metadata table that indices refer to, for messages (metadata
+/// validation here, and the verifier's `UnknownEntry` diagnostic).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Table {
+    /// The function table.
     Functions,
+    /// The struct table.
     Structs,
-    Types,
+    /// The named-type table.
+    NamedTypes,
+    /// The constant table.
+    Constants,
+    /// The string table.
+    Strings,
 }
 
 impl Table {
-    /// What one entry is called: `string 9`.
-    fn entry(self) -> &'static str {
+    /// What one entry is called: `string`, as in `string 9`.
+    pub fn entry(self) -> &'static str {
         match self {
-            Table::Strings => "string",
             Table::Functions => "function",
             Table::Structs => "struct",
-            Table::Types => "named type",
+            Table::NamedTypes => "named type",
+            Table::Constants => "constant",
+            Table::Strings => "string",
         }
     }
 
-    /// What the table is called: `the string table`.
-    fn name(self) -> &'static str {
+    /// What the table is called: `string table`.
+    pub fn name(self) -> &'static str {
         match self {
-            Table::Strings => "string table",
             Table::Functions => "function table",
             Table::Structs => "struct table",
-            Table::Types => "named-type table",
+            Table::NamedTypes => "named-type table",
+            Table::Constants => "constant table",
+            Table::Strings => "string table",
         }
     }
 }
@@ -416,7 +426,7 @@ impl<V, Ty: StructTypeRef, Info> ProgramMetadata<V, Ty, Info> {
             });
             ty.visit_named_refs(&mut |index| {
                 if result.is_ok() {
-                    result = check_index(&path(), index, Table::Types, self.types.len());
+                    result = check_index(&path(), index, Table::NamedTypes, self.types.len());
                 }
             });
             result
