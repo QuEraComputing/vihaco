@@ -26,7 +26,10 @@ crate). The <code>program-image-execution</code> feature includes it; enable the
 <code>verifier</code> feature to use it on its own.</p>
 <h2 id="verifying-a-program">Verifying a program</h2>
 <p>An <a href="/vihaco/pr-preview/pr-197/guide/loadables">image</a> only accepts a <code>Verified</code> module, so verification
-is part of loading:</p>
+is part of loading. (With <code>typed-declarations</code> alone, without
+<code>program-image-execution</code>, programs run through the legacy <code>ProgramImage</code>,
+which does not require <code>Verified</code>: there, verification happens only if you call
+<code>verify_module</code> before loading.)</p>
 <pre><code class="language-rust,ignore">let module = metadata.into_module(code)?;   // parse and lower as usual
 let image = Image::new(Verified::new(module)?);
 let mut loaded = Loadable::new(image, machine);
@@ -34,8 +37,14 @@ let mut loaded = Loadable::new(image, machine);
 <p>If the program has any error, <code>Verified::new</code> returns a <code>VerifyFailed</code>: it
 gives the module back (<code>failed.module</code>, or <code>into_parts()</code>) together with the
 <code>Rejection</code>, whose <code>diagnostics</code> list every finding, sorted by function and
-address. It displays them all with the module’s names and converts into an
-<code>eyre::Report</code>, so <code>?</code> reports something like:</p>
+address. It converts into an <code>eyre::Report</code> for any instruction set, so <code>?</code>
+works; that report shows indices (<code>function 0, address 2</code>). To show the module’s
+names, which every <code>#[composite]</code> instruction set provides, render it with
+<code>failed.display_named()</code>:</p>
+<pre><code class="language-rust,ignore">let verified = Verified::new(module)
+    .map_err(|failed| eyre::eyre!("{}", failed.display_named()))?;
+</code></pre>
+<p>which reports something like:</p>
 <pre><code class="language-text">verification failed with 1 error
 error: operand 0 of `mixer::mixer::scale_f64`: expected f64, found u64
   --> @main+2 (address 2): mixer::mixer::scale_f64
@@ -126,9 +135,9 @@ fn main() -> eyre::Result&#x3C;()> {
         "execution::program::ret 1",
     ])?;
     let failed = Verified::verify(bad, options).unwrap_err();
-    // The error displays every diagnostic with the module's names.
+    // `display_named` shows every diagnostic with the module's names.
     assert_eq!(
-        failed.to_string(),
+        failed.display_named().to_string(),
         "verification failed with 1 error\n\
          error: operand 0 of `mixer::mixer::scale_f64`: expected f64, found u64\n  \
          --> @main+2 (address 2): mixer::mixer::scale_f64"
@@ -173,20 +182,33 @@ through).</li>
 <li>The warning <code>Unreachable</code>, and <code>Rule</code> for any other error a rule returns.</li>
 </ul>
 <p><code>diagnostic.display_with(&#x26;module)</code> renders one with the module’s names: the
-location as <code>@main+2 (address 2)</code> followed by the instruction, structs and named
-types by name, parameters and fields by name. A few examples:</p>
+location as <code>@main+2 (address 2)</code> followed by the instruction in source syntax,
+structs and named types by name, parameters and fields by name. A few examples:</p>
 <pre><code class="language-text">error: argument 0 (p0) of @helper: expected u64, found f64
-  --> @main+1 (address 1): execution::program::call 1, 3
-error: local 0 is declared f64, but `execution::program::load_u64` accesses it as u64 (use the access for f64, or the untyped one)
+  --> @main+1 (address 1): execution::program::call 1, @helper
+error: local 0 is declared f64, but `execution::program::load_u64` accesses it as u64
   --> @main+0 (address 0): execution::program::load_u64 0
+  = help: use `load_f64 0` or `load 0`
 error: operand stack depth differs where paths join: 1 from @main+3 (execution::program::br 6), 2 from @main+5 (falling through)
   --> @main+6 (address 6): execution::program::ret 1
 error: operand 0 of `cpu::cpu::add_u64`: expected u64, found u64 or f64 (paths disagree at join @main+5)
   --> @main+6 (address 6): cpu::cpu::add_u64
 </code></pre>
-<p><code>rejection.display_with(&#x26;module)</code> renders a whole rejection; <code>VerifyFailed</code>
-does this for you. A diagnostic’s plain <code>Display</code> works without the module and
+<p><code>rejection.display_with(&#x26;module)</code> renders a whole rejection, and
+<code>failed.display_named()</code> does the same for a <code>VerifyFailed</code>. A diagnostic’s plain <code>Display</code> works without the module and
 shows indices instead (<code>struct 0</code>, <code>function 0, address 2</code>).</p>
+<p>The instruction text comes from <code>InstructionText</code>, which every <code>#[composite]</code>
+instruction set implements from its patterns (<code>set_field @Point.y</code>,
+<code>call 1, @helper</code>). Only rendering with names needs it: verifying, building
+images and running them put no <code>Display</code> or <code>InstructionText</code> bound on your
+instructions. A hand-written instruction set implements <code>InstructionText</code> to
+get instruction text in diagnostics; at runtime a <code>StepError</code> takes its text
+from <code>Dispatch::instruction_text</code>, which composites generate and hand-written
+machines may leave out (the error then shows the location alone). Metadata
+validation (<code>ProgramMetadata::validate</code>, <code>into_module</code>) does format types in
+its messages, by the metadata’s names, so a custom type model there must be
+<code>DisplayNamed + Clone</code>; <code>lower_functions_with_metadata</code> also needs the header
+type to resolve into it (<code>S: ResolveType&#x3C;Ty></code>).</p>
 <p>A failing rule ends its basic block, so a block reports at most one rule error
 and code reachable only through it isn’t analysed. Each defect is reported once,
 even inside a loop.</p>
@@ -210,14 +232,20 @@ verified when it returns a <code>Verification</code>.</p>
 <p><code>Verified::assume_verified(module)</code> skips verification explicitly. Use it for
 tests that exercise runtime checks with deliberately ill-typed programs, and for
 modules a trusted toolchain has already verified. Keep it easy to find: it is
-the one place an unverified program can reach an image.</p>
+the one place an unverified program can reach an image, outside the
+<code>typed-declarations</code>-only build described above. (The low-level runner,
+<code>vihaco::execution_state::{execute, resume}</code>, runs a plain module without an
+image and without verification; reach for it only for trusted code.)</p>
 <h2 id="writing-typing-rules">Writing typing rules</h2>
 <p>A rule implements <code>Verify&#x3C;C></code> for an instruction type. <code>C</code> is the verifier
 context, and the rule names only the <strong>capabilities</strong> it needs as bounds, never
 a concrete verifier. That keeps rules usable in any machine. A missing rule or
 capability is a compile error that says so: “instruction <code>Pulse</code> has no
 verification rule for context <code>ModuleVerifier&#x3C;'m></code>”, or “verifier context
-<code>FrameState&#x3C;TypeSlot></code> does not provide the <code>Signatures</code> capability”.</p>
+<code>FrameState&#x3C;TypeSlot></code> does not provide the <code>Signatures</code> capability”. In a
+<code>#[composite]</code>, the headline names the leaf instruction, not the generated
+instruction set; rustc’s “other types implement” list still shows the
+generated <code>__vihaco_…Instruction</code> aggregate, which you can ignore.</p>
 <pre><code class="language-rust,ignore">pub trait Verify&#x3C;C: ?Sized> {
     /// Where control goes after this instruction; `Flow::Next` by default.
     fn flow(&#x26;self) -> Flow { Flow::Next }
@@ -271,11 +299,19 @@ instruction’s operands (<code>array_get T</code> is
 <table><thead><tr><th>Capability</th><th>Provides</th></tr></thead><tbody><tr><td><code>OperandStack</code></td><td><code>pop</code>, <code>pop_typed</code>, <code>pop_n</code>, <code>push</code>, <code>peek</code>, <code>depth</code>; <code>TypedStack</code> when its slots are <code>TypedSlot</code>s</td></tr><tr><td><code>Locals</code></td><td>the function’s declared locals, <code>local(i)</code> and <code>set_local(i, slot)</code></td></tr><tr><td><code>Signatures&#x3C;Type></code></td><td>function signatures by index or address, and the current function’s</td></tr><tr><td><code>StructTypes&#x3C;Type></code></td><td>field counts and field types from the struct table</td></tr><tr><td><code>NamedTypes&#x3C;Type></code></td><td>named-type indices by name, and their representations</td></tr><tr><td><code>Constants&#x3C;Value, Type></code></td><td>the constant and string tables</td></tr></tbody></table>
 <p><code>stack_effect(cx, [inputs], [outputs])</code> applies a fixed effect by hand, and
 <code>slot.check(&#x26;ty)</code> checks one slot. Errors from either carry a <code>Role</code> when the
-helper knows it; add one to your own with <code>error.with_role(Role::Operand(n))</code>.
+helper knows it; add one to your own with <code>error.with_role(Role::Operand(n))</code>,
+and a fix with <code>error.with_help("open the channel first")</code>. Context you wrap
+around a <code>VerifyError</code> with <code>eyre::WrapErr::wrap_err</code> is kept: it renders as
+<code>= note:</code> lines under the location, and the diagnostic’s kind stays
+structured.
 For instructions several dialects share there are helpers that keep rules
 identical: <code>call_effect</code> and <code>return_effect</code>, <code>direct_call_effect</code> and
 <code>indirect_call_effect</code>, <code>load_local</code> and <code>store_local</code>, <code>struct_new_effect</code> and
-<code>set_field_effect</code>, <code>string_constant</code>, <code>function_constant</code>, and <code>pop_array</code>.</p>
+<code>set_field_effect</code>, <code>string_constant</code>, <code>function_constant</code>, and <code>pop_array</code>. A
+call-like instruction must use <code>call_effect</code>, <code>direct_call_effect</code> or
+<code>indirect_call_effect</code>, or call <code>Signatures::after_call</code> after its operand
+effect, so component state is reset after the call (see
+<a href="#component-state">Component state</a>).</p>
 <p>A conflicting slot, left where two paths disagreed about a type, never
 satisfies a typed pop. Named types are nominal: <code>type 0</code> satisfies only itself.</p>
 <h3 id="counts-must-be-immediates">Counts must be immediates</h3>
@@ -314,7 +350,7 @@ state, so machines can combine it with other components’ states:</p>
 <pre><code class="language-rust">use std::collections::BTreeSet;
 use vihaco::{
     Verify,
-    verifier::{ComponentState, ComponentStateOf, VerifyError, WithState},
+    verifier::{ComponentState, ComponentStateOf, JoinPoint, VerifyError, WithState},
 };
 
 /// The sequencer's capability: channels must be opened before use.
@@ -327,10 +363,15 @@ pub trait Channels {
 pub struct Open(BTreeSet&#x3C;u32>);
 
 impl ComponentState for Open {
-    fn join(&#x26;mut self, incoming: &#x26;Self) -> Result&#x3C;bool, VerifyError> {
+    fn join(&#x26;mut self, incoming: &#x26;Self, _: &#x26;JoinPoint) -> Result&#x3C;bool, VerifyError> {
         let before = self.0.len();
         self.0.retain(|channel| incoming.0.contains(channel));
         Ok(self.0.len() != before)
+    }
+
+    /// Nothing is assumed open after a call, the same as at a function entry.
+    fn after_call(&#x26;mut self, _callee: Option&#x3C;u32>, entry: &#x26;Self) {
+        self.clone_from(entry);
     }
 }
 
@@ -371,6 +412,29 @@ works unchanged and the machine crate writes no delegation:</p>
 
 let (verified, _) = Verified::verify_with_state(module, MachineState::default(), options)?;
 </code></pre>
+<p>Component state does not flow through calls. Each function is verified
+separately from the entry state, so the entry state must assume nothing a
+caller might not have set up (here: no channels open). After a call, the
+caller’s state becomes <code>ComponentState::after_call</code>, which every state must
+define: the callee may have changed anything, so the result must assume no
+more than any callee could leave behind. <code>Open</code> resets to the entry state:</p>
+<pre><code class="language-text">open 1
+call 0, @helper   // the caller's state is reset: channel 1 is no longer open
+play 1            // rejected: channel 1 is not open
+</code></pre>
+<p>A helper therefore cannot rely on a channel its caller opened; open channels
+in the function that plays on them, or after the call.</p>
+<p>Resetting to the entry state is right for <code>Open</code> because “no channels open”
+is safe whatever the callee did. It is wrong for a state that accumulates,
+such as the time elapsed against a deadline: its entry state is “0 elapsed”,
+but a callee may wait any amount, so resetting would accept
+<code>wait 2; call 0, @helper; deadline 10</code> even when the helper waits 50. Such a
+state must become “unknown” after a call. That is why <code>after_call</code> has no
+default: there is no answer that is sound for every state.</p>
+<p>The call helpers, <code>call_effect</code> and <code>indirect_call_effect</code>, apply
+<code>after_call</code> for you. A custom call-like rule must use them, or call
+<code>Signatures::after_call</code> itself after its operand effect. Per-callee
+summaries are a possible future extension.</p>
 <p>Next, <a href="/vihaco/pr-preview/pr-197/guide/parser">give your instructions a source spelling</a>.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/pr-preview/pr-197/guide/loadables" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Images and Loadables</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/pr-preview/pr-197/guide/parser" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Parsing source</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#verifying-a-program" data-toc-link="#verifying-a-program">Verifying a program</a></li><li><a href="#writing-typing-rules" data-toc-link="#writing-typing-rules">Writing typing rules</a></li> </ol> </details> </div> </main> <script>
         // Scroll-spy: mark the TOC link for the section currently in view.
         (() => {

@@ -61,7 +61,7 @@ use vihaco::{
     PopFromStack, PushToStack, SstFile, Step, Type, Value, Verified, Verify, component, composite,
     dialect, field,
     loader::MetadataLoweringContext,
-    module::{LocalModule, ProgramMetadata},
+    module::{LocalModule, ProgramMetadata, SourceType},
     syntax::{HeaderDeclarations, ParsedModule, lower_functions_with_metadata},
     verifier::{OperandStack, TypedSlot, stack_effect},
 };
@@ -161,16 +161,20 @@ where
 pub fn main() -&gt; eyre::Result&lt;()&gt; {
     let source = include_str!(&quot;first-machine.sst&quot;);
     let file = SstFile::&lt;NoContext&gt;::from_text(source)?;
+    // `SourceType` and `ProgramMetadata` (whose types default to
+    // `SourceType`) accept struct and named types by name in every type
+    // position; resolving the header turns the names into table indices.
     let ParsedModule { header, functions } = ParsedModule::&lt;
         SourceInstruction,
-        Type,
+        SourceType,
         HeaderDeclarations&lt;ProgramMetadata&gt;,
     &gt;::parse_section(file.root())?;
 
     let mut declarations = header.into_iter();
     let metadata = declarations
         .next()
-        .ok_or_else(|| eyre::eyre!(&quot;missing program metadata&quot;))?;
+        .ok_or_else(|| eyre::eyre!(&quot;missing program metadata&quot;))?
+        .resolve_types::&lt;Type&gt;()?;
     eyre::ensure!(
         declarations.next().is_none(),
         &quot;expected one metadata declaration&quot;

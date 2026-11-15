@@ -7,16 +7,16 @@
 <a href=#7 id=7 data-nosnippet>7</a></span><span class="kw">pub mod </span>program {
 <a href=#8 id=8 data-nosnippet>8</a>    <span class="kw">use </span><span class="kw">super</span>::<span class="kw">super</span>::{
 <a href=#9 id=9 data-nosnippet>9</a>        literal::{F32Literal, F64Literal, I32Literal, I64Literal},
-<a href=#10 id=10 data-nosnippet>10</a>        operand::{StringOperand, Target},
+<a href=#10 id=10 data-nosnippet>10</a>        operand::{JumpTarget, StringOperand, Target},
 <a href=#11 id=11 data-nosnippet>11</a>    };
 <a href=#12 id=12 data-nosnippet>12</a>    <span class="kw">use </span>vihaco_abi::{FunctionType, word::Word};
 <a href=#13 id=13 data-nosnippet>13</a>    <span class="kw">use </span>vihaco_cpu::field::FunctionTypeOperand;
 <a href=#14 id=14 data-nosnippet>14</a>    <span class="attr">#[instruction]
-<a href=#15 id=15 data-nosnippet>15</a>    #[pattern = <span class="string">"'br $0:Target"</span>]
+<a href=#15 id=15 data-nosnippet>15</a>    #[pattern = <span class="string">"'br $0:JumpTarget"</span>]
 <a href=#16 id=16 data-nosnippet>16</a>    </span><span class="kw">pub struct </span>Branch(<span class="kw">pub </span>u32);
 <a href=#17 id=17 data-nosnippet>17</a>
 <a href=#18 id=18 data-nosnippet>18</a>    <span class="attr">#[instruction]
-<a href=#19 id=19 data-nosnippet>19</a>    #[pattern = <span class="string">"'cond_br $0:Target `,` $1:Target"</span>]
+<a href=#19 id=19 data-nosnippet>19</a>    #[pattern = <span class="string">"'cond_br $0:JumpTarget `,` $1:JumpTarget"</span>]
 <a href=#20 id=20 data-nosnippet>20</a>    </span><span class="kw">pub struct </span>ConditionalBranch(<span class="kw">pub </span>u32, <span class="kw">pub </span>u32);
 <a href=#21 id=21 data-nosnippet>21</a>
 <a href=#22 id=22 data-nosnippet>22</a>    <span class="attr">#[instruction]
@@ -149,9 +149,5 @@
 <a href=#149 id=149 data-nosnippet>149</a>    <span class="attr">#[instruction]
 <a href=#150 id=150 data-nosnippet>150</a>    #[pattern = <span class="string">"'const_fn_ref $0:Target"</span>]
 <a href=#151 id=151 data-nosnippet>151</a>    </span><span class="kw">pub struct </span>ConstFunctionRef(<span class="kw">pub </span>Word);
-<a href=#152 id=152 data-nosnippet>152</a>
-<a href=#153 id=153 data-nosnippet>153</a>    <span class="attr">#[instruction]
-<a href=#154 id=154 data-nosnippet>154</a>    #[pattern = <span class="string">"'const_heap_ref $0:u64"</span>]
-<a href=#155 id=155 data-nosnippet>155</a>    </span><span class="kw">pub struct </span>ConstHeapRef(<span class="kw">pub </span>Word);
-<a href=#156 id=156 data-nosnippet>156</a>}
+<a href=#152 id=152 data-nosnippet>152</a>}
 </code></pre></div></section></main></body></html>

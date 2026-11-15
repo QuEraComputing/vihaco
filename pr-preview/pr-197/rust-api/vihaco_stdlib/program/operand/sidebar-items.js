@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["StringOperand","Target"]};
+window.SIDEBAR_ITEMS = {"enum":["JumpTarget","StringOperand","Target"]};

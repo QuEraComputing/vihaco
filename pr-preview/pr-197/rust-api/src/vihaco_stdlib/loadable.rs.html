@@ -91,32 +91,30 @@
 <a href=#91 id=91 data-nosnippet>91</a>
 <a href=#92 id=92 data-nosnippet>92</a><span class="kw">impl</span>&lt;Inst, V, Ty, Info, M&gt; Loadable&lt;Image&lt;Inst, V, Ty, Info&gt;, M&gt;
 <a href=#93 id=93 data-nosnippet>93</a><span class="kw">where
-<a href=#94 id=94 data-nosnippet>94</a>    </span><span class="comment">// Execution errors show the failing instruction.
-<a href=#95 id=95 data-nosnippet>95</a>    </span>Inst: std::fmt::Display,
-<a href=#96 id=96 data-nosnippet>96</a>    M: HasProgram&lt;Program = ExecutionState&gt;
-<a href=#97 id=97 data-nosnippet>97</a>        + Dispatch&lt;LocalModule&lt;Inst, V, Ty, Info&gt;, Instruction = Inst&gt;,
-<a href=#98 id=98 data-nosnippet>98</a>{
-<a href=#99 id=99 data-nosnippet>99</a>    <span class="doccomment">/// Start at the program entrypoint with the supplied arguments.
-<a href=#100 id=100 data-nosnippet>100</a>    ///
-<a href=#101 id=101 data-nosnippet>101</a>    /// Instructions and metadata borrow the image while dispatch mutates the
-<a href=#102 id=102 data-nosnippet>102</a>    /// separate machine. No instruction cloning is required.
+<a href=#94 id=94 data-nosnippet>94</a>    </span>M: HasProgram&lt;Program = ExecutionState&gt;
+<a href=#95 id=95 data-nosnippet>95</a>        + Dispatch&lt;LocalModule&lt;Inst, V, Ty, Info&gt;, Instruction = Inst&gt;,
+<a href=#96 id=96 data-nosnippet>96</a>{
+<a href=#97 id=97 data-nosnippet>97</a>    <span class="doccomment">/// Start at the program entrypoint with the supplied arguments.
+<a href=#98 id=98 data-nosnippet>98</a>    ///
+<a href=#99 id=99 data-nosnippet>99</a>    /// Instructions and metadata borrow the image while dispatch mutates the
+<a href=#100 id=100 data-nosnippet>100</a>    /// separate machine. No instruction cloning is required.
+<a href=#101 id=101 data-nosnippet>101</a>    ///
+<a href=#102 id=102 data-nosnippet>102</a>    /// # Errors
 <a href=#103 id=103 data-nosnippet>103</a>    ///
-<a href=#104 id=104 data-nosnippet>104</a>    /// # Errors
-<a href=#105 id=105 data-nosnippet>105</a>    ///
-<a href=#106 id=106 data-nosnippet>106</a>    /// Returns the runner's entry or execution errors. Earlier machine mutations
-<a href=#107 id=107 data-nosnippet>107</a>    /// are retained; reset or resume according to the invocation's state.
-<a href=#108 id=108 data-nosnippet>108</a>    </span><span class="kw">pub fn </span>execute(<span class="kw-2">&amp;mut </span><span class="self">self</span>, arguments: <span class="kw-2">&amp;</span>[Word]) -&gt; eyre::Result&lt;()&gt; {
-<a href=#109 id=109 data-nosnippet>109</a>        execution_state::execute(<span class="self">self</span>.image.module(), <span class="kw-2">&amp;mut </span><span class="self">self</span>.machine, arguments)
-<a href=#110 id=110 data-nosnippet>110</a>    }
-<a href=#111 id=111 data-nosnippet>111</a>
-<a href=#112 id=112 data-nosnippet>112</a>    <span class="doccomment">/// Continue the existing invocation against the same paired image.
+<a href=#104 id=104 data-nosnippet>104</a>    /// Returns the runner's entry or execution errors. Earlier machine mutations
+<a href=#105 id=105 data-nosnippet>105</a>    /// are retained; reset or resume according to the invocation's state.
+<a href=#106 id=106 data-nosnippet>106</a>    </span><span class="kw">pub fn </span>execute(<span class="kw-2">&amp;mut </span><span class="self">self</span>, arguments: <span class="kw-2">&amp;</span>[Word]) -&gt; eyre::Result&lt;()&gt; {
+<a href=#107 id=107 data-nosnippet>107</a>        execution_state::execute(<span class="self">self</span>.image.module(), <span class="kw-2">&amp;mut </span><span class="self">self</span>.machine, arguments)
+<a href=#108 id=108 data-nosnippet>108</a>    }
+<a href=#109 id=109 data-nosnippet>109</a>
+<a href=#110 id=110 data-nosnippet>110</a>    <span class="doccomment">/// Continue the existing invocation against the same paired image.
+<a href=#111 id=111 data-nosnippet>111</a>    ///
+<a href=#112 id=112 data-nosnippet>112</a>    /// # Errors
 <a href=#113 id=113 data-nosnippet>113</a>    ///
-<a href=#114 id=114 data-nosnippet>114</a>    /// # Errors
-<a href=#115 id=115 data-nosnippet>115</a>    ///
-<a href=#116 id=116 data-nosnippet>116</a>    /// Returns the runner's state, instruction-fetch, or dispatch errors without
-<a href=#117 id=117 data-nosnippet>117</a>    /// rolling back machine mutations. A halted invocation remains halted.
-<a href=#118 id=118 data-nosnippet>118</a>    </span><span class="kw">pub fn </span>resume(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; eyre::Result&lt;()&gt; {
-<a href=#119 id=119 data-nosnippet>119</a>        execution_state::resume(<span class="self">self</span>.image.module(), <span class="kw-2">&amp;mut </span><span class="self">self</span>.machine)
-<a href=#120 id=120 data-nosnippet>120</a>    }
-<a href=#121 id=121 data-nosnippet>121</a>}
+<a href=#114 id=114 data-nosnippet>114</a>    /// Returns the runner's state, instruction-fetch, or dispatch errors without
+<a href=#115 id=115 data-nosnippet>115</a>    /// rolling back machine mutations. A halted invocation remains halted.
+<a href=#116 id=116 data-nosnippet>116</a>    </span><span class="kw">pub fn </span>resume(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; eyre::Result&lt;()&gt; {
+<a href=#117 id=117 data-nosnippet>117</a>        execution_state::resume(<span class="self">self</span>.image.module(), <span class="kw-2">&amp;mut </span><span class="self">self</span>.machine)
+<a href=#118 id=118 data-nosnippet>118</a>    }
+<a href=#119 id=119 data-nosnippet>119</a>}
 </code></pre></div></section></main></body></html>

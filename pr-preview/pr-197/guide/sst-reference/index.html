@@ -205,7 +205,10 @@ The CPU instructions name the struct, by name or by table index:</p>
 <p>Lowering resolves every form against this table: the field count of
 <code>struct_new</code> always comes from the table, and an unknown struct, field, or slot
 is a load-time error. (The legacy CPU instruction enum has no lowering step and
-takes <code>struct_new 0, 2</code> and <code>get_field 0, 1</code> with explicit numbers.)</p>
+takes <code>struct_new 0, 2</code> and <code>get_field 0, 1</code> with explicit numbers. Those are
+checked against the struct table only if the embedder calls
+<code>vihaco_cpu::check_struct_operands</code> when assembling the module; otherwise the
+CPU trusts the written field count.)</p>
 <p>Heap objects are type-checked at runtime. Each object records what it is: an
 array with a specific element type, or a specific struct. <code>get_field</code> and
 <code>set_field</code> fail unless the reference is to a live struct of the field’s struct
@@ -213,9 +216,12 @@ type, and the array instructions reject structs, so a struct’s shape never
 changes. Field values themselves are untyped words; the CPU does not check that
 a value stored in an <code>f64</code> field is an <code>f64</code>.</p>
 <p>Heap references are opaque 64-bit values. A reference to a freed object stays
-invalid even after its slot is reused, so it can never reach the new object.
-Do not write references as literals; use the reference an allocating
-instruction returned.</p>
+invalid after its slot is reused (for up to 2^31 reuses of that slot), so it
+does not reach the new object. References are predictable rather than secret,
+so the typed dialects have no instruction that writes one as a literal: use the
+reference an allocating instruction returned, or one the host passed in. (The
+legacy enum build still has <code>const_heap_ref N</code>; runtime tag checks apply to
+whatever word it pushes.)</p>
 <p>Types in signatures and fields may name a struct as <code>struct N</code>, its index in
 <code>structs</code>. At runtime such a value is a heap reference to a <code>struct N</code> object.
 Module assembly rejects <code>struct N</code> indices outside the table, including ones
@@ -223,27 +229,35 @@ nested in array types. Structs may refer to themselves or to each other, for
 example a linked node with a <code>next: struct 0</code> field.</p>
 <p>Every type position also accepts a struct by name, <code>struct @Point</code>, and a named
 type as <code>type @location</code>: <code>fn</code> headers, <code>signature</code>, <code>locals</code>, struct fields,
-and instruction operands. Instruction operands are resolved during lowering. To
-use names in the header and <code>fn</code> lines too, parse them with
-<code>vihaco::module::SourceType</code> in place of <code>Type</code> (for both the <code>ParsedModule</code>
-and <code>ProgramMetadata</code> type parameters), then resolve the header against its own
-tables with <code>ProgramMetadata::resolve_types</code> before lowering:</p>
+and instruction operands. This is the default on the standard loading path:
+<code>ProgramMetadata</code>’s type parameter defaults to <code>vihaco::module::SourceType</code>,
+and the loader parses <code>fn</code> lines with <code>SourceType</code> too. Instruction operands
+are resolved during lowering; the header is resolved against its own tables
+with <code>ProgramMetadata::resolve_types</code> (which <code>ParsedModule::lower_with_metadata</code>
+does itself):</p>
 <pre><code class="language-rust,ignore">let ParsedModule { header, functions } =
-    ParsedModule::&#x3C;Syntax, SourceType, HeaderDeclarations&#x3C;ProgramMetadata&#x3C;Value, SourceType>>>
+    ParsedModule::&#x3C;Syntax, SourceType, HeaderDeclarations&#x3C;ProgramMetadata>>
         ::parse_section(file.root())?;
 let metadata = header.into_iter().next().unwrap().resolve_types::&#x3C;Type>()?;
 let mut context = MetadataLoweringContext::new(&#x26;metadata)?;
 let code = lower_functions_with_metadata(functions, &#x26;metadata, &#x26;mut context)?;
 let module = metadata.into_module(code)?;
 </code></pre>
+<p>A loader that parses <code>ProgramMetadata&#x3C;Value, Type></code> (or <code>fn</code> lines with
+<code>Type</code>) accepts only the numeric forms (<code>struct 0</code>, <code>type 0</code>); a name there is
+a parse error whose message says to parse with <code>SourceType</code>.</p>
 <p>An unknown name is reported at its metadata path, for example
 <code>metadata.functions[0].locals[1]: undefined struct `@Pointt` </code>. Binary bytecode
 always stores indices.</p>
 <h3 id="arrays">Arrays</h3>
 <p>Arrays are typed by their element: <code>array f64</code>, <code>array struct 0</code>, or nested,
 <code>array array u64</code>. The type can appear anywhere a type can, such as a function
-return type or a struct field. Elements are stored inline, one word each;
-struct and array elements are references to their own heap objects.</p>
+return type or a struct field. Types nest at most 32 levels deep
+(<code>Type::MAX_ARRAY_DEPTH</code>): a deeper type is a parse or decode error that names
+its depth, and lowering rejects an array instruction whose element type is
+already 32 levels deep, because its array type would be 33. Elements are stored
+inline, one word each; struct and array elements are references to their own
+heap objects.</p>
 
 
 
@@ -285,7 +299,7 @@ struct and array elements are references to their own heap objects.</p>
 <p>Every array instruction checks the object at runtime: it must be a live array
 whose element type is exactly <code>T</code>, so <code>array_get u64</code> on an <code>array f64</code> fails
 with <code>is array f64, expected array u64</code>. Program-image execution also reports
-where, and names structs by name:</p>
+where, and names structs by name (a <code>StepError</code> printed with <code>{:#}</code>):</p>
 <pre><code class="language-text">at @main+3 (address 3) `cpu::cpu::array_get u64`: type error: heap object (slot 2, generation 1) is array f64, expected array u64
 </code></pre>
 <p>Indices are always <code>u64</code> and are
@@ -379,7 +393,7 @@ not invent missing metadata or select an entry function for you.</p>
 <p>For the minimal file above, this loader validates and assembles the program:</p>
 <pre><code class="language-rust">use vihaco::{HasInstructionSet, NoContext, SstFile, Type, composite};
 use vihaco::loader::MetadataLoweringContext;
-use vihaco::module::ProgramMetadata;
+use vihaco::module::{ProgramMetadata, SourceType};
 use vihaco::syntax::{HeaderDeclarations, ParsedModule, lower_functions_with_metadata};
 
 #[composite]
@@ -392,10 +406,13 @@ fn validate(source: &#x26;str) -> eyre::Result&#x3C;()> {
     type SourceInstruction = &#x3C;Machine as HasInstructionSet>::Syntax;
     let file = SstFile::&#x3C;NoContext>::from_text(source)?;
     let ParsedModule { header, functions } = ParsedModule::&#x3C;
-        SourceInstruction, Type, HeaderDeclarations&#x3C;ProgramMetadata>
+        SourceInstruction, SourceType, HeaderDeclarations&#x3C;ProgramMetadata>
     >::parse_section(file.root())?;
     let mut declarations = header.into_iter();
-    let metadata = declarations.next().ok_or_else(|| eyre::eyre!("missing metadata"))?;
+    let metadata = declarations
+        .next()
+        .ok_or_else(|| eyre::eyre!("missing metadata"))?
+        .resolve_types::&#x3C;Type>()?;
     eyre::ensure!(declarations.next().is_none(), "duplicate metadata");
     let mut context = MetadataLoweringContext::new(&#x26;metadata)?;
     let code = lower_functions_with_metadata(functions, &#x26;metadata, &#x26;mut context)?;

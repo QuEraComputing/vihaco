@@ -45,7 +45,8 @@ metadata stay stable.</p>
 <p>First build a valid module by parsing and lowering source or decoding a binary
 program. Verify it with <code>Verified::new(module)</code>, which checks every function
 against the machine’s typing rules and, if it fails, returns a <code>VerifyFailed</code>
-holding the module and every problem, shown with the module’s names. Then wrap the verified module in <code>Image::new(verified)</code> and
+holding the module and every problem (<code>failed.display_named()</code> shows them
+with the module’s names). Then wrap the verified module in <code>Image::new(verified)</code> and
 pair it with a machine using <code>Loadable::new(image, machine)</code>. These constructors
 don’t parse or verify the program for you, but <code>Image::new</code> only accepts a
 <code>Verified</code> module, so nothing runs unverified by accident.</p>
