@@ -1,0 +1,28 @@
+error[E0277]: the trait bound `ModuleVerifier<'_>: Channels` is not satisfied
+  --> tests/compile_fail/missing-capability.rs:19:27
+   |
+19 |     let _ = verify_module(&module, VerifyOptions::default());
+   |             ------------- ^^^^^^^ the trait `Channels` is not implemented for `ModuleVerifier<'_>`
+   |             |
+   |             required by a bound introduced by this call
+   |
+help: this trait has no implementations, consider adding one
+  --> tests/compile_fail/missing-capability.rs:5:1
+   |
+ 5 | pub trait Channels {
+   | ^^^^^^^^^^^^^^^^^^
+note: required for `Play` to implement `Verify<ModuleVerifier<'_>>`
+  --> tests/compile_fail/missing-capability.rs:11:28
+   |
+11 | impl<C: Channels + ?Sized> Verify<C> for Play {
+   |         --------           ^^^^^^^^^     ^^^^
+   |         |
+   |         unsatisfied trait bound introduced here
+note: required by a bound in `verify_module`
+  --> src/module.rs
+   |
+   | pub fn verify_module<'m, I, Info>(
+   |        ------------- required by a bound in this function
+...
+   |     I: Verify<ModuleVerifier<'m>>,
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `verify_module`

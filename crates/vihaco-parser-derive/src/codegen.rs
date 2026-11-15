@@ -18,7 +18,7 @@ use chumsky::{
 };
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
-use quote::{format_ident, quote};
+use quote::{format_ident, quote, quote_spanned};
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     fmt::{self, Display},
@@ -1390,6 +1390,7 @@ pub fn dialect_parsers(root: TokenStream2, item: TokenStream2) -> Result<TokenSt
         let attrs = StructAttrs::from_attrs(&declaration.attrs)?;
         let pattern = attrs.pattern.as_ref().map(|p| p.0.clone());
         let syntax_types = dialect_syntax_types(&declaration, &attrs)?;
+        let text = dialect_instruction_text(&root, &runtime, &declaration, &attrs)?;
         let mut syntax = declaration.clone();
         for (field, ty) in syntax.fields.iter_mut().zip(&syntax_types) {
             field.ty = ty.clone();
@@ -1476,6 +1477,7 @@ pub fn dialect_parsers(root: TokenStream2, item: TokenStream2) -> Result<TokenSt
             }
         };
         items[position] = syn::Item::Struct(declaration);
+        let support = quote!(#support #text);
         validated.push((runtime, syntax_ty, parser, support, mnemonic, pattern));
     }
     for (runtime, syntax_ty, parser, support, mnemonic, pattern) in validated {
@@ -1535,6 +1537,85 @@ fn dialect_syntax_types(instruction: &syn::ItemStruct, attrs: &StructAttrs) -> R
         }
     }
     Ok(types)
+}
+
+/// Emit `InstructionText` for a dialect leaf from its pattern: tokens and
+/// literals as written, separated as the parser expects whitespace, and each
+/// binding written by its syntax type's `OperandText` for the runtime field
+/// (falling back to the field's `Display`, then `Debug`).
+fn dialect_instruction_text(
+    root: &syn::Path,
+    runtime: &Ident,
+    instruction: &syn::ItemStruct,
+    attrs: &StructAttrs,
+) -> Result<TokenStream2> {
+    let mut statements = Vec::new();
+    if let Some(PatternInfo(pattern, span)) = &attrs.pattern {
+        let validated = UnparsedPatternInfo {
+            pattern,
+            span: *span,
+            class: SyntaxClassAttr::Instruction { head: None },
+            target: PatternTarget::Struct {
+                ident: instruction.ident.clone(),
+            },
+            fields: instruction.fields.clone(),
+        }
+        .parse()
+        .map_err(|error| Error::new(*span, error.to_string()))?;
+        let mut first = true;
+        let mut previous_suppresses_trailing = false;
+        for atom in validated.pattern {
+            let suppresses_leading = match &atom {
+                Literal(literal) => literal.suppresses_leading_whitespace(),
+                _ => false,
+            };
+            if !first && !previous_suppresses_trailing && !suppresses_leading {
+                statements.push(quote!(f.write_str(" ")?;));
+            }
+            first = false;
+            match atom {
+                Token(token) => {
+                    statements.push(quote!(f.write_str(#token)?;));
+                    previous_suppresses_trailing = false;
+                }
+                Literal(literal) => {
+                    previous_suppresses_trailing = literal.suppresses_trailing_whitespace();
+                    let text = literal.to_string();
+                    statements.push(quote!(f.write_str(#text)?;));
+                }
+                Binding(binding) => {
+                    previous_suppresses_trailing = false;
+                    let runtime_ty = &binding.ty;
+                    let syntax_ty = binding.parser_ty.as_ref().unwrap_or(&binding.ty);
+                    let field = syn::Index::from(binding.constructor_position);
+                    // Spanned at the operand's type, so an operand whose syntax type
+                    // has no `OperandText` and whose runtime type no `Display` is
+                    // reported there.
+                    statements.push(quote_spanned! {syntax_ty.span()=>
+                        (&&&#root::__private::operand_text::OperandRef::<#syntax_ty, #runtime_ty>::new(&self.#field))
+                            .write_operand_text(names, f)?;
+                    });
+                }
+            }
+        }
+    }
+    Ok(quote! {
+        impl #root::__private::InstructionText for #runtime {
+            fn write_text(
+                &self,
+                names: &dyn #root::__private::SymbolNames,
+                f: &mut ::core::fmt::Formatter<'_>,
+            ) -> ::core::fmt::Result {
+                #[allow(unused_imports)]
+                use #root::__private::operand_text::{
+                    ViaDisplay as _, ViaMissing as _, ViaOperandText as _,
+                };
+                let _ = names;
+                #(#statements)*
+                Ok(())
+            }
+        }
+    })
 }
 
 /// Avoid capturing authored type names or framework paths with generated parameters.

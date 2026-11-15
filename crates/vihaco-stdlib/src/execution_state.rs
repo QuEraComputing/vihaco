@@ -92,7 +92,7 @@ mod messages;
 mod runner;
 mod storage;
 
-pub use runner::{execute, resume};
+pub use runner::{StepError, execute, resume};
 
 #[vihaco_runtime::component]
 #[instructions { program }]

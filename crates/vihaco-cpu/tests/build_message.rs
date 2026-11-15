@@ -61,6 +61,7 @@ impl BuildMessage<field!(Machine::cpu), cpu::IndirectCall, (), message::Indirect
         Ok(message::IndirectCallee {
             info,
             signature: self.signatures[index].clone(),
+            name: format!("f{index}"),
         })
     }
 }

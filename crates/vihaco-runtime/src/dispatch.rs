@@ -20,4 +20,18 @@ pub trait Dispatch<Context: ?Sized = ()>: Composite {
     /// already applied by the step are not rolled back; recovery or termination
     /// is the caller's responsibility.
     fn dispatch(&mut self, instruction: &Self::Instruction, context: &Context) -> eyre::Result<()>;
+
+    /// `instruction` in source syntax with operands named through `names`,
+    /// for runtime errors that locate a failing instruction.
+    ///
+    /// Composites implement this from their instructions'
+    /// [`InstructionText`](crate::InstructionText). The default has no text,
+    /// so a hand-written machine's errors show the location alone.
+    fn instruction_text(
+        instruction: &Self::Instruction,
+        names: &dyn crate::SymbolNames,
+    ) -> Option<String> {
+        let _ = (instruction, names);
+        None
+    }
 }

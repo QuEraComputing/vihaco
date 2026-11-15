@@ -198,6 +198,13 @@ mod generic_operand {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct Wrapper<T>(pub T);
+/// Instruction text writes an operand through its `Display` when its syntax
+/// type has no `OperandText`; one with neither does not compile.
+impl<T: std::fmt::Display> std::fmt::Display for Wrapper<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
 impl<'src, T: Parse<'src>> Parse<'src> for Wrapper<T> {
     fn parser() -> impl Parser<
         'src,
@@ -342,6 +349,11 @@ fn coverage_parameters_do_not_capture_instruction_names() {
 mod operand_identity {
     #[derive(Clone, Debug, PartialEq)]
     pub struct Value(pub u32);
+    impl std::fmt::Display for Value {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            self.0.fmt(f)
+        }
+    }
     impl<'src> vihaco_runtime::Parse<'src> for Value {
         fn parser() -> impl vihaco_runtime::chumsky::Parser<
             'src,
@@ -383,6 +395,16 @@ mod converted_operands {
     impl From<Literal> for Bits {
         fn from(value: Literal) -> Self {
             Self(value.0 as u64)
+        }
+    }
+    /// The lowered bits, written back as the signed literal they came from.
+    impl vihaco_runtime::OperandText<Bits> for Literal {
+        fn write_operand(
+            value: &Bits,
+            _: &dyn vihaco_runtime::SymbolNames,
+            f: &mut std::fmt::Formatter<'_>,
+        ) -> std::fmt::Result {
+            write!(f, "{}", value.0 as i64)
         }
     }
 

@@ -47,7 +47,9 @@ impl ExecutionState {
             .main_function
             .ok_or_else(|| eyre::eyre!("module has no main function"))?;
         let (arity, locals, target) = function_entry(module, function as usize)?;
-        eyre::ensure!(arguments.len() == arity, "entry argument count mismatch");
+        if arguments.len() != arity {
+            return Err(entry_arity_mismatch(module, function, arguments.len()));
+        }
         // The entry frame counts against the limit, as every call's does.
         if self.max_call_depth == 0 {
             return Err(call_too_deep(module, function as usize, 0));
@@ -180,3 +182,34 @@ macro_rules! float_access {
 float_access!(f32, decode_f32, encode_f32);
 
 float_access!(f64, decode_f64, encode_f64);
+
+/// `@main takes 1 argument (p0), 0 given`.
+#[cold]
+#[inline(never)]
+fn entry_arity_mismatch<I, V, Ty, Info>(
+    module: &LocalModule<I, V, Ty, Info>,
+    function: u32,
+    given: usize,
+) -> eyre::Report {
+    let names = module.names();
+    let name = names
+        .function_name(function)
+        .map_or_else(|| format!("function {function}"), |name| format!("@{name}"));
+    let params = &module.functions[function as usize].signature.params;
+    let declared: Vec<String> = params
+        .iter()
+        .enumerate()
+        .map(|(index, _)| {
+            names
+                .parameter_name(function, index)
+                .unwrap_or("_")
+                .to_owned()
+        })
+        .collect();
+    eyre::eyre!(
+        "{name} takes {} argument{} ({}), {given} given",
+        params.len(),
+        if params.len() == 1 { "" } else { "s" },
+        declared.join(", ")
+    )
+}

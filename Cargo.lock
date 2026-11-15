@@ -824,6 +824,7 @@ version = "0.7.0"
 dependencies = [
  "eyre",
  "smallvec",
+ "trybuild",
  "vihaco-abi",
  "vihaco-module",
  "vihaco-runtime",

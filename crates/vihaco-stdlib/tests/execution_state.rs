@@ -55,7 +55,17 @@ fn entry_isolates_locals_and_reset_reuses_state() -> eyre::Result<()> {
 fn invalid_entry_preserves_state() {
     let mut module = module();
     let mut stack = ExecutionState::new();
-    assert!(stack.start(&module, &[]).is_err());
+    // Unnamed functions are shown by index; named ones as `@main`.
+    assert_eq!(
+        stack.start(&module, &[]).unwrap_err().to_string(),
+        "function 0 takes 1 argument (_), 0 given"
+    );
+    module.strings = vec!["main".into(), "p0".into()];
+    module.functions[0].signature.params[0].name = 1;
+    assert_eq!(
+        stack.start(&module, &[1, 2]).unwrap_err().to_string(),
+        "@main takes 1 argument (p0), 2 given"
+    );
     module.functions[0].locals.clear();
     assert!(stack.start(&module, &[7]).is_err());
     module.functions[0].locals = vec![(), ()];

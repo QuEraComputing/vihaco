@@ -5,7 +5,7 @@
 
 use crate::{
     cpu,
-    operand::{StringOperand, Target},
+    operand::{JumpTarget, StringOperand, Target},
 };
 use vihaco_abi::{Lower, Syntax};
 use vihaco_module::loader::MetadataLoweringContext;
@@ -57,10 +57,10 @@ impl StringIntern for MetadataLoweringContext {
     }
 }
 
-fn label_target<C: LabelLookup + ?Sized>(target: Target, context: &C) -> eyre::Result<u32> {
+fn label_target<C: LabelLookup + ?Sized>(target: JumpTarget, context: &C) -> eyre::Result<u32> {
     match target {
-        Target::Resolved(address) => Ok(address),
-        Target::Symbol(name) => context.label_address(name.as_str()),
+        JumpTarget::Resolved(address) => Ok(address),
+        JumpTarget::Symbol(name) => context.label_address(name.as_str()),
     }
 }
 
@@ -144,7 +144,7 @@ mod metadata_context_tests {
 
     #[test]
     fn metadata_context_supplies_cpu_capabilities_without_extending_strings() -> eyre::Result<()> {
-        let metadata: ProgramMetadata = ProgramMetadata {
+        let metadata: ProgramMetadata<vihaco_abi::Value, vihaco_abi::Type> = ProgramMetadata {
             structs: vec![],
             types: vec![],
             strings: vec!["helper".into(), "main".into(), "hello".into()],
@@ -181,7 +181,7 @@ mod metadata_context_tests {
         let mut context = MetadataLoweringContext::new(&metadata)?;
         context.enter_function("main", [("done", 4)])?;
         let branch =
-            cpu::Branch::<Syntax>(Target::Symbol(Ident("done".into()))).lower(&mut context)?;
+            cpu::Branch::<Syntax>(JumpTarget::Symbol(Ident("done".into()))).lower(&mut context)?;
         assert_eq!(branch, cpu::Branch(4));
         let call =
             cpu::Call::<Syntax>(0, Target::Symbol(Ident("helper".into()))).lower(&mut context)?;

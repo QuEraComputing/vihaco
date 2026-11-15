@@ -9,8 +9,8 @@ use std::fmt;
 use smallvec::SmallVec;
 use vihaco_abi::{Flow, Verify};
 
-use crate::diagnostic::{Diagnostic, DiagnosticKind, classify};
-use crate::state::AbstractState;
+use crate::diagnostic::{Diagnostic, DiagnosticKind, DiagnosticNames, Predecessor, classify};
+use crate::state::{AbstractState, JoinPoint};
 
 /// One function to verify: a span of section-local addresses and the state
 /// at its entry.
@@ -58,12 +58,21 @@ impl VerifyOptions {
 
 /// Each reached leader's converged state, by function and address.
 ///
-/// The state at any other address is one block replay away, so these are
-/// enough for a debugger or observer to show what each local and operand slot
-/// holds at a breakpoint.
+/// The state at any other address is one block replay away:
+/// [`state_at`](TypeMaps::state_at) replays it, so these are enough for a
+/// debugger or observer to show what each local and operand slot holds at a
+/// breakpoint.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TypeMaps<S> {
-    functions: BTreeMap<u32, BTreeMap<u32, S>>,
+    functions: BTreeMap<u32, FunctionMap<S>>,
+}
+
+/// One function's span and reached leaders.
+#[derive(Clone, Debug, PartialEq)]
+struct FunctionMap<S> {
+    start: u32,
+    end: u32,
+    leaders: BTreeMap<u32, S>,
 }
 
 impl<S> Default for TypeMaps<S> {
@@ -78,23 +87,92 @@ impl<S> TypeMaps<S> {
     /// The converged state at leader `address` of `function`, if that address
     /// is a reached leader.
     pub fn get(&self, function: u32, address: u32) -> Option<&S> {
-        self.functions.get(&function)?.get(&address)
+        self.functions.get(&function)?.leaders.get(&address)
     }
 
     /// Every reached leader of `function` and its converged state, in address
     /// order.
     pub fn function(&self, function: u32) -> Option<&BTreeMap<u32, S>> {
-        self.functions.get(&function)
+        Some(&self.functions.get(&function)?.leaders)
     }
 
     /// Every `(function, address, state)` entry, ordered by function then
     /// address.
     pub fn iter(&self) -> impl Iterator<Item = (u32, u32, &S)> {
-        self.functions.iter().flat_map(|(&function, leaders)| {
-            leaders
+        self.functions.iter().flat_map(|(&function, map)| {
+            map.leaders
                 .iter()
                 .map(move |(&address, state)| (function, address, state))
         })
+    }
+
+    /// The state before the instruction at `address` of `function` runs:
+    /// the converged state of its block's leader, replayed through `cx` up
+    /// to `address`.
+    ///
+    /// `code` and `cx` must be the code and a context of the same kind the
+    /// maps were produced with (for a module, `&module.code` and a
+    /// [`ModuleVerifier`](crate::ModuleVerifier) for it). `cx` is left in
+    /// the returned state.
+    ///
+    /// Returns `None` when `address` is outside `function`, unreachable, or
+    /// in a block with no converged state (in a rejection, a block reached
+    /// only through a failing one), or when a rule fails before `address`
+    /// (possible only in a rejection).
+    ///
+    /// ```
+    /// # use vihaco_verifier::{
+    /// #     Flow, Frame, FrameState, FunctionSpan, Type, TypeSlot, TypedStack, Verify,
+    /// #     VerifyOptions, stack_effect, verify_functions,
+    /// # };
+    /// # enum Inst { Push, Add, Ret }
+    /// # impl<C: TypedStack + ?Sized> Verify<C> for Inst {
+    /// #     fn flow(&self) -> Flow {
+    /// #         if let Inst::Ret = self { Flow::Return } else { Flow::Next }
+    /// #     }
+    /// #     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
+    /// #         match self {
+    /// #             Inst::Push => stack_effect(cx, [], [Type::I64]),
+    /// #             Inst::Add => stack_effect(cx, [Type::I64, Type::I64], [Type::I64]),
+    /// #             Inst::Ret => Ok(()),
+    /// #         }
+    /// #     }
+    /// # }
+    /// let code = [Inst::Push, Inst::Push, Inst::Add, Inst::Ret];
+    /// let span = FunctionSpan { function: 0, start: 0, end: 4, entry: Frame::new(vec![]) };
+    /// let mut cx = FrameState::<TypeSlot>::new(Frame::new(vec![]));
+    /// let options = VerifyOptions::default().with_type_maps(true);
+    /// let maps = verify_functions(&code, &[span], &mut cx, options)
+    ///     .unwrap()
+    ///     .type_maps
+    ///     .unwrap();
+    /// // Only address 0 is a leader; the state before `add` is replayed.
+    /// let before_add = maps.state_at(&code, &mut cx, 0, 2).unwrap();
+    /// assert_eq!(before_add.operands(), [Type::I64.into(), Type::I64.into()]);
+    /// ```
+    pub fn state_at<I, C>(&self, code: &[I], cx: &mut C, function: u32, address: u32) -> Option<S>
+    where
+        I: Verify<C>,
+        C: AbstractState<Snapshot = S> + ?Sized,
+    {
+        let map = self.functions.get(&function)?;
+        let body = code.get(map.start as usize..map.end as usize)?;
+        let offset = address.checked_sub(map.start)? as usize;
+        if offset >= body.len() {
+            return None;
+        }
+        let walk = Walk::new::<C>(body, map.start);
+        if !walk.reached[offset] {
+            return None;
+        }
+        // Blocks run from a leader to just before the next one.
+        let leader = (0..=offset).rev().find(|&i| walk.leader[i])?;
+        cx.restore(map.leaders.get(&(map.start + leader as u32))?);
+        for (i, instruction) in body.iter().enumerate().take(offset).skip(leader) {
+            cx.set_address(function, map.start + i as u32);
+            instruction.verify(cx).ok()?;
+        }
+        Some(cx.snapshot())
     }
 }
 
@@ -144,18 +222,46 @@ impl<S> Rejection<S> {
             type_maps: None,
         }
     }
+
+    /// Render every diagnostic with the names in `names`, usually the
+    /// verified module (see [`Diagnostic::display_with`]).
+    pub fn display_with<'a>(&'a self, names: &'a dyn DiagnosticNames) -> impl fmt::Display + 'a {
+        RenderedRejection {
+            diagnostics: &self.diagnostics,
+            names: Some(names),
+        }
+    }
 }
 
+/// A count line, then each diagnostic.
 impl<S> fmt::Display for Rejection<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let count = self.errors().count();
+        RenderedRejection {
+            diagnostics: &self.diagnostics,
+            names: None,
+        }
+        .fmt(f)
+    }
+}
+
+pub(crate) struct RenderedRejection<'a> {
+    pub(crate) diagnostics: &'a [Diagnostic],
+    pub(crate) names: Option<&'a dyn DiagnosticNames>,
+}
+
+impl fmt::Display for RenderedRejection<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let count = self.diagnostics.iter().filter(|d| d.is_error()).count();
         write!(
             f,
             "verification failed with {count} error{}",
             if count == 1 { "" } else { "s" }
         )?;
-        for diagnostic in &self.diagnostics {
-            write!(f, "\n  {diagnostic}")?;
+        for diagnostic in self.diagnostics {
+            match self.names {
+                Some(names) => write!(f, "\n{}", diagnostic.display_with(names))?,
+                None => write!(f, "\n{diagnostic}")?,
+            }
         }
         Ok(())
     }
@@ -228,10 +334,15 @@ where
     for function in functions {
         let leaders = verify_function(code, function, context, &mut found);
         if let (Some(maps), Some(leaders)) = (type_maps.as_mut(), leaders) {
-            maps.functions
+            let map = maps
+                .functions
                 .entry(function.function)
-                .or_default()
-                .extend(leaders);
+                .or_insert_with(|| FunctionMap {
+                    start: function.start,
+                    end: function.end,
+                    leaders: BTreeMap::new(),
+                });
+            map.leaders.extend(leaders);
         }
     }
     found.sort_by_key(|f| (f.diagnostic.function, f.diagnostic.address, f.order));
@@ -264,6 +375,14 @@ enum Order {
     FallOff,
 }
 
+/// The converged saved state of each leader, and the edge it first arrived
+/// along.
+#[derive(Clone)]
+struct Fixpoint<S> {
+    states: Vec<Option<S>>,
+    origins: Vec<Predecessor>,
+}
+
 struct Found {
     diagnostic: Diagnostic,
     order: Order,
@@ -288,11 +407,8 @@ where
         end,
         ref entry,
     } = *function;
-    let mut report = |address: u32, order: Order, kind: DiagnosticKind| {
-        found.push(Found {
-            diagnostic: Diagnostic::new(id, address, kind),
-            order,
-        });
+    let mut report = |order: Order, diagnostic: Diagnostic| {
+        found.push(Found { diagnostic, order });
     };
 
     if start > end || end as usize > code.len() {
@@ -302,11 +418,14 @@ where
             end,
             code_len,
         };
-        report(start, Order::Structure, kind);
+        report(Order::Structure, Diagnostic::new(id, start, kind));
         return None;
     }
     if start == end {
-        report(start, Order::FallOff, DiagnosticKind::MissingTerminator);
+        report(
+            Order::FallOff,
+            Diagnostic::new(id, start, DiagnosticKind::MissingTerminator),
+        );
         return Some(BTreeMap::new());
     }
 
@@ -317,23 +436,32 @@ where
         let address = start + i as u32;
         if !walk.reached[i] {
             if i == 0 || walk.reached[i - 1] {
-                report(address, Order::Structure, DiagnosticKind::Unreachable);
+                report(
+                    Order::Structure,
+                    Diagnostic::new(id, address, DiagnosticKind::Unreachable),
+                );
             }
             continue;
         }
         if let Flow::Jump(targets) = flow {
             if targets.is_empty() {
-                report(address, Order::Target, DiagnosticKind::EmptyJump);
+                report(
+                    Order::Target,
+                    Diagnostic::new(id, address, DiagnosticKind::EmptyJump),
+                );
             }
             for &target in targets.iter().filter(|&&t| !walk.contains(t)) {
-                let kind = DiagnosticKind::InvalidControlFlowTarget { target };
-                report(address, Order::Target, kind);
+                let kind = DiagnosticKind::InvalidControlFlowTarget { target, start, end };
+                report(Order::Target, Diagnostic::new(id, address, kind));
             }
         }
     }
     let last = walk.len() - 1;
     if walk.reached[last] && walk.flows[last] == Flow::Next {
-        report(end - 1, Order::FallOff, DiagnosticKind::MissingTerminator);
+        report(
+            Order::FallOff,
+            Diagnostic::new(id, end - 1, DiagnosticKind::MissingTerminator),
+        );
     }
 
     // Phase 1: converge, discarding errors.
@@ -346,7 +474,7 @@ where
     // only through failing blocks has no state.
     let Settled {
         cut,
-        states,
+        converged: Fixpoint { states, origins },
         replay,
     } = walk.settle(entry, full, &emitted, id, cx);
 
@@ -362,21 +490,26 @@ where
         if cut[leader] {
             let failing_at = replay[leader].as_ref().unwrap_or(saved);
             if let Err((at, error)) = walk.run_block(leader, failing_at, id, cx) {
-                report(start + at as u32, Order::Rule, classify(&error));
+                report(Order::Rule, classify(id, start + at as u32, &error));
             }
             continue;
         }
         match walk.run_block(leader, saved, id, cx) {
-            Err((at, error)) => report(start + at as u32, Order::Rule, classify(&error)),
+            Err((at, error)) => report(Order::Rule, classify(id, start + at as u32, &error)),
             Ok(exit) => {
                 let incoming = cx.snapshot();
+                let edge = walk.edge(exit);
                 for succ in walk.successors(exit) {
                     let Some(saved) = &states[succ] else { continue };
                     let mut probe = saved.clone();
-                    if let Err(error) = C::join(&mut probe, &incoming)
+                    let at = walk.join_point(id, succ, origins[succ], edge);
+                    if let Err(error) = C::join(&mut probe, &incoming, &at)
                         && !std::mem::replace(&mut mismatch_reported[succ], true)
                     {
-                        report(start + succ as u32, Order::Join, error.into_kind());
+                        report(
+                            Order::Join,
+                            Diagnostic::new(id, start + succ as u32, error.into_kind()),
+                        );
                     }
                 }
             }
@@ -420,7 +553,7 @@ struct Settled<S> {
     /// The fixpoint with `cut` blocks passing nothing on. Only analysed
     /// blocks (not cut, and reached without going through a cut block) feed
     /// it.
-    states: Vec<Option<S>>,
+    converged: Fixpoint<S>,
     /// For each cut leader, the state it fails at.
     replay: Vec<Option<S>>,
 }
@@ -484,6 +617,15 @@ impl<'a, I> Walk<'a, I> {
         (offset < self.len()).then_some(offset)
     }
 
+    /// The edge leaving the instruction at `i`: a jump, or falling through.
+    fn edge(&self, i: usize) -> Predecessor {
+        let address = self.start + i as u32;
+        match self.flows[i] {
+            Flow::Jump(_) => Predecessor::Jump(address),
+            _ => Predecessor::Fallthrough(address),
+        }
+    }
+
     /// Successors of the instruction at `i` inside this function. Targets
     /// outside it are not followed; the target check reports them.
     fn successors(&self, i: usize) -> SmallVec<[usize; 2]> {
@@ -528,6 +670,23 @@ impl<'a, I> Walk<'a, I> {
         }
     }
 
+    /// The join of an edge from `incoming_from` into the leader at `succ`,
+    /// whose saved state first arrived from `saved_from`.
+    fn join_point(
+        &self,
+        function: u32,
+        succ: usize,
+        saved_from: Predecessor,
+        incoming_from: Predecessor,
+    ) -> JoinPoint {
+        JoinPoint {
+            function,
+            address: self.start + succ as u32,
+            saved_from,
+            incoming_from,
+        }
+    }
+
     /// Converge the saved state of every leader reachable from the entry,
     /// discarding rule errors. A block whose rule fails, or whose leader is
     /// `cut`, passes nothing to its successors. If given, `emitted[leader]`
@@ -539,12 +698,15 @@ impl<'a, I> Walk<'a, I> {
         function: u32,
         cx: &mut C,
         mut emitted: Option<&mut [bool]>,
-    ) -> Vec<Option<C::Snapshot>>
+    ) -> Fixpoint<C::Snapshot>
     where
         I: Verify<C>,
         C: AbstractState + ?Sized,
     {
         let mut states: Vec<Option<C::Snapshot>> = vec![None; self.len()];
+        // The edge each leader's saved state first arrived along. Depths never
+        // change after that, so a depth mismatch names this edge and the new one.
+        let mut origins: Vec<Predecessor> = vec![Predecessor::Entry; self.len()];
         states[0] = Some(entry.clone());
         let mut work = BTreeSet::from([0usize]);
         while let Some(leader) = work.pop_first() {
@@ -561,21 +723,24 @@ impl<'a, I> Walk<'a, I> {
                 emitted[leader] = true;
             }
             let incoming = cx.snapshot();
+            let edge = self.edge(exit);
             for succ in self.successors(exit) {
                 match &mut states[succ] {
                     slot @ None => {
                         *slot = Some(incoming.clone());
+                        origins[succ] = edge;
                         work.insert(succ);
                     }
                     Some(saved) => {
-                        if let Ok(true) = C::join(saved, &incoming) {
+                        let at = self.join_point(function, succ, origins[succ], edge);
+                        if let Ok(true) = C::join(saved, &incoming, &at) {
                             work.insert(succ);
                         }
                     }
                 }
             }
         }
-        states
+        Fixpoint { states, origins }
     }
 
     /// Settle which blocks fail, given `full`, the fixpoint with no block cut,
@@ -625,7 +790,7 @@ impl<'a, I> Walk<'a, I> {
     fn settle<C>(
         &self,
         entry: &C::Snapshot,
-        full: Vec<Option<C::Snapshot>>,
+        full: Fixpoint<C::Snapshot>,
         emitted: &[bool],
         function: u32,
         cx: &mut C,
@@ -634,21 +799,22 @@ impl<'a, I> Walk<'a, I> {
         I: Verify<C>,
         C: AbstractState + ?Sized,
     {
-        let mut cut = self.failing(&full, function, cx);
+        let mut cut = self.failing(&full.states, function, cx);
         if !cut.contains(&true) {
             return Settled {
                 cut,
-                states: full,
+                converged: full,
                 replay: vec![None; self.len()],
             };
         }
         let mut replay: Vec<Option<C::Snapshot>> = cut
             .iter()
-            .zip(&full)
+            .zip(&full.states)
             .map(|(&cut, state)| if cut { state.clone() } else { None })
             .collect();
         let mut budget = SETTLE_FIXPOINTS;
-        let mut states = self.cut_failing(entry, &mut cut, &mut replay, &mut budget, function, cx);
+        let mut converged =
+            self.cut_failing(entry, &mut cut, &mut replay, &mut budget, function, cx);
         let mut restored = vec![false; self.len()];
         let mut exhausted = false;
         let mut changed = true;
@@ -657,7 +823,7 @@ impl<'a, I> Walk<'a, I> {
             for leader in 0..self.len() {
                 // A cut leader that only other cut blocks reach has no state
                 // in `fixpoint(C \ {leader})` either.
-                if !cut[leader] || states[leader].is_none() {
+                if !cut[leader] || converged.states[leader].is_none() {
                     continue;
                 }
                 let state = if reached_by_cut[leader] {
@@ -669,9 +835,9 @@ impl<'a, I> Walk<'a, I> {
                     cut[leader] = false;
                     let mut candidate = self.fixpoint(entry, &cut, function, cx, None);
                     cut[leader] = true;
-                    candidate.swap_remove(leader)
+                    candidate.states.swap_remove(leader)
                 } else {
-                    full[leader].clone()
+                    full.states[leader].clone()
                 };
                 // A cut block reached by no path keeps no state.
                 let Some(state) = state else { continue };
@@ -687,7 +853,7 @@ impl<'a, I> Walk<'a, I> {
                     restored[leader] = true;
                     cut[leader] = false;
                     replay[leader] = None;
-                    states =
+                    converged =
                         self.cut_failing(entry, &mut cut, &mut replay, &mut budget, function, cx);
                     reached_by_cut = self.reached_from_other_cut(&cut, emitted);
                     changed = true;
@@ -700,7 +866,7 @@ impl<'a, I> Walk<'a, I> {
             // fails there. A replay state always fails, so every cut block
             // with a state still reports.
             for leader in (0..self.len()).filter(|&leader| cut[leader]) {
-                if let Some(state) = &states[leader]
+                if let Some(state) = &converged.states[leader]
                     && self.run_block(leader, state, function, cx).is_err()
                 {
                     replay[leader] = Some(state.clone());
@@ -709,7 +875,7 @@ impl<'a, I> Walk<'a, I> {
         }
         Settled {
             cut,
-            states,
+            converged,
             replay,
         }
     }
@@ -729,28 +895,28 @@ impl<'a, I> Walk<'a, I> {
         budget: &mut usize,
         function: u32,
         cx: &mut C,
-    ) -> Vec<Option<C::Snapshot>>
+    ) -> Fixpoint<C::Snapshot>
     where
         I: Verify<C>,
         C: AbstractState + ?Sized,
     {
         loop {
-            let states = self.fixpoint(entry, cut, function, cx, None);
+            let converged = self.fixpoint(entry, cut, function, cx, None);
             if *budget == 0 {
-                return states;
+                return converged;
             }
             *budget -= 1;
-            let failing = self.failing(&states, function, cx);
+            let failing = self.failing(&converged.states, function, cx);
             let mut grew = false;
             for (leader, fails) in failing.into_iter().enumerate() {
                 if fails && !cut[leader] {
                     cut[leader] = true;
-                    replay[leader].clone_from(&states[leader]);
+                    replay[leader].clone_from(&converged.states[leader]);
                     grew = true;
                 }
             }
             if !grew {
-                return states;
+                return converged;
             }
         }
     }

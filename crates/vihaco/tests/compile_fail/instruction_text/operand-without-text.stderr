@@ -1,0 +1,20 @@
+error[E0277]: operand type `Gain` has no source text
+  --> tests/compile_fail/instruction_text/operand-without-text.rs:26:28
+   |
+26 |     pub struct SetGain(pub Gain);
+   |                            ^^^^ instruction text cannot write this operand
+   |
+help: the trait `vihaco::vihaco_runtime::__private::operand_text::HasOperandText<Gain>` is not implemented for `Gain`
+  --> tests/compile_fail/instruction_text/operand-without-text.rs:6:1
+   |
+ 6 | pub struct Gain(pub u32);
+   | ^^^^^^^^^^^^^^^
+   = note: implement `OperandText<Gain>` for `Gain`, or `Display` for `Gain`, so that instruction text can write the operand back as source
+note: required by a bound in `vihaco::vihaco_runtime::__private::operand_text::ViaMissing::write_operand_text`
+  --> $WORKSPACE/crates/vihaco-abi/src/names.rs
+   |
+   |         fn write_operand_text(
+   |            ------------------ required by a bound in this associated function
+...
+   |             S: HasOperandText<R>;
+   |                ^^^^^^^^^^^^^^^^^ required by this bound in `ViaMissing::write_operand_text`

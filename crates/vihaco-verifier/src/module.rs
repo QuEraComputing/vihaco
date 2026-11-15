@@ -7,16 +7,14 @@
 use std::collections::HashMap;
 
 use vihaco_abi::{Type, Value, Verify};
-use vihaco_module::module::{
-    FunctionInfo, LocalModule, MAX_LOCALS, NamedTypeInfo, Signature, StructInfo,
-};
+use vihaco_module::module::{FunctionInfo, LocalModule, NamedTypeInfo, Signature, StructInfo};
 
 use crate::capability::{Constants, Locals, NamedTypes, Signatures, StructTypes};
-use crate::diagnostic::{Diagnostic, DiagnosticKind, VerifyError};
+use crate::diagnostic::{Diagnostic, DiagnosticKind, Table, VerifyError};
 use crate::engine::{FunctionSpan, Rejection, Verification, VerifyOptions, verify_functions};
 use crate::slot::TypeSlot;
 use crate::stack::{Frame, FrameState, OperandStack};
-use crate::state::AbstractState;
+use crate::state::{AbstractState, JoinPoint};
 
 /// The standard verifier context for a module using vihaco's standard model:
 /// [`Type`] for types, [`Value`] for constants, and [`TypeSlot`] slots.
@@ -161,11 +159,13 @@ impl<'m> ModuleVerifier<'m> {
 
     /// Check each function's frame metadata: at most [`MAX_LOCALS`] locals,
     /// at least as many locals as parameters, and leading locals equal to the
-    /// parameter types. [`ProgramMetadata::validate`] guarantees all three;
-    /// this repeats them for modules built directly. Each failure is a
-    /// [`DiagnosticKind::Rule`] error at the function's start address.
+    /// parameter types (see [`FunctionInfo::check_frame`]).
+    /// [`ProgramMetadata::validate`] guarantees all three; this repeats them
+    /// for modules built directly. Each failure is a
+    /// [`DiagnosticKind::InvalidFrame`] error at the function's start address.
     ///
     /// [`ProgramMetadata::validate`]: vihaco_module::module::ProgramMetadata::validate
+    /// [`MAX_LOCALS`]: vihaco_module::module::MAX_LOCALS
     pub fn check_frames(&self) -> Vec<Diagnostic> {
         (0..self.functions.len() as u32)
             .filter_map(|function| {
@@ -178,30 +178,7 @@ impl<'m> ModuleVerifier<'m> {
 
     fn frame_error(&self, function: u32) -> Option<DiagnosticKind> {
         let info = &self.functions[function as usize];
-        let (locals, params) = (&info.locals, &info.signature.params);
-        let message = if locals.len() > MAX_LOCALS {
-            format!(
-                "function declares {} locals, more than the maximum of {MAX_LOCALS}",
-                locals.len()
-            )
-        } else if locals.len() < params.len() {
-            format!(
-                "function declares {} locals but {} parameters",
-                locals.len(),
-                params.len()
-            )
-        } else {
-            let (index, (local, param)) = locals
-                .iter()
-                .zip(params)
-                .enumerate()
-                .find(|(_, (local, param))| **local != param.ty)?;
-            format!(
-                "local {index} is declared {local}, but parameter {index} is {}",
-                param.ty
-            )
-        };
-        Some(DiagnosticKind::Rule(message))
+        info.check_frame().err().map(DiagnosticKind::InvalidFrame)
     }
 
     /// Verify every function of the module against `code`, the module's
@@ -229,19 +206,13 @@ impl<'m> ModuleVerifier<'m> {
 
     fn function_info(&self, function: u32) -> Result<&'m FunctionInfo<Type>, VerifyError> {
         self.functions.get(function as usize).ok_or_else(|| {
-            VerifyError::rule(format!(
-                "function {function} is outside the function table of length {}",
-                self.functions.len()
-            ))
+            VerifyError::unknown_entry(Table::Functions, function, self.functions.len())
         })
     }
 
     fn struct_info(&self, struct_id: u32) -> Result<&'m StructInfo<Type>, VerifyError> {
         self.structs.get(struct_id as usize).ok_or_else(|| {
-            VerifyError::rule(format!(
-                "struct {struct_id} is outside the struct table of length {}",
-                self.structs.len()
-            ))
+            VerifyError::unknown_entry(Table::Structs, struct_id, self.structs.len())
         })
     }
 }
@@ -343,7 +314,7 @@ impl Signatures<Type> for ModuleVerifier<'_> {
         self.by_address
             .get(&address)
             .copied()
-            .ok_or_else(|| VerifyError::rule(format!("no function starts at address {address}")))
+            .ok_or_else(|| VerifyError::new(DiagnosticKind::NoFunctionAt { address }))
     }
 
     fn current_function(&self) -> u32 {
@@ -371,10 +342,11 @@ impl StructTypes<Type> for ModuleVerifier<'_> {
             .get(slot as usize)
             .map(|field| &field.ty)
             .ok_or_else(|| {
-                VerifyError::rule(format!(
-                    "field slot {slot} is outside struct {struct_id}, which has {} fields",
-                    info.fields.len()
-                ))
+                VerifyError::new(DiagnosticKind::UnknownField {
+                    struct_id,
+                    field: slot,
+                    field_count: info.fields.len(),
+                })
             })
     }
 }
@@ -385,22 +357,18 @@ impl NamedTypes<Type> for ModuleVerifier<'_> {
     }
 
     fn named_type_index(&self, name: &str) -> Result<u32, VerifyError> {
-        self.type_names
-            .get(name)
-            .copied()
-            .ok_or_else(|| VerifyError::rule(format!("undefined named type `{name}`")))
+        self.type_names.get(name).copied().ok_or_else(|| {
+            VerifyError::new(DiagnosticKind::UndefinedNamedType {
+                name: name.to_owned(),
+            })
+        })
     }
 
     fn named_type_repr(&self, index: u32) -> Result<&Type, VerifyError> {
         self.types
             .get(index as usize)
             .map(|info| &info.repr)
-            .ok_or_else(|| {
-                VerifyError::rule(format!(
-                    "named type {index} is outside the named-type table of length {}",
-                    self.types.len()
-                ))
-            })
+            .ok_or_else(|| VerifyError::unknown_entry(Table::NamedTypes, index, self.types.len()))
     }
 }
 
@@ -411,10 +379,7 @@ impl Constants<Value, Type> for ModuleVerifier<'_> {
 
     fn constant(&self, index: u32) -> Result<&Value, VerifyError> {
         self.constants.get(index as usize).ok_or_else(|| {
-            VerifyError::rule(format!(
-                "constant {index} is outside the constant table of length {}",
-                self.constants.len()
-            ))
+            VerifyError::unknown_entry(Table::Constants, index, self.constants.len())
         })
     }
 
@@ -438,8 +403,12 @@ impl AbstractState for ModuleVerifier<'_> {
         self.frame.restore(snapshot);
     }
 
-    fn join(saved: &mut Frame<TypeSlot>, incoming: &Frame<TypeSlot>) -> Result<bool, VerifyError> {
-        saved.join(incoming)
+    fn join(
+        saved: &mut Frame<TypeSlot>,
+        incoming: &Frame<TypeSlot>,
+        at: &JoinPoint,
+    ) -> Result<bool, VerifyError> {
+        saved.join(incoming, at)
     }
 
     /// Records the current function, which [`Signatures::current_function`]
@@ -455,7 +424,8 @@ impl AbstractState for ModuleVerifier<'_> {
 /// Implement this for a component's state (for example a set of open
 /// channels, joined by intersection) and verify with
 /// [`WithState<'_, YourState>`](WithState). Several components' states
-/// combine as a tuple.
+/// combine into one struct with [`component_state!`](crate::component_state),
+/// which joins each field.
 ///
 /// # Calls
 ///
@@ -467,13 +437,15 @@ impl AbstractState for ModuleVerifier<'_> {
 /// every component state defines, because what is sound depends on the
 /// state; per-callee summaries are a possible future extension.
 pub trait ComponentState: Clone {
-    /// Join `incoming` into `self`, the state saved at a join point.
+    /// Join `incoming` into `self`, the state saved at the join point `at`.
     ///
     /// Returns whether `self` strictly changed. On error `self` must be left
     /// unchanged. The join must have finite height so the fixpoint
-    /// terminates: widen unbounded values (such as elapsed time) after a
-    /// fixed number of joins.
-    fn join(&mut self, incoming: &Self) -> Result<bool, VerifyError>;
+    /// terminates: widen unbounded values (such as elapsed time). `at` names
+    /// the leader and the edges the two states arrived along, so a join can
+    /// widen only at a loop header (an incoming `Predecessor::Jump(from)` with
+    /// `from >= at.address`) and stay precise where a diamond merges.
+    fn join(&mut self, incoming: &Self, at: &JoinPoint) -> Result<bool, VerifyError>;
 
     /// The caller's state after a call returns. `callee` is the called
     /// function for a direct call and `None` for an indirect one; `entry` is
@@ -499,37 +471,123 @@ pub trait ComponentState: Clone {
 }
 
 impl ComponentState for () {
-    fn join(&mut self, _: &()) -> Result<bool, VerifyError> {
+    fn join(&mut self, _: &(), _: &JoinPoint) -> Result<bool, VerifyError> {
         Ok(false)
     }
 
     fn after_call(&mut self, _: Option<u32>, _: &()) {}
 }
 
-macro_rules! tuple_component_state {
-    ($($name:ident $index:tt),+) => {
-        /// Joins each element; on error no element changes.
-        impl<$($name: ComponentState),+> ComponentState for ($($name,)+) {
-            fn join(&mut self, incoming: &Self) -> Result<bool, VerifyError> {
-                let mut joined = self.clone();
+/// Where one component's state lives inside a context's combined state.
+///
+/// A component crate implements its capability for every context whose state
+/// contains its own, rather than for one concrete state:
+///
+/// ```ignore
+/// impl<S: ComponentStateOf<Open>> Channels for WithState<'_, S> { ... }
+/// ```
+///
+/// so the capability works in a machine that combines it with other
+/// components' states. Every state contains itself, and
+/// [`component_state!`](crate::component_state) implements this for each
+/// field of a combined state, so no crate writes delegation by hand (and the
+/// orphan rule never gets in the way: the machine crate owns its combined
+/// state).
+pub trait ComponentStateOf<T> {
+    /// The component's state.
+    fn component(&self) -> &T;
+
+    /// The component's state, mutably.
+    fn component_mut(&mut self) -> &mut T;
+}
+
+impl<T> ComponentStateOf<T> for T {
+    fn component(&self) -> &T {
+        self
+    }
+
+    fn component_mut(&mut self) -> &mut T {
+        self
+    }
+}
+
+/// Declare a machine's combined component state: a struct with one field per
+/// component's [`ComponentState`].
+///
+/// The struct joins field by field (atomically: on error no field changes),
+/// applies each field's [`ComponentState::after_call`] after a call, and
+/// implements [`ComponentStateOf`] for each field's type, so every
+/// component's capability, written against `ComponentStateOf<TheirState>`,
+/// works in the machine's [`WithState`] context. Derive `Clone` (required)
+/// and usually `Default` (a convenient entry state). Field types must be
+/// distinct.
+///
+/// ```
+/// use vihaco_verifier::{ComponentState, JoinPoint, VerifyError, component_state};
+/// # #[derive(Clone, Debug, Default)]
+/// # pub struct Open;
+/// # impl ComponentState for Open {
+/// #     fn join(&mut self, _: &Self, _: &JoinPoint) -> Result<bool, VerifyError> { Ok(false) }
+/// #     fn after_call(&mut self, _: Option<u32>, entry: &Self) { self.clone_from(entry) }
+/// # }
+/// # #[derive(Clone, Debug, Default)]
+/// # pub struct Elapsed;
+/// # impl ComponentState for Elapsed {
+/// #     fn join(&mut self, _: &Self, _: &JoinPoint) -> Result<bool, VerifyError> { Ok(false) }
+/// #     fn after_call(&mut self, _: Option<u32>, entry: &Self) { self.clone_from(entry) }
+/// # }
+///
+/// // `Open` from a sequencer crate, `Elapsed` from a timing crate.
+/// component_state! {
+///     #[derive(Clone, Debug, Default)]
+///     pub struct MachineState {
+///         pub open: Open,
+///         pub elapsed: Elapsed,
+///     }
+/// }
+/// ```
+#[macro_export]
+macro_rules! component_state {
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident {
+            $($(#[$field_meta:meta])* $field_vis:vis $field:ident: $ty:ty),* $(,)?
+        }
+    ) => {
+        $(#[$meta])*
+        $vis struct $name {
+            $($(#[$field_meta])* $field_vis $field: $ty),*
+        }
+
+        impl $crate::ComponentState for $name {
+            fn join(&mut self, incoming: &Self, at: &$crate::JoinPoint) -> ::core::result::Result<bool, $crate::VerifyError> {
+                // Join a copy, so an error in any field leaves `self` whole.
+                let mut joined = ::core::clone::Clone::clone(self);
                 let mut changed = false;
-                $(changed |= joined.$index.join(&incoming.$index)?;)+
+                $(changed |= $crate::ComponentState::join(&mut joined.$field, &incoming.$field, at)?;)*
                 *self = joined;
                 Ok(changed)
             }
 
-            /// Applies each element's own `after_call`.
-            fn after_call(&mut self, callee: Option<u32>, entry: &Self) {
-                $(self.$index.after_call(callee, &entry.$index);)+
+            /// Applies each field's own `after_call`.
+            fn after_call(&mut self, callee: ::core::option::Option<u32>, entry: &Self) {
+                $($crate::ComponentState::after_call(&mut self.$field, callee, &entry.$field);)*
             }
         }
+
+        $(
+            impl $crate::ComponentStateOf<$ty> for $name {
+                fn component(&self) -> &$ty {
+                    &self.$field
+                }
+
+                fn component_mut(&mut self) -> &mut $ty {
+                    &mut self.$field
+                }
+            }
+        )*
     };
 }
-
-tuple_component_state!(A 0);
-tuple_component_state!(A 0, B 1);
-tuple_component_state!(A 0, B 1, C 2);
-tuple_component_state!(A 0, B 1, C 2, D 3);
 
 /// A [`ModuleVerifier`] extended with component state `S`: the context for a
 /// machine whose components need more than the standard capabilities.
@@ -538,12 +596,13 @@ tuple_component_state!(A 0, B 1, C 2, D 3);
 /// and joins `S` alongside the frame (snapshots are `(Frame<TypeSlot>, S)`),
 /// and starts every function from the entry state given at construction.
 /// A component crate defines its capability trait and implements it for
-/// `WithState<'_, TheirState>` (allowed because the trait is theirs), using
-/// [`state`](WithState::state) and [`state_mut`](WithState::state_mut):
+/// `WithState<'_, S>` wherever `S` contains its state ([`ComponentStateOf`]),
+/// reaching that state with [`component`](WithState::component) and
+/// [`component_mut`](WithState::component_mut):
 ///
 /// ```
 /// use std::collections::BTreeSet;
-/// use vihaco_verifier::{ComponentState, VerifyError, WithState};
+/// use vihaco_verifier::{ComponentState, ComponentStateOf, JoinPoint, VerifyError, WithState};
 ///
 /// /// The sequencer's capability: channels must be opened before use.
 /// pub trait Channels {
@@ -556,7 +615,7 @@ tuple_component_state!(A 0, B 1, C 2, D 3);
 ///
 /// impl ComponentState for Open {
 ///     /// A channel is open after a join only if it is open on every path.
-///     fn join(&mut self, incoming: &Self) -> Result<bool, VerifyError> {
+///     fn join(&mut self, incoming: &Self, _: &JoinPoint) -> Result<bool, VerifyError> {
 ///         let before = self.0.len();
 ///         self.0.retain(|c| incoming.0.contains(c));
 ///         Ok(self.0.len() != before)
@@ -568,12 +627,14 @@ tuple_component_state!(A 0, B 1, C 2, D 3);
 ///     }
 /// }
 ///
-/// impl Channels for WithState<'_, Open> {
+/// // Any machine state that contains `Open`: `Open` itself, or a
+/// // `component_state!` struct with an `Open` field.
+/// impl<S: ComponentStateOf<Open>> Channels for WithState<'_, S> {
 ///     fn open(&mut self, channel: u32) {
-///         self.state_mut().0.insert(channel);
+///         self.component_mut::<Open>().0.insert(channel);
 ///     }
 ///     fn require_open(&self, channel: u32) -> Result<(), VerifyError> {
-///         if self.state().0.contains(&channel) {
+///         if self.component::<Open>().0.contains(&channel) {
 ///             Ok(())
 ///         } else {
 ///             Err(VerifyError::rule(format!("channel {channel} is not open")))
@@ -586,6 +647,25 @@ pub struct WithState<'m, S> {
     verifier: ModuleVerifier<'m>,
     entry: S,
     state: S,
+}
+
+impl<S> WithState<'_, S> {
+    /// The current state of the component whose state is `T`, inside the
+    /// combined state `S` (see [`ComponentStateOf`]).
+    pub fn component<T>(&self) -> &T
+    where
+        S: ComponentStateOf<T>,
+    {
+        self.state.component()
+    }
+
+    /// The current state of the component whose state is `T`, mutably.
+    pub fn component_mut<T>(&mut self) -> &mut T
+    where
+        S: ComponentStateOf<T>,
+    {
+        self.state.component_mut()
+    }
 }
 
 impl<'m, S: ComponentState> WithState<'m, S> {
@@ -773,12 +853,13 @@ impl<S: ComponentState> AbstractState for WithState<'_, S> {
     fn join(
         (frame, state): &mut Self::Snapshot,
         (in_frame, in_state): &Self::Snapshot,
+        at: &JoinPoint,
     ) -> Result<bool, VerifyError> {
         // Join the component state on a copy first, so an error in either
         // join leaves the saved snapshot unchanged.
         let mut joined = state.clone();
-        let state_changed = joined.join(in_state)?;
-        let frame_changed = frame.join(in_frame)?;
+        let state_changed = joined.join(in_state, at)?;
+        let frame_changed = frame.join(in_frame, at)?;
         *state = joined;
         Ok(frame_changed || state_changed)
     }

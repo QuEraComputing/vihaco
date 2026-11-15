@@ -21,6 +21,17 @@ use smallvec::SmallVec;
 /// Instruction authors express the capabilities they need (operand types,
 /// local types, signatures, struct layouts, component-specific state) as
 /// bounds on `C`.
+///
+/// A machine is verifiable only if every instruction in it has a rule whose
+/// bounds the verifier context satisfies; otherwise verifying it is a compile
+/// error naming the instruction and the context.
+#[diagnostic::on_unimplemented(
+    message = "instruction `{Self}` has no verification rule for context `{C}`",
+    label = "`{Self}` cannot be verified with `{C}`",
+    note = "implement `Verify<C>` for each instruction, bounding `C` only on the capabilities \
+            the rule uses; for a composite's instruction set, the headline names the leaf \
+            instruction that has no rule"
+)]
 pub trait Verify<C: ?Sized> {
     /// Where control goes after this instruction.
     ///

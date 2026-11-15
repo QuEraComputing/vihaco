@@ -7,9 +7,9 @@ use std::cell::Cell;
 use std::collections::BTreeSet;
 
 use vihaco_verifier::{
-    AbstractState, Diagnostic, DiagnosticKind, Flow, Frame, FrameState, FunctionSpan, Locals,
-    OperandStack, Rejection, Severity, Type, TypeSlot, TypedSlot, Verification, Verify,
-    VerifyError, VerifyOptions, stack_effect, verify_functions,
+    AbstractState, Diagnostic, DiagnosticKind, Flow, Frame, FrameState, FunctionSpan, JoinPoint,
+    Locals, OperandStack, Predecessor, Rejection, Severity, Type, TypeSlot, TypedSlot,
+    Verification, Verify, VerifyError, VerifyOptions, stack_effect, verify_functions,
 };
 
 thread_local! {
@@ -81,11 +81,11 @@ where
                 cx.pop_n(*n)?;
             }
             Op::Use(ty) => {
-                cx.pop_expect(ty)?;
+                cx.pop_typed(ty)?;
             }
             Op::Add => stack_effect(cx, [Type::I64, Type::I64], [Type::I64])?,
             Op::CondBr(..) => {
-                cx.pop_expect(&Type::Bool)?;
+                cx.pop_typed(&Type::Bool)?;
             }
             Op::Br(_) | Op::Ret | Op::Halt | Op::Table(_) => {}
             Op::Mark => MARK_RUNS.with(|runs| runs.set(runs.get() + 1)),
@@ -94,7 +94,7 @@ where
                 eyre::bail!("{message}");
             }
             Op::PopDynamic => {
-                cx.pop_expect(&Type::U64)?;
+                cx.pop_typed(&Type::U64)?;
                 return Err(VerifyError::unverifiable(
                     "pops a number of operands given by a runtime value",
                 )
@@ -148,11 +148,23 @@ fn accepted(outcome: Outcome) -> Verification<Frame<TypeSlot>> {
     outcome.unwrap_or_else(|rejection| panic!("{rejection}"))
 }
 
-fn mismatch(expected: &str, found: &str) -> DiagnosticKind {
-    DiagnosticKind::TypeMismatch {
-        expected: expected.into(),
-        found: found.into(),
-    }
+/// A type mismatch with no role, as `pop_typed` reports it.
+fn mismatch(expected: Type, found: Type) -> DiagnosticKind {
+    VerifyError::type_mismatch(expected, TypeSlot::Known(found)).into_kind()
+}
+
+/// A mismatch whose value is a conflict between `a` and `b` at join `join`.
+fn conflict(expected: Type, a: Type, b: Type, join: u32) -> DiagnosticKind {
+    let found = TypeSlot::Conflict {
+        first: a,
+        second: b,
+        join: Some(join),
+    };
+    VerifyError::type_mismatch(expected, found).into_kind()
+}
+
+fn underflow(needed: usize, depth: usize) -> DiagnosticKind {
+    DiagnosticKind::StackUnderflow { needed, depth }
 }
 
 /// `if cond { push a } else { push b }; use(c); ret`.
@@ -189,16 +201,27 @@ fn an_unbalanced_diamond_is_one_depth_mismatch_at_the_join() {
         Const(Type::I64),
         Ret, // 6: join, reached with depth 2 then 1
     ];
+    // The branch at 4 reaches the join first; falling through from 5 second.
+    let Err(rejection) = verify(&code) else {
+        panic!("expected a rejection")
+    };
     assert_eq!(
-        rejected(verify(&code)),
+        found(&rejection.diagnostics),
         [(
             0,
             6,
             DiagnosticKind::StackDepthMismatch {
                 expected: 2,
-                found: 1
+                found: 1,
+                expected_from: Predecessor::Jump(4),
+                found_from: Predecessor::Fallthrough(5),
             }
         )]
+    );
+    assert_eq!(
+        rejection.diagnostics[0].to_string(),
+        "error: operand stack depth differs where paths join: 2 from address 4 (a jump), 1 from \
+         address 5 (falling through)\n  --> function 0, address 6"
     );
 }
 
@@ -233,7 +256,9 @@ fn a_nonzero_delta_loop_is_a_mismatch_at_the_header() {
             1,
             DiagnosticKind::StackDepthMismatch {
                 expected: 1,
-                found: 2
+                found: 2,
+                expected_from: Predecessor::Fallthrough(0),
+                found_from: Predecessor::Jump(4),
             }
         )]
     );
@@ -273,7 +298,15 @@ fn jumping_out_of_the_function_is_an_invalid_target() {
     assert_eq!(
         found(&rejection.diagnostics),
         [
-            (0, 1, DiagnosticKind::InvalidControlFlowTarget { target: 3 }),
+            (
+                0,
+                1,
+                DiagnosticKind::InvalidControlFlowTarget {
+                    target: 3,
+                    start: 0,
+                    end: 3
+                }
+            ),
             (1, 4, DiagnosticKind::Unreachable),
         ]
     );
@@ -321,13 +354,15 @@ fn empty_and_reversed_function_spans_are_reported() {
 #[test]
 fn a_jump_with_no_targets_is_a_structural_error() {
     // Without the check, an empty jump would end the path like a terminator.
+    let rejection = verify(&[Const(Type::I64), Table(vec![])]).unwrap_err();
     assert_eq!(
-        rejected(verify(&[Const(Type::I64), Table(vec![])])),
+        found(&rejection.diagnostics),
         [(0, 1, DiagnosticKind::EmptyJump)]
     );
     assert_eq!(
-        DiagnosticKind::EmptyJump.to_string(),
-        "the instruction jumps, but names no target address"
+        rejection.diagnostics[0].to_string(),
+        "error: the instruction jumps, but names no target address (use a return or halt to \
+         end a path)\n  --> function 0, address 1"
     );
     // A non-empty table is an ordinary jump.
     accepted(verify(&[Table(vec![1, 2]), Ret, Ret]));
@@ -351,13 +386,22 @@ fn duplicate_jump_targets_are_one_edge() {
     // The type error after the duplicated edge is reported once.
     let mut bad = code.to_vec();
     bad[3] = Use(Type::F64);
-    assert_eq!(rejected(verify(&bad)), [(0, 3, mismatch("f64", "i64"))]);
+    assert_eq!(
+        rejected(verify(&bad)),
+        [(0, 3, mismatch(Type::F64, Type::I64))]
+    );
 }
 
 #[test]
 fn a_local_count_mismatch_at_a_join_is_structured() {
     let mut saved = Frame::new(vec![TypeSlot::Known(Type::I64)]);
-    let err = saved.join(&Frame::new(vec![])).unwrap_err();
+    let at = JoinPoint {
+        function: 0,
+        address: 4,
+        saved_from: Predecessor::Jump(1),
+        incoming_from: Predecessor::Fallthrough(3),
+    };
+    let err = saved.join(&Frame::new(vec![]), &at).unwrap_err();
     assert_eq!(
         err.kind(),
         &DiagnosticKind::LocalCountMismatch {
@@ -367,7 +411,7 @@ fn a_local_count_mismatch_at_a_join_is_structured() {
     );
     assert_eq!(
         err.to_string(),
-        "local count mismatch at join: expected 1, found 0"
+        "local count differs where paths join: 1 saved, 0 arriving"
     );
 }
 
@@ -375,7 +419,7 @@ fn a_local_count_mismatch_at_a_join_is_structured() {
 fn a_type_conflict_at_a_join_is_an_error_only_when_used() {
     assert_eq!(
         rejected(verify(&diamond(Type::I64, Type::F64, Use(Type::I64)))),
-        [(0, 5, mismatch("i64", "i64 | f64"))]
+        [(0, 5, conflict(Type::I64, Type::I64, Type::F64, 5))]
     );
     accepted(verify(&diamond(Type::I64, Type::F64, Pop)));
 }
@@ -400,12 +444,12 @@ fn conflicting_locals_join_like_operands() {
             match self {
                 L::Op(op) => op.verify(cx),
                 L::Store(Store(i, ty)) => {
-                    let slot = cx.pop_expect(ty)?;
+                    let slot = cx.pop_typed(ty)?;
                     Ok(cx.set_local(*i, slot)?)
                 }
                 L::Load(Load(i, ty)) => {
                     let slot = cx.local(*i)?.clone();
-                    slot.expect(ty)?;
+                    slot.check(ty)?;
                     cx.push(slot);
                     Ok(())
                 }
@@ -435,7 +479,7 @@ fn conflicting_locals_join_like_operands() {
     assert_eq!(
         found(&rejection.diagnostics),
         [
-            (0, 5, mismatch("i64", "i64 | f64")),
+            (0, 5, conflict(Type::I64, Type::I64, Type::F64, 5)),
             (0, 7, DiagnosticKind::Unreachable),
         ]
     );
@@ -446,7 +490,7 @@ fn a_huge_counted_pop_is_one_underflow() {
     let code = [Const(Type::I64), PopN(1_000_000_000), Ret];
     assert_eq!(
         rejected(verify(&code)),
-        [(0, 1, DiagnosticKind::StackUnderflow)]
+        [(0, 1, underflow(1_000_000_000, 1))]
     );
 }
 
@@ -477,6 +521,18 @@ fn a_defect_inside_a_loop_is_reported_once() {
     );
 }
 
+/// `Add`'s first operand is an `i64`/`f64` conflict from the join at `join`.
+fn add_operand_conflict(join: u32) -> DiagnosticKind {
+    let found = TypeSlot::Conflict {
+        first: Type::I64,
+        second: Type::F64,
+        join: Some(join),
+    };
+    VerifyError::type_mismatch(Type::I64, found)
+        .with_role(vihaco_verifier::Role::Operand(0))
+        .into_kind()
+}
+
 /// A loop whose header fails once the back edge brings an `f64` in. Its exit
 /// at 8 is reachable only through the header, so it is not analysed: in the
 /// first round the header passed on an `i64`, but at convergence it passes
@@ -504,7 +560,7 @@ fn code_reachable_only_through_a_failing_block_is_not_analysed() {
     let rejection = verify_functions(&code, &[span(0, 0, 10)], &mut cx, options).unwrap_err();
     assert_eq!(
         found(&rejection.diagnostics),
-        [(0, 2, mismatch("i64", "i64 | f64"))]
+        [(0, 2, add_operand_conflict(1))]
     );
     let maps = rejection.type_maps.expect("type maps were requested");
     let operands = |address| maps.get(0, address).map(|f| f.operands().to_vec());
@@ -512,7 +568,11 @@ fn code_reachable_only_through_a_failing_block_is_not_analysed() {
     // path and the back edge.
     assert_eq!(
         operands(1),
-        Some(vec![TypeSlot::Conflict(Type::I64, Type::F64)])
+        Some(vec![TypeSlot::Conflict {
+            first: Type::I64,
+            second: Type::F64,
+            join: Some(1),
+        }])
     );
     // The loop body and the exit are reached only through the header.
     assert_eq!(operands(5), None);
@@ -541,10 +601,7 @@ fn a_block_failing_only_on_a_follow_on_state_is_analysed_from_its_other_paths() 
         Const(Type::F64),  // 12
         Br(10),            // 13
     ];
-    assert_eq!(
-        rejected(verify(&code)),
-        [(0, 4, mismatch("i64", "i64 | f64"))]
-    );
+    assert_eq!(rejected(verify(&code)), [(0, 4, add_operand_conflict(3))]);
 }
 
 /// The follow-on case above, except that the other path into 10 brings two
@@ -584,8 +641,8 @@ fn a_failing_block_reports_its_real_defect_not_a_follow_on() {
     assert_eq!(
         found(&rejection.diagnostics),
         [
-            (0, 4, mismatch("i64", "i64 | f64")),
-            (0, 10, mismatch("f64", "bool")),
+            (0, 4, add_operand_conflict(3)),
+            (0, 10, mismatch(Type::F64, Type::Bool)),
         ]
     );
     let maps = rejection.type_maps.expect("type maps were requested");
@@ -628,8 +685,8 @@ fn a_join_into_a_failing_block_is_checked_only_between_analysed_edges() {
     assert_eq!(
         found(&rejection.diagnostics),
         [
-            (0, 4, mismatch("i64", "i64 | f64")),
-            (0, 16, mismatch("f64", "bool")),
+            (0, 4, add_operand_conflict(3)),
+            (0, 16, mismatch(Type::F64, Type::Bool)),
         ]
     );
     let maps = rejection.type_maps.expect("type maps were requested");
@@ -706,6 +763,24 @@ fn rejected_counting_fixpoints(code: &[Op]) -> (Vec<(u32, u32, DiagnosticKind)>,
     (found, MARK_RUNS.with(Cell::get))
 }
 
+/// The `i64`/`bool` conflict from the join at `join` that an `i64` rule
+/// finds, as `Add`'s first operand (`add`) or as a plain pop.
+fn bool_conflict(join: u32, add: bool) -> DiagnosticKind {
+    let found = TypeSlot::Conflict {
+        first: Type::I64,
+        second: Type::Bool,
+        join: Some(join),
+    };
+    let error = VerifyError::type_mismatch(Type::I64, found);
+    if add {
+        error
+            .with_role(vihaco_verifier::Role::Operand(0))
+            .into_kind()
+    } else {
+        error.into_kind()
+    }
+}
+
 /// One copy of `if cond { x = 1; loop { x = x + 1; x = true } }`, at `base`:
 /// the loop header at `base + 3` passes on first entry and fails once the
 /// back edge brings a `bool`. The `if` skips to `skip`.
@@ -737,7 +812,7 @@ fn failing_loops_cut_off_by_an_earlier_one_cost_no_fixpoint_each() {
     }
     code.push(Ret);
     let (found, runs) = rejected_counting_fixpoints(&code);
-    assert_eq!(found, [(0, 5, mismatch("i64", "i64 | bool"))]);
+    assert_eq!(found, [(0, 5, bool_conflict(4, true))]);
     assert!(runs <= 10, "the entry block ran {runs} times");
 }
 
@@ -757,7 +832,7 @@ fn many_bypassed_failing_loops_settle_within_the_budget() {
     RULE_RUNS.with(|runs| runs.set(0));
     let (found, runs) = rejected_counting_fixpoints(&code);
     let expected: Vec<_> = (0..copies)
-        .map(|copy| (0, 1 + 10 * copy + 4, mismatch("i64", "i64 | bool")))
+        .map(|copy| (0, 1 + 10 * copy + 4, bool_conflict(1 + 10 * copy + 3, true)))
         .collect();
     assert_eq!(found, expected);
     assert!(runs <= 2 * 65 + 3, "the entry block ran {runs} times");
@@ -797,7 +872,7 @@ fn failing_loops_joining_bypasses(copies: u32) -> Vec<Op> {
 fn follow_on_failures_are_restored_within_the_budget() {
     let (found, _) = rejected_counting_fixpoints(&failing_loops_joining_bypasses(5));
     let expected: Vec<_> = (0..5)
-        .map(|copy| (0, 1 + 10 * copy + 4, mismatch("i64", "i64 | bool")))
+        .map(|copy| (0, 1 + 10 * copy + 4, bool_conflict(1 + 10 * copy + 3, true)))
         .collect();
     assert_eq!(found, expected);
 }
@@ -819,10 +894,10 @@ fn past_the_budget_the_real_defects_are_still_reported() {
         "the budget was not exhausted: {found:?}"
     );
     let mut expected: Vec<_> = (0..headers)
-        .map(|copy| (0, 1 + 10 * copy + 4, mismatch("i64", "i64 | bool")))
+        .map(|copy| (0, 1 + 10 * copy + 4, bool_conflict(1 + 10 * copy + 3, true)))
         .collect();
     let last_join = 1 + 10 * (headers - 1) + 9;
-    expected.push((0, last_join, mismatch("i64", "i64 | bool")));
+    expected.push((0, last_join, bool_conflict(last_join, false)));
     assert_eq!(found, expected);
     assert!(runs <= 2 * 65 + 3, "the entry block ran {runs} times");
     let rules = RULE_RUNS.with(Cell::get);
@@ -844,8 +919,8 @@ fn a_rule_error_ends_its_block_but_later_blocks_still_report() {
     assert_eq!(
         rejected(verify(&code)),
         [
-            (0, 2, DiagnosticKind::StackUnderflow),
-            (0, 6, mismatch("f64", "i64")),
+            (0, 2, underflow(2, 0)),
+            (0, 6, mismatch(Type::F64, Type::I64)),
         ]
     );
 }
@@ -871,10 +946,10 @@ fn errors_across_blocks_and_functions_are_sorted() {
     assert_eq!(
         found(&rejection.diagnostics),
         [
-            (0, 2, DiagnosticKind::StackUnderflow),
-            (0, 4, DiagnosticKind::StackUnderflow),
+            (0, 2, underflow(1, 0)),
+            (0, 4, underflow(1, 0)),
             (0, 4, DiagnosticKind::MissingTerminator),
-            (1, 6, mismatch("i64", "f64")),
+            (1, 6, mismatch(Type::I64, Type::F64)),
             (1, 8, DiagnosticKind::Unreachable),
         ]
     );
@@ -908,7 +983,7 @@ fn verify_errors_survive_wrapping_with_context() {
     assert_eq!(
         found(&rejection.diagnostics),
         [
-            (0, 0, DiagnosticKind::StackUnderflow),
+            (0, 0, underflow(1, 0)),
             (0, 0, DiagnosticKind::MissingTerminator),
         ]
     );
@@ -925,7 +1000,11 @@ fn type_maps_hold_each_reached_leaders_converged_state() {
     assert_eq!(operands(4), Some(vec![]));
     assert_eq!(
         operands(5),
-        Some(vec![TypeSlot::Conflict(Type::I64, Type::F64)])
+        Some(vec![TypeSlot::Conflict {
+            first: Type::I64,
+            second: Type::F64,
+            join: Some(5)
+        }])
     );
     assert_eq!(operands(1), None, "not a leader");
     assert_eq!(maps.get(0, 0), None, "no such function");
@@ -934,6 +1013,65 @@ fn type_maps_hold_each_reached_leaders_converged_state() {
         [(3, 0), (3, 2), (3, 4), (3, 5)]
     );
     assert_eq!(maps.function(3).unwrap().len(), 4);
+}
+
+#[test]
+fn any_reached_address_is_one_replay_from_its_leader() {
+    let code = [
+        Const(Type::Bool), // 0
+        CondBr(2, 4),      // 1
+        Const(Type::I64),  // 2
+        Br(6),             // 3
+        Const(Type::F64),  // 4
+        Const(Type::U64),  // 5: falls into the join
+        Pop,               // 6: join at depth 1 or 2, rejected...
+        Ret,               // 7
+        Ret,               // 8: unreachable
+    ];
+    // ...so use a well-typed variant first.
+    let mut good = code.clone();
+    good[5] = Br(6);
+    let maps = accepted(verify_spans(&good, &[span(0, 0, 9)], true))
+        .type_maps
+        .unwrap();
+    let mut cx = FrameState::new(Frame::new(vec![]));
+    let operands = |cx: &mut FrameState<TypeSlot>, address| {
+        maps.state_at(&good, cx, 0, address)
+            .map(|frame| frame.operands().to_vec())
+    };
+    let known = TypeSlot::Known;
+    // Not a leader: replayed from the leader at 0.
+    assert_eq!(operands(&mut cx, 1), Some(vec![known(Type::Bool)]));
+    // Leaders return their converged state.
+    assert_eq!(operands(&mut cx, 2), Some(vec![]));
+    assert_eq!(operands(&mut cx, 3), Some(vec![known(Type::I64)]));
+    assert_eq!(
+        operands(&mut cx, 7),
+        Some(vec![]),
+        "after the join's pop of the conflicted slot"
+    );
+    assert_eq!(operands(&mut cx, 8), None, "unreachable");
+    assert_eq!(operands(&mut cx, 9), None, "outside the function");
+    assert_eq!(
+        maps.state_at(&good, &mut cx, 1, 0),
+        None,
+        "no such function"
+    );
+
+    // In a rejection the state first saved at a mismatched join stands, so
+    // the replay continues from it.
+    let Err(rejection) = verify_spans(&code, &[span(0, 0, 9)], true) else {
+        panic!("expected a rejection");
+    };
+    let maps = rejection.type_maps.unwrap();
+    assert_eq!(
+        maps.state_at(&code, &mut cx, 0, 5).map(|f| f.depth()),
+        Some(1)
+    );
+    assert_eq!(
+        maps.state_at(&code, &mut cx, 0, 7).map(|f| f.depth()),
+        Some(0)
+    );
 }
 
 #[test]
@@ -960,7 +1098,11 @@ fn type_maps_are_returned_with_a_rejection() {
     assert_eq!(operands(0), Some(vec![]));
     assert_eq!(
         operands(5),
-        Some(vec![TypeSlot::Conflict(Type::I64, Type::F64)])
+        Some(vec![TypeSlot::Conflict {
+            first: Type::I64,
+            second: Type::F64,
+            join: Some(5)
+        }])
     );
     assert_eq!(operands(7), None, "reached only through the failed block");
 
@@ -1080,9 +1222,10 @@ impl AbstractState for SeqVerifier {
     fn join(
         (frame, open): &mut Self::Snapshot,
         (in_frame, in_open): &Self::Snapshot,
+        at: &JoinPoint,
     ) -> Result<bool, VerifyError> {
         // The frame joins first, so a mismatch leaves the saved state whole.
-        let frame_changed = frame.join(in_frame)?;
+        let frame_changed = frame.join(in_frame, at)?;
         let before = open.len();
         open.retain(|channel| in_open.contains(channel));
         Ok(frame_changed || open.len() != before)

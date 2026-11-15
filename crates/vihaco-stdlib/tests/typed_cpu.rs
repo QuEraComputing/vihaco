@@ -11,7 +11,7 @@ use vihaco_cpu::{
     field::{NamedTypeLookup, StructLookup},
     lower::{FunctionLookup, LabelLookup, StringIntern},
     message,
-    operand::Target,
+    operand::JumpTarget,
 };
 
 use vihaco_abi::{FunctionType, Type};
@@ -133,6 +133,7 @@ macro_rules! steps {
                 self.$($device).+.execute(instruction, message::IndirectCallee {
                     info: message::FunctionInfo { arity: 0, start_address: 0, local_count: 0 },
                     signature: instruction.0.clone(),
+                    name: "target".into(),
                 })?;
                 Ok(())
             }
@@ -294,7 +295,7 @@ fn readable_constants_parse_to_encoded_runtime_words() {
         .unwrap();
     assert_eq!(
         branch.0,
-        Target::Symbol(vihaco_parser::Ident("later".to_owned()))
+        JumpTarget::Symbol(vihaco_parser::Ident("later".to_owned()))
     );
     assert!(vihaco_runtime::Lower::lower(branch, &mut NumericContext).is_err());
     assert!(
@@ -325,9 +326,9 @@ fn sst_labels_are_readability_metadata_and_do_not_occupy_runtime_slots() {
     assert_eq!(parsed.labels[1].instruction_index, 1);
     assert!(matches!(
         &parsed.body[0],
-        __vihaco_MachineInstruction::V_controller__cpu__cpu__Branch(cpu::Branch(Target::Resolved(
-            1
-        )))
+        __vihaco_MachineInstruction::V_controller__cpu__cpu__Branch(cpu::Branch(
+            JumpTarget::Resolved(1)
+        ))
     ));
     let mut machine = machine();
     for instruction in parsed.body {
@@ -404,6 +405,7 @@ fn typed_messages_preserve_direct_indirect_calls_and_returns() {
             local_count: 2,
         },
         signature: unary.clone(),
+        name: "unary".into(),
     };
     // The referenced function must have exactly the instruction's signature.
     let error = cpu
@@ -415,7 +417,7 @@ fn typed_messages_preserve_direct_indirect_calls_and_returns() {
     assert!(
         error
             .to_string()
-            .contains("expects a function of type (i64) -> (), but the referenced function has type (u64) -> ()"),
+            .contains("expects a function of type (i64) -> (), but @unary has type (u64) -> ()"),
         "{error}"
     );
     assert_eq!(cpu.stack(), &[10, 20, 0, 0, 99, 44, encode_function_ref(2)]);

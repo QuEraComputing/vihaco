@@ -19,6 +19,8 @@ use crate::{Component, Execute, Field};
 pub use vihaco_parser_derive::__dialect_parsers;
 pub use vihaco_runtime_derive::__inventory_collect;
 
+pub use vihaco_abi::names::{InstructionText, SymbolNames, operand_text};
+
 /// Indexed instruction types; slots are not bytecode identities.
 pub trait LeafAt<const SLOT: usize> {
     type Instruction: InstructionSpec;

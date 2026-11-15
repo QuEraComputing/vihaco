@@ -25,6 +25,7 @@ use crate::Word;
 use crate::layout::{FieldSlot, StructLayout};
 use slotmap::{DefaultKey, Key, KeyData, SlotMap};
 use vihaco_abi::Type;
+use vihaco_abi::heap::{HeapError, HeapRef as Reference};
 
 /// What a heap object is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,11 +37,12 @@ enum ObjectKind {
     Struct(u32),
 }
 
-impl std::fmt::Display for ObjectKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl ObjectKind {
+    /// The object's type, as errors report it: `array T` or `struct N`.
+    fn as_type(&self) -> Type {
         match self {
-            ObjectKind::Array(elem) => write!(f, "array {elem}"),
-            ObjectKind::Struct(id) => write!(f, "struct {id}"),
+            ObjectKind::Array(elem) => Type::array(elem.clone()),
+            ObjectKind::Struct(id) => Type::Struct(*id),
         }
     }
 }
@@ -95,7 +97,10 @@ fn key(reference: HeapRef) -> Option<DefaultKey> {
 }
 
 fn invalid(reference: HeapRef) -> eyre::Report {
-    eyre::eyre!("heap reference {reference:#x} is invalid or has been deallocated")
+    HeapError::InvalidReference {
+        reference: Reference(reference),
+    }
+    .into()
 }
 
 impl Heap {
@@ -156,11 +161,13 @@ impl Heap {
     ) -> eyre::Result<()> {
         let object = self.object_mut(reference)?;
         check_array(reference, object, elem)?;
-        eyre::ensure!(
-            object.values.len() < object.capacity,
-            "heap object {reference:#x} is full (capacity {})",
-            object.capacity
-        );
+        if object.values.len() >= object.capacity {
+            return Err(HeapError::Full {
+                reference: Reference(reference),
+                capacity: object.capacity,
+            }
+            .into());
+        }
         object.values.push(value);
         Ok(())
     }
@@ -192,11 +199,13 @@ impl Heap {
     /// The current length of an array of any element type.
     pub(crate) fn len(&self, reference: HeapRef) -> eyre::Result<usize> {
         let object = self.object(reference)?;
-        eyre::ensure!(
-            matches!(object.kind, ObjectKind::Array(_)),
-            "type error: heap object {reference:#x} is {}, expected an array",
-            object.kind
-        );
+        if !matches!(object.kind, ObjectKind::Array(_)) {
+            return Err(HeapError::NotAnArray {
+                reference: Reference(reference),
+                found: object.kind.as_type(),
+            }
+            .into());
+        }
         Ok(object.values.len())
     }
 
@@ -269,9 +278,12 @@ impl Heap {
 fn check_array(reference: HeapRef, object: &HeapObject, elem: &Type) -> eyre::Result<()> {
     match &object.kind {
         ObjectKind::Array(actual) if actual == elem => Ok(()),
-        kind => Err(eyre::eyre!(
-            "type error: heap object {reference:#x} is {kind}, expected array {elem}"
-        )),
+        kind => Err(HeapError::TypeMismatch {
+            reference: Reference(reference),
+            found: kind.as_type(),
+            expected: Type::array(elem.clone()),
+        }
+        .into()),
     }
 }
 
@@ -281,31 +293,35 @@ fn element(object: &HeapObject, index: u64) -> eyre::Result<usize> {
         .ok()
         .filter(|&slot| slot < object.values.len())
         .ok_or_else(|| {
-            eyre::eyre!(
-                "array index {index} out of bounds (length {})",
-                object.values.len()
-            )
+            HeapError::IndexOutOfBounds {
+                index,
+                len: object.values.len(),
+            }
+            .into()
         })
 }
 
 fn check_struct(reference: HeapRef, object: &HeapObject, field: FieldSlot) -> eyre::Result<()> {
-    eyre::ensure!(
-        object.kind == ObjectKind::Struct(field.struct_id),
-        "type error: heap object {reference:#x} is {}, expected struct {}",
-        object.kind,
-        field.struct_id
-    );
+    if object.kind != ObjectKind::Struct(field.struct_id) {
+        return Err(HeapError::TypeMismatch {
+            reference: Reference(reference),
+            found: object.kind.as_type(),
+            expected: Type::Struct(field.struct_id),
+        }
+        .into());
+    }
     // Struct objects never grow, so this bounds every field access. Typed
     // dialects (and legacy modules passed through `check_struct_operands`)
     // always allocate the table's field count, so a slot beyond it means the
     // instruction disagrees with the layout.
-    eyre::ensure!(
-        (field.slot as usize) < object.values.len(),
-        "struct {} has no field slot {} ({} fields)",
-        field.struct_id,
-        field.slot,
-        object.values.len()
-    );
+    if field.slot as usize >= object.values.len() {
+        return Err(HeapError::NoSuchField {
+            struct_id: field.struct_id,
+            slot: field.slot,
+            field_count: object.values.len(),
+        }
+        .into());
+    }
     Ok(())
 }
 
@@ -320,6 +336,30 @@ mod heap_tests {
 
     fn field(struct_id: u32, slot: u32) -> FieldSlot {
         FieldSlot { struct_id, slot }
+    }
+
+    #[test]
+    fn errors_are_structured_and_show_references_by_slot_and_generation() {
+        let mut heap = Heap::default();
+        let point = heap.alloc_struct(POINT, [1, 2]).unwrap();
+        let err = heap.field(point, field(1, 0)).unwrap_err();
+        assert_eq!(
+            err.downcast_ref::<HeapError>(),
+            Some(&HeapError::TypeMismatch {
+                reference: Reference(point),
+                found: Type::Struct(0),
+                expected: Type::Struct(1),
+            })
+        );
+        assert_eq!(
+            err.to_string(),
+            "type error: heap object (slot 1, generation 1) is struct 0, expected struct 1"
+        );
+        heap.dealloc(point).unwrap();
+        assert_eq!(
+            heap.field(point, field(0, 0)).unwrap_err().to_string(),
+            "heap reference (slot 1, generation 1) is invalid or has been deallocated"
+        );
     }
 
     #[test]

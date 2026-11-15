@@ -2,8 +2,8 @@
 
 Status: implemented through step 6 of the
 [Implementation order](#implementation-order) by the stacked PRs into
-`feature/typed-heap-verifier`; step 7 lists follow-ups. Sections end with what
-was settled in implementation where it refines the design.
+`feature/typed-heap-verifier`; step 7 lists follow-ups. Where a section ends
+with details, they describe the implementation as it is.
 
 ## Purpose
 
@@ -112,26 +112,17 @@ for reachability and stack checks"). Most instructions keep the default
 Rules are written against capabilities, never against a concrete verifier:
 
 ```rust,ignore
-// vihaco-cpu
-impl<C: OperandStack + ?Sized> Verify<C> for cpu::AddI64
-where
-    C::Slot: TypedSlot,
-{
-    fn verify(&self, cx: &mut C) -> eyre::Result<()> {
-        stack_effect(cx, [Type::I64, Type::I64], [Type::I64])
-    }
+// vihaco-cpu: fixed stack effects are one line each.
+stack_rules! {
+    cpu::AddI64: [Type::I64, Type::I64] -> [Type::I64];
+    cpu::ArrayGet as this: [Type::array(this.0.clone()), Type::U64] -> [this.0.clone()];
 }
 
-impl<C: OperandStack + StructTypes + ?Sized> Verify<C> for cpu::GetField
-where
-    C::Slot: TypedSlot,
-{
+impl<C: TypedStack + StructTypes<Type> + ?Sized> Verify<C> for cpu::GetField {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
         let FieldSlot { struct_id, slot } = self.0;
-        cx.pop_expect(&Type::Struct(struct_id))?;
-        let ty = cx.field_type(struct_id, slot)?;
-        cx.push(C::Slot::of_type(ty));
-        Ok(())
+        let field = cx.field_type(struct_id, slot)?.clone();
+        stack_effect(cx, [Type::Struct(struct_id)], [field])
     }
 }
 
@@ -149,6 +140,16 @@ impl<C: OperandStack + ?Sized> Verify<C> for program::Branch {
 A rule that fails ends the analysis of its basic block; see
 [Diagnostics](#diagnostics).
 
+Rule authors get two shorthands: `TypedStack` names
+`OperandStack<Slot: TypedSlot>`, the bound almost every rule needs, and the
+exported `stack_rules!` macro implements `Verify` for fixed stack effects.
+The CPU and program-device rules use both. `TypedSlot::check` and
+`OperandStack::pop_typed` check a slot against a type. `Verify` carries
+`#[diagnostic::on_unimplemented]`, as do the standard capability traits, so a
+missing rule or capability is a compile error that names it; trybuild fixtures
+in vihaco-verifier go through `verify_module`, `Verified::new` and
+`verify_functions`.
+
 ## Slots and types
 
 The abstract stack holds one **slot** per operand and per local. A slot is a
@@ -158,8 +159,8 @@ vihaco type, or a conflict where paths disagreed:
 pub enum TypeSlot {
     Known(Type),
     /// Paths disagreed at a join. Using it where a type is required is a
-    /// `TypeMismatch` that names both types.
-    Conflict(Type, Type),
+    /// `TypeMismatch` that names both types and the join.
+    Conflict { first: Type, second: Type, join: Option<u32> },
 }
 ```
 
@@ -226,7 +227,7 @@ metadata {
 - Function signatures, locals, struct fields, and array elements may all use
   named types (`array location` for a group of addresses).
 
-Settled in implementation:
+Encoding, syntax and assembly:
 
 - `type N` is encoded as byte `0x0D` followed by `N` as a little-endian
   `u32`, like `struct N`.
@@ -250,7 +251,7 @@ external crates need nothing hidden, #169).
 
 | Capability | Provides | Used by |
 |---|---|---|
-| `OperandStack` | `type Slot`; `pop`, `pop_expect`, `pop_n`, `push`, `peek`, `depth` | almost every rule |
+| `OperandStack` | `type Slot`; `pop`, `pop_typed`, `pop_n`, `push`, `peek`, `depth` (`TypedStack` when slots are typed) | almost every rule |
 | `Locals` | `local(i)`, `set_local(i, slot)`, `local_count` | `load_*`, `store_*` |
 | `Signatures<Ty>` | signature by function index or address; the current function's signature | `call`, `ret`, `const_fn_ref`, `spawn` |
 | `StructTypes<Ty>` | field count and field type by struct index | `struct_new`, `get_field`, `set_field` |
@@ -259,7 +260,7 @@ external crates need nothing hidden, #169).
 Pops are bounded: `pop_n(n)` costs at most `O(depth)` and yields one underflow,
 so a huge count in a crafted program cannot blow up verification.
 
-Settled in implementation:
+Details of the standard capabilities:
 
 - `Locals` extends `OperandStack`, so locals and operands share one `Slot`
   type and a rule bounding `C: Locals` names `C::Slot` unambiguously.
@@ -294,14 +295,27 @@ impl<C: ChannelState + ?Sized> Verify<C> for seq::Play {
 The machine's verifier context wraps `ModuleVerifier`, delegates the standard
 capabilities, and implements `ChannelState` with its own state. The framework
 provides this wrapper as `WithState<'m, S>`: `S: ComponentState` (a `join`
-with the same contract as `AbstractState::join`; tuples combine several
-components' states) is snapshotted and joined alongside the frame, and the
-component crate implements its capability trait for `WithState<'_, S>`. A
-hand-written context can instead delegate to `ModuleVerifier` directly and
-build its entry states with `function_spans()` and `FunctionSpan::map_entry`. That state
-takes part in snapshots and joins (below) like the operand stack, so a channel
-opened on only one branch is not open after the join (the join intersects the
-open sets).
+with the same contract as `AbstractState::join`) is snapshotted and joined
+alongside the frame, and the component crate implements its capability trait
+for `WithState<'_, S>`. A hand-written context can instead delegate to
+`ModuleVerifier` directly and build its entry states with `function_spans()`
+and `FunctionSpan::map_entry`, then produce a `Verified` module with
+`Verified::verify_with`. That state takes part in snapshots and joins (below)
+like the operand stack, so a channel opened on only one branch is not open
+after the join (the join intersects the open sets).
+
+Components from different crates compose. A component crate implements its capability for every context whose
+state contains its own, `impl<S: ComponentStateOf<Open>> Channels for
+WithState<'_, S>`, reaching it with `WithState::component::<Open>()`. Every
+state contains itself, and a machine combines several components' states with
+`component_state! { struct MachineState { open: Open, elapsed: Elapsed } }`,
+which joins field by field and implements `ComponentStateOf` for each field.
+Implementing the capability for one concrete state instead
+(`WithState<'_, Open>`) would leave a machine needing both crates'
+capabilities on `WithState<'_, (Open, Elapsed)>` with no crate allowed to
+write the impl (the orphan rule), so tuples do not implement
+`ComponentState`. An index-typed projection over tuples was rejected: the
+index parameter would be unconstrained in the capability impl (E0207).
 
 Component state and calls. Every function is verified from the same entry
 component state, so that state must assume nothing a caller might not have
@@ -318,8 +332,9 @@ return in: true for open channels (entry "none open"; a helper then cannot
 play on a channel its caller opened), false for accumulating state such as an
 elapsed-time budget (entry "0 elapsed", while a callee may spend any amount),
 which must become "unknown" instead. A custom call-like rule must use the call
-helpers or call `Signatures::after_call` itself. Per-callee summaries (the callee's exit
-state, computed in call-graph order) are a possible future extension.
+helpers or call `Signatures::after_call` itself. Per-callee summaries (the
+callee's exit state, computed in call-graph order) are a possible future
+extension.
 
 ## The engine
 
@@ -372,8 +387,13 @@ pub trait AbstractState {
     fn snapshot(&self) -> Self::Snapshot;
     fn restore(&mut self, snapshot: &Self::Snapshot);
     /// Join `incoming` into the state saved at a leader. Returns whether the
-    /// saved state strictly changed, or a structural mismatch.
-    fn join(saved: &mut Self::Snapshot, incoming: &Self::Snapshot) -> Result<bool, VerifyError>;
+    /// saved state strictly changed, or a structural mismatch. `at` names the
+    /// leader and the edges the saved and incoming states arrived along.
+    fn join(
+        saved: &mut Self::Snapshot,
+        incoming: &Self::Snapshot,
+        at: &JoinPoint,
+    ) -> Result<bool, VerifyError>;
     /// Called before verifying each instruction, so errors carry addresses.
     fn set_address(&mut self, function: u32, address: u32);
 }
@@ -395,10 +415,18 @@ Depth must not depend on which edge was taken (the Wasm and JVM rule). This
 catches unbalanced diamonds at the join and loops with a nonzero depth delta at
 the loop header, while a zero-delta loop converges.
 
-Component state chooses its own join, which must have finite height. Unbounded
-abstract values, such as elapsed time on a sequencer (#121), must widen: for
-example, to "unknown" once a loop header has been joined more than a fixed
-number of times.
+Component state chooses its own join, which must have finite height.
+`ComponentState::join(&mut self, incoming, at: &JoinPoint)` receives the join
+point: the leader's address and the edges the saved and incoming states
+arrived along (`Predecessor::Entry`, `Fallthrough(from)`, `Jump(from)`), so a
+component can tell a loop header (an edge jumping back, `Jump(from)` with
+`from >= address`) from a diamond. Unbounded abstract values, such as elapsed
+time on a sequencer (#121), must widen there. The timing example in
+`crates/vihaco-verifier/tests/component_state.rs` keeps an upper bound on
+elapsed cycles: where paths merge it takes the larger bound, and at a loop
+header a disagreement widens to "unknown", so each leader's state changes at
+most twice. Across a call it becomes "unknown" too (its `after_call`), since
+the callee is verified separately.
 
 ## Diagnostics
 
@@ -410,21 +438,38 @@ pub struct Diagnostic {
     pub address: u32,
     pub severity: Severity,   // Error or Warning
     pub kind: DiagnosticKind,
+    pub help: Option<String>, // `use `load_f64 0` or `load 0``, from the rule
+    pub context: Vec<String>, // what the rule wrapped around the error
 }
 
 pub enum DiagnosticKind {
-    StackUnderflow,
-    StackDepthMismatch { expected: usize, found: usize },
-    TypeMismatch { expected: String, found: String },
+    StackUnderflow { needed: usize, depth: usize },
+    /// At a join (the diagnostic's address), naming the edge of each depth.
+    StackDepthMismatch {
+        expected: usize,
+        found: usize,
+        expected_from: Predecessor, // Entry | Fallthrough(address) | Jump(address)
+        found_from: Predecessor,
+    },
+    /// `role`: Operand(n) | Local(i) | StoredValue(i) | Argument { callee, index }
+    /// | Return(n) | Field { struct_id, field }.
+    TypeMismatch { role: Option<Role>, expected: Expected, found: TypeSlot },
     CallArityMismatch { callee: u32, declared: usize, found: usize },
     ReturnCountMismatch { declared: usize, found: usize },
     LocalIndexOutOfRange { index: u32, count: u32 },
     LocalCountMismatch { expected: usize, found: usize },
-    InvalidControlFlowTarget { target: u32 },
+    InvalidControlFlowTarget { target: u32, start: u32, end: u32 },
     /// A `Flow::Jump` with no targets: a jump must name an address.
     EmptyJump,
     /// A function's `start..end` is reversed or extends past the code.
     InvalidFunctionSpan { start: u32, end: u32, code_len: usize },
+    /// Frame metadata breaks the locals rules (shared with metadata validation).
+    InvalidFrame(FrameError<Type>),
+    UnknownEntry { table: Table, index: u32, len: usize },
+    NoFunctionAt { address: u32 },
+    UnknownField { struct_id: u32, field: u32, field_count: usize },
+    UndefinedNamedType { name: String },
+    FieldCountMismatch { struct_id: u32, declared: usize, found: usize },
     MissingTerminator,
     Unreachable,
     /// The operand count or shape comes from a runtime value.
@@ -434,8 +479,46 @@ pub enum DiagnosticKind {
 }
 ```
 
+Diagnostics hold data, not text: types are `Type` and `TypeSlot` values,
+tables and roles are enums. They render through the module:
+`Diagnostic::display_with(&module)` (and `Rejection::display_with`) take a
+`DiagnosticNames`, implemented for `LocalModule`s whose instructions implement
+`InstructionText`, and show the location as `@main+2 (address 2)` with the
+instruction in source syntax, structs and named types by name, and parameter
+and field names:
+
+```text
+error: operand 0 of `cpu::cpu::get_field`: expected struct Point, found struct Pair
+  --> @main+1 (address 1): cpu::cpu::get_field @Point.x
+```
+
+Instruction text is generated, never scraped from `Debug`. A typed dialect
+derives `InstructionText` for each instruction from its `#[pattern]`: tokens
+and punctuation as written, and each operand through its syntax type's
+`OperandText<Runtime>` impl, which writes the lowered runtime value back in
+source form with names from `SymbolNames` (`FieldOperand` writes a `FieldSlot`
+as `@Point.y`, `Target` writes an address as `@helper`, `TypeOperand` writes
+`struct @Point`, `FunctionTypeOperand` writes `(struct @Point) -> u64`). A
+jump target is written as a label only when the label belongs to the function
+containing the jump, since labels resolve per function: names scoped with
+`ModuleNames::at(address)` know which function that is, and a label where one
+function ends and the next starts, which could belong to either, is written
+as its address. An operand type without an impl falls back to the runtime
+value's `Display`. A composite prefixes each leaf's text with its route as SST writes it
+(`cpu::cpu::`), the device alias followed by the dialect, so the text can be
+pasted back into a program. Without names (plain `Display`) operands use their
+numeric forms (`get_field 0, 0`, `call 1, 3`).
+
+The plain `Display` works without the module and shows indices
+(`function 0, address 1`, `struct 0`). Lowering errors use the same location
+form (``lowering @main+3 (address 6): undefined struct `@Line` ``), and so do
+runtime errors in the program-image loop (see [Enforcement](#enforcement)).
+
 - Standard capabilities return a `VerifyError` that maps to a structured kind;
-  any other error a rule returns becomes `Rule`.
+  any other error a rule returns becomes `Rule`. A rule may attach a fix with
+  `VerifyError::with_help` (rendered as `= help: ...`), and context it wraps
+  around a structured error with `eyre::WrapErr::wrap_err` is kept as
+  `Diagnostic::context` (rendered as `= note: ...` lines) rather than lost.
 - A rule error ends its block, so a block reports at most one rule error, and
   the block passes no state to its successors. Blocks with states from other
   paths still report; code reachable only through the failed block is not
@@ -502,10 +585,13 @@ and an editor can show types next to errors. They are off by default
 some block transfer reached it without a rule error, so leaders reachable only
 through failing blocks, and functions with an invalid span, have none.
 
-Settled in implementation (step 6): `Rejection` is generic over the snapshot
+`Rejection` is generic over the snapshot
 type, like `Verification`, and converts into an `eyre::Report` when the
 snapshot is `Send + Sync + 'static`; `Rejection::without_type_maps` drops the
 maps otherwise.
+
+Type maps record each function's span, and `TypeMaps::state_at(code, cx, function, address)` replays the block
+from its leader's converged state to give the state before any instruction.
 
 ## Required metadata changes
 
@@ -530,6 +616,38 @@ maps otherwise.
   plus operands, and an embedder that needs a tighter bound lowers the limit.
 - **Array types.** Arrays are first-class and typed by element; see
   [Arrays](#arrays).
+
+How metadata is checked and reported:
+
+- `FunctionInfo::check_frame` returns a structured `FrameError`; metadata
+  validation reports it at its path and the verifier as
+  `DiagnosticKind::InvalidFrame`.
+- `ProgramMetadata::validate` and `MetadataLoweringContext::new` build the
+  same name tables, so name and index errors read the same from both: the
+  metadata path, the table, and both values.
+- Headers written for the old format fail with a specific message rather
+  than the parser's (`explain_metadata`, used by the `ProgramMetadata`
+  `FromText` impl and `HeaderDeclarations`): a function's `local_count`, or a
+  missing table, or a type written by name for a loader that parses numeric
+  types only. Other parse errors keep the parser's output.
+- Every type position accepts names (`struct @Point`, `type @location`) on
+  the standard loading path: `ProgramMetadata`'s type parameter defaults to
+  `SourceType`, `fn` lines parse with `SourceType`,
+  `ProgramMetadata::resolve_types` resolves a header against its own tables
+  (and `ParsedModule::lower_with_metadata` does so itself), and function
+  headers resolve through `ResolveType` when checked against the metadata.
+  The name lookup is built from the same checked name tables, so a duplicate
+  name is an error rather than resolving to its first entry.
+
+```text
+metadata.functions[0].locals[1]: local 1 is declared f64, but parameter 1 (p1) is i64 (locals start with the parameter types)
+metadata.structs[1].name: duplicate struct `Point` (first declared at metadata.structs[0].name)
+metadata.types[1].name: string 99 is outside the string table (length 9)
+invalid metadata: metadata.functions[0]: `local_count` was replaced by `locals: [..]`, which lists the type of every local, parameters first
+invalid metadata: metadata: missing required table `types` (write `types: []` if it is empty)
+metadata.functions[0].signature.params[0].ty: undefined struct `@Pointt`
+```
+
 
 ## Arrays
 
@@ -634,7 +752,7 @@ object payload (kind, capacity, element storage) stays vihaco's own.
 | Host-supplied values (messages, completions of pending instructions) | Outside the instruction stream. The component's rule declares the type it pushes and the component guarantees it at runtime. |
 | Operand counts from runtime values | Not verifiable. Instructions carry counts as immediates; otherwise the rule reports `Unverifiable` ([Diagnostics](#diagnostics)). |
 
-Settled in implementation (step 5):
+Details:
 
 - The `call_indirect` operand is a `vihaco_abi::FunctionType`, written like a
   function header's types: `(u64, f64) -> u64`, `() -> ()`, or
@@ -650,11 +768,11 @@ Settled in implementation (step 5):
   mechanism as `array_new struct @Point, 4`, checking every reference against
   the tables. Unknown names are load-time errors. The runtime instruction and
   the binary encoding keep the resolved `FunctionType`, so bytecode carries
-  indices only. (Step 6.)
-- Decided: the legacy enum build keeps an operand-free, unsigned
+  indices only.
+- The legacy enum build keeps an operand-free, unsigned
   `call_indirect` with no check. It has no verifier and no lowering phase, and
   the typed builds are where checked indirect calls live.
-- Decided: the `typed-declarations` CPU's `print` pops a `str` (a string-table
+- The `typed-declarations` CPU's `print` pops a `str` (a string-table
   reference), `[str] -> []`; printing other values is a host or observer concern.
 - Untyped locals are `load i` and `store i`. A typed `load_<t>` / `store_<t>`
   requires the local to be declared exactly `<t>`. Every store checks the
@@ -680,9 +798,9 @@ dialect has rules but programs still run through the legacy `ProgramImage`,
 whose module is public and unverified; there verification happens only if the
 embedder calls `verify_module` before loading.
 
-Settled in implementation (step 6):
+Details:
 
-- `Verified<M>` lives in vihaco-verifier, as placed. vihaco-stdlib already
+- `Verified<M>` lives in vihaco-verifier. vihaco-stdlib already
   depends on it (for the program-instruction rules) under
   `program-image-execution`, and vihaco-verifier depends only on vihaco-abi and
   vihaco-module, so there is no cycle. vihaco-stdlib re-exports `Verified`.
@@ -691,9 +809,12 @@ Settled in implementation (step 6):
   returns the `Verification`), `Verified::verify_with_state(module, entry,
   options)` (a `WithState` context), and `Verified::assume_verified(module)`.
   The first three exist for `LocalModule<I, Value, Type, Info>` with
-  `I: for<'m> Verify<…>`; other module models and hand-written contexts use
-  `assume_verified` after verifying. A rejected module is consumed; callers who
-  need it back verify a borrow with `verify_module` first.
+  `I: for<'m> Verify<…>`. Other module models and
+  hand-written contexts use `Verified::verify_with(module, |module| ...)`,
+  whose closure builds and runs the context; the standard constructors are
+  built on it. A rejection returns `VerifyFailed { module, rejection }`, so
+  the module comes back; it displays every diagnostic with the module's names
+  and converts into an `eyre::Report`.
 - `Verified` gives shared access only (`Deref`, `get`), and `into_inner`
   returns the module unverified, so a verified module cannot be mutated in
   place.
@@ -709,6 +830,17 @@ Settled in implementation (step 6):
   through them. The `vihaco` facade does not re-export them at its root; they
   stay reachable as `vihaco::execution_state::{execute, resume}`, documented
   as the unverified runner, so the verified path is the obvious one.
+- A failing step is reported as a `StepError`, a context layer that says
+  where: its instruction (text from `Dispatch::instruction_text`), `at
+  @main+3 (address 3) `cpu::cpu::array_get u64``. What went wrong is its
+  `source()`, so `{:#}` shows `at @main+3 (address 3)
+  `cpu::cpu::array_get u64`: type error: heap object (slot 2, generation 1)
+  is array struct Point, expected array u64`, each part once. CPU heap
+  failures are structured `vihaco_abi::heap::HeapError`s (references shown
+  as slot and generation, types as `Type`); in the chain the loop puts a
+  `NamedHeapError`, rendered with the module's names, whose `error()` is the
+  `HeapError`. `call_indirect` mismatches name the callee and print both
+  signatures as `FunctionType` does.
 
 ## Placement
 
@@ -723,8 +855,9 @@ Settled in implementation (step 6):
 - CPU rules in **vihaco-cpu**; program-instruction rules in **vihaco-stdlib**.
 - The `vihaco` facade re-exports the crate as `vihaco::verifier` (plus
   `Verified` and `verify_module` at the root) behind a `verifier` feature,
-  which implies `typed-declarations` and forwards vihaco-verifier's own
-  `typed-declarations`; `program-image-execution` implies `verifier`.
+  which implies `typed-declarations`; `program-image-execution` implies
+  `verifier`. vihaco-verifier's own `typed-declarations` feature is test-only
+  (it runs the composite integration test) and is not forwarded.
 - Typed builds only. The legacy enum build has no lowering phase to hook into.
 
 ## Implementation order
@@ -750,9 +883,14 @@ Settled in implementation (step 6):
 6. `Verified<M>` enforcement in stdlib images, type maps (also with
    rejections), the `Unverifiable` diagnostic, names in `call_indirect`
    signatures, the facade `verifier` feature, docs and guide examples
-   (including a verification guide). Closes #120. **Done.**
-7. Follow-ups: array constants; `future T` with #173 and context handles with
-   #174; deriving rules from stack messages.
+   (including a verification guide). Closes #120. **Done**, together with
+   structured, module-rendered diagnostics, located lowering and runtime
+   errors, one metadata validation path, names in every type position,
+   rule-author helpers (`stack_rules!`, `TypedStack`), cross-crate component
+   state, `VerifyFailed`, `Verified::verify_with`, and `TypeMaps::state_at`.
+7. Follow-ups: rendering general metadata parse errors with line and column;
+   array constants; `future T` with #173 and context handles with #174;
+   deriving rules from stack messages.
 
 ## Open questions
 

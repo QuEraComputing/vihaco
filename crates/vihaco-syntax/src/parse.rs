@@ -240,9 +240,10 @@ impl<I, Ty, H> ParsedModule<I, Ty, H> {
             .parse(text)
             .into_result()
             .map_err(|errors| {
+                let names_hint = names_in_numeric_header::<Ty>(text, &errors);
                 eyre::eyre!(
                     "failed to parse SST functions: {}",
-                    describe_errors(text, &errors)
+                    names_hint.unwrap_or_else(|| describe_errors(text, &errors))
                 )
             })?;
 
@@ -271,4 +272,29 @@ pub(crate) fn describe_errors(text: &str, errors: &[Simple<'_, char>]) -> String
             vihaco_abi::Type::nesting_error_in(text).map(|message| at(message, error))
         })
         .unwrap_or_else(|| format!("{errors:?}"))
+}
+
+/// When the failure is in a `fn` line that names a struct or named type, and
+/// the source type `Ty` cannot parse names (numeric `Type`), say how to accept
+/// them instead of reporting the character the parser stopped at.
+fn names_in_numeric_header<'src, Ty: Parse<'src>>(
+    text: &'src str,
+    errors: &[Simple<'_, char>],
+) -> Option<String> {
+    let start = errors.first()?.span().start.min(text.len());
+    let line_start = text[..start].rfind('\n').map_or(0, |at| at + 1);
+    let line_end = text[start..].find('\n').map_or(text.len(), |at| start + at);
+    let line = text[line_start..line_end].trim();
+    let header = line.split('{').next().unwrap_or(line);
+    let names =
+        header.starts_with("fn ") && (header.contains("struct @") || header.contains("type @"));
+    if !names || Ty::parser().parse("struct @Name").into_result().is_ok() {
+        return None;
+    }
+    Some(format!(
+        "`{}`: a type names a struct or named type (`struct @Point`, `type @location`), but \
+         this loader parses numeric types only (`Type`); parse `fn` lines with `SourceType`, \
+         which `lower_with_metadata` resolves against the header's tables",
+        header.trim_end()
+    ))
 }

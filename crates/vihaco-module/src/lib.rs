@@ -9,7 +9,9 @@ pub mod loader;
 pub mod module;
 
 mod lowering;
+mod names;
 mod program_metadata;
+mod source_type;
 /// Typed operand access for program-owned execution storage.
 #[cfg(feature = "program-image-execution")]
 pub mod stack;

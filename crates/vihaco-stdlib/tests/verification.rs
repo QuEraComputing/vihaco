@@ -16,10 +16,12 @@ use vihaco_abi::{Type, Value, traits::FromText};
 use vihaco_bytecode::{NoContext, SstFile, SstHeader};
 use vihaco_module::{
     loader::MetadataLoweringContext,
-    module::{LocalModule, ProgramMetadata},
+    module::{LocalModule, ProgramMetadata, SourceType},
 };
-use vihaco_runtime::{HasInstructionSet, Parse, chumsky::prelude::*};
-use vihaco_verifier::{DiagnosticKind, VerifyOptions, verify_module};
+use vihaco_runtime::HasInstructionSet;
+use vihaco_verifier::{
+    Diagnostic, DiagnosticKind, Expected, TypeSlot, VerifyError, VerifyOptions, verify_module,
+};
 
 #[cfg(feature = "program-image-execution")]
 mod machine {
@@ -94,21 +96,21 @@ use machine::Machine;
 
 type Module = LocalModule<<Machine as HasInstructionSet>::Runtime, Value, Type>;
 
-struct Header(ProgramMetadata);
+/// A header holding only program metadata, with types written as `Ty`: by
+/// default `SourceType`, as on the standard loading path, so types may name
+/// structs and named types.
+struct Header<Ty = SourceType>(ProgramMetadata<Value, Ty>);
 
-impl FromText for Header {
+impl<Ty> FromText for Header<Ty>
+where
+    ProgramMetadata<Value, Ty>: FromText,
+{
     fn from_text(text: &str) -> eyre::Result<Self> {
-        ProgramMetadata::parser()
-            .padded_by(vihaco_syntax::skip())
-            .then_ignore(end())
-            .parse(text)
-            .into_result()
-            .map(Self)
-            .map_err(|errors| eyre::eyre!("invalid metadata: {errors:?}"))
+        ProgramMetadata::from_text(text).map(Self)
     }
 }
 
-impl SstHeader for Header {}
+impl<Ty> SstHeader for Header<Ty> where ProgramMetadata<Value, Ty>: FromText {}
 
 /// One function of a test program. Parameters are named `p0`, `p1`, …;
 /// `locals` lists the locals declared after the parameters.
@@ -141,6 +143,7 @@ const TYPES: &str = "[{ name: 4, repr: u64 }, { name: 5, repr: u64 }]";
 fn sst(functions: &[Function]) -> String {
     let mut strings: Vec<String> = STRINGS.iter().map(|s| format!("{s:?}")).collect();
     let mut metadata = Vec::new();
+    let mut labels = Vec::new();
     let mut text = String::new();
     let mut address = 0;
     for function in functions {
@@ -158,7 +161,25 @@ fn sst(functions: &[Function]) -> String {
             .chain(function.locals)
             .copied()
             .collect();
-        let end = address + function.body.len();
+        // `label @name` lines name the next instruction (and need a metadata
+        // entry); they are not one.
+        let mut end = address;
+        for line in function.body {
+            match line.strip_prefix("label @") {
+                Some(label) => {
+                    labels.push(format!("{{ name: {}, address: {end} }}", strings.len()));
+                    strings.push(format!("{label:?}"));
+                }
+                None => end += 1,
+            }
+            // A string literal must be in the string table; it is copied
+            // as written, since the header lexes literals the same way.
+            if let Some(literal) = line.strip_prefix("P::const_string ")
+                && !strings.iter().any(|s| s == literal)
+            {
+                strings.push(literal.to_string());
+            }
+        }
         metadata.push(format!(
             "{{ name: {name}, signature: {{ params: [{}], ret: [{}] }}, locals: [{}], \
              start_address: {address}, end_address: {end}, file: 0 }}",
@@ -198,7 +219,7 @@ metadata {{
     functions: [{functions}],
     structs: {STRUCTS},
     types: {TYPES},
-    labels: [], constants: [], main_function: 0, source_symbols: [], extra: {{}},
+    labels: [{labels}], constants: [], main_function: 0, source_symbols: [], extra: {{}},
 }}
 .header(root).
 .text(root):
@@ -208,16 +229,20 @@ metadata {{
         version = vihaco_bytecode::VERSION,
         strings = strings.join(", "),
         functions = metadata.join(",\n        "),
+        labels = labels.join(", "),
     )
 }
 
-/// Parse, lower, and assemble a program through the metadata pipeline.
+/// Parse, lower, and assemble a program through the standard metadata
+/// pipeline: every type position may name structs and named types
+/// (`struct @Pair`), resolved against the header's own tables by
+/// `lower_with_metadata`.
 fn load(functions: &[Function]) -> eyre::Result<Module> {
     let source = sst(functions);
     let file = SstFile::<NoContext>::from_text(&source)?;
     let vihaco_syntax::ParsedModule { header, functions } = vihaco_syntax::ParsedModule::<
         <Machine as HasInstructionSet>::Syntax,
-        Type,
+        SourceType,
         Header,
     >::parse_section(file.root())?;
     let metadata = header.0;
@@ -229,22 +254,69 @@ fn load(functions: &[Function]) -> eyre::Result<Module> {
     .lower_with_metadata(metadata, &mut context)
 }
 
-/// Verify a program, returning its diagnostics as `(function, address, kind)`;
-/// empty when it verifies without warnings.
+/// [`load`] for a numeric-only loader: types are parsed as `Type`, so names
+/// in the header or `fn` lines are rejected.
+fn load_numeric(functions: &[Function]) -> eyre::Result<Module> {
+    let source = sst(functions);
+    let file = SstFile::<NoContext>::from_text(&source)?;
+    let vihaco_syntax::ParsedModule { header, functions } = vihaco_syntax::ParsedModule::<
+        <Machine as HasInstructionSet>::Syntax,
+        Type,
+        Header<Type>,
+    >::parse_section(file.root())?;
+    let metadata = header.0;
+    let mut context = MetadataLoweringContext::new(&metadata)?;
+    vihaco_syntax::ParsedModule {
+        header: (),
+        functions,
+    }
+    .lower_with_metadata(metadata, &mut context)
+}
+
+/// Every diagnostic of a program, errors and warnings.
+fn diagnostics(module: &Module) -> Vec<Diagnostic> {
+    match verify_module(module, VerifyOptions::default()) {
+        Ok(verification) => verification.warnings,
+        Err(rejection) => rejection.diagnostics,
+    }
+}
+
+/// Verify a program, returning its diagnostics as `(function, address, kind)`,
+/// with a type mismatch's role dropped (see [`rendered`] for roles); empty
+/// when it verifies without warnings.
 fn verify(functions: &[Function]) -> Vec<(u32, u32, DiagnosticKind)> {
     let module = load(functions).unwrap_or_else(|error| panic!("{error:#}"));
-    match verify_module(&module, VerifyOptions::default()) {
-        Ok(verification) => verification
-            .warnings
-            .into_iter()
-            .map(|d| (d.function, d.address, d.kind))
-            .collect(),
-        Err(rejection) => rejection
-            .diagnostics
-            .into_iter()
-            .map(|d| (d.function, d.address, d.kind))
-            .collect(),
-    }
+    diagnostics(&module)
+        .into_iter()
+        .map(|d| {
+            let kind = match d.kind {
+                DiagnosticKind::TypeMismatch {
+                    expected, found, ..
+                } => DiagnosticKind::TypeMismatch {
+                    role: None,
+                    expected,
+                    found,
+                },
+                kind => kind,
+            };
+            (d.function, d.address, kind)
+        })
+        .collect()
+}
+
+/// Verify a program, returning each diagnostic as rendered with the module's
+/// names, with the build's device routes written back as `P::` and `C::`.
+fn rendered(functions: &[Function]) -> Vec<String> {
+    let module = load(functions).unwrap_or_else(|error| panic!("{error:#}"));
+    diagnostics(&module)
+        .iter()
+        .map(|d| {
+            d.display_with(&module)
+                .to_string()
+                .replace(machine::P, "P::")
+                .replace(machine::C, "C::")
+        })
+        .collect()
 }
 
 /// A one-function program.
@@ -263,11 +335,18 @@ fn main_fn<'a>(
     }
 }
 
+/// A type mismatch, from types as written (`an array` for any array).
 fn mismatch(expected: &str, found: &str) -> DiagnosticKind {
-    DiagnosticKind::TypeMismatch {
-        expected: expected.into(),
-        found: found.into(),
-    }
+    let expected = match expected {
+        "an array" => Expected::AnyArray,
+        ty => Type::from_text(ty).unwrap().into(),
+    };
+    VerifyError::type_mismatch(expected, TypeSlot::Known(Type::from_text(found).unwrap()))
+        .into_kind()
+}
+
+fn underflow(needed: usize, depth: usize) -> DiagnosticKind {
+    DiagnosticKind::StackUnderflow { needed, depth }
 }
 
 // ------------------------------------------------------------------ passing
@@ -462,7 +541,19 @@ fn conflicting_branch_types_are_reported_where_used() {
     ];
     assert_eq!(
         verify(&[main_fn(&["bool"], &["u64"], &[], &body)]),
-        [(0, 6, mismatch("u64", "u64 | f64"))]
+        [(
+            0,
+            6,
+            VerifyError::type_mismatch(
+                Type::U64,
+                TypeSlot::Conflict {
+                    first: Type::U64,
+                    second: Type::F64,
+                    join: Some(5)
+                }
+            )
+            .into_kind()
+        )]
     );
     // A conflict that is never used is harmless.
     let body = [
@@ -489,7 +580,16 @@ fn an_unbalanced_stack_at_a_join_is_reported() {
         "P::ret 1",        // 6: join, depth 1 or 2
     ];
     let errors = verify(&[main_fn(&["bool"], &["u64"], &[], &body)]);
-    let [(0, 6, DiagnosticKind::StackDepthMismatch { expected, found })] = errors[..] else {
+    let [
+        (
+            0,
+            6,
+            DiagnosticKind::StackDepthMismatch {
+                expected, found, ..
+            },
+        ),
+    ] = errors[..]
+    else {
         panic!("{errors:?}");
     };
     assert_eq!([expected.min(found), expected.max(found)], [1, 2]);
@@ -631,7 +731,7 @@ fn array_elements_are_typed() {
     let body = ["P::const_u64 1", "C::array_len", "P::ret 1"];
     assert_eq!(
         verify(&[main_fn(&[], &["u64"], &[], &body)]),
-        [(0, 1, mismatch("array _", "u64"))]
+        [(0, 1, mismatch("an array", "u64"))]
     );
     // A plain `heap` reference (here an argument) is never a typed array.
     let body = [
@@ -694,7 +794,7 @@ fn named_types_must_be_wrapped_and_unwrapped_explicitly() {
     );
     assert_eq!(
         errors(&["type 0"], &["P::load 0", "C::add_u64", "P::ret 0"]),
-        [(0, 1, DiagnosticKind::StackUnderflow)]
+        [(0, 1, underflow(2, 1))]
     );
     assert_eq!(
         errors(
@@ -755,7 +855,7 @@ fn indirect_calls_are_typed_by_their_signature_operand() {
             "P::call_indirect (u64) -> u64",
             "P::ret 1"
         ]),
-        [(0, 1, DiagnosticKind::StackUnderflow)]
+        [(0, 1, underflow(2, 1))]
     );
 }
 
@@ -794,8 +894,19 @@ fn indirect_call_signatures_may_name_structs_and_named_types() {
         format!("{:?}", load(&named).unwrap().code),
         format!("{:?}", load(&numeric).unwrap().code)
     );
-    let code = format!("{:?}", load(&named).unwrap().code);
-    assert!(code.contains("params: [Named(0)]"), "{code}");
+    let code: Vec<String> = load(&named)
+        .unwrap()
+        .code
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert!(
+        code.contains(&routes(&format!(
+            "{}call_indirect (type 0) -> u64",
+            machine::P
+        ))),
+        "{code:?}"
+    );
 
     // A name the signature passes to the verifier is checked against the
     // tables: `lane` is a different named type, so the argument mismatches.
@@ -824,8 +935,11 @@ fn indirect_call_signatures_may_name_structs_and_named_types() {
 
     // Unknown names are load-time errors.
     for (signature, message) in [
-        ("(struct @Line) -> u64", "undefined struct `Line`"),
-        ("(type @zone) -> u64", "undefined named type `zone`"),
+        (
+            "(struct @Line) -> u64",
+            "lowering @main+3 (address 3): undefined struct `@Line`",
+        ),
+        ("(type @zone) -> u64", "undefined named type `@zone`"),
     ] {
         let body = format!("P::call_indirect {signature}");
         let main = [
@@ -887,10 +1001,7 @@ fn every_error_in_a_module_is_reported_in_address_order() {
     ]);
     assert_eq!(
         errors,
-        [
-            (0, 1, DiagnosticKind::StackUnderflow),
-            (1, 4, mismatch("f64", "u64")),
-        ]
+        [(0, 1, underflow(2, 1)), (1, 4, mismatch("f64", "u64")),]
     );
 }
 
@@ -945,11 +1056,399 @@ fn a_host_function_reference_of_the_wrong_type_fails_at_runtime() {
     };
     assert_eq!(run(1).unwrap(), [21]);
     let error = run(2).unwrap_err();
-    assert!(
-        format!("{error:#}").contains(
-            "call_indirect expects a function of type (u64) -> u64, but the referenced \
-             function has type (f64) -> (f64)"
+    // Located at the call, naming the callee, both types written alike.
+    assert_eq!(
+        error.to_string(),
+        "at @main+2 (address 2) `execution::program::call_indirect (u64) -> u64`"
+    );
+    assert_eq!(
+        format!("{error:#}"),
+        "at @main+2 (address 2) `execution::program::call_indirect (u64) -> u64`: \
+         call_indirect expects a function of type (u64) -> u64, but @negate has type (f64) -> f64"
+    );
+}
+
+// ------------------------------------------------------------------ messages
+
+/// Expected text with `C::` routes, as [`rendered`] writes them in this build:
+/// with `typed-declarations` alone the CPU owns both kinds of instruction,
+/// so every route reads `P::`.
+fn routes(text: &str) -> String {
+    if machine::P == machine::C {
+        text.replace("C::", "P::")
+    } else {
+        text.to_owned()
+    }
+}
+
+/// The one diagnostic of a one-function program, rendered with names.
+fn rendered_main(params: &[&str], ret: &[&str], locals: &[&str], body: &[&str]) -> String {
+    let [message] = rendered(&[main_fn(params, ret, locals, body)])
+        .try_into()
+        .unwrap_or_else(|all: Vec<String>| panic!("{all:#?}"));
+    message
+}
+
+/// Instructions render in source syntax: with the module's names
+/// (`InstructionText`), operands come back as the program wrote them; without
+/// names (`Display`), in their numeric source forms. Either way the text is
+/// valid SST that parses back to the same instruction.
+#[test]
+fn instructions_render_in_source_syntax_with_names() {
+    use vihaco_runtime::InstructionText as _;
+    let body = [
+        "C::set_field @Point.y",
+        "P::call_indirect (struct @Point) -> u64",
+        "C::wrap @location",
+        "P::call 1, @helper",
+        "P::const_fn_ref @helper",
+        "C::array_new array struct @Pair, 2",
+        "C::struct_new @Point",
+        "P::const_f64 2.5",
+        "label @again",
+        "P::const_bool true",
+        // A jump names a label, never a function: address 0 starts `@main`
+        // but has no label, so it stays a number.
+        "P::cond_br @again, 0",
+        "P::br 0",
+        "P::halt",
+        // At address 12, where `@helper` starts.
+        "label @done",
+    ];
+    // Labels resolve per function: `@done` belongs to `@main`, so the loop
+    // back to 12 inside `@helper` stays a number.
+    let helper_body = ["P::const_bool true", "P::cond_br 12, 14", "P::ret 0"];
+    fn helper<'a>(body: &'a [&'a str]) -> Function<'a> {
+        Function {
+            name: "helper",
+            params: &["u64"],
+            ret: &[],
+            locals: &[],
+            body,
+        }
+    }
+    let module = load(&[main_fn(&[], &[], &[], &body), helper(&helper_body)]).unwrap();
+    let lines: Vec<&str> = body
+        .iter()
+        .chain(&helper_body)
+        .copied()
+        .filter(|line| !line.starts_with("label "))
+        .collect();
+    let code = &module.code;
+    assert_eq!(code.len(), lines.len());
+    let names = module.names();
+    let named: Vec<String> = code
+        .iter()
+        .enumerate()
+        .map(|(address, instruction)| {
+            let names = names.at(address as u32);
+            instruction.text_with(&names).to_string()
+        })
+        .collect();
+    let expand = |line: &str| line.replace("P::", machine::P).replace("C::", machine::C);
+    let expected: Vec<String> = lines.iter().map(|line| expand(line)).collect();
+    assert_eq!(named, expected);
+    let numeric: Vec<String> = code.iter().map(ToString::to_string).collect();
+    assert_eq!(
+        numeric,
+        [
+            "C::set_field 0, 1",
+            "P::call_indirect (struct 0) -> u64",
+            "C::wrap 0",
+            "P::call 1, 12",
+            "P::const_fn_ref 1",
+            "C::array_new array struct 1, 2",
+            "C::struct_new 0",
+            "P::const_f64 2.5",
+            "P::const_bool true",
+            "P::cond_br 8, 0",
+            "P::br 0",
+            "P::halt",
+            "P::const_bool true",
+            "P::cond_br 12, 14",
+            "P::ret 0",
+        ]
+        .map(expand)
+    );
+
+    // Names not placed `at` an instruction cannot tell which function a jump
+    // is in, so they write every jump target as its number: `@done` (at 12,
+    // in `@main`) must not leak into `@helper`'s loop back to 12.
+    let mut unscoped_expected = expected.clone();
+    unscoped_expected[9] = expand("P::cond_br 8, 0");
+    let module_text: Vec<String> = code
+        .iter()
+        .map(|instruction| instruction.text_with(&module).to_string())
+        .collect();
+    let names_text: Vec<String> = code
+        .iter()
+        .map(|instruction| instruction.text_with(&names).to_string())
+        .collect();
+    assert_eq!(module_text, unscoped_expected);
+    assert_eq!(names_text, unscoped_expected);
+
+    // Every form, pasted back in place of the program's instructions (with
+    // its labels where they were), loads to the same module.
+    let unexpand = |line: &str| line.replace(machine::P, "P::").replace(machine::C, "C::");
+    for texts in [&named, &numeric, &module_text, &names_text] {
+        let mut texts = texts.iter();
+        let mut rewrite = |body: &[&str]| -> Vec<String> {
+            body.iter()
+                .map(|line| match line.starts_with("label ") {
+                    true => line.to_string(),
+                    false => unexpand(texts.next().unwrap()),
+                })
+                .collect()
+        };
+        let (main_source, helper_source) = (rewrite(&body), rewrite(&helper_body));
+        let main_source: Vec<&str> = main_source.iter().map(String::as_str).collect();
+        let helper_source: Vec<&str> = helper_source.iter().map(String::as_str).collect();
+        let reloaded = load(&[main_fn(&[], &[], &[], &main_source), helper(&helper_source)])
+            .unwrap_or_else(|error| panic!("{error:#}\n{main_source:#?}\n{helper_source:#?}"));
+        assert_eq!(reloaded, module, "{main_source:#?}\n{helper_source:#?}");
+    }
+}
+
+/// String and float literals render so that they parse back to the same
+/// value: strings escape only what the SST lexer must have escaped, and
+/// infinities, which have no float syntax, overflow back from `1e999`.
+#[test]
+fn literals_render_so_they_parse_back() {
+    use vihaco_runtime::InstructionText as _;
+    let body = [
+        // A decomposed accent (e + U+0301), as names copied from macOS have.
+        "P::const_string \"e\u{301}\"",
+        // A raw control character, which the lexer accepts unescaped.
+        "P::const_string \"a\u{1}b\"",
+        r#"P::const_string "say \"hi\" \\ there\n\t\r\0 // not a comment""#,
+        "P::const_f64 1e999",
+        "P::const_f64 -1e999",
+        "P::const_f64 -0.0",
+        "P::const_f64 1e-7",
+        "P::const_f32 1e999",
+        "P::halt",
+    ];
+    let module = load(&[main_fn(&[], &[], &[], &body)]).unwrap();
+    let names = module.names();
+    let unexpand = |line: &str| line.replace(machine::P, "P::").replace(machine::C, "C::");
+    let texts: Vec<String> = module
+        .code
+        .iter()
+        .enumerate()
+        .map(|(address, instruction)| {
+            unexpand(&instruction.text_with(&names.at(address as u32)).to_string())
+        })
+        .collect();
+    assert_eq!(
+        texts,
+        [
+            "P::const_string \"e\u{301}\"",
+            "P::const_string \"a\u{1}b\"",
+            r#"P::const_string "say \"hi\" \\ there\n\t\r\0 // not a comment""#,
+            "P::const_f64 1e999",
+            "P::const_f64 -1e999",
+            "P::const_f64 -0.0",
+            "P::const_f64 1e-7",
+            "P::const_f32 1e999",
+            "P::halt",
+        ]
+    );
+    let source: Vec<&str> = texts.iter().map(String::as_str).collect();
+    let reloaded = load(&[main_fn(&[], &[], &[], &source)])
+        .unwrap_or_else(|error| panic!("{error:#}\n{source:#?}"));
+    assert_eq!(reloaded, module);
+    let negative_zero = module.code[5].to_string();
+    assert!(negative_zero.ends_with("-0.0"), "{negative_zero}");
+}
+
+#[test]
+fn diagnostics_name_types_roles_and_locations() {
+    // Point is struct 0, Pair struct 1.
+    assert_eq!(
+        rendered_main(
+            &["struct 1"],
+            &["i64"],
+            &[],
+            &["P::load 0", "C::get_field @Point.x", "P::ret 1"]
         ),
+        routes(
+            "error: operand 0 of `C::get_field`: expected struct Point, found struct Pair\n  \
+         --> @main+1 (address 1): C::get_field @Point.x"
+        )
+    );
+    assert_eq!(
+        rendered_main(
+            &[],
+            &[],
+            &[],
+            &[
+                "P::const_u64 1",
+                "P::const_f64 2.0",
+                "C::struct_new @Point",
+                "P::halt"
+            ]
+        ),
+        routes(
+            "error: field Point.x: expected i64, found u64\n  \
+         --> @main+2 (address 2): C::struct_new @Point"
+        )
+    );
+    assert_eq!(
+        rendered_main(&["f64"], &["u64"], &[], &["P::load_u64 0", "P::ret 1"]),
+        "error: local 0 is declared f64, but `P::load_u64` accesses it as u64\n  --> @main+0 \
+         (address 0): P::load_u64 0\n  = help: use `load_f64 0` or `load 0`"
+    );
+    assert_eq!(
+        rendered_main(&[], &["u64"], &[], &["P::const_f64 1.0", "P::ret 1"]),
+        "error: return value 0 of @main: expected u64, found f64\n  \
+         --> @main+1 (address 1): P::ret 1"
+    );
+    assert_eq!(
+        rendered_main(&[], &[], &[], &["P::const_u64 1", "C::add_u64", "P::halt"]),
+        routes(
+            "error: stack underflow: `C::add_u64` needs 2 operands, but the stack has 1\n  \
+         --> @main+1 (address 1): C::add_u64"
+        )
+    );
+    let helper = ["P::load_u64 0", "P::ret 1"];
+    let calls = rendered(&[
+        main_fn(
+            &[],
+            &["u64"],
+            &[],
+            &["P::const_f64 1.0", "P::call 1, @helper", "P::ret 1"],
+        ),
+        Function {
+            name: "helper",
+            params: &["u64"],
+            ret: &["u64"],
+            locals: &[],
+            body: &helper,
+        },
+    ]);
+    assert_eq!(
+        calls,
+        [
+            "error: argument 0 (p0) of @helper: expected u64, found f64\n  \
+          --> @main+1 (address 1): P::call 1, @helper"
+        ]
+    );
+}
+
+#[test]
+fn diagnostics_at_joins_name_both_paths() {
+    let unbalanced = [
+        "P::load_bool 0",  // 0
+        "P::cond_br 2, 4", // 1
+        "P::const_u64 1",  // 2
+        "P::br 6",         // 3
+        "P::const_u64 1",  // 4
+        "P::const_u64 2",  // 5
+        "P::ret 1",        // 6: join, depth 1 or 2
+    ];
+    assert_eq!(
+        rendered_main(&["bool"], &["u64"], &[], &unbalanced),
+        "error: operand stack depth differs where paths join: 1 from @main+3 (P::br 6), 2 from \
+         @main+5 (falling through)\n  --> @main+6 (address 6): P::ret 1"
+    );
+    let conflicting = [
+        "P::load_bool 0",   // 0
+        "P::cond_br 2, 4",  // 1
+        "P::const_u64 1",   // 2
+        "P::br 5",          // 3
+        "P::const_f64 1.0", // 4
+        "P::const_u64 1",   // 5: join, top below is u64 or f64
+        "C::add_u64",       // 6
+        "P::ret 1",         // 7
+    ];
+    assert_eq!(
+        rendered_main(&["bool"], &["u64"], &[], &conflicting),
+        routes(
+            "error: operand 0 of `C::add_u64`: expected u64, found u64 or f64 (paths disagree at \
+         join @main+5)\n  --> @main+6 (address 6): C::add_u64"
+        )
+    );
+}
+
+#[test]
+fn structural_diagnostics_name_the_function_and_its_range() {
+    let rendered = rendered(&[main_fn(&[], &[], &[], &["P::br 99", "P::halt"])]);
+    assert_eq!(
+        rendered,
+        [
+            "error: jump target 99 is outside @main (addresses 0..2)\n  \
+             --> @main+0 (address 0): P::br 99",
+            "warning: unreachable code\n  --> @main+1 (address 1): P::halt",
+        ]
+    );
+    // The rejection lists them all, with names.
+    let module = load(&[main_fn(&[], &[], &[], &["P::br 99", "P::halt"])]).unwrap();
+    let rejection = verify_module(&module, VerifyOptions::default()).unwrap_err();
+    let shown = rejection
+        .display_with(&module)
+        .to_string()
+        .replace(machine::P, "P::");
+    assert!(
+        shown.starts_with(
+            "verification failed with 1 error\nerror: jump target 99 is outside @main \
+             (addresses 0..2)\n"
+        ),
+        "{shown}"
+    );
+}
+
+/// Names are accepted in every type position: function headers, `locals`
+/// and signatures in the metadata, resolved against the header's tables.
+#[test]
+fn function_headers_and_locals_may_name_struct_types() {
+    let program = [main_fn(
+        &["struct @Point"],
+        &["f64"],
+        &["struct @Point"],
+        &[
+            "P::load 0",
+            "P::store 1",
+            "P::load 1",
+            "C::get_field @Point.y",
+            "P::ret 1",
+        ],
+    )];
+    let module = load(&program).unwrap();
+    assert_eq!(module.functions[0].signature.params[0].ty, Type::Struct(0));
+    assert_eq!(
+        module.functions[0].locals,
+        [Type::Struct(0), Type::Struct(0)]
+    );
+    verify_module(&module, VerifyOptions::default()).unwrap();
+
+    // An unknown name is reported at its metadata path.
+    let typo = [main_fn(&["struct @Pointt"], &[], &[], &["P::halt"])];
+    let error = load(&typo).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "metadata.functions[0].signature.params[0].ty: undefined struct `@Pointt`"
+    );
+
+    // A numeric-only loader says how to accept names.
+    let error = load_numeric(&program).unwrap_err();
+    assert_eq!(
+        format!("{error:#}"),
+        "invalid metadata: metadata: a type names a struct or named type (`struct @Point`, \
+         `type @location`), but this loader parses numeric types only \
+         (`ProgramMetadata<Value, Type>`); parse the header as `ProgramMetadata` (its types \
+         default to `SourceType`) and resolve it with `resolve_types`"
+    );
+
+    // A type nested past the limit is named as such, wherever it is written.
+    let deep = format!("{}struct @Point", "array ".repeat(40));
+    let error = load(&[main_fn(&[], &[], &[deep.as_str()], &["P::halt"])]).unwrap_err();
+    assert!(
+        format!("{error:#}").contains("array type nested 40 levels deep; at most 32 are allowed"),
+        "{error:#}"
+    );
+    let error = load(&[main_fn(&[deep.as_str()], &[], &[], &["P::halt"])]).unwrap_err();
+    assert!(
+        format!("{error:#}").contains("array type nested 40 levels deep; at most 32 are allowed"),
         "{error:#}"
     );
 }

@@ -6,7 +6,7 @@ use vihaco::{
     PopFromStack, PushToStack, SstFile, Step, Type, Value, Verified, Verify, component, composite,
     dialect, field,
     loader::MetadataLoweringContext,
-    module::{LocalModule, ProgramMetadata},
+    module::{LocalModule, ProgramMetadata, SourceType},
     syntax::{HeaderDeclarations, ParsedModule, lower_functions_with_metadata},
     verifier::{OperandStack, TypedSlot, stack_effect},
 };
@@ -106,23 +106,30 @@ where
 pub fn main() -> eyre::Result<()> {
     let source = include_str!("first-machine.sst");
     let file = SstFile::<NoContext>::from_text(source)?;
+    // `SourceType` and `ProgramMetadata` (whose types default to
+    // `SourceType`) accept struct and named types by name in every type
+    // position; resolving the header turns the names into table indices.
     let ParsedModule { header, functions } = ParsedModule::<
         SourceInstruction,
-        Type,
+        SourceType,
         HeaderDeclarations<ProgramMetadata>,
     >::parse_section(file.root())?;
 
     let mut declarations = header.into_iter();
     let metadata = declarations
         .next()
-        .ok_or_else(|| eyre::eyre!("missing program metadata"))?;
+        .ok_or_else(|| eyre::eyre!("missing program metadata"))?
+        .resolve_types::<Type>()?;
     eyre::ensure!(
         declarations.next().is_none(),
         "expected one metadata declaration"
     );
     let mut context = MetadataLoweringContext::new(&metadata)?;
     let code = lower_functions_with_metadata(functions, &metadata, &mut context)?;
-    let module = Verified::new(metadata.into_module(code)?)?;
+    // On failure, `into_report` lists every diagnostic with the module's
+    // names (`@main+2 (address 2)` and the instruction text).
+    let module = Verified::new(metadata.into_module(code)?)
+        .map_err(|failed| failed.into_report())?;
     let machine = Machine {
         execution: ExecutionState::new(),
         calculator: Calculator::default(),

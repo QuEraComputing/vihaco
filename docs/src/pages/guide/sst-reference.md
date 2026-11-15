@@ -111,7 +111,7 @@ comma-separated lists; trailing commas are accepted. The standard schema is
 | `functions` | An ordered array of function records, described below. Array position is the function index; this order may differ from function-body order. |
 | `structs` | An ordered array of struct declarations, described below. Array position is the struct index that `struct N` types refer to. Emit `[]` when the program declares none. |
 | `types` | An ordered array of named-type declarations, described below. Array position is the index that `type N` types refer to. Emit `[]` when the program declares none. |
-| `labels` | Records `{ name: string_index, address: instruction_address }`. Every source label needs a matching name and absolute section-local address. |
+| `labels` | Records `{ name: string_index, address: instruction_address }`. Every source label needs a matching name and absolute section-local address, and every record must match a source label: loading rejects a record no function body declares. |
 | `constants` | An ordered array of values parsed by the target's value parser. Constant indices are array positions. |
 | `main_function` | The entry function's table index, or `null` when no entry is selected. It is not an instruction address. |
 | `source_symbols` | Records `{ index: number, name: "symbol" }`. Indices must be unique; names are inline strings. Agree with the consumer on their meaning. |
@@ -168,6 +168,33 @@ Module assembly rejects `struct N` indices outside the table, including ones
 nested in array types. Structs may refer to themselves or to each other, for
 example a linked node with a `next: struct 0` field.
 
+Every type position also accepts a struct by name, `struct @Point`, and a named
+type as `type @location`: `fn` headers, `signature`, `locals`, struct fields,
+and instruction operands. This is the default on the standard loading path:
+`ProgramMetadata`'s type parameter defaults to `vihaco::module::SourceType`,
+and the loader parses `fn` lines with `SourceType` too. Instruction operands
+are resolved during lowering; the header is resolved against its own tables
+with `ProgramMetadata::resolve_types` (which `ParsedModule::lower_with_metadata`
+does itself):
+
+```rust,ignore
+let ParsedModule { header, functions } =
+    ParsedModule::<Syntax, SourceType, HeaderDeclarations<ProgramMetadata>>
+        ::parse_section(file.root())?;
+let metadata = header.into_iter().next().unwrap().resolve_types::<Type>()?;
+let mut context = MetadataLoweringContext::new(&metadata)?;
+let code = lower_functions_with_metadata(functions, &metadata, &mut context)?;
+let module = metadata.into_module(code)?;
+```
+
+A loader that parses `ProgramMetadata<Value, Type>` (or `fn` lines with
+`Type`) accepts only the numeric forms (`struct 0`, `type 0`); a name there is
+a parse error whose message says to parse with `SourceType`.
+
+An unknown name is reported at its metadata path, for example
+``metadata.functions[0].locals[1]: undefined struct `@Pointt` ``. Binary bytecode
+always stores indices.
+
 ### Arrays
 
 Arrays are typed by their element: `array f64`, `array struct 0`, or nested,
@@ -191,7 +218,14 @@ heap objects.
 
 Every array instruction checks the object at runtime: it must be a live array
 whose element type is exactly `T`, so `array_get u64` on an `array f64` fails
-with `is array f64, expected array u64`. Indices are always `u64` and are
+with `is array f64, expected array u64`. Program-image execution also reports
+where, and names structs by name (a `StepError` printed with `{:#}`):
+
+```text
+at @main+3 (address 3) `cpu::cpu::array_get u64`: type error: heap object (slot 2, generation 1) is array f64, expected array u64
+```
+
+Indices are always `u64` and are
 bounds-checked against the current length. Element types may name structs,
 `array_new struct @Point, 4`, resolved through the struct table during lowering;
 an unknown struct name or index is a load-time error.
@@ -259,6 +293,13 @@ assembling the module. Use `f32_bits` followed by a decimal `u32` or `f64_bits`
 followed by a decimal `u64` to preserve exact floating-point bits, including NaNs.
 Custom value types can define a different grammar.
 
+String literals, here and in instructions such as `const_string`, take any
+character raw except `"` and `\`, and the escapes `\"`, `\\`, `\n`, `\t`, `\r`
+and `\0`. Float literals in instructions (`const_f64 -0.0`, `const_f64 2.5e-3`)
+have no spelling for infinity or NaN: write an infinity as an overflowing
+literal such as `1e999` or `-1e999`, which is how instruction text shows one.
+A NaN operand cannot be written in instruction text.
+
 Populate strings before lowering. `MetadataLoweringContext` looks up strings
 without appending or reordering them; a missing literal is an error. Equal
 strings resolve to the first matching table entry. Function lookup preserves
@@ -287,7 +328,7 @@ For the minimal file above, this loader validates and assembles the program:
 ```rust
 use vihaco::{HasInstructionSet, NoContext, SstFile, Type, composite};
 use vihaco::loader::MetadataLoweringContext;
-use vihaco::module::ProgramMetadata;
+use vihaco::module::{ProgramMetadata, SourceType};
 use vihaco::syntax::{HeaderDeclarations, ParsedModule, lower_functions_with_metadata};
 
 #[composite]
@@ -300,10 +341,13 @@ fn validate(source: &str) -> eyre::Result<()> {
     type SourceInstruction = <Machine as HasInstructionSet>::Syntax;
     let file = SstFile::<NoContext>::from_text(source)?;
     let ParsedModule { header, functions } = ParsedModule::<
-        SourceInstruction, Type, HeaderDeclarations<ProgramMetadata>
+        SourceInstruction, SourceType, HeaderDeclarations<ProgramMetadata>
     >::parse_section(file.root())?;
     let mut declarations = header.into_iter();
-    let metadata = declarations.next().ok_or_else(|| eyre::eyre!("missing metadata"))?;
+    let metadata = declarations
+        .next()
+        .ok_or_else(|| eyre::eyre!("missing metadata"))?
+        .resolve_types::<Type>()?;
     eyre::ensure!(declarations.next().is_none(), "duplicate metadata");
     let mut context = MetadataLoweringContext::new(&metadata)?;
     let code = lower_functions_with_metadata(functions, &metadata, &mut context)?;

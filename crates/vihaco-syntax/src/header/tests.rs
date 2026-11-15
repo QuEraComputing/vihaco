@@ -92,18 +92,54 @@ fn types_nested_too_deep_are_named_in_the_parse_error() -> eyre::Result<()> {
             "sst v1\n.section(root):\n.header(root):\n.header(root).\n\
              .text(root):\n{function}\n.text(root).\n.section(root).\n"
         ))?;
-        let Err(err) =
+        let numeric =
             ParsedModule::<Instruction, Type, HeaderDeclarations<Declaration>>::parse_section(
                 file.root(),
             )
-        else {
-            panic!("`{function}` parsed");
-        };
-        assert!(
-            err.to_string()
-                .contains("array type nested 33 levels deep; at most 32 are allowed"),
-            "{err}"
-        );
+            .err();
+        let named = ParsedModule::<
+            Instruction,
+            vihaco_module::module::SourceType,
+            HeaderDeclarations<Declaration>,
+        >::parse_section(file.root())
+        .err();
+        for err in [numeric, named] {
+            let err = err.unwrap_or_else(|| panic!("`{function}` parsed"));
+            assert!(
+                err.to_string()
+                    .contains("array type nested 33 levels deep; at most 32 are allowed"),
+                "{err}"
+            );
+        }
     }
+    Ok(())
+}
+
+#[test]
+fn names_in_a_numeric_fn_line_say_to_parse_with_source_type() -> eyre::Result<()> {
+    #[derive(vihaco_parser_derive::Parse)]
+    #[syntax_class(instruction, head = "example")]
+    enum Instruction {
+        Halt,
+    }
+
+    let file = SstFile::<NoContext>::from_text(
+        "sst v1\n.section(root):\n.header(root):\n.header(root).\n.text(root):\n\
+         fn @main(p0: struct @Point) { example.halt }\n.text(root).\n.section(root).\n",
+    )?;
+    let Err(err) =
+        ParsedModule::<Instruction, Type, HeaderDeclarations<Declaration>>::parse_section(
+            file.root(),
+        )
+    else {
+        panic!("a name parsed as a numeric type");
+    };
+    assert_eq!(
+        err.to_string(),
+        "failed to parse SST functions: `fn @main(p0: struct @Point)`: a type names a struct or \
+         named type (`struct @Point`, `type @location`), but this loader parses numeric types \
+         only (`Type`); parse `fn` lines with `SourceType`, which `lower_with_metadata` resolves \
+         against the header's tables"
+    );
     Ok(())
 }

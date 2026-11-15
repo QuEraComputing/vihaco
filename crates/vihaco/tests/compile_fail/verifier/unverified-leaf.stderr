@@ -1,0 +1,42 @@
+error[E0277]: instruction `Unverified` has no verification rule for context `ModuleVerifier<'_>`
+  --> tests/compile_fail/verifier/unverified-leaf.rs:52:27
+   |
+52 |     let _ = verify_module(&module, VerifyOptions::default());
+   |             ------------- ^^^^^^^ `Unverified` cannot be verified with `ModuleVerifier<'_>`
+   |             |
+   |             required by a bound introduced by this call
+   |
+help: the trait `Verify<ModuleVerifier<'_>>` is not implemented for `Unverified`
+  --> tests/compile_fail/verifier/unverified-leaf.rs:14:5
+   |
+14 |     pub struct Unverified;
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   = note: implement `Verify<C>` for each instruction, bounding `C` only on the capabilities the rule uses; for a composite's instruction set, the headline names the leaf instruction that has no rule
+   = help: the following other types implement trait `Verify<C>`:
+             `__vihaco_MachineInstruction` implements `Verify<__VihacoLoader>`
+             `device::Halt` implements `Verify<C>`
+             `vihaco_cpu::dialect::cpu::AddF32` implements `Verify<C>`
+             `vihaco_cpu::dialect::cpu::AddF64` implements `Verify<C>`
+             `vihaco_cpu::dialect::cpu::AddI32` implements `Verify<C>`
+             `vihaco_cpu::dialect::cpu::AddI64` implements `Verify<C>`
+             `vihaco_cpu::dialect::cpu::AddU32` implements `Verify<C>`
+             `vihaco_cpu::dialect::cpu::AddU64` implements `Verify<C>`
+           and $N others
+note: required for `__vihaco_MachineInstruction` to implement `Verify<ModuleVerifier<'_>>`
+  --> tests/compile_fail/verifier/unverified-leaf.rs:36:1
+   |
+36 | #[composite]
+   | ^-----------
+   | |
+   | unsatisfied trait bound introduced here
+37 | struct Machine {
+   |        ^^^^^^^
+note: required by a bound in `verify_module`
+  --> $WORKSPACE/crates/vihaco-verifier/src/module.rs
+   |
+   | pub fn verify_module<'m, I, Info>(
+   |        ------------- required by a bound in this function
+...
+   |     I: Verify<ModuleVerifier<'m>>,
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `verify_module`
+   = note: this error originates in the attribute macro `composite` (in Nightly builds, run with -Z macro-backtrace for more info)

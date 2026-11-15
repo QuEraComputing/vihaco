@@ -4,6 +4,7 @@
 //! Function scopes and lookups for metadata-backed instruction lowering.
 
 use crate::module::ProgramMetadata;
+use crate::program_metadata::{NameTables, StructFields};
 use std::collections::HashMap;
 
 /// Prepare a function's local symbols before lowering any of its instructions.
@@ -41,90 +42,26 @@ pub struct MetadataLoweringContext {
     labels: HashMap<String, u32>,
 }
 
-#[derive(Debug)]
-struct StructFields {
-    name: String,
-    count: u32,
-    slots: HashMap<String, u32>,
-}
-
 impl MetadataLoweringContext {
     /// Prepare section-wide string and function lookups.
     ///
     /// # Errors
-    /// Rejects invalid function-name indices, duplicate function names, and
-    /// tables whose indices cannot be represented by `u32`. Full program
-    /// validation remains the responsibility of the metadata loading driver.
+    /// Rejects names that are not string-table entries, duplicate function,
+    /// struct, field and named-type names, and tables whose indices cannot be
+    /// represented by `u32`, with the same messages as
+    /// [`ProgramMetadata::validate`]. Full program validation remains the
+    /// responsibility of the metadata loading driver.
     pub fn new<V, Ty, Info>(metadata: &ProgramMetadata<V, Ty, Info>) -> eyre::Result<Self> {
         let mut strings = HashMap::new();
         for (index, text) in metadata.strings.iter().enumerate() {
             strings.entry(text.clone()).or_insert(u32::try_from(index)?);
         }
-        let mut functions = HashMap::new();
-        for (index, function) in metadata.functions.iter().enumerate() {
-            let name = metadata
-                .strings
-                .get(function.name as usize)
-                .ok_or_else(|| {
-                    eyre::eyre!(
-                        "metadata.functions[{index}].name: invalid string index {}",
-                        function.name
-                    )
-                })?;
-            eyre::ensure!(
-                functions
-                    .insert(
-                        name.clone(),
-                        (u32::try_from(index)?, function.start_address)
-                    )
-                    .is_none(),
-                "function `@{name}` has duplicate metadata"
-            );
-        }
-        let name_at = |index: u32, what: &dyn Fn() -> String| {
-            metadata
-                .strings
-                .get(index as usize)
-                .ok_or_else(|| eyre::eyre!("{}: invalid string index {index}", what()))
-        };
-        let mut struct_names = HashMap::new();
-        let mut structs = Vec::with_capacity(metadata.structs.len());
-        for (index, info) in metadata.structs.iter().enumerate() {
-            let name = name_at(info.name, &|| format!("metadata.structs[{index}].name"))?;
-            let mut slots = HashMap::new();
-            for (slot, field) in info.fields.iter().enumerate() {
-                let field_name = name_at(field.name, &|| {
-                    format!("metadata.structs[{index}].fields[{slot}].name")
-                })?;
-                eyre::ensure!(
-                    slots
-                        .insert(field_name.clone(), u32::try_from(slot)?)
-                        .is_none(),
-                    "struct `{name}` has duplicate field `{field_name}`"
-                );
-            }
-            eyre::ensure!(
-                struct_names
-                    .insert(name.clone(), u32::try_from(index)?)
-                    .is_none(),
-                "struct `{name}` has duplicate metadata"
-            );
-            structs.push(StructFields {
-                name: name.clone(),
-                count: u32::try_from(info.fields.len())?,
-                slots,
-            });
-        }
-        let mut type_names = HashMap::new();
-        for (index, info) in metadata.types.iter().enumerate() {
-            let name = name_at(info.name, &|| format!("metadata.types[{index}].name"))?;
-            eyre::ensure!(
-                type_names
-                    .insert(name.clone(), u32::try_from(index)?)
-                    .is_none(),
-                "named type `{name}` has duplicate metadata"
-            );
-        }
+        let NameTables {
+            functions,
+            struct_names,
+            structs,
+            type_names,
+        } = metadata.name_tables()?;
         Ok(Self {
             strings,
             functions,
@@ -141,13 +78,13 @@ impl MetadataLoweringContext {
         self.struct_names
             .get(name)
             .copied()
-            .ok_or_else(|| eyre::eyre!("undefined struct `{name}`"))
+            .ok_or_else(|| eyre::eyre!("undefined struct `@{name}`"))
     }
 
     fn struct_entry(&self, struct_index: u32) -> eyre::Result<&StructFields> {
         self.structs.get(struct_index as usize).ok_or_else(|| {
             eyre::eyre!(
-                "struct {struct_index} is outside the struct table of length {}",
+                "struct {struct_index} is outside the struct table (length {})",
                 self.structs.len()
             )
         })
@@ -173,14 +110,14 @@ impl MetadataLoweringContext {
         self.type_names
             .get(name)
             .copied()
-            .ok_or_else(|| eyre::eyre!("undefined named type `{name}`"))
+            .ok_or_else(|| eyre::eyre!("undefined named type `@{name}`"))
     }
 
     /// Check that `index` is an entry of the named-type table.
     pub fn check_named_type(&self, index: u32) -> eyre::Result<()> {
         eyre::ensure!(
             index < self.type_count,
-            "named type {index} is outside the named-type table of length {}",
+            "named type {index} is outside the named-type table (length {})",
             self.type_count
         );
         Ok(())
@@ -249,7 +186,7 @@ mod tests {
     };
     use vihaco_abi::Type;
 
-    fn metadata() -> ProgramMetadata {
+    fn metadata() -> ProgramMetadata<vihaco_abi::Value, Type> {
         ProgramMetadata {
             strings: vec![
                 "later".into(),
@@ -371,7 +308,8 @@ mod tests {
 
     #[test]
     fn struct_tables_are_validated_at_module_assembly() {
-        let into_module = |metadata: ProgramMetadata| metadata.into_module(vec![(); 9]);
+        let into_module =
+            |metadata: ProgramMetadata<vihaco_abi::Value, Type>| metadata.into_module(vec![(); 9]);
         assert!(into_module(metadata()).is_ok());
 
         // Struct types in signatures and fields must name a struct-table entry.
@@ -437,7 +375,7 @@ mod tests {
         assert_eq!(context.named_type_index("lane")?, 1);
         let err = context.named_type_index("zone").unwrap_err();
         assert!(
-            err.to_string().contains("undefined named type `zone`"),
+            err.to_string().contains("undefined named type `@zone`"),
             "{err}"
         );
         context.check_named_type(1)?;
@@ -458,7 +396,8 @@ mod tests {
 
     #[test]
     fn named_type_tables_are_validated_at_module_assembly() {
-        let into_module = |metadata: ProgramMetadata| metadata.into_module(vec![(); 9]);
+        let into_module =
+            |metadata: ProgramMetadata<vihaco_abi::Value, Type>| metadata.into_module(vec![(); 9]);
 
         // Every scalar word type may represent a named type.
         for repr in [
@@ -533,14 +472,15 @@ mod tests {
         none.functions[0].locals[0] = Type::Named(0);
         let err = into_module(none).unwrap_err();
         assert!(
-            err.to_string().contains("outside table of length 0"),
+            err.to_string().contains("metadata.functions[0].locals[0]: named type 0 is outside the named-type table (length 0)"),
             "{err}"
         );
     }
 
     #[test]
     fn declared_locals_are_validated() {
-        let into_module = |metadata: ProgramMetadata| metadata.into_module(vec![(); 9]);
+        let into_module =
+            |metadata: ProgramMetadata<vihaco_abi::Value, Type>| metadata.into_module(vec![(); 9]);
 
         // At most `MAX_LOCALS` locals.
         let mut bad = metadata();
@@ -560,7 +500,7 @@ mod tests {
         let err = into_module(bad).unwrap_err();
         assert!(
             err.to_string()
-                .contains("functions[1].locals: fewer locals than parameters"),
+                .contains("metadata.functions[1].locals: 0 locals declared, but the signature has 1 parameter (locals start with one per parameter)"),
             "{err}"
         );
 
@@ -579,7 +519,7 @@ mod tests {
         let err = into_module(bad).unwrap_err();
         assert!(
             err.to_string()
-                .contains("functions[0].locals[1]: type differs from parameter 1"),
+                .contains("metadata.functions[0].locals[1]: local 1 is declared f64, but parameter 1 (later) is i64 (locals start with the parameter types)"),
             "{err}"
         );
         let mut good = metadata();
@@ -610,6 +550,59 @@ mod tests {
         metadata.functions[0].name = 1;
         assert!(MetadataLoweringContext::new(&metadata).is_err());
         Ok(())
+    }
+
+    #[test]
+    fn validation_and_lowering_report_names_with_one_message_each() {
+        // Both entry points build the same name tables, so they agree.
+        let both = |metadata: &ProgramMetadata<vihaco_abi::Value, Type>| {
+            let validated = metadata.validate(9).unwrap_err().to_string();
+            let lowered = MetadataLoweringContext::new(metadata)
+                .unwrap_err()
+                .to_string();
+            assert_eq!(validated, lowered);
+            validated
+        };
+        let mut bad = metadata();
+        bad.structs.push(bad.structs[0].clone());
+        assert_eq!(
+            both(&bad),
+            "metadata.structs[1].name: duplicate struct `Point` (first declared at \
+             metadata.structs[0].name)"
+        );
+        let mut bad = metadata();
+        bad.structs[0].fields[1].name = 5;
+        assert_eq!(
+            both(&bad),
+            "metadata.structs[0].fields[1].name: duplicate field `x` in struct `Point` (first \
+             declared at metadata.structs[0].fields[0].name)"
+        );
+        let mut bad = metadata();
+        bad.functions[1].name = 0;
+        assert_eq!(
+            both(&bad),
+            "metadata.functions[1].name: duplicate function `later` (first declared at \
+             metadata.functions[0].name)"
+        );
+        let mut bad = metadata();
+        bad.types[1].name = 99;
+        assert_eq!(
+            both(&bad),
+            "metadata.types[1].name: string 99 is outside the string table (length 9)"
+        );
+        let mut bad = metadata();
+        bad.main_function = Some(4);
+        assert_eq!(
+            bad.validate(9).unwrap_err().to_string(),
+            "metadata.main_function: function 4 is outside the function table (length 2)"
+        );
+        let mut bad = metadata();
+        bad.functions[0].end_address = 10;
+        assert_eq!(
+            bad.validate(9).unwrap_err().to_string(),
+            "metadata.functions[0]: instruction range 7..10 does not fit in the 9 \
+             instructions of the section"
+        );
     }
 
     #[test]

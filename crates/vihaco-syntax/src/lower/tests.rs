@@ -19,7 +19,7 @@ impl Lower<MetadataLoweringContext> for Literal {
     }
 }
 
-fn one_function_metadata() -> ProgramMetadata {
+fn one_function_metadata() -> ProgramMetadata<Value, Type> {
     ProgramMetadata {
         structs: vec![],
         types: vec![],
@@ -63,6 +63,88 @@ fn standard_loading_works_with_and_without_typed_declarations() -> eyre::Result<
     assert_eq!(module.functions[0].local_count(), 2);
     assert_eq!(module.extra, 7);
     Ok(())
+}
+
+/// Every header label must be declared in a body, with or without
+/// `typed-declarations` (without it, a body declares none).
+#[test]
+fn a_header_label_without_a_declaration_is_rejected_in_every_build() {
+    let mut metadata = one_function_metadata();
+    metadata.labels = vec![vihaco_module::module::LabelInfo {
+        address: 0,
+        name: 0,
+    }];
+    let parsed = ParsedModule {
+        header: (),
+        functions: vec![ParsedFunction::<_, Type> {
+            name: Ident("main".into()),
+            params: vec![],
+            return_types: vec![],
+            body: vec![Literal(42)],
+            #[cfg(feature = "typed-declarations")]
+            labels: vec![],
+        }],
+    };
+    assert_eq!(
+        parsed.validate_metadata(&metadata).unwrap_err().to_string(),
+        "metadata.labels[0]: label `@main` at address 0 is not declared in any function body"
+    );
+}
+
+/// A `fn` line that disagrees with its metadata names the types by the
+/// section's struct names, not by index.
+#[test]
+fn header_mismatches_show_types_by_name() {
+    use vihaco_module::module::{FieldInfo, Parameter, StructInfo};
+    let mut metadata = one_function_metadata();
+    metadata
+        .strings
+        .extend(["p0", "Point", "Pair"].map(String::from));
+    metadata.structs = vec![
+        StructInfo {
+            name: 3,
+            fields: vec![],
+        },
+        StructInfo {
+            name: 4,
+            fields: vec![FieldInfo {
+                name: 2,
+                ty: Type::U64,
+            }],
+        },
+    ];
+    metadata.functions[0].signature.params = vec![Parameter {
+        name: 2,
+        ty: Type::Struct(1),
+    }];
+    metadata.functions[0].signature.ret = vec![Type::array(Type::Struct(1))];
+    metadata.functions[0].locals = vec![Type::Struct(1)];
+    let parsed = |param: Type, ret: Type| ParsedModule {
+        header: (),
+        functions: vec![ParsedFunction::<_, Type> {
+            name: Ident("main".into()),
+            params: vec![crate::Param {
+                name: Ident("p0".into()),
+                ty: param,
+            }],
+            return_types: vec![ret],
+            body: vec![Literal(42)],
+            #[cfg(feature = "typed-declarations")]
+            labels: vec![],
+        }],
+    };
+    let check = |module: ParsedModule<Literal, Type, ()>| {
+        module.validate_metadata(&metadata).unwrap_err().to_string()
+    };
+    assert_eq!(
+        check(parsed(Type::Struct(0), Type::array(Type::Struct(1)))),
+        "function `@main`: parameter 0 is `p0: struct Point`, but its metadata declares \
+         `p0: struct Pair`"
+    );
+    assert_eq!(
+        check(parsed(Type::Struct(1), Type::Struct(1))),
+        "function `@main` returns (struct Pair), but its metadata declares (array struct Pair)"
+    );
 }
 
 #[cfg(feature = "program-image-execution")]
@@ -157,7 +239,10 @@ mod borrowed_metadata {
         let error =
             lower_functions_with_metadata(functions(1), &metadata, &mut context).unwrap_err();
         let message = format!("{error:#}");
-        assert!(message.contains("function @main, instruction 0"));
+        assert!(
+            message.contains("lowering @main+0 (address 0): "),
+            "{message}"
+        );
         assert!(message.contains("unknown pool index 1"));
         assert_eq!(context.entered, 1);
         Ok(())
@@ -247,7 +332,7 @@ mod typed {
         }
     }
 
-    fn metadata() -> ProgramMetadata {
+    fn metadata() -> ProgramMetadata<Value, Type> {
         ProgramMetadata {
             structs: vec![],
             types: vec![],
@@ -306,7 +391,7 @@ mod typed {
         }
     }
 
-    fn context(metadata: &ProgramMetadata) -> eyre::Result<CustomContext> {
+    fn context(metadata: &ProgramMetadata<Value, Type>) -> eyre::Result<CustomContext> {
         Ok(CustomContext {
             symbols: MetadataLoweringContext::new(metadata)?,
             multiplier: 3,
@@ -327,6 +412,45 @@ mod typed {
         assert_eq!(module.constants, metadata.constants);
         assert_eq!(module.source_symbols, metadata.source_symbols);
         assert_eq!(module.main_function, metadata.main_function);
+        Ok(())
+    }
+
+    #[test]
+    fn a_header_label_no_body_declares_is_rejected() -> eyre::Result<()> {
+        // A label name instruction text could print, but source cannot write.
+        let mut extra = metadata();
+        extra.strings.push("p3".into());
+        extra.labels.push(LabelInfo {
+            address: 5,
+            name: 5,
+        });
+        // A declared name at an address where no body declares it.
+        let mut moved = metadata();
+        moved.labels.insert(
+            0,
+            LabelInfo {
+                address: 4,
+                name: 2,
+            },
+        );
+        for (metadata, expected) in [
+            (
+                extra,
+                "metadata.labels[2]: label `@p3` at address 5 is not declared in any function body",
+            ),
+            (
+                moved,
+                "metadata.labels[0]: label `@done` at address 4 is not declared in any function \
+                 body",
+            ),
+        ] {
+            let mut context = context(&metadata)?;
+            let error = parsed()
+                .lower_with_metadata(metadata, &mut context)
+                .unwrap_err();
+            assert_eq!(error.to_string(), expected);
+            assert!(context.entered.is_empty());
+        }
         Ok(())
     }
 
@@ -354,7 +478,7 @@ mod typed {
             let error = parsed
                 .lower_with_metadata(metadata, &mut context)
                 .unwrap_err();
-            assert!(format!("{error:#}").contains("lowering function @main, instruction 3"));
+            assert!(format!("{error:#}").contains("lowering @main+3 (address 6): "));
             assert!(format!("{error:#}").contains("missing"));
         }
         Ok(())

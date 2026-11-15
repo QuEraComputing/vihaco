@@ -602,6 +602,11 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
         .collect();
     // Verification uses runtime instructions. Like lowering, the aggregate
     // implements `Verify<C>` exactly when every instruction it contains does.
+    // Not `#[diagnostic::do_not_recommend]`: that would stop rustc looking
+    // through this impl, so a missing rule would be reported against the
+    // aggregate instead of naming the leaf. The aggregate does appear in the
+    // "other types implement" list; the composite compile-fail fixture pins
+    // this.
     let verification = if entries.is_empty() {
         quote! {
             impl<#context_parameter: ?Sized> #root::Verify<#context_parameter> for #runtime {
@@ -628,6 +633,64 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
                 }
                 fn verify(&self, context: &mut #context_parameter) -> #root::eyre::Result<()> {
                     match self { #(#verify_arms),* }
+                }
+            }
+        }
+    };
+    // Runtime instructions write themselves in source syntax, routed as SST
+    // writes them (`cpu::cpu::set_field @Point.y`), for diagnostics and runtime
+    // errors that name an instruction. `Display` is the text without names.
+    let display = if entries.is_empty() {
+        quote! {
+            impl #root::__private::InstructionText for #runtime {
+                fn write_text(
+                    &self,
+                    _: &dyn #root::__private::SymbolNames,
+                    _: &mut ::core::fmt::Formatter<'_>,
+                ) -> ::core::fmt::Result {
+                    match *self {}
+                }
+            }
+            impl ::core::fmt::Display for #runtime {
+                fn fmt(&self, _: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                    match *self {}
+                }
+            }
+        }
+    } else {
+        let arms = entries
+            .iter()
+            .zip(&variants)
+            .zip(&types)
+            .map(|((entry, variant), ty)| {
+                let mut prefix = String::new();
+                for segment in &entry.record.segments {
+                    match segment.source.first() {
+                        Some(source) => prefix.push_str(&source.value()),
+                        None => prefix.push_str(&segment.name.unraw().to_string()),
+                    }
+                    prefix.push_str("::");
+                }
+                prefix.push_str(&entry.record.dialect.unraw().to_string());
+                prefix.push_str("::");
+                quote!(Self::#variant(instruction) => {
+                    f.write_str(#prefix)?;
+                    <#ty as #root::__private::InstructionText>::write_text(instruction, names, f)
+                })
+            });
+        quote! {
+            impl #root::__private::InstructionText for #runtime {
+                fn write_text(
+                    &self,
+                    names: &dyn #root::__private::SymbolNames,
+                    f: &mut ::core::fmt::Formatter<'_>,
+                ) -> ::core::fmt::Result {
+                    match self { #(#arms),* }
+                }
+            }
+            impl ::core::fmt::Display for #runtime {
+                fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                    <Self as #root::__private::InstructionText>::write_text(self, &(), f)
                 }
             }
         }
@@ -719,6 +782,7 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
         #parser_impl
         #lowering
         #verification
+        #display
         impl #root::SurfaceInstruction for #syntax {}
 
         impl #dispatch_impl_generics #root::Dispatch<#execution_context> for #name #type_generics #dispatch_where_clause {
@@ -726,6 +790,14 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
             #[inline(always)]
             fn dispatch(&mut self, instruction: &#runtime, context: &#execution_context) -> #root::eyre::Result<()> {
                 #dispatch_body
+            }
+            fn instruction_text(
+                instruction: &#runtime,
+                names: &dyn #root::__private::SymbolNames,
+            ) -> ::core::option::Option<::std::string::String> {
+                ::core::option::Option::Some(::std::string::ToString::to_string(
+                    &#root::__private::InstructionText::text_with(instruction, names),
+                ))
             }
         }
     })

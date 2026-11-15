@@ -123,8 +123,9 @@ impl Execute<cpu::IndirectCall> for CPU {
         // A function reference is only callable at its declared signature.
         eyre::ensure!(
             message.signature == instruction.0,
-            "call_indirect expects a function of type {}, but the referenced function has type {}",
+            "call_indirect expects a function of type {}, but @{} has type {}",
             instruction.0,
+            message.name,
             message.signature
         );
         let info = message.info;

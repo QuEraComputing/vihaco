@@ -131,7 +131,12 @@ fn construct_image<'src, M>(
 where
     M: HasInstructionSet,
     M::Syntax: Parse<'src> + 'src + Lower<MetadataLoweringContext, Runtime = M::Runtime>,
-    M::Runtime: for<'m> Verify<ModuleVerifier<'m>>,
+    // A rejection displays with the module's names, so its instructions show.
+    M::Runtime: for<'m> Verify<ModuleVerifier<'m>>
+        + vihaco_runtime::InstructionText
+        + Send
+        + Sync
+        + 'static,
 {
     Ok(Image::new(Verified::new(construct_module::<M>(section)?)?))
 }
@@ -371,12 +376,11 @@ execution::program::ret 1";
     let rejection =
         vihaco_verifier::verify_module(&module, vihaco_verifier::VerifyOptions::default())
             .unwrap_err();
+    let rendered = rejection.diagnostics[0].display_with(&module).to_string();
     assert_eq!(
-        rejection.diagnostics[0].kind,
-        vihaco_verifier::DiagnosticKind::TypeMismatch {
-            expected: "array u64".into(),
-            found: "array struct 0".into()
-        }
+        rendered,
+        "error: operand 0 of `cpu::cpu::array_get`: expected array u64, found array struct \
+         Point\n  --> @main+3 (address 3): cpu::cpu::array_get u64"
     );
     // Constructing the image verifies it, so only the escape hatch runs it.
     let error = load_struct_program(ill_typed).unwrap_err();
@@ -384,11 +388,38 @@ execution::program::ret 1";
         format!("{error:#}").contains("verification failed"),
         "{error:#}"
     );
+    // At runtime the heap check fails, located and with types by name.
     let error = run_image(Image::new(Verified::assume_verified(module))).unwrap_err();
-    assert!(
-        format!("{error:#}").contains("is array struct 0, expected array u64"),
-        "{error:#}"
+    assert_eq!(
+        error.to_string(),
+        "at @main+3 (address 3) `cpu::cpu::array_get u64`"
     );
+    assert_eq!(
+        format!("{error:#}"),
+        "at @main+3 (address 3) `cpu::cpu::array_get u64`: type error: heap object (slot 2, \
+         generation 1) is array struct Point, expected array u64"
+    );
+    let step = error
+        .downcast_ref::<vihaco_stdlib::execution_state::StepError>()
+        .unwrap();
+    assert_eq!(step.address(), 3);
+    assert!(
+        step.error()
+            .downcast_ref::<vihaco_abi::heap::HeapError>()
+            .is_some()
+    );
+    // The StepError's source is the heap error rendered with names, so the
+    // report's chain reaches the structured HeapError without knowing about
+    // StepError.
+    let heap = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<vihaco_abi::heap::NamedHeapError>())
+        .map(vihaco_abi::heap::NamedHeapError::error);
+    assert!(
+        matches!(heap, Some(vihaco_abi::heap::HeapError::TypeMismatch { .. })),
+        "{heap:?}"
+    );
+    assert_eq!(error.chain().count(), 2);
 
     // An element type naming an undeclared struct fails at load time.
     let error = load_struct_program(
@@ -401,7 +432,7 @@ execution::program::ret 1",
     )
     .unwrap_err();
     assert!(
-        format!("{error:#}").contains("undefined struct `Line`"),
+        format!("{error:#}").contains("lowering @main+1 (address 1): undefined struct `@Line`"),
         "{error:#}"
     );
 }
@@ -418,9 +449,17 @@ cpu::cpu::unwrap @location
 execution::program::ret 1";
     let image = load_struct_program(source).unwrap();
     assert_eq!(image.module().types.len(), 1);
-    let code = format!("{:?}", image.module().code);
-    assert!(code.contains("ArrayNew(Named(0), 1)"), "{code}");
-    assert!(code.contains("Wrap(0)"), "{code}");
+    let code: Vec<String> = image
+        .module()
+        .code
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert!(
+        code.contains(&"cpu::cpu::array_new type 0, 1".into()),
+        "{code:?}"
+    );
+    assert!(code.contains(&"cpu::cpu::wrap 0".into()), "{code:?}");
     assert_eq!(run_struct_program(source).unwrap(), [7]);
 
     // Numeric references are checked against the table too.
@@ -433,11 +472,11 @@ execution::program::ret 1",
     .unwrap();
     assert_eq!(stack, [7]);
     for (body, message) in [
-        ("cpu::cpu::wrap @lane", "undefined named type `lane`"),
+        ("cpu::cpu::wrap @lane", "undefined named type `@lane`"),
         ("cpu::cpu::wrap 1", "outside the named-type table"),
         (
             "cpu::cpu::array_new type @lane, 1",
-            "undefined named type `lane`",
+            "undefined named type `@lane`",
         ),
         (
             "cpu::cpu::array_get array type 3",
@@ -491,13 +530,7 @@ fn construction_resets_previous_invocation_without_resetting_machine_state() {
 fn active_replacement_is_rejected_and_faulted_invocation_can_resume() {
     let mut loaded = controller();
     loaded.machine_mut().fail_once = true;
-    assert!(
-        loaded
-            .execute(&[])
-            .unwrap_err()
-            .to_string()
-            .contains("injected")
-    );
+    assert!(format!("{:#}", loaded.execute(&[]).unwrap_err()).contains("injected"));
     let image = loaded.image().module().code.as_ptr();
     let pc = loaded.machine().execution.pc();
     let frames = loaded.machine().execution.frames().len();
@@ -561,6 +594,8 @@ fn failed_image_construction_leaves_installed_program_unchanged() {
 
 #[test]
 fn execution_borrows_non_clone_instructions_from_the_paired_image() {
+    // A hand-written instruction set needs neither `Clone` nor `Display`:
+    // without `Dispatch::instruction_text`, errors show the location alone.
     struct Instruction(Box<u64>);
     type Program = LocalModule<Instruction, Value, Type>;
     struct Machine {

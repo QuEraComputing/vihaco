@@ -21,4 +21,5 @@ default = []
 typed-declarations = ["vihaco-runtime/typed-declarations"]
 
 [dev-dependencies]
+trybuild = "1.0"
 vihaco-runtime = { workspace = true }
