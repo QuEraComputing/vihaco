@@ -310,12 +310,15 @@ comes from the callee's signature, but its effect on component state is
 unknown to the caller, so after the operand effect the call helpers apply
 `Signatures::after_call(callee)`. `WithState` implements it with
 `ComponentState::after_call(&mut self, callee: Option<u32>, entry: &Self)`,
-whose default resets the caller's state to `entry`: nothing the caller
-established is assumed to survive the call. `ModuleVerifier` has no state
-beyond the frame and does nothing. This is sound and strict (a helper cannot
-play on a channel its caller opened). A component may override `after_call`
-with any state that assumes no more than a callee could leave behind, such as
-"unknown" for an elapsed-time budget. Per-callee summaries (the callee's exit
+a required method like `Signatures::after_call`, so no state can skip it by
+omission. `ModuleVerifier` has no state beyond the frame and does nothing. The
+result must assume no more than any callee could leave behind. Resetting to
+`entry` does that only if `entry` also describes every state a callee may
+return in: true for open channels (entry "none open"; a helper then cannot
+play on a channel its caller opened), false for accumulating state such as an
+elapsed-time budget (entry "0 elapsed", while a callee may spend any amount),
+which must become "unknown" instead. A custom call-like rule must use the call
+helpers or call `Signatures::after_call` itself. Per-callee summaries (the callee's exit
 state, computed in call-graph order) are a possible future extension.
 
 ## The engine

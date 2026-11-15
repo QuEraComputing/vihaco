@@ -272,7 +272,10 @@ The standard capabilities, all provided by `ModuleVerifier`:
 instruction. For instructions several dialects share there are helpers that
 keep rules identical: `call_effect` and `return_effect`, `direct_call_effect`
 and `indirect_call_effect`, `load_local` and `store_local`, `string_constant`,
-`function_constant`, and `pop_array`.
+`function_constant`, and `pop_array`. A call-like instruction must use `call_effect`,
+`direct_call_effect` or `indirect_call_effect`, or call `Signatures::after_call`
+after its operand effect, so component state is reset after the call (see
+[Component state](#component-state)).
 
 A conflicting slot, left where two paths disagreed about a type, never
 satisfies a typed pop. Named types are nominal: `type 0` satisfies only itself.
@@ -339,6 +342,11 @@ impl ComponentState for Open {
         self.0.retain(|channel| incoming.0.contains(channel));
         Ok(self.0.len() != before)
     }
+
+    /// Nothing is assumed open after a call, the same as at a function entry.
+    fn after_call(&mut self, _callee: Option<u32>, entry: &Self) {
+        self.clone_from(entry);
+    }
 }
 
 impl Channels for WithState<'_, Open> {
@@ -371,8 +379,9 @@ machine whose components each add state combines them as a tuple.
 Component state does not flow through calls. Each function is verified
 separately from the entry state, so the entry state must assume nothing a
 caller might not have set up (here: no channels open). After a call, the
-caller's state is reset to the entry state (`ComponentState::after_call`'s
-default), because the callee may have changed anything:
+caller's state becomes `ComponentState::after_call`, which every state must
+define: the callee may have changed anything, so the result must assume no
+more than any callee could leave behind. `Open` resets to the entry state:
 
 ```text
 open 1
@@ -381,9 +390,19 @@ play 1            // rejected: channel 1 is not open
 ```
 
 A helper therefore cannot rely on a channel its caller opened; open channels
-in the function that plays on them, or after the call. A component can
-override `after_call` with a different approximation, as long as it assumes
-no more than any callee could leave behind. Per-callee summaries are a
-possible future extension.
+in the function that plays on them, or after the call.
+
+Resetting to the entry state is right for `Open` because "no channels open"
+is safe whatever the callee did. It is wrong for a state that accumulates,
+such as the time elapsed against a deadline: its entry state is "0 elapsed",
+but a callee may wait any amount, so resetting would accept
+`wait 2; call 0, @helper; deadline 10` even when the helper waits 50. Such a
+state must become "unknown" after a call. That is why `after_call` has no
+default: there is no answer that is sound for every state.
+
+The call helpers, `call_effect` and `indirect_call_effect`, apply
+`after_call` for you. A custom call-like rule must use them, or call
+`Signatures::after_call` itself after its operand effect. Per-callee
+summaries are a possible future extension.
 
 Next, [give your instructions a source spelling](/guide/parser).

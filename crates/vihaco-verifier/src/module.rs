@@ -463,12 +463,9 @@ impl AbstractState for ModuleVerifier<'_> {
 /// to [`WithState::new`]. Because any function may be called from anywhere,
 /// the entry state must assume nothing a caller might not have established:
 /// typically the empty state (no channels open, nothing elapsed). After a
-/// call, the caller's state becomes [`after_call`](Self::after_call), which by
-/// default resets it to that entry state, so nothing the caller established
-/// is assumed to survive the call. That is sound but strict: a helper cannot
-/// rely on a channel its caller opened, and the caller must reopen channels
-/// after a call. A component can override `after_call` with a better
-/// approximation; per-callee summaries are a possible future extension.
+/// call, the caller's state becomes [`after_call`](Self::after_call), which
+/// every component state defines, because what is sound depends on the
+/// state; per-callee summaries are a possible future extension.
 pub trait ComponentState: Clone {
     /// Join `incoming` into `self`, the state saved at a join point.
     ///
@@ -482,21 +479,31 @@ pub trait ComponentState: Clone {
     /// function for a direct call and `None` for an indirect one; `entry` is
     /// the state every function starts from.
     ///
-    /// The default resets `self` to `entry`: the callee may have changed
-    /// anything, so nothing the caller established is assumed afterwards.
-    /// Override it only with a state that is at most as assuming as
-    /// whatever any callee could leave behind (for example "unknown" for an
-    /// elapsed-time budget).
-    fn after_call(&mut self, callee: Option<u32>, entry: &Self) {
-        let _ = callee;
-        self.clone_from(entry);
-    }
+    /// The result must assume no more than any callee could leave behind.
+    /// Resetting to `entry` (`self.clone_from(entry)`) does that only when
+    /// `entry` also describes every state a callee may return in. It does
+    /// for a set of open channels whose entry is "none open": whatever the
+    /// callee opened or closed, assuming none open is safe. It does not for
+    /// an accumulating quantity such as elapsed time, whose entry is "0
+    /// elapsed" while a callee may spend any amount; resetting it would
+    /// accept `wait 2; call @helper; deadline 10` even if the helper waits
+    /// 50, so such a state must become "unknown" instead.
+    ///
+    /// There is no default, so a state cannot get this wrong by omission
+    /// (like [`Signatures::after_call`]). It is applied by the call helpers
+    /// ([`call_effect`](crate::call_effect),
+    /// [`indirect_call_effect`](crate::indirect_call_effect)); a custom
+    /// call-like rule must use them or call [`Signatures::after_call`]
+    /// itself.
+    fn after_call(&mut self, callee: Option<u32>, entry: &Self);
 }
 
 impl ComponentState for () {
     fn join(&mut self, _: &()) -> Result<bool, VerifyError> {
         Ok(false)
     }
+
+    fn after_call(&mut self, _: Option<u32>, _: &()) {}
 }
 
 macro_rules! tuple_component_state {
@@ -553,6 +560,11 @@ tuple_component_state!(A 0, B 1, C 2, D 3);
 ///         let before = self.0.len();
 ///         self.0.retain(|c| incoming.0.contains(c));
 ///         Ok(self.0.len() != before)
+///     }
+///
+///     /// Nothing is assumed open after a call, as at a function entry.
+///     fn after_call(&mut self, _callee: Option<u32>, entry: &Self) {
+///         self.clone_from(entry);
 ///     }
 /// }
 ///

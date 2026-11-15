@@ -11,9 +11,10 @@ use vihaco_module::module::{
     Signature, StructInfo,
 };
 use vihaco_verifier::{
-    AbstractState, ComponentState, Constants, DiagnosticKind, Flow, Frame, Locals, ModuleVerifier,
-    NamedTypes, OperandStack, Signatures, StructTypes, Type, TypeSlot, TypedSlot, Value, Verify,
-    VerifyError, VerifyOptions, WithState, call_effect, return_effect, verify_module,
+    AbstractState, ComponentState, Constants, DiagnosticKind, Flow, Frame, FunctionType, Locals,
+    ModuleVerifier, NamedTypes, OperandStack, Signatures, StructTypes, Type, TypeSlot, TypedSlot,
+    Value, Verify, VerifyError, VerifyOptions, WithState, call_effect, indirect_call_effect,
+    return_effect, verify_module,
 };
 
 /// A fixture dialect written only against the standard capabilities.
@@ -29,6 +30,8 @@ enum Op {
     Store(u32, Type),
     /// Call the function starting at an address, passing `arity` arguments.
     Call { arity: u32, address: u32 },
+    /// Pop a function reference and call it with the given signature.
+    CallIndirect(FunctionType),
     /// Return the top `n` operands.
     Ret(u32),
     /// Pop a `struct s` and push the type of its field `slot`.
@@ -75,6 +78,7 @@ where
                 let callee = cx.function_at(*address)?;
                 call_effect(cx, callee, *arity as usize)?;
             }
+            CallIndirect(ty) => indirect_call_effect(cx, ty)?,
             Ret(count) => return_effect(cx, *count as usize)?,
             GetField(struct_id, slot) => {
                 cx.pop_expect(&Type::Struct(*struct_id))?;
@@ -687,6 +691,11 @@ impl ComponentState for Open {
         self.0.retain(|channel| incoming.0.contains(channel));
         Ok(self.0.len() != before)
     }
+
+    /// Nothing is assumed open after a call, the same as at a function entry.
+    fn after_call(&mut self, _callee: Option<u32>, entry: &Self) {
+        self.clone_from(entry);
+    }
 }
 
 impl Channels for WithState<'_, Open> {
@@ -815,13 +824,17 @@ fn component_state_established_before_a_call_does_not_survive_it() {
     use Machine::{Op as O, Seq as S};
     // `@main` at 0..4 calls `@helper` at 4..6, which runs `helper` (one
     // instruction) and returns.
-    let verify = |main: [Machine; 3], helper: Machine| {
+    let verify = |main: &[Machine], helper: Machine| {
         let mut code = main.to_vec();
         code.push(O(Ret(0)));
+        let at = code.len() as u32;
         code.extend([helper, O(Ret(0))]);
         let module = module(
             code,
-            vec![decl(&[], &[], &[], (0, 4)), decl(&[], &[], &[], (4, 6))],
+            vec![
+                decl(&[], &[], &[], (0, at)),
+                decl(&[], &[], &[], (at, at + 2)),
+            ],
         );
         let mut cx = ModuleVerifier::new(&module).with_state(Open::default());
         cx.verify(&module.code, VerifyOptions::default())
@@ -845,21 +858,54 @@ fn component_state_established_before_a_call_does_not_survive_it() {
     // The callee closes the channel the caller opened: playing after the call
     // must be rejected.
     assert_eq!(
-        verify([S(Seq::Open(1)), call(), S(Seq::Play(1))], S(Seq::Close(1))).unwrap_err(),
+        verify(
+            &[S(Seq::Open(1)), call(), S(Seq::Play(1))],
+            S(Seq::Close(1))
+        )
+        .unwrap_err(),
         [not_open(0, 2)]
     );
     // The caller cannot see the callee, so it forgets the channel either way.
     assert_eq!(
-        verify([S(Seq::Open(1)), call(), S(Seq::Play(1))], S(Seq::Open(1))).unwrap_err(),
+        verify(&[S(Seq::Open(1)), call(), S(Seq::Play(1))], S(Seq::Open(1))).unwrap_err(),
         [not_open(0, 2)]
     );
     // Nor does the callee see the caller's channel: it starts from the entry.
     assert_eq!(
-        verify([S(Seq::Open(1)), call(), S(Seq::Open(1))], S(Seq::Play(1))).unwrap_err(),
+        verify(&[S(Seq::Open(1)), call(), S(Seq::Open(1))], S(Seq::Play(1))).unwrap_err(),
         [not_open(1, 4)]
     );
     // State established after the call is kept.
-    verify([call(), S(Seq::Open(1)), S(Seq::Play(1))], S(Seq::Close(1))).unwrap();
+    verify(
+        &[call(), S(Seq::Open(1)), S(Seq::Play(1))],
+        S(Seq::Close(1)),
+    )
+    .unwrap();
+
+    // An indirect call resets the caller's state the same way.
+    let call_indirect = || {
+        O(CallIndirect(FunctionType {
+            params: vec![],
+            results: vec![],
+        }))
+    };
+    let open_call_play = [
+        S(Seq::Open(1)),
+        O(Const(Type::FunctionRef)),
+        call_indirect(),
+        S(Seq::Play(1)),
+    ];
+    assert_eq!(
+        verify(&open_call_play, S(Seq::Open(1))).unwrap_err(),
+        [not_open(0, 3)]
+    );
+    let call_open_play = [
+        O(Const(Type::FunctionRef)),
+        call_indirect(),
+        S(Seq::Open(1)),
+        S(Seq::Play(1)),
+    ];
+    verify(&call_open_play, S(Seq::Close(1))).unwrap();
 }
 
 #[test]
@@ -870,6 +916,7 @@ fn component_states_combine_as_tuples_and_fail_atomically() {
         fn join(&mut self, _: &Self) -> Result<bool, VerifyError> {
             Err(VerifyError::rule("cannot join"))
         }
+        fn after_call(&mut self, _: Option<u32>, _: &Self) {}
     }
     let mut saved = (Open(BTreeSet::from([1, 2])), Open(BTreeSet::from([3])));
     let incoming = (Open(BTreeSet::from([1])), Open(BTreeSet::from([3])));
@@ -882,7 +929,7 @@ fn component_states_combine_as_tuples_and_fail_atomically() {
     assert!(saved.join(&(Open(BTreeSet::from([1])), Fails)).is_err());
     assert_eq!(saved, before, "a failed join leaves the saved state");
 
-    // After a call, each element resets to its own entry state by default.
+    // After a call, each element applies its own `after_call`.
     let mut state = (Open(BTreeSet::from([1, 2])), Open(BTreeSet::from([3])));
     let entry = (Open(BTreeSet::new()), Open(BTreeSet::from([9])));
     state.after_call(Some(0), &entry);

@@ -344,6 +344,11 @@ impl ComponentState for OpenChannels {
         self.0.retain(|channel| incoming.0.contains(channel));
         Ok(self.0.len() != before)
     }
+
+    /// Nothing is assumed open after a call, the same as at a function entry.
+    fn after_call(&mut self, _callee: Option<u32>, entry: &Self) {
+        self.clone_from(entry);
+    }
 }
 
 impl Channels for WithState<'_, OpenChannels> {
