@@ -17,7 +17,9 @@
 
 use crate::cpu;
 use vihaco_abi::{Type, Verify};
-use vihaco_verifier::{NamedTypes, OperandStack, StructTypes, TypedSlot, pop_array, stack_effect};
+use vihaco_verifier::{
+    NamedTypes, OperandStack, StructTypes, TypedSlot, VerifyError, pop_array, stack_effect,
+};
 
 /// Fixed-signature rules: `Instruction: [inputs] -> [outputs]`, inputs bottom
 /// first.
@@ -90,6 +92,16 @@ compare!(F64: EqF64, NeF64, LtF64, GtF64, LeF64, GeF64);
 
 // ---------------------------------------------------------------- arrays
 
+/// The type of an array of `elem`, which must stay within
+/// [`Type::MAX_ARRAY_DEPTH`] like every type a program can write.
+fn array_of(elem: &Type) -> Result<Type, VerifyError> {
+    Type::nested_array(1, elem.clone()).map_err(|error| {
+        VerifyError::rule(format!(
+            "cannot create an array of this element type: {error}"
+        ))
+    })
+}
+
 /// `[T × N] -> [array T]`.
 impl<C> Verify<C> for cpu::ArrayNew
 where
@@ -98,11 +110,12 @@ where
 {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
         let cpu::ArrayNew(elem, count) = self;
+        let array = array_of(elem)?;
         // Bounded: one underflow, however large the count.
         for value in cx.pop_n(*count as usize)? {
             value.expect(elem)?;
         }
-        cx.push(C::Slot::of_type(Type::array(elem.clone())));
+        cx.push(C::Slot::of_type(array));
         Ok(())
     }
 }
@@ -114,7 +127,8 @@ where
     C::Slot: TypedSlot,
 {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
-        stack_effect(cx, [Type::U64], [Type::array(self.0.clone())])
+        let array = array_of(&self.0)?;
+        stack_effect(cx, [Type::U64], [array])
     }
 }
 
@@ -446,6 +460,24 @@ mod tests {
             assert_eq!(check(&cpu::HeapDealloc, &[object]), ok(&[]));
         }
         assert_eq!(check(&cpu::HeapDealloc, &[U64]), mismatch("heap", "u64"));
+    }
+
+    #[test]
+    fn arrays_cannot_nest_past_the_depth_limit() {
+        let max = Type::MAX_ARRAY_DEPTH;
+        let deepest = Type::nested_array(max - 1, F64).unwrap();
+        assert_eq!(
+            check(&cpu::ArrayReserve(deepest.clone()), &[U64]).map(|types| types.len()),
+            Ok(1)
+        );
+        let at_limit = Type::array(deepest);
+        let too_deep = Err(DiagnosticKind::Rule(
+            "cannot create an array of this element type: array type nested 33 levels deep; \
+             at most 32 are allowed"
+                .into(),
+        ));
+        assert_eq!(check(&cpu::ArrayNew(at_limit.clone(), 0), &[]), too_deep);
+        assert_eq!(check(&cpu::ArrayReserve(at_limit), &[U64]), too_deep);
     }
 
     #[test]
