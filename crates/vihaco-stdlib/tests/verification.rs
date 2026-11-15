@@ -758,6 +758,114 @@ fn indirect_calls_are_typed_by_their_signature_operand() {
 }
 
 #[test]
+fn indirect_call_signatures_may_name_structs_and_named_types() {
+    let target = ["P::load 0", "C::unwrap @location", "P::ret 1"];
+    let program = |main: &'static [&'static str]| {
+        [
+            main_fn(&[], &["u64"], &[], main),
+            Function {
+                name: "target",
+                params: &["type 0"],
+                ret: &["u64"],
+                locals: &[],
+                body: &target,
+            },
+        ]
+    };
+    let named = program(&[
+        "P::const_u64 7",
+        "C::wrap @location",
+        "P::const_fn_ref @target",
+        "P::call_indirect (type @location) -> u64",
+        "P::ret 1",
+    ]);
+    let numeric = program(&[
+        "P::const_u64 7",
+        "C::wrap 0",
+        "P::const_fn_ref @target",
+        "P::call_indirect (type 0) -> u64",
+        "P::ret 1",
+    ]);
+    assert_eq!(verify(&named), []);
+    // Names resolve at load time to the same indices as the numeric form.
+    assert_eq!(
+        format!("{:?}", load(&named).unwrap().code),
+        format!("{:?}", load(&numeric).unwrap().code)
+    );
+    let code = format!("{:?}", load(&named).unwrap().code);
+    assert!(code.contains("params: [Named(0)]"), "{code}");
+
+    // A name the signature passes to the verifier is checked against the
+    // tables: `lane` is a different named type, so the argument mismatches.
+    let wrong = program(&[
+        "P::const_u64 7",
+        "C::wrap @location",
+        "P::const_fn_ref @target",
+        "P::call_indirect (type @lane) -> u64",
+        "P::ret 1",
+    ]);
+    assert_eq!(verify(&wrong), [(0, 3, mismatch("type 1", "type 0"))]);
+
+    // Structs resolve too, at any nesting depth.
+    let structs = [main_fn(
+        &["struct 0", "fn"],
+        &["array struct 1"],
+        &[],
+        &[
+            "P::load 0",
+            "P::load 1",
+            "P::call_indirect (struct @Point) -> array struct @Pair",
+            "P::ret 1",
+        ],
+    )];
+    assert_eq!(verify(&structs), []);
+
+    // Unknown names are load-time errors.
+    for (signature, message) in [
+        ("(struct @Line) -> u64", "undefined struct `Line`"),
+        ("(type @zone) -> u64", "undefined named type `zone`"),
+    ] {
+        let body = format!("P::call_indirect {signature}");
+        let main = [
+            "P::const_u64 7",
+            "C::wrap @location",
+            "P::const_fn_ref @target",
+            body.as_str(),
+            "P::ret 1",
+        ];
+        let error = load(&[
+            main_fn(&[], &["u64"], &[], &main),
+            Function {
+                name: "target",
+                params: &["type 0"],
+                ret: &["u64"],
+                locals: &[],
+                body: &target,
+            },
+        ])
+        .unwrap_err();
+        assert!(format!("{error:#}").contains(message), "{error:#}");
+    }
+
+    // At runtime the resolved signature matches the target's declaration.
+    #[cfg(feature = "program-image-execution")]
+    {
+        use vihaco_cpu::CPU;
+        use vihaco_stdlib::{ExecutionState, Image, Loadable, Verified};
+
+        let mut loaded = Loadable::new(
+            Image::new(Verified::new(load(&named).unwrap()).unwrap()),
+            Machine {
+                execution: ExecutionState::new(),
+                cpu: CPU::default(),
+            },
+        );
+        loaded.execute(&[]).unwrap();
+        assert_eq!(loaded.machine().execution.stack(), [7]);
+    }
+}
+
+#[test]
 fn every_error_in_a_module_is_reported_in_address_order() {
     let body = [
         "P::const_f64 1.0", // 0

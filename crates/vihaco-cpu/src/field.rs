@@ -8,7 +8,9 @@
 //! by struct-table index (`struct_new 0`, `get_field 0, 1`). Named types are
 //! written the same way (`wrap @location`, `wrap 0`). Array element types are
 //! ordinary types, where a struct or named type may also be named:
-//! `array_new struct @Point, 4`, `array_get type @location`. Every form is
+//! `array_new struct @Point, 4`, `array_get type @location`, and so may the
+//! types in a `call_indirect` signature: `call_indirect (struct @Point) -> u64`.
+//! Every form is
 //! resolved against the section's struct table through [`StructLookup`] and
 //! its named-type table through [`NamedTypeLookup`] when the program is
 //! lowered, so the [`StructLayout`], [`FieldSlot`], named-type index, and
@@ -17,7 +19,7 @@
 
 use crate::{FieldSlot, StructLayout, cpu};
 use chumsky::{error::Simple, extra, prelude::*};
-use vihaco_abi::{Lower, Syntax, Type};
+use vihaco_abi::{FunctionType, Lower, Syntax, Type};
 use vihaco_module::loader::MetadataLoweringContext;
 use vihaco_parser::{Ident, Parse};
 
@@ -77,6 +79,37 @@ impl TypeOperand {
             elem => (depth <= Type::MAX_ARRAY_DEPTH)
                 .then(|| (0..depth).fold(elem, |ty, _| TypeOperand::Array(Box::new(ty)))),
         }
+    }
+}
+
+/// A function type as written in source, `(struct @Point, type @location) ->
+/// u64`: a [`FunctionType`] whose parameter and result types may name structs
+/// and named types, as a [`TypeOperand`] does. Numeric forms (`struct 0`,
+/// `type 0`) are accepted too. Lowering resolves every name and checks every
+/// reference against the tables.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FunctionTypeOperand {
+    /// Parameter types.
+    pub params: Vec<TypeOperand>,
+    /// Result types.
+    pub results: Vec<TypeOperand>,
+}
+
+impl<'src> Parse<'src> for FunctionTypeOperand {
+    fn parser() -> impl Parser<'src, &'src str, Self, extra::Err<Simple<'src, char>>> {
+        // The same shape as `FunctionType`'s parser, over type operands.
+        let ws = one_of(" \t").repeated();
+        let ty = TypeOperand::parser().boxed();
+        let list = ty
+            .clone()
+            .separated_by(just(',').padded_by(ws))
+            .collect::<Vec<_>>()
+            .padded_by(ws)
+            .delimited_by(just('('), just(')'));
+        let results = list.clone().or(ty.map(|ty| vec![ty]));
+        list.then_ignore(just("->").padded_by(ws))
+            .then(results)
+            .map(|(params, results)| FunctionTypeOperand { params, results })
     }
 }
 
@@ -283,6 +316,31 @@ fn resolve_element_type<C: StructLookup + NamedTypeLookup + ?Sized>(
         Type::MAX_ARRAY_DEPTH
     );
     Ok(elem)
+}
+
+/// Resolve every type of a `call_indirect` signature (see [`resolve_type`]).
+pub fn resolve_function_type<C: StructLookup + NamedTypeLookup + ?Sized>(
+    operand: FunctionTypeOperand,
+    context: &C,
+) -> eyre::Result<FunctionType> {
+    let resolve = |types: Vec<TypeOperand>| -> eyre::Result<Vec<Type>> {
+        types
+            .into_iter()
+            .map(|ty| resolve_type(ty, context))
+            .collect()
+    };
+    Ok(FunctionType {
+        params: resolve(operand.params)?,
+        results: resolve(operand.results)?,
+    })
+}
+
+#[cfg(not(feature = "program-image-execution"))]
+impl<C: StructLookup + NamedTypeLookup + ?Sized> Lower<C> for cpu::IndirectCall<Syntax> {
+    type Runtime = cpu::IndirectCall;
+    fn lower(self, context: &mut C) -> eyre::Result<Self::Runtime> {
+        Ok(cpu::IndirectCall(resolve_function_type(self.0, context)?))
+    }
 }
 
 impl<C: StructLookup + NamedTypeLookup + ?Sized> Lower<C> for cpu::ArrayNew<Syntax> {
@@ -538,6 +596,42 @@ mod tests {
         );
         assert!(lower::<cpu::ArrayGet<Syntax>>("array_get type 3").is_err());
         assert!(lower::<cpu::ArrayGet<Syntax>>("array_get array type 3").is_err());
+    }
+
+    #[test]
+    fn function_types_resolve_names_and_check_numeric_references() {
+        let lower_signature = |text: &str| {
+            FunctionTypeOperand::parser()
+                .then_ignore(end())
+                .parse(text)
+                .into_result()
+                .map_err(|errors| eyre::eyre!("{errors:?}"))
+                .and_then(|operand| resolve_function_type(operand, &Points))
+        };
+        assert_eq!(
+            lower_signature("(struct @Point, type @location) -> u64").unwrap(),
+            FunctionType::new([Type::Struct(0), Type::Named(0)], [Type::U64])
+        );
+        assert_eq!(
+            lower_signature("(struct 0, array type 0) -> (struct @Unit, f64)").unwrap(),
+            FunctionType::new(
+                [Type::Struct(0), Type::array(Type::Named(0))],
+                [Type::Struct(1), Type::F64]
+            )
+        );
+        assert_eq!(
+            lower_signature("() -> ()").unwrap(),
+            FunctionType::new([], [])
+        );
+        let err = lower_signature("(struct @Line) -> ()").unwrap_err();
+        assert!(err.to_string().contains("undefined struct `Line`"), "{err}");
+        let err = lower_signature("() -> type @lane").unwrap_err();
+        assert!(
+            err.to_string().contains("undefined named type `lane`"),
+            "{err}"
+        );
+        assert!(lower_signature("(struct 7) -> ()").is_err());
+        assert!(lower_signature("() -> array type 3").is_err());
     }
 
     #[test]

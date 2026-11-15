@@ -7,7 +7,7 @@
 pub mod cpu {
     use crate::{
         FieldSlot, StructLayout, Word,
-        field::{FieldOperand, NamedTypeOperand, StructOperand, TypeOperand},
+        field::{FieldOperand, FunctionTypeOperand, NamedTypeOperand, StructOperand, TypeOperand},
         literal::{F32Literal, F64Literal, I32Literal, I64Literal},
         operand::{StringOperand, Target},
     };
@@ -35,9 +35,11 @@ pub mod cpu {
     /// Call the function referenced by the top operand (`fn`), passing the
     /// arguments below it. The operand is the expected signature, written
     /// `call_indirect (u64, f64) -> u64`; the call fails at runtime unless the
-    /// referenced function declares exactly this signature.
+    /// referenced function declares exactly this signature. Structs and named
+    /// types in it may be named (`call_indirect (struct @Point) -> type
+    /// @location`) and are resolved when the program is lowered.
     #[instruction]
-    #[pattern = "'call_indirect $0"]
+    #[pattern = "'call_indirect $0:FunctionTypeOperand"]
     pub struct IndirectCall(pub FunctionType);
 
     #[instruction]

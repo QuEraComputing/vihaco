@@ -9,6 +9,7 @@ use super::{
 };
 
 use vihaco_abi::{Lower, Syntax};
+use vihaco_cpu::field::{NamedTypeLookup, StructLookup, resolve_function_type};
 use vihaco_module::loader::MetadataLoweringContext;
 
 /// Resolve labels in the function currently being lowered.
@@ -90,6 +91,17 @@ impl<C: FunctionLookup + ?Sized> Lower<C> for program::Call<Syntax> {
             Target::Symbol(name) => context.function_address(name.as_str())?,
         };
         Ok(program::Call(self.0, address))
+    }
+}
+
+// Structs and named types in the expected signature may be named; they are
+// resolved against the section's tables like the CPU's type operands.
+impl<C: StructLookup + NamedTypeLookup + ?Sized> Lower<C> for program::IndirectCall<Syntax> {
+    type Runtime = program::IndirectCall;
+    fn lower(self, context: &mut C) -> eyre::Result<Self::Runtime> {
+        Ok(program::IndirectCall(resolve_function_type(
+            self.0, context,
+        )?))
     }
 }
 
