@@ -319,17 +319,26 @@ pub struct Diagnostic {
     pub severity: Severity,
     /// What was found.
     pub kind: DiagnosticKind,
+    /// How to fix it, when the rule knows: `use `load_f64 0` or `load 0``.
+    /// Set with [`VerifyError::with_help`].
+    pub help: Option<String>,
+    /// Context the rule added around a structured error with
+    /// `eyre::WrapErr::wrap_err`, outermost first (for example
+    /// `sequencer channel 3 argument`).
+    pub context: Vec<String>,
 }
 
 impl Diagnostic {
     /// A diagnostic with the severity of its kind (see
-    /// [`DiagnosticKind::severity`]).
+    /// [`DiagnosticKind::severity`]), no help and no context.
     pub fn new(function: u32, address: u32, kind: DiagnosticKind) -> Self {
         Self {
             function,
             address,
             severity: kind.severity(),
             kind,
+            help: None,
+            context: Vec::new(),
         }
     }
 
@@ -392,6 +401,12 @@ impl fmt::Display for Rendered<'_> {
         renderer.location(f, self.diagnostic.address)?;
         if let Some(instruction) = renderer.instruction(self.diagnostic.address) {
             write!(f, ": {instruction}")?;
+        }
+        for context in &self.diagnostic.context {
+            write!(f, "\n  = note: {context}")?;
+        }
+        if let Some(help) = &self.diagnostic.help {
+            write!(f, "\n  = help: {help}")?;
         }
         Ok(())
     }
@@ -672,8 +687,7 @@ impl<'a> Renderer<'a> {
             ),
             Some(Role::Local(index)) => write!(
                 f,
-                "local {index} is declared {found_text}, but {} accesses it as {expected} \
-                 (use the access for {found_text}, or the untyped one)",
+                "local {index} is declared {found_text}, but {} accesses it as {expected}",
                 self.who()
             ),
             Some(Role::StoredValue(index)) => write!(
@@ -728,12 +742,25 @@ fn plural(count: usize) -> &'static str {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct VerifyError {
     kind: DiagnosticKind,
+    help: Option<String>,
 }
 
 impl VerifyError {
     /// An error of the given kind.
     pub fn new(kind: DiagnosticKind) -> Self {
-        Self { kind }
+        Self { kind, help: None }
+    }
+
+    /// Say how to fix the error; the diagnostic shows it as
+    /// `= help: ...` ([`Diagnostic::help`]).
+    pub fn with_help(mut self, help: impl fmt::Display) -> Self {
+        self.help = Some(help.to_string());
+        self
+    }
+
+    /// How to fix the error, if the rule said.
+    pub fn help(&self) -> Option<&str> {
+        self.help.as_deref()
     }
 
     /// A [`DiagnosticKind::StackUnderflow`]: the instruction needed `needed`
@@ -853,13 +880,27 @@ impl fmt::Display for VerifyError {
 
 impl std::error::Error for VerifyError {}
 
-/// The diagnostic kind for an error returned by a rule: the structured kind
-/// of a [`VerifyError`] (also when wrapped in context), otherwise
-/// [`DiagnosticKind::Rule`] with the error's message chain.
-pub(crate) fn classify(report: &eyre::Report) -> DiagnosticKind {
+/// The diagnostic for an error a rule returned at `address`: the structured
+/// kind and help of a [`VerifyError`], with any context the rule wrapped
+/// around it kept as [`Diagnostic::context`]; otherwise
+/// [`DiagnosticKind::Rule`] with the error's whole message chain.
+pub(crate) fn classify(function: u32, address: u32, report: &eyre::Report) -> Diagnostic {
     match report.downcast_ref::<VerifyError>() {
-        Some(error) => error.kind.clone(),
-        None => DiagnosticKind::Rule(format!("{report:#}")),
+        Some(error) => {
+            let mut diagnostic = Diagnostic::new(function, address, error.kind.clone());
+            diagnostic.help = error.help.clone();
+            diagnostic.context = report
+                .chain()
+                .take_while(|cause| cause.downcast_ref::<VerifyError>().is_none())
+                .map(ToString::to_string)
+                .collect();
+            diagnostic
+        }
+        None => Diagnostic::new(
+            function,
+            address,
+            DiagnosticKind::Rule(format!("{report:#}")),
+        ),
     }
 }
 
@@ -873,7 +914,7 @@ mod tests {
     fn reports_round_trip_through_eyre() {
         let report: eyre::Report = VerifyError::stack_underflow(2, 0).into();
         assert_eq!(
-            classify(&report),
+            classify(0, 0, &report).kind,
             DiagnosticKind::StackUnderflow {
                 needed: 2,
                 depth: 0
@@ -881,8 +922,41 @@ mod tests {
         );
         let report = eyre::eyre!("channel 3 is not open");
         assert_eq!(
-            classify(&report),
+            classify(0, 0, &report).kind,
             DiagnosticKind::Rule("channel 3 is not open".into())
+        );
+    }
+
+    /// Context a rule wraps around a structured error, and help it attaches,
+    /// are kept on the diagnostic and rendered after the location.
+    #[test]
+    fn wrapped_context_and_help_survive_classification() {
+        use eyre::WrapErr as _;
+        let error: eyre::Result<()> = Err(VerifyError::stack_underflow(1, 0)
+            .with_help("open the channel first")
+            .into());
+        let report = error
+            .wrap_err("sequencer channel 3 argument")
+            .wrap_err("while checking `play`")
+            .unwrap_err();
+        let diagnostic = classify(2, 7, &report);
+        assert_eq!(
+            diagnostic.kind,
+            DiagnosticKind::StackUnderflow {
+                needed: 1,
+                depth: 0
+            }
+        );
+        assert_eq!(
+            diagnostic.context,
+            ["while checking `play`", "sequencer channel 3 argument"]
+        );
+        assert_eq!(diagnostic.help.as_deref(), Some("open the channel first"));
+        assert_eq!(
+            diagnostic.to_string(),
+            "error: stack underflow: the instruction needs 1 operand, but the stack has 0\n  \
+             --> function 2, address 7\n  = note: while checking `play`\n  = note: sequencer \
+             channel 3 argument\n  = help: open the channel first"
         );
     }
 
@@ -995,8 +1069,7 @@ mod tests {
         };
         assert_eq!(
             message(0, 0, mismatch(Role::Local(0), Type::F64, Type::U64)),
-            "local 0 is declared u64, but `cpu.add_u64` accesses it as f64 (use the access for \
-             u64, or the untyped one)"
+            "local 0 is declared u64, but `cpu.add_u64` accesses it as f64"
         );
         assert_eq!(
             message(

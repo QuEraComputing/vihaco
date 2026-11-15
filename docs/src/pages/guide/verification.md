@@ -242,8 +242,9 @@ structs and named types by name, parameters and fields by name. A few examples:
 ```text
 error: argument 0 (p0) of @helper: expected u64, found f64
   --> @main+1 (address 1): execution::program::call 1, @helper
-error: local 0 is declared f64, but `execution::program::load_u64` accesses it as u64 (use the access for f64, or the untyped one)
+error: local 0 is declared f64, but `execution::program::load_u64` accesses it as u64
   --> @main+0 (address 0): execution::program::load_u64 0
+  = help: use `load_f64 0` or `load 0`
 error: operand stack depth differs where paths join: 1 from @main+3 (execution::program::br 6), 2 from @main+5 (falling through)
   --> @main+6 (address 6): execution::program::ret 1
 error: operand 0 of `cpu::cpu::add_u64`: expected u64, found u64 or f64 (paths disagree at join @main+5)
@@ -333,7 +334,11 @@ The standard capabilities, all provided by `ModuleVerifier`:
 
 `stack_effect(cx, [inputs], [outputs])` applies a fixed effect by hand, and
 `slot.check(&ty)` checks one slot. Errors from either carry a `Role` when the
-helper knows it; add one to your own with `error.with_role(Role::Operand(n))`.
+helper knows it; add one to your own with `error.with_role(Role::Operand(n))`,
+and a fix with `error.with_help("open the channel first")`. Context you wrap
+around a `VerifyError` with `eyre::WrapErr::wrap_err` is kept: it renders as
+`= note:` lines under the location, and the diagnostic's kind stays
+structured.
 For instructions several dialects share there are helpers that keep rules
 identical: `call_effect` and `return_effect`, `direct_call_effect` and
 `indirect_call_effect`, `load_local` and `store_local`, `struct_new_effect` and

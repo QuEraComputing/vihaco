@@ -84,13 +84,13 @@ macro_rules! locals {
     ($($load:ident, $store:ident => $ty:expr;)*) => {$(
         impl<C: Locals + TypedStack + ?Sized> Verify<C> for program::$load {
             fn verify(&self, cx: &mut C) -> eyre::Result<()> {
-                load_local(cx, self.0, $ty.as_ref())
+                load_local(cx, self.0, $ty.as_ref(), "load")
             }
         }
 
         impl<C: Locals + TypedStack + ?Sized> Verify<C> for program::$store {
             fn verify(&self, cx: &mut C) -> eyre::Result<()> {
-                store_local(cx, self.0, $ty.as_ref())
+                store_local(cx, self.0, $ty.as_ref(), "store")
             }
         }
     )*};
@@ -238,8 +238,7 @@ mod tests {
         };
         assert_eq!(
             message(&|cx| program::LoadF64(0).verify(cx)),
-            "local 0 is declared u64, but the instruction accesses it as f64 (use the access \
-             for u64, or the untyped one)"
+            "local 0 is declared u64, but the instruction accesses it as f64"
         );
         assert_eq!(
             message(&|cx| program::Store(0).verify(cx)),

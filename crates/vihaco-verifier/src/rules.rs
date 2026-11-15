@@ -79,15 +79,24 @@ where
 /// mnemonic names, which the local's declared type must be exactly
 /// ([`Role::Local`] otherwise); an untyped load (`load i`) passes `None` and
 /// pushes the local's declared type.
-pub fn load_local<C>(cx: &mut C, index: u32, expected: Option<&Type>) -> eyre::Result<()>
+///
+/// `untyped` is the dialect's untyped mnemonic (`load`), from which a
+/// mistyped access suggests the right one: `use `load_f64 0` or `load 0``.
+pub fn load_local<C>(
+    cx: &mut C,
+    index: u32,
+    expected: Option<&Type>,
+    untyped: &str,
+) -> eyre::Result<()>
 where
     C: Locals + TypedStack + ?Sized,
 {
     let local = cx.local(index)?.clone();
     if let Some(expected) = expected {
-        local
-            .check_exact(expected)
-            .map_err(|error| error.with_role(Role::Local(index)))?;
+        local.check_exact(expected).map_err(|error| {
+            let help = local_access_help(local.known_type(), untyped, index);
+            error.with_role(Role::Local(index)).with_help(help)
+        })?;
     }
     cx.push(local);
     Ok(())
@@ -99,16 +108,25 @@ where
 /// `None`. Either way the operand must satisfy the local's declared type
 /// ([`Role::StoredValue`] otherwise), and the local keeps that type: a store
 /// never retypes a local.
-pub fn store_local<C>(cx: &mut C, index: u32, expected: Option<&Type>) -> eyre::Result<()>
+///
+/// `untyped` is the dialect's untyped mnemonic (`store`), for the same
+/// suggestion [`load_local`] makes.
+pub fn store_local<C>(
+    cx: &mut C,
+    index: u32,
+    expected: Option<&Type>,
+    untyped: &str,
+) -> eyre::Result<()>
 where
     C: Locals + TypedStack + ?Sized,
 {
     let local = cx.local(index)?;
     let declared = match (expected, local.known_type()) {
         (Some(expected), _) => {
-            local
-                .check_exact(expected)
-                .map_err(|error| error.with_role(Role::Local(index)))?;
+            local.check_exact(expected).map_err(|error| {
+                let help = local_access_help(local.known_type(), untyped, index);
+                error.with_role(Role::Local(index)).with_help(help)
+            })?;
             expected.clone()
         }
         (None, Some(declared)) => declared.clone(),
@@ -123,6 +141,17 @@ where
     cx.pop_typed(&declared)
         .map_err(|error| error.with_role(Role::StoredValue(index)))?;
     Ok(())
+}
+
+/// `use `load_f64 0` or `load 0``: the typed access for the local's declared
+/// scalar type (`<untyped>_<type>`), or only the untyped one for other types.
+fn local_access_help(declared: Option<&Type>, untyped: &str, index: u32) -> String {
+    match declared {
+        Some(ty) if ty.is_scalar_word() => {
+            format!("use `{untyped}_{ty} {index}` or `{untyped} {index}`")
+        }
+        _ => format!("use `{untyped} {index}`"),
+    }
 }
 
 /// Push a string reference (`str`) to entry `index` of the string table, for

@@ -431,6 +431,8 @@ pub struct Diagnostic {
     pub address: u32,
     pub severity: Severity,   // Error or Warning
     pub kind: DiagnosticKind,
+    pub help: Option<String>, // `use `load_f64 0` or `load 0``, from the rule
+    pub context: Vec<String>, // what the rule wrapped around the error
 }
 
 pub enum DiagnosticKind {
@@ -502,7 +504,10 @@ form (``lowering @main+3 (address 6): undefined struct `@Line` ``), and so do
 runtime errors in the program-image loop (see [Enforcement](#enforcement)).
 
 - Standard capabilities return a `VerifyError` that maps to a structured kind;
-  any other error a rule returns becomes `Rule`.
+  any other error a rule returns becomes `Rule`. A rule may attach a fix with
+  `VerifyError::with_help` (rendered as `= help: ...`), and context it wraps
+  around a structured error with `eyre::WrapErr::wrap_err` is kept as
+  `Diagnostic::context` (rendered as `= note: ...` lines) rather than lost.
 - A rule error ends its block, so a block reports at most one rule error, and
   the block passes no state to its successors. Blocks with states from other
   paths still report; code reachable only through the failed block is not

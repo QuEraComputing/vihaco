@@ -1185,8 +1185,8 @@ fn diagnostics_name_types_roles_and_locations() {
     );
     assert_eq!(
         rendered_main(&["f64"], &["u64"], &[], &["P::load_u64 0", "P::ret 1"]),
-        "error: local 0 is declared f64, but `P::load_u64` accesses it as u64 (use the access \
-         for f64, or the untyped one)\n  --> @main+0 (address 0): P::load_u64 0"
+        "error: local 0 is declared f64, but `P::load_u64` accesses it as u64\n  --> @main+0 \
+         (address 0): P::load_u64 0\n  = help: use `load_f64 0` or `load 0`"
     );
     assert_eq!(
         rendered_main(&[], &["u64"], &[], &["P::const_f64 1.0", "P::ret 1"]),

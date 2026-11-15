@@ -670,13 +670,13 @@ mod program {
         ($($load:ident, $store:ident => $ty:expr;)*) => {$(
             impl<C: Locals + TypedStack + ?Sized> Verify<C> for cpu::$load {
                 fn verify(&self, cx: &mut C) -> eyre::Result<()> {
-                    load_local(cx, self.0, $ty.as_ref())
+                    load_local(cx, self.0, $ty.as_ref(), "load")
                 }
             }
 
             impl<C: Locals + TypedStack + ?Sized> Verify<C> for cpu::$store {
                 fn verify(&self, cx: &mut C) -> eyre::Result<()> {
-                    store_local(cx, self.0, $ty.as_ref())
+                    store_local(cx, self.0, $ty.as_ref(), "store")
                 }
             }
         )*};
@@ -833,8 +833,7 @@ mod program {
             // `helper` (address 1) takes one f64.
             assert_eq!(
                 message(&cpu::LoadF64(0), &[]),
-                "local 0 is declared u64, but the instruction accesses it as f64 (use the \
-                 access for u64, or the untyped one)"
+                "local 0 is declared u64, but the instruction accesses it as f64"
             );
             assert_eq!(
                 message(&cpu::Store(0), &[I64]),

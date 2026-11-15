@@ -407,11 +407,8 @@ where
         end,
         ref entry,
     } = *function;
-    let mut report = |address: u32, order: Order, kind: DiagnosticKind| {
-        found.push(Found {
-            diagnostic: Diagnostic::new(id, address, kind),
-            order,
-        });
+    let mut report = |order: Order, diagnostic: Diagnostic| {
+        found.push(Found { diagnostic, order });
     };
 
     if start > end || end as usize > code.len() {
@@ -421,11 +418,14 @@ where
             end,
             code_len,
         };
-        report(start, Order::Structure, kind);
+        report(Order::Structure, Diagnostic::new(id, start, kind));
         return None;
     }
     if start == end {
-        report(start, Order::FallOff, DiagnosticKind::MissingTerminator);
+        report(
+            Order::FallOff,
+            Diagnostic::new(id, start, DiagnosticKind::MissingTerminator),
+        );
         return Some(BTreeMap::new());
     }
 
@@ -436,23 +436,32 @@ where
         let address = start + i as u32;
         if !walk.reached[i] {
             if i == 0 || walk.reached[i - 1] {
-                report(address, Order::Structure, DiagnosticKind::Unreachable);
+                report(
+                    Order::Structure,
+                    Diagnostic::new(id, address, DiagnosticKind::Unreachable),
+                );
             }
             continue;
         }
         if let Flow::Jump(targets) = flow {
             if targets.is_empty() {
-                report(address, Order::Target, DiagnosticKind::EmptyJump);
+                report(
+                    Order::Target,
+                    Diagnostic::new(id, address, DiagnosticKind::EmptyJump),
+                );
             }
             for &target in targets.iter().filter(|&&t| !walk.contains(t)) {
                 let kind = DiagnosticKind::InvalidControlFlowTarget { target, start, end };
-                report(address, Order::Target, kind);
+                report(Order::Target, Diagnostic::new(id, address, kind));
             }
         }
     }
     let last = walk.len() - 1;
     if walk.reached[last] && walk.flows[last] == Flow::Next {
-        report(end - 1, Order::FallOff, DiagnosticKind::MissingTerminator);
+        report(
+            Order::FallOff,
+            Diagnostic::new(id, end - 1, DiagnosticKind::MissingTerminator),
+        );
     }
 
     // Phase 1: converge, discarding errors.
@@ -481,12 +490,12 @@ where
         if cut[leader] {
             let failing_at = replay[leader].as_ref().unwrap_or(saved);
             if let Err((at, error)) = walk.run_block(leader, failing_at, id, cx) {
-                report(start + at as u32, Order::Rule, classify(&error));
+                report(Order::Rule, classify(id, start + at as u32, &error));
             }
             continue;
         }
         match walk.run_block(leader, saved, id, cx) {
-            Err((at, error)) => report(start + at as u32, Order::Rule, classify(&error)),
+            Err((at, error)) => report(Order::Rule, classify(id, start + at as u32, &error)),
             Ok(exit) => {
                 let incoming = cx.snapshot();
                 let edge = walk.edge(exit);
@@ -497,7 +506,10 @@ where
                     if let Err(error) = C::join(&mut probe, &incoming, &at)
                         && !std::mem::replace(&mut mismatch_reported[succ], true)
                     {
-                        report(start + succ as u32, Order::Join, error.into_kind());
+                        report(
+                            Order::Join,
+                            Diagnostic::new(id, start + succ as u32, error.into_kind()),
+                        );
                     }
                 }
             }
