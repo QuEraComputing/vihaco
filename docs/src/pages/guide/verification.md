@@ -232,7 +232,9 @@ tables.
 tests that exercise runtime checks with deliberately ill-typed programs, for
 modules a trusted toolchain has already verified, and for module models the
 standard verifier doesn't cover. Keep it easy to find: it is the one place an
-unverified program can reach an image.
+unverified program can reach an image. (The low-level runner,
+`vihaco::execution_state::{execute, resume}`, runs a plain module without an
+image and without verification; reach for it only for trusted code.)
 
 ## Writing typing rules
 

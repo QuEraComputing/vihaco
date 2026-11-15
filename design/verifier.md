@@ -698,7 +698,10 @@ Settled in implementation (step 6):
   plain `&LocalModule`: they are the low-level runner that `Loadable` and
   custom owners build on, and the module type is also what `Dispatch` and
   `Step` receive. The runtime's own checks (heap tags, bounds, call
-  signatures) remain in force for code run through them.
+  signatures, frame and call-depth limits) remain in force for code run
+  through them. The `vihaco` facade does not re-export them at its root; they
+  stay reachable as `vihaco::execution_state::{execute, resume}`, documented
+  as the unverified runner, so the verified path is the obvious one.
 
 ## Placement
 

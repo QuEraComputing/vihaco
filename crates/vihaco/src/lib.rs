@@ -109,10 +109,14 @@ pub use runtime::{
 pub use vihaco_runtime::HasProgram;
 
 #[cfg(feature = "program-image-execution")]
-pub use vihaco_stdlib::{
-    ExecutionState, Image, Loadable,
-    execution_state::{execute, resume},
-};
+pub use vihaco_stdlib::{ExecutionState, Image, Loadable};
+
+/// The low-level runner, [`execute`](execution_state::execute) and
+/// [`resume`](execution_state::resume), which runs a plain module that has not
+/// been verified. Prefer [`Loadable`], whose [`Image`] requires a
+/// [`Verified`] module.
+#[cfg(feature = "program-image-execution")]
+pub use vihaco_stdlib::execution_state;
 
 /// Load-time verification: the engine, standard capabilities, diagnostics,
 /// [`ModuleVerifier`](verifier::ModuleVerifier), and

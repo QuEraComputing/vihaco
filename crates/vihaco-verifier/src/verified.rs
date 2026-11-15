@@ -19,8 +19,10 @@ use crate::stack::Frame;
 /// [`Verified::verify`], [`Verified::verify_with_state`]) and the explicit
 /// escape hatch [`Verified::assume_verified`]. Executable images take a
 /// `Verified` module (the stdlib `Image::new`, and through it `Loadable`), so
-/// a program cannot run without either passing verification or a greppable
-/// `assume_verified` at its construction site.
+/// a program cannot run **through an `Image` or `Loadable`** without either
+/// passing verification or a greppable `assume_verified` at its construction
+/// site. The stdlib's low-level runner (`execution_state::execute` and
+/// `resume`) takes a plain module and does not verify it.
 ///
 /// `Verified` gives shared access to the module through [`Deref`] and
 /// [`get`](Verified::get), but no mutable access: changing the module could

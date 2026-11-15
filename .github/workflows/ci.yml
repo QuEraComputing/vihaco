@@ -34,10 +34,10 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       # The author guide is also checked in its program-image configuration.
       # Facade opt-in forwards through stdlib to CPU and lower framework crates.
-      # `program-image-execution` implies `vihaco/verifier`, which also enables
-      # the verifier's composite integration test.
+      # `vihaco-verifier/typed-declarations` is test-only: it enables the
+      # verifier's composite integration test.
       - run: cargo clippy --workspace --exclude vihaco-doctests --all-targets --features vihaco/typed-declarations -- -D warnings
-      - run: cargo clippy --workspace --exclude vihaco-doctests --all-targets --features vihaco/program-image-execution -- -D warnings
+      - run: cargo clippy --workspace --exclude vihaco-doctests --all-targets --features vihaco/program-image-execution,vihaco-verifier/typed-declarations -- -D warnings
       - run: cargo clippy -p vihaco-doctests --all-targets --features program-image-execution -- -D warnings
       # Broken intra-doc links are errors, in each configuration that changes
       # the public API. `vihaco-doctests` is a dev-only crate with no API docs.
@@ -104,7 +104,7 @@ jobs:
       # `vihaco-doctests` crate) and runs the runnable ones.
       - run: cargo test --workspace --all-targets
       - run: cargo test --workspace --exclude vihaco-doctests --all-targets --features vihaco/typed-declarations
-      - run: cargo test --workspace --exclude vihaco-doctests --all-targets --features vihaco/program-image-execution
+      - run: cargo test --workspace --exclude vihaco-doctests --all-targets --features vihaco/program-image-execution,vihaco-verifier/typed-declarations
       - run: cargo test -p vihaco-doctests --all-targets --features program-image-execution
       - run: cargo test --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-off
       - run: cargo test --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-on -p cpu-direct
