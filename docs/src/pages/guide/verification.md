@@ -255,6 +255,17 @@ error: operand 0 of `cpu::cpu::add_u64`: expected u64, found u64 or f64 (paths d
 does this for you. A diagnostic's plain `Display` works without the module and
 shows indices instead (`struct 0`, `function 0, address 2`).
 
+The instruction text comes from `InstructionText`, which every `#[composite]`
+instruction set implements from its patterns (`set_field @Point.y`,
+`call 1, @helper`). Only rendering with names needs it: verifying, building
+images and running them put no `Display` or `InstructionText` bound on your
+instructions. A hand-written instruction set implements `InstructionText` to
+get instruction text in diagnostics; at runtime a `StepError` takes its text
+from `Dispatch::instruction_text`, which composites generate and hand-written
+machines may leave out (the error then shows the location alone). Metadata
+validation (`ProgramMetadata::validate`, `into_module`) does format types in
+its messages, so a custom type model there must be `Display + Clone`.
+
 A failing rule ends its basic block, so a block reports at most one rule error
 and code reachable only through it isn't analysed. A block that fails is
 checked against the paths that don't run through another failing block, so a
