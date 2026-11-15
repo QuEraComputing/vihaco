@@ -366,4 +366,22 @@ An embedder then verifies with `Verified::verify_with_state(module,
 Open::default(), options)`, which starts every function with that state. A
 machine whose components each add state combines them as a tuple.
 
+Component state does not flow through calls. Each function is verified
+separately from the entry state, so the entry state must assume nothing a
+caller might not have set up (here: no channels open). After a call, the
+caller's state is reset to the entry state (`ComponentState::after_call`'s
+default), because the callee may have changed anything:
+
+```text
+open 1
+call 0, @helper   // the caller's state is reset: channel 1 is no longer open
+play 1            // rejected: channel 1 is not open
+```
+
+A helper therefore cannot rely on a channel its caller opened; open channels
+in the function that plays on them, or after the call. A component can
+override `after_call` with a different approximation, as long as it assumes
+no more than any callee could leave behind. Per-callee summaries are a
+possible future extension.
+
 Next, [give your instructions a source spelling](/guide/parser).

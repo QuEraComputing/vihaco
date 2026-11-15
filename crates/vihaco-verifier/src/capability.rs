@@ -59,6 +59,19 @@ pub trait Signatures<Ty> {
     fn current_signature(&self) -> Result<&Signature<Ty>, VerifyError> {
         self.signature(self.current_function())
     }
+
+    /// Apply what a call does to state beyond the operand stack, after its
+    /// operand effect. `callee` is the called function for a direct call and
+    /// `None` for an indirect one. [`call_effect`] and
+    /// [`indirect_call_effect`](crate::indirect_call_effect) call this.
+    ///
+    /// The callee is verified separately, so the caller knows nothing about
+    /// what it did: a context with component state must forget whatever the
+    /// callee could have changed ([`WithState`](crate::WithState) applies
+    /// [`ComponentState::after_call`](crate::ComponentState::after_call)). A
+    /// context whose only state is the frame has nothing to do. There is no
+    /// default, so a context cannot skip this by omission.
+    fn after_call(&mut self, callee: Option<u32>);
 }
 
 /// Capability: the struct table, for `struct_new`, `get_field` and
@@ -125,7 +138,8 @@ pub trait Constants<V, Ty> {
 /// Apply the stack effect of a direct call to function `callee` passing
 /// `arguments` operands: check the count against the callee's declared
 /// parameters ([`DiagnosticKind::CallArityMismatch`]), pop the arguments and
-/// check each against its parameter type, then push the declared results.
+/// check each against its parameter type, then push the declared results,
+/// and finally apply [`Signatures::after_call`].
 ///
 /// [`DiagnosticKind::CallArityMismatch`]: crate::DiagnosticKind::CallArityMismatch
 pub fn call_effect<C>(cx: &mut C, callee: u32, arguments: usize) -> eyre::Result<()>
@@ -145,6 +159,7 @@ where
     for ty in signature.ret {
         cx.push(C::Slot::of_type(ty));
     }
+    cx.after_call(Some(callee));
     Ok(())
 }
 

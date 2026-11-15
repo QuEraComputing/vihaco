@@ -349,6 +349,11 @@ impl Signatures<Type> for ModuleVerifier<'_> {
     fn current_function(&self) -> u32 {
         self.frame.function()
     }
+
+    /// The frame is the only state, and the call's operand effect already
+    /// covers it: the callee cannot touch the caller's locals or the operands
+    /// below its arguments.
+    fn after_call(&mut self, _callee: Option<u32>) {}
 }
 
 impl StructTypes<Type> for ModuleVerifier<'_> {
@@ -451,6 +456,19 @@ impl AbstractState for ModuleVerifier<'_> {
 /// channels, joined by intersection) and verify with
 /// [`WithState<'_, YourState>`](WithState). Several components' states
 /// combine as a tuple.
+///
+/// # Calls
+///
+/// Every function is verified separately, starting from the entry state given
+/// to [`WithState::new`]. Because any function may be called from anywhere,
+/// the entry state must assume nothing a caller might not have established:
+/// typically the empty state (no channels open, nothing elapsed). After a
+/// call, the caller's state becomes [`after_call`](Self::after_call), which by
+/// default resets it to that entry state, so nothing the caller established
+/// is assumed to survive the call. That is sound but strict: a helper cannot
+/// rely on a channel its caller opened, and the caller must reopen channels
+/// after a call. A component can override `after_call` with a better
+/// approximation; per-callee summaries are a possible future extension.
 pub trait ComponentState: Clone {
     /// Join `incoming` into `self`, the state saved at a join point.
     ///
@@ -459,6 +477,20 @@ pub trait ComponentState: Clone {
     /// terminates: widen unbounded values (such as elapsed time) after a
     /// fixed number of joins.
     fn join(&mut self, incoming: &Self) -> Result<bool, VerifyError>;
+
+    /// The caller's state after a call returns. `callee` is the called
+    /// function for a direct call and `None` for an indirect one; `entry` is
+    /// the state every function starts from.
+    ///
+    /// The default resets `self` to `entry`: the callee may have changed
+    /// anything, so nothing the caller established is assumed afterwards.
+    /// Override it only with a state that is at most as assuming as
+    /// whatever any callee could leave behind (for example "unknown" for an
+    /// elapsed-time budget).
+    fn after_call(&mut self, callee: Option<u32>, entry: &Self) {
+        let _ = callee;
+        self.clone_from(entry);
+    }
 }
 
 impl ComponentState for () {
@@ -477,6 +509,11 @@ macro_rules! tuple_component_state {
                 $(changed |= joined.$index.join(&incoming.$index)?;)+
                 *self = joined;
                 Ok(changed)
+            }
+
+            /// Applies each element's own `after_call`.
+            fn after_call(&mut self, callee: Option<u32>, entry: &Self) {
+                $(self.$index.after_call(callee, &entry.$index);)+
             }
         }
     };
@@ -639,7 +676,7 @@ impl<S> Locals for WithState<'_, S> {
     }
 }
 
-impl<S> Signatures<Type> for WithState<'_, S> {
+impl<S: ComponentState> Signatures<Type> for WithState<'_, S> {
     fn function_count(&self) -> usize {
         self.verifier.function_count()
     }
@@ -654,6 +691,12 @@ impl<S> Signatures<Type> for WithState<'_, S> {
 
     fn current_function(&self) -> u32 {
         self.verifier.current_function()
+    }
+
+    /// Applies [`ComponentState::after_call`] to the component state.
+    fn after_call(&mut self, callee: Option<u32>) {
+        self.verifier.after_call(callee);
+        self.state.after_call(callee, &self.entry);
     }
 }
 

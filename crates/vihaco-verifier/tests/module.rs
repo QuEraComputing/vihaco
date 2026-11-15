@@ -673,6 +673,7 @@ fn unvalidated_frame_metadata_is_rejected_per_function() {
 /// A sequencer component's capability: channels must be opened before use.
 trait Channels {
     fn open(&mut self, channel: u32);
+    fn close(&mut self, channel: u32);
     fn require_open(&self, channel: u32) -> Result<(), VerifyError>;
 }
 
@@ -693,6 +694,10 @@ impl Channels for WithState<'_, Open> {
         self.state_mut().0.insert(channel);
     }
 
+    fn close(&mut self, channel: u32) {
+        self.state_mut().0.remove(&channel);
+    }
+
     fn require_open(&self, channel: u32) -> Result<(), VerifyError> {
         if self.state().0.contains(&channel) {
             Ok(())
@@ -706,6 +711,7 @@ impl Channels for WithState<'_, Open> {
 #[derive(Clone, Debug)]
 enum Seq {
     Open(u32),
+    Close(u32),
     Play(u32),
 }
 
@@ -713,6 +719,7 @@ impl<C: Channels + ?Sized> Verify<C> for Seq {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
         match self {
             Seq::Open(channel) => cx.open(*channel),
+            Seq::Close(channel) => cx.close(*channel),
             Seq::Play(channel) => cx.require_open(*channel)?,
         }
         Ok(())
@@ -804,6 +811,58 @@ fn a_machine_context_wraps_the_module_verifier_with_component_state() {
 }
 
 #[test]
+fn component_state_established_before_a_call_does_not_survive_it() {
+    use Machine::{Op as O, Seq as S};
+    // `@main` at 0..4 calls `@helper` at 4..6, which runs `helper` (one
+    // instruction) and returns.
+    let verify = |main: [Machine; 3], helper: Machine| {
+        let mut code = main.to_vec();
+        code.push(O(Ret(0)));
+        code.extend([helper, O(Ret(0))]);
+        let module = module(
+            code,
+            vec![decl(&[], &[], &[], (0, 4)), decl(&[], &[], &[], (4, 6))],
+        );
+        let mut cx = ModuleVerifier::new(&module).with_state(Open::default());
+        cx.verify(&module.code, VerifyOptions::default())
+            .map(drop)
+            .map_err(|rejection| {
+                rejection
+                    .diagnostics
+                    .into_iter()
+                    .map(|d| (d.function, d.address, d.kind))
+                    .collect::<Vec<_>>()
+            })
+    };
+    let call = || {
+        O(Call {
+            arity: 0,
+            address: 4,
+        })
+    };
+    let not_open = |function, address| (function, address, rule("channel 1 is not open"));
+
+    // The callee closes the channel the caller opened: playing after the call
+    // must be rejected.
+    assert_eq!(
+        verify([S(Seq::Open(1)), call(), S(Seq::Play(1))], S(Seq::Close(1))).unwrap_err(),
+        [not_open(0, 2)]
+    );
+    // The caller cannot see the callee, so it forgets the channel either way.
+    assert_eq!(
+        verify([S(Seq::Open(1)), call(), S(Seq::Play(1))], S(Seq::Open(1))).unwrap_err(),
+        [not_open(0, 2)]
+    );
+    // Nor does the callee see the caller's channel: it starts from the entry.
+    assert_eq!(
+        verify([S(Seq::Open(1)), call(), S(Seq::Open(1))], S(Seq::Play(1))).unwrap_err(),
+        [not_open(1, 4)]
+    );
+    // State established after the call is kept.
+    verify([call(), S(Seq::Open(1)), S(Seq::Play(1))], S(Seq::Close(1))).unwrap();
+}
+
+#[test]
 fn component_states_combine_as_tuples_and_fail_atomically() {
     #[derive(Clone, Debug, PartialEq)]
     struct Fails;
@@ -822,6 +881,12 @@ fn component_states_combine_as_tuples_and_fail_atomically() {
     let before = saved.clone();
     assert!(saved.join(&(Open(BTreeSet::from([1])), Fails)).is_err());
     assert_eq!(saved, before, "a failed join leaves the saved state");
+
+    // After a call, each element resets to its own entry state by default.
+    let mut state = (Open(BTreeSet::from([1, 2])), Open(BTreeSet::from([3])));
+    let entry = (Open(BTreeSet::new()), Open(BTreeSet::from([9])));
+    state.after_call(Some(0), &entry);
+    assert_eq!(state, entry);
 
     // The wrapper's snapshot join is atomic too: a frame depth mismatch
     // leaves the component state unchanged.

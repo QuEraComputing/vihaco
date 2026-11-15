@@ -43,12 +43,13 @@ where
 
 /// Apply the stack effect of an indirect call with the expected signature
 /// `ty`: pop the function reference (`fn`, on top), then one argument per
-/// parameter, checking each against its type, then push the results. The
-/// runtime checks that the referenced function has exactly this signature
-/// before entering it.
+/// parameter, checking each against its type, then push the results and
+/// apply [`Signatures::after_call`] with no known callee. The runtime checks
+/// that the referenced function has exactly this signature before entering
+/// it.
 pub fn indirect_call_effect<C>(cx: &mut C, ty: &FunctionType) -> eyre::Result<()>
 where
-    C: OperandStack + ?Sized,
+    C: OperandStack + Signatures<Type> + ?Sized,
     C::Slot: TypedSlot,
 {
     if cx.depth() <= ty.params.len() {
@@ -62,6 +63,7 @@ where
     for result in &ty.results {
         cx.push(C::Slot::of_type(result.clone()));
     }
+    cx.after_call(None);
     Ok(())
 }
 

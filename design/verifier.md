@@ -303,6 +303,21 @@ takes part in snapshots and joins (below) like the operand stack, so a channel
 opened on only one branch is not open after the join (the join intersects the
 open sets).
 
+Component state and calls. Every function is verified from the same entry
+component state, so that state must assume nothing a caller might not have
+established (for the sequencer: no channels open). A call's operand effect
+comes from the callee's signature, but its effect on component state is
+unknown to the caller, so after the operand effect the call helpers apply
+`Signatures::after_call(callee)`. `WithState` implements it with
+`ComponentState::after_call(&mut self, callee: Option<u32>, entry: &Self)`,
+whose default resets the caller's state to `entry`: nothing the caller
+established is assumed to survive the call. `ModuleVerifier` has no state
+beyond the frame and does nothing. This is sound and strict (a helper cannot
+play on a channel its caller opened). A component may override `after_call`
+with any state that assumes no more than a callee could leave behind, such as
+"unknown" for an elapsed-time budget. Per-callee summaries (the callee's exit
+state, computed in call-graph order) are a possible future extension.
+
 ## The engine
 
 ### Functions and blocks
@@ -340,7 +355,8 @@ defect, in address order, even inside loops (#120).
 - Popping an empty operand stack is `StackUnderflow`: a function may not reach
   into its locals or its caller's frame.
 - `call f` pops the callee's parameter count and checks each argument against
-  the declared parameter type, then pushes the declared results.
+  the declared parameter type, then pushes the declared results and applies
+  `after_call` to component state (see above).
 - `ret k`: `k` must equal the declared return count and the top `k` operands
   must match the declared return types; anything below is dropped, as at
   runtime.

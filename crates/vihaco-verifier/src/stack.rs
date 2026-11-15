@@ -158,10 +158,12 @@ impl<S: Lattice> Frame<S> {
             ));
         }
         if self.locals.len() != incoming.locals.len() {
-            return Err(VerifyError::new(crate::DiagnosticKind::LocalCountMismatch {
-                expected: self.locals.len(),
-                found: incoming.locals.len(),
-            }));
+            return Err(VerifyError::new(
+                crate::DiagnosticKind::LocalCountMismatch {
+                    expected: self.locals.len(),
+                    found: incoming.locals.len(),
+                },
+            ));
         }
         let mut changed = false;
         let saved = self.locals.iter_mut().chain(self.operands.iter_mut());

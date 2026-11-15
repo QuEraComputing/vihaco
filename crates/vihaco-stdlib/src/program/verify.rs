@@ -76,7 +76,7 @@ where
 
 impl<C> Verify<C> for program::IndirectCall
 where
-    C: OperandStack + ?Sized,
+    C: OperandStack + Signatures<Type> + ?Sized,
     C::Slot: TypedSlot,
 {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
