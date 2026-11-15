@@ -2,7 +2,7 @@
 layout: ../../layouts/Guide.astro
 title: Emitting SST from a compiler
 slug: sst-reference
-description: "The SST file structure, line rules, header directives, and instruction syntax a compiler must produce."
+description: "The SST file structure, line rules, header directives, and instruction syntax a compiler must produce, and the checker, formatter, and disassembler."
 ---
 
 # Emitting SST from a compiler
@@ -557,6 +557,241 @@ table. For an application header, use `Formatter::with_checker` with the same
 checker you would use for `ProgramChecker`, for example
 `ProgramChecker::<Machine>::new().with_header::<Declarations<YourDeclaration>>()`.
 The standard directives inside an application header get the same notes.
+
+### Sections for different machines
+
+Sections are loaded independently, so one file can hold programs for
+different machines, such as a controller and an FPGA. `check_program::<M>` and
+`format_program::<M>` apply one machine to every section; for a mixed file,
+register a machine per section name with `FileChecker` and `FileFormatter`:
+
+```rust
+# use vihaco::{Execute, NoMessage, PopFromStack, PushToStack, component, composite, dialect};
+# #[dialect]
+# pub mod arithmetic {
+#     #[instruction]
+#     pub struct Add;
+# }
+# #[component]
+# #[instructions { arithmetic }]
+# #[derive(Default)]
+# pub struct Calculator;
+# impl Execute<arithmetic::Add> for Calculator {
+#     type Message = PopFromStack<(u64, u64)>;
+#     type Effect = PushToStack<(u64,)>;
+#     type Error = eyre::Report;
+#     fn execute(&mut self, _: &arithmetic::Add, message: Self::Message) -> eyre::Result<Self::Effect> {
+#         let PopFromStack((lhs, rhs)) = message;
+#         Ok(PushToStack((lhs + rhs,)))
+#     }
+# }
+# #[composite]
+# struct Machine {
+#     #[device(0)]
+#     #[program]
+#     execution: vihaco_stdlib::ExecutionState,
+#     #[device(1)]
+#     calculator: Calculator,
+# }
+# #[dialect]
+# pub mod pulse {
+#     #[instruction]
+#     pub struct Wait(pub u64);
+# }
+# #[component]
+# #[instructions { pulse }]
+# #[derive(Default)]
+# pub struct Pulser;
+# impl Execute<pulse::Wait> for Pulser {
+#     type Message = NoMessage;
+#     type Effect = ();
+#     type Error = eyre::Report;
+#     fn execute(&mut self, _: &pulse::Wait, _: NoMessage) -> eyre::Result<()> {
+#         Ok(())
+#     }
+# }
+use vihaco_sst::{FileChecker, FileFormatter, SourceFile};
+
+/// The second machine: program control and a pulse generator.
+#[composite]
+struct Fpga {
+    #[device(0)]
+    #[program]
+    execution: vihaco_stdlib::ExecutionState,
+    #[device(1)]
+    pulser: Pulser,
+}
+
+fn main() {
+    let text = "sst v2\n\
+        .section main\n.header\n.func @main() -> u64, locals 0\n.text\n@main:\n\
+        execution::program::const_u64 1\ncalculator::arithmetic::add\n\
+        .section fpga\n.header\n.func @play(), locals 0\n.text\n@play:\npulser::pulse::wait 10\n";
+    let source = SourceFile::new("two.sst", text);
+    let mut checker = FileChecker::new().section::<Machine>("main").section::<Fpga>("fpga");
+    assert!(checker.check(&source).is_ok());
+
+    let formatted = FileFormatter::new()
+        .section::<Machine>("main")
+        .section::<Fpga>("fpga")
+        .format(&source)
+        .unwrap();
+    assert!(formatted.contains("\n@play:\n    pulser::pulse::wait 10\n"));
+
+    // Each section is checked against its own machine only.
+    let mixed = SourceFile::new("two.sst", text.replace("wait 10", "wait 10\ncalculator::arithmetic::add"));
+    let messages: Vec<String> = checker.check(&mixed).iter().map(ToString::to_string).collect();
+    assert_eq!(messages, ["15:1: error: expected an instruction, found `calculator::arithmetic::add`"]);
+}
+```
+
+A section is checked and formatted by the machine registered for its name,
+or by the default set with `default_section::<M>()`; a section with neither is
+an error (``no machine is registered for section `dsp` ``), and so is a
+registered section the file lacks. `section_with` and `default_with` accept a
+configured `ProgramChecker` or `Formatter`, for example one with an
+application header. The `.global` block belongs to the file: set its grammar
+with `with_global_context::<C>()` on the `FileChecker` or `FileFormatter`.
+
+## Disassembling programs
+
+A disassembler goes the other way: from loaded programs back to SST. Each
+loaded `LocalModule` becomes one section. Its header is rebuilt from the
+module's tables and its instructions are raised back to source syntax, the
+inverse of lowering. The output goes through the formatter's writer, so it has
+the same layout and `;;` notes as `format_program`:
+
+```rust
+# macro_rules! include_str {
+#     ("first-machine.sst") => {
+#         std::include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/examples/first-machine.sst"))
+#     };
+# }
+# use vihaco::{Execute, PopFromStack, PushToStack, component, composite, dialect};
+# #[dialect]
+# pub mod arithmetic {
+#     #[instruction]
+#     pub struct Add;
+# }
+# #[component]
+# #[instructions { arithmetic }]
+# #[derive(Default)]
+# pub struct Calculator;
+# impl Execute<arithmetic::Add> for Calculator {
+#     type Message = PopFromStack<(u64, u64)>;
+#     type Effect = PushToStack<(u64,)>;
+#     type Error = eyre::Report;
+#     fn execute(&mut self, _: &arithmetic::Add, message: Self::Message) -> eyre::Result<Self::Effect> {
+#         let PopFromStack((lhs, rhs)) = message;
+#         Ok(PushToStack((lhs + rhs,)))
+#     }
+# }
+# #[composite]
+# struct Machine {
+#     #[device(0)]
+#     #[program]
+#     execution: vihaco_stdlib::ExecutionState,
+#     #[device(1)]
+#     calculator: Calculator,
+# }
+use vihaco::{HasInstructionSet, NoContext, SSTFile, Type, Value};
+use vihaco::loader::MetadataLoweringContext;
+use vihaco::module::{LocalModule, NoInfo, ProgramDirective, ProgramHeader};
+use vihaco::syntax::{HeaderDeclarations, ParsedModule, lower_code_with_metadata};
+use vihaco_sst::{Disassembler, FormatOptions, SourceFile, format_program};
+
+type Program = LocalModule<<Machine as HasInstructionSet>::Runtime, Value, Type>;
+
+/// Load the `main` section, as in "Validate compiler output".
+fn load(source: &str) -> eyre::Result<Program> {
+    let file = SSTFile::<NoContext>::from_text(source)?;
+    let section = file.section("main").ok_or_else(|| eyre::eyre!("missing main section"))?;
+    let ParsedModule { header, code, symbols } = ParsedModule::<
+        <Machine as HasInstructionSet>::Syntax, HeaderDeclarations<ProgramDirective>
+    >::parse_section(section)?;
+    let mut metadata = header.into_iter().collect::<ProgramHeader>().finish(NoInfo)?;
+    let mut context = MetadataLoweringContext::new(&metadata, &symbols)?;
+    let code = lower_code_with_metadata(code, &symbols, &metadata, &mut context)?;
+    metadata.strings = context.into_strings();
+    metadata.into_module(code, symbols)
+}
+
+fn main() -> eyre::Result<()> {
+    let module = load(include_str!("first-machine.sst"))?;
+    let text = Disassembler::new()
+        .section::<Machine>("main", &module)
+        .finish(FormatOptions::default())?;
+
+    // The disassembly loads back to the same program...
+    assert_eq!(load(&text)?, module);
+    // ...and is exactly the formatted source, which has no user comments.
+    let source = SourceFile::new("first-machine.sst", include_str!("first-machine.sst"));
+    assert_eq!(format_program::<Machine>(&source, FormatOptions::default()).unwrap(), text);
+    Ok(())
+}
+```
+
+Add one section per program, in output order, each with its own machine:
+`.section::<Controller>("controller", &controller).section::<Fpga>("fpga",
+&fpga)`. `section` writes the standard header; `section_with::<M, D>` writes an
+application header of declarations `D`, and `section_with_formatter` takes a
+configured `Formatter` (for annotators or a custom lowering context).
+
+### What a disassembly contains
+
+- **Header.** First the application directives for the module's `extra`
+  metadata, from its `ExtraDirectives<D>` implementation (`NoInfo` has none).
+  For the [loadable example](/guide/parser-advanced#run-the-complete-example),
+  `ExperimentInfo` returns its `experiment.description`, and the declaration
+  enum implements `From<ProgramDirective>` so the standard directives can be
+  wrapped. Then the standard directives, from
+  `vihaco::raising::header_directives`: one `.file` before each run of
+  `.func`s that share a file (none for a leading run in the empty file `""`),
+  every `.func` in table order with its signature and `locals`, the `.entry`,
+  every `.const` (string constants as `.const str "text"`, function references
+  as `.const fn @name`), and every `.source_symbol`.
+- **Text.** Every symbol in the module's symbol table and every instruction,
+  in address order; symbols at one address keep their table order. A function
+  without a symbol gets `@name:` at its start address. A branch target without
+  a symbol gets a synthesized label: `@L` and the address in at least four
+  lowercase hex digits, such as `@L0006:`, or `@L0006_1` if that name is
+  taken.
+
+Loading the output gives back the same code, functions, constants, entry
+function, and source symbols, and the symbol table plus any synthesized
+symbols. String operands resolve to the same text; for a module loaded from
+SST, the string table is identical too. The disassembler checks its output
+with each section's checker and reads it back before returning it.
+
+A program that SST cannot express exactly is an error, not a different
+program: a call to an address where no function starts, a function whose
+range does not end where the next function starts, a word that no literal
+lowers to (such as a `const_bool` word other than `0` or `1`), or a value with
+no faithful spelling, such as a NaN `f64` operand.
+
+### Raising instructions
+
+Raising is the inverse of lowering: `Raise<C>` turns a runtime instruction
+back into its syntax form, looking up names through capabilities on the
+context `C`, as `Lower<C>` does. Dialect leaves whose syntax and runtime
+operands are the same get an identity `Raise` from `#[dialect]`, and
+`#[composite]` raises its instruction enum through its devices. A leaf with
+`$0:Target`-style operands needs a hand-written `Raise` next to its `Lower`;
+`vihaco-cpu` and the standard `program` dialect ship theirs. The
+capabilities, in `vihaco::raising`, mirror the lowering ones:
+
+| Lowering capability | Raising capability | `RaiseContext` answer |
+|---|---|---|
+| `LabelLookup::label_address(name)` | `LabelNames::label_name(address)` | the first symbol at the address |
+| `FunctionLookup::function_address(name)` | `FunctionNames::function_at(address)` | the function that starts there |
+| `FunctionLookup::function_index(name)` | `FunctionNames::function_name(index)` | the function's name |
+| `StringIntern::intern_string(text)` | `StringTable::string(index)` | the string's text |
+
+A raise only looks names up and never invents one: `RaiseContext` records each
+address it was asked to name but has no symbol for, and the disassembler
+names those addresses and raises again. `vihaco::raising::decode_canonical`
+decodes a literal word and rejects words that encoding the decoded value would
+not reproduce.
 
 Continue with [binary formats](/guide/instructions-advanced) for encoded programs
 and compatibility planning.

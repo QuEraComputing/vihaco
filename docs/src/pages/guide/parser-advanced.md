@@ -130,6 +130,12 @@ cargo run -p vihaco-stdlib --features program-image-execution --example loadable
 ```
 
 The result is `[42]`. To try another file, pass its source path after `--`.
+Instead of running, `--check` reports every problem in the file, `--fmt` (or
+`--fmt-plain`, without generated notes) prints it formatted, and `--disasm`
+loads it and prints the loaded program
+[disassembled](/guide/sst-reference#disassembling-programs) back to SST. The
+`heterogeneous` example in the same directory loads a file whose two sections
+target different machines.
 Once construction finishes, the loader drops the file view and source. The image
 owns the runtime instructions and metadata it needs.
 
