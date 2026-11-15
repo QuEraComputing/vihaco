@@ -240,7 +240,7 @@ impl<V, Ty, Info> ProgramMetadata<V, Ty, Info> {
     /// Resolve every type in the tables to `T`: for example, a header parsed
     /// with [`SourceType`](crate::module::SourceType), whose struct and named
     /// types may be written by name (`locals: [struct @Point]`), resolves to
-    /// [`Type`] against its own struct and named-type tables.
+    /// [`Type`](vihaco_abi::Type) against its own struct and named-type tables.
     ///
     /// # Errors
     /// An undefined name, reported with its metadata path:
