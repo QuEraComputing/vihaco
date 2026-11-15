@@ -100,6 +100,15 @@ pub enum DiagnosticKind {
         /// Number of instructions in the code.
         code_len: usize,
     },
+    /// The instruction cannot be verified statically: its operand count or
+    /// shape comes from a runtime value (for example a count popped from the
+    /// stack) rather than from an immediate operand. Device instructions should
+    /// carry such counts as immediates; a rule reports this kind otherwise
+    /// (see [`VerifyError::unverifiable`]).
+    Unverifiable {
+        /// Why the instruction cannot be verified.
+        reason: String,
+    },
     /// A component-defined error, from a rule or capability.
     Rule(String),
 }
@@ -166,6 +175,9 @@ impl fmt::Display for DiagnosticKind {
                 f,
                 "function span {start}..{end} does not fit in {code_len} instructions"
             ),
+            DiagnosticKind::Unverifiable { reason } => {
+                write!(f, "instruction cannot be verified: {reason}")
+            }
             DiagnosticKind::Rule(message) => f.write_str(message),
         }
     }
@@ -271,6 +283,24 @@ impl VerifyError {
         Self::new(DiagnosticKind::LocalIndexOutOfRange { index, count })
     }
 
+    /// A [`DiagnosticKind::Unverifiable`] error, for a rule whose instruction
+    /// takes its operand count or shape from a runtime value, so its stack
+    /// effect cannot be known before execution:
+    ///
+    /// ```
+    /// # use vihaco_verifier::{DiagnosticKind, VerifyError};
+    /// let error = VerifyError::unverifiable("`pulse_n` pops its count from the stack");
+    /// assert!(matches!(error.kind(), DiagnosticKind::Unverifiable { .. }));
+    /// ```
+    ///
+    /// Prefer carrying the count as an immediate (`pulse_n 4`), which a rule
+    /// can check.
+    pub fn unverifiable(reason: impl fmt::Display) -> Self {
+        Self::new(DiagnosticKind::Unverifiable {
+            reason: reason.to_string(),
+        })
+    }
+
     /// A component-defined [`DiagnosticKind::Rule`] error.
     pub fn rule(message: impl fmt::Display) -> Self {
         Self::new(DiagnosticKind::Rule(message.to_string()))
@@ -332,6 +362,12 @@ mod tests {
         assert_eq!(
             DiagnosticKind::MissingTerminator.severity(),
             Severity::Error
+        );
+        let unverifiable = VerifyError::unverifiable("count from the stack").into_kind();
+        assert_eq!(unverifiable.severity(), Severity::Error);
+        assert_eq!(
+            unverifiable.to_string(),
+            "instruction cannot be verified: count from the stack"
         );
         let d = Diagnostic::new(2, 7, DiagnosticKind::StackUnderflow);
         assert!(d.is_error());

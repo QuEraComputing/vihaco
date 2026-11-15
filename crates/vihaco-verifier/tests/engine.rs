@@ -47,6 +47,9 @@ enum Op {
     Fail(&'static str),
     /// A jump table: continue at any listed address (possibly none).
     Table(Vec<u32>),
+    /// Pop a `u64` count, then that many values: the count is a runtime
+    /// value, so the rule reports the instruction as unverifiable.
+    PopDynamic,
     /// A no-op that counts its runs.
     Mark,
 }
@@ -90,6 +93,13 @@ where
                 FAIL_RUNS.with(|runs| runs.set(runs.get() + 1));
                 eyre::bail!("{message}");
             }
+            Op::PopDynamic => {
+                cx.pop_expect(&Type::U64)?;
+                return Err(VerifyError::unverifiable(
+                    "pops a number of operands given by a runtime value",
+                )
+                .into());
+            }
         }
         Ok(())
     }
@@ -97,7 +107,7 @@ where
 
 use Op::*;
 
-type Outcome = Result<Verification<Frame<TypeSlot>>, Rejection>;
+type Outcome = Result<Verification<Frame<TypeSlot>>, Rejection<Frame<TypeSlot>>>;
 
 fn span(function: u32, start: u32, end: u32) -> FunctionSpan<Frame<TypeSlot>> {
     FunctionSpan {
@@ -897,6 +907,56 @@ fn type_maps_hold_each_reached_leaders_converged_state() {
     assert_eq!(maps.function(3).unwrap().len(), 4);
 }
 
+#[test]
+fn type_maps_are_returned_with_a_rejection() {
+    // The join fails, so code after it is never reached by a successful
+    // block, but the leaders before it still have states.
+    let code = [
+        Const(Type::Bool), // 0
+        CondBr(2, 4),      // 1
+        Const(Type::I64),  // 2
+        Br(5),             // 3
+        Const(Type::F64),  // 4
+        Use(Type::I64),    // 5 (join): conflict
+        Br(7),             // 6
+        Ret,               // 7: only reachable through the failed block
+    ];
+    let Err(rejection) = verify_spans(&code, &[span(0, 0, 8)], true) else {
+        panic!("expected a rejection");
+    };
+    assert_eq!(rejection.errors().count(), 1);
+    assert_eq!(rejection.diagnostics[0].address, 5);
+    let maps = rejection.type_maps.expect("type maps were requested");
+    let operands = |address| maps.get(0, address).map(|f| f.operands().to_vec());
+    assert_eq!(operands(0), Some(vec![]));
+    assert_eq!(
+        operands(5),
+        Some(vec![TypeSlot::Conflict(Type::I64, Type::F64)])
+    );
+    assert_eq!(operands(7), None, "reached only through the failed block");
+
+    // Without the option, a rejection carries no type maps either.
+    let Err(rejection) = verify_spans(&code, &[span(0, 0, 8)], false) else {
+        panic!("expected a rejection");
+    };
+    assert!(rejection.type_maps.is_none());
+}
+
+#[test]
+fn a_runtime_operand_count_is_unverifiable() {
+    let errors = rejected(verify(&[Const(Type::U64), PopDynamic, Ret]));
+    assert_eq!(
+        errors,
+        [(
+            0,
+            1,
+            DiagnosticKind::Unverifiable {
+                reason: "pops a number of operands given by a runtime value".into()
+            }
+        )]
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Component state: a sequencer whose channels must be opened before use.
 // ---------------------------------------------------------------------------
@@ -1006,7 +1066,7 @@ impl AbstractState for SeqVerifier {
 
 type SeqSnapshot = (Frame<TypeSlot>, BTreeSet<u32>);
 
-fn verify_seq(code: &[Seq]) -> Result<Verification<SeqSnapshot>, Rejection> {
+fn verify_seq(code: &[Seq]) -> Result<Verification<SeqSnapshot>, Rejection<SeqSnapshot>> {
     let entry = (Frame::new(vec![]), BTreeSet::new());
     let mut cx = SeqVerifier {
         frame: FrameState::new(entry.0.clone()),

@@ -212,7 +212,7 @@ impl<'m> ModuleVerifier<'m> {
         &mut self,
         code: &[I],
         options: VerifyOptions,
-    ) -> Result<Verification<Frame<TypeSlot>>, Rejection>
+    ) -> Result<Verification<Frame<TypeSlot>>, Rejection<Frame<TypeSlot>>>
     where
         I: Verify<Self>,
     {
@@ -252,7 +252,7 @@ impl<'m> ModuleVerifier<'m> {
 pub fn verify_module<'m, I, Info>(
     module: &'m LocalModule<I, Value, Type, Info>,
     options: VerifyOptions,
-) -> Result<Verification<Frame<TypeSlot>>, Rejection>
+) -> Result<Verification<Frame<TypeSlot>>, Rejection<Frame<TypeSlot>>>
 where
     I: Verify<ModuleVerifier<'m>>,
 {
@@ -263,8 +263,8 @@ where
 /// function then address (pre-engine diagnostics first at equal positions).
 fn merge<S>(
     mut diagnostics: Vec<Diagnostic>,
-    result: Result<Verification<S>, Rejection>,
-) -> Result<Verification<S>, Rejection> {
+    result: Result<Verification<S>, Rejection<S>>,
+) -> Result<Verification<S>, Rejection<S>> {
     if diagnostics.is_empty() {
         return result;
     }
@@ -275,12 +275,15 @@ fn merge<S>(
         }
         Err(rejection) => {
             diagnostics.extend(rejection.diagnostics);
-            None
+            rejection.type_maps
         }
     };
     diagnostics.sort_by_key(|d| (d.function, d.address));
     if diagnostics.iter().any(Diagnostic::is_error) {
-        Err(Rejection { diagnostics })
+        Err(Rejection {
+            diagnostics,
+            type_maps,
+        })
     } else {
         Ok(Verification {
             warnings: diagnostics,
@@ -587,7 +590,7 @@ impl<'m, S: ComponentState> WithState<'m, S> {
         &mut self,
         code: &[I],
         options: VerifyOptions,
-    ) -> Result<Verification<(Frame<TypeSlot>, S)>, Rejection>
+    ) -> Result<Verification<(Frame<TypeSlot>, S)>, Rejection<(Frame<TypeSlot>, S)>>
     where
         I: Verify<Self>,
     {
