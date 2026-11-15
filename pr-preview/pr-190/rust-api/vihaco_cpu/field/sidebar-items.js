@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["FieldOperand","NamedTypeOperand","StructOperand","TypeOperand"],"trait":["NamedTypeLookup","StructLookup"]};
