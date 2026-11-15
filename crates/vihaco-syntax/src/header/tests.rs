@@ -92,18 +92,25 @@ fn types_nested_too_deep_are_named_in_the_parse_error() -> eyre::Result<()> {
             "sst v1\n.section(root):\n.header(root):\n.header(root).\n\
              .text(root):\n{function}\n.text(root).\n.section(root).\n"
         ))?;
-        let Err(err) =
+        let numeric =
             ParsedModule::<Instruction, Type, HeaderDeclarations<Declaration>>::parse_section(
                 file.root(),
             )
-        else {
-            panic!("`{function}` parsed");
-        };
-        assert!(
-            err.to_string()
-                .contains("array type nested 33 levels deep; at most 32 are allowed"),
-            "{err}"
-        );
+            .err();
+        let named = ParsedModule::<
+            Instruction,
+            vihaco_module::module::SourceType,
+            HeaderDeclarations<Declaration>,
+        >::parse_section(file.root())
+        .err();
+        for err in [numeric, named] {
+            let err = err.unwrap_or_else(|| panic!("`{function}` parsed"));
+            assert!(
+                err.to_string()
+                    .contains("array type nested 33 levels deep; at most 32 are allowed"),
+                "{err}"
+            );
+        }
     }
     Ok(())
 }
