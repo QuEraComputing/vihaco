@@ -1105,25 +1105,38 @@ fn instructions_render_in_source_syntax_with_names() {
         "P::cond_br @again, 0",
         "P::br 0",
         "P::halt",
+        // At address 12, where `@helper` starts.
+        "label @done",
     ];
-    let helper = || Function {
-        name: "helper",
-        params: &["u64"],
-        ret: &[],
-        locals: &[],
-        body: &["P::ret 0"],
-    };
-    let module = load(&[main_fn(&[], &[], &[], &body), helper()]).unwrap();
+    // Labels resolve per function: `@done` belongs to `@main`, so the loop
+    // back to 12 inside `@helper` stays a number.
+    let helper_body = ["P::const_bool true", "P::cond_br 12, 14", "P::ret 0"];
+    fn helper<'a>(body: &'a [&'a str]) -> Function<'a> {
+        Function {
+            name: "helper",
+            params: &["u64"],
+            ret: &[],
+            locals: &[],
+            body,
+        }
+    }
+    let module = load(&[main_fn(&[], &[], &[], &body), helper(&helper_body)]).unwrap();
     let lines: Vec<&str> = body
         .iter()
+        .chain(&helper_body)
         .copied()
         .filter(|line| !line.starts_with("label "))
         .collect();
-    let code = &module.code[..lines.len()];
+    let code = &module.code;
+    assert_eq!(code.len(), lines.len());
     let names = module.names();
     let named: Vec<String> = code
         .iter()
-        .map(|instruction| instruction.text_with(&names).to_string())
+        .enumerate()
+        .map(|(address, instruction)| {
+            let names = names.at(address as u32);
+            instruction.text_with(&names).to_string()
+        })
         .collect();
     let expand = |line: &str| line.replace("P::", machine::P).replace("C::", machine::C);
     let expected: Vec<String> = lines.iter().map(|line| expand(line)).collect();
@@ -1144,6 +1157,9 @@ fn instructions_render_in_source_syntax_with_names() {
             "P::cond_br 8, 0",
             "P::br 0",
             "P::halt",
+            "P::const_bool true",
+            "P::cond_br 12, 14",
+            "P::ret 0",
         ]
         .map(expand)
     );
@@ -1152,17 +1168,21 @@ fn instructions_render_in_source_syntax_with_names() {
     // its labels where they were), loads to the same module.
     let unexpand = |line: &str| line.replace(machine::P, "P::").replace(machine::C, "C::");
     for texts in [&named, &numeric] {
-        let mut source = Vec::new();
-        for (address, text) in texts.iter().enumerate() {
-            if let Some(label) = names.label_at(address as u32) {
-                source.push(format!("label @{label}"));
-            }
-            source.push(unexpand(text));
-        }
-        let source: Vec<&str> = source.iter().map(String::as_str).collect();
-        let reloaded = load(&[main_fn(&[], &[], &[], &source), helper()])
-            .unwrap_or_else(|error| panic!("{error:#}\n{source:#?}"));
-        assert_eq!(reloaded, module, "{source:#?}");
+        let mut texts = texts.iter();
+        let mut rewrite = |body: &[&str]| -> Vec<String> {
+            body.iter()
+                .map(|line| match line.starts_with("label ") {
+                    true => line.to_string(),
+                    false => unexpand(texts.next().unwrap()),
+                })
+                .collect()
+        };
+        let (main_source, helper_source) = (rewrite(&body), rewrite(&helper_body));
+        let main_source: Vec<&str> = main_source.iter().map(String::as_str).collect();
+        let helper_source: Vec<&str> = helper_source.iter().map(String::as_str).collect();
+        let reloaded = load(&[main_fn(&[], &[], &[], &main_source), helper(&helper_source)])
+            .unwrap_or_else(|error| panic!("{error:#}\n{main_source:#?}\n{helper_source:#?}"));
+        assert_eq!(reloaded, module, "{main_source:#?}\n{helper_source:#?}");
     }
 }
 

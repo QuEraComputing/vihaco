@@ -115,7 +115,9 @@ pub trait SymbolNames: TypeNames {
         None
     }
 
-    /// The name of a label at `address`, without the leading `@`.
+    /// The name of a label at `address`, without the leading `@`, that a
+    /// jump in the instruction being written may name. Labels resolve per
+    /// function, so a label of another function must not be returned.
     fn label_at(&self, address: u32) -> Option<&str> {
         let _ = address;
         None

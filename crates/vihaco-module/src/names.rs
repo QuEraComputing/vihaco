@@ -25,6 +25,7 @@ pub struct ModuleNames<'a, Ty> {
     types: &'a [NamedTypeInfo<Ty>],
     labels: &'a [LabelInfo],
     strings: &'a [String],
+    jump_from: Option<u32>,
 }
 
 impl<Ty> Clone for ModuleNames<'_, Ty> {
@@ -49,6 +50,7 @@ impl<'a, Ty> ModuleNames<'a, Ty> {
             types,
             labels: &[],
             strings,
+            jump_from: None,
         }
     }
 
@@ -56,6 +58,37 @@ impl<'a, Ty> ModuleNames<'a, Ty> {
     pub fn with_labels(mut self, labels: &'a [LabelInfo]) -> Self {
         self.labels = labels;
         self
+    }
+
+    /// Names for writing the instruction at `address`: its jump targets name
+    /// only labels of the function containing it, since labels resolve per
+    /// function (see [`jump_label`](Self::jump_label)). Use this to render an
+    /// instruction's text so that it parses back in place.
+    pub fn at(mut self, address: u32) -> Self {
+        self.jump_from = Some(address);
+        self
+    }
+
+    /// The label a jump target at `address` may be written as, for the
+    /// instruction these names are [`at`](Self::at).
+    ///
+    /// That is a label at `address` when `address` lies in the function
+    /// containing the instruction (or at its end), and in no other function:
+    /// a label where one function ends and the next starts could belong to
+    /// either, so such a target is written as its number, which always
+    /// parses back. Without [`at`](Self::at), the first label at `address`.
+    pub fn jump_label(&self, address: u32) -> Option<&'a str> {
+        let Some(from) = self.jump_from else {
+            return self.label_at(address);
+        };
+        let function = self.function_at(from)?;
+        let contains =
+            |info: &FunctionInfo<Ty>| (info.start_address..=info.end_address).contains(&address);
+        let owners = self.functions.iter().filter(|info| contains(info)).count();
+        if !contains(self.function(function)?) || owners != 1 {
+            return None;
+        }
+        self.label_at(address)
     }
 
     /// The first function, in table order, whose first instruction is at
@@ -168,7 +201,7 @@ impl<Ty> SymbolNames for ModuleNames<'_, Ty> {
     }
 
     fn label_at(&self, address: u32) -> Option<&str> {
-        ModuleNames::label_at(self, address)
+        self.jump_label(address)
     }
 
     fn string(&self, index: u32) -> Option<&str> {

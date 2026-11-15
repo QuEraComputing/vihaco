@@ -88,7 +88,7 @@ where
                 program.pc = position;
             }
             result.map_err(|error| {
-                let names = module.names();
+                let names = module.names().at(position);
                 let text = M::instruction_text(instruction, &names);
                 step_error(error, module, position, text)
             })?;

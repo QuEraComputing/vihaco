@@ -303,7 +303,7 @@ impl<I: InstructionText, V, Ty, Info> DiagnosticNames for LocalModule<I, V, Ty, 
 
     fn instruction_text(&self, address: u32) -> Option<String> {
         let instruction = self.code.get(address as usize)?;
-        Some(instruction.text_with(&self.names()).to_string())
+        Some(instruction.text_with(&self.names().at(address)).to_string())
     }
 }
 

@@ -498,9 +498,13 @@ and punctuation as written, and each operand through its syntax type's
 `OperandText<Runtime>` impl, which writes the lowered runtime value back in
 source form with names from `SymbolNames` (`FieldOperand` writes a `FieldSlot`
 as `@Point.y`, `Target` writes an address as `@helper`, `TypeOperand` writes
-`struct @Point`, `FunctionTypeOperand` writes `(struct @Point) -> u64`). An
-operand type without an impl falls back to the runtime value's `Display`, then
-`Debug`. A composite prefixes each leaf's text with its route as SST writes it
+`struct @Point`, `FunctionTypeOperand` writes `(struct @Point) -> u64`). A
+jump target is written as a label only when the label belongs to the function
+containing the jump, since labels resolve per function: names scoped with
+`ModuleNames::at(address)` know which function that is, and a label where one
+function ends and the next starts, which could belong to either, is written
+as its address. An operand type without an impl falls back to the runtime
+value's `Display`. A composite prefixes each leaf's text with its route as SST writes it
 (`cpu::cpu::`), the device alias followed by the dialect, so the text can be
 pasted back into a program. Without names (plain `Display`) operands use their
 numeric forms (`get_field 0, 0`, `call 1, 3`).
