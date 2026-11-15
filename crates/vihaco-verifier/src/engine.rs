@@ -58,12 +58,21 @@ impl VerifyOptions {
 
 /// Each reached leader's converged state, by function and address.
 ///
-/// The state at any other address is one block replay away, so these are
-/// enough for a debugger or observer to show what each local and operand slot
-/// holds at a breakpoint.
+/// The state at any other address is one block replay away:
+/// [`state_at`](TypeMaps::state_at) replays it, so these are enough for a
+/// debugger or observer to show what each local and operand slot holds at a
+/// breakpoint.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TypeMaps<S> {
-    functions: BTreeMap<u32, BTreeMap<u32, S>>,
+    functions: BTreeMap<u32, FunctionMap<S>>,
+}
+
+/// One function's span and reached leaders.
+#[derive(Clone, Debug, PartialEq)]
+struct FunctionMap<S> {
+    start: u32,
+    end: u32,
+    leaders: BTreeMap<u32, S>,
 }
 
 impl<S> Default for TypeMaps<S> {
@@ -78,23 +87,92 @@ impl<S> TypeMaps<S> {
     /// The converged state at leader `address` of `function`, if that address
     /// is a reached leader.
     pub fn get(&self, function: u32, address: u32) -> Option<&S> {
-        self.functions.get(&function)?.get(&address)
+        self.functions.get(&function)?.leaders.get(&address)
     }
 
     /// Every reached leader of `function` and its converged state, in address
     /// order.
     pub fn function(&self, function: u32) -> Option<&BTreeMap<u32, S>> {
-        self.functions.get(&function)
+        Some(&self.functions.get(&function)?.leaders)
     }
 
     /// Every `(function, address, state)` entry, ordered by function then
     /// address.
     pub fn iter(&self) -> impl Iterator<Item = (u32, u32, &S)> {
-        self.functions.iter().flat_map(|(&function, leaders)| {
-            leaders
+        self.functions.iter().flat_map(|(&function, map)| {
+            map.leaders
                 .iter()
                 .map(move |(&address, state)| (function, address, state))
         })
+    }
+
+    /// The state before the instruction at `address` of `function` runs:
+    /// the converged state of its block's leader, replayed through `cx` up
+    /// to `address`.
+    ///
+    /// `code` and `cx` must be the code and a context of the same kind the
+    /// maps were produced with (for a module, `&module.code` and a
+    /// [`ModuleVerifier`](crate::ModuleVerifier) for it). `cx` is left in
+    /// the returned state.
+    ///
+    /// Returns `None` when `address` is outside `function`, unreachable, or
+    /// in a block with no converged state (in a rejection, a block reached
+    /// only through a failing one), or when a rule fails before `address`
+    /// (possible only in a rejection).
+    ///
+    /// ```
+    /// # use vihaco_verifier::{
+    /// #     Flow, Frame, FrameState, FunctionSpan, Type, TypeSlot, TypedStack, Verify,
+    /// #     VerifyOptions, stack_effect, verify_functions,
+    /// # };
+    /// # enum Inst { Push, Add, Ret }
+    /// # impl<C: TypedStack + ?Sized> Verify<C> for Inst {
+    /// #     fn flow(&self) -> Flow {
+    /// #         if let Inst::Ret = self { Flow::Return } else { Flow::Next }
+    /// #     }
+    /// #     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
+    /// #         match self {
+    /// #             Inst::Push => stack_effect(cx, [], [Type::I64]),
+    /// #             Inst::Add => stack_effect(cx, [Type::I64, Type::I64], [Type::I64]),
+    /// #             Inst::Ret => Ok(()),
+    /// #         }
+    /// #     }
+    /// # }
+    /// let code = [Inst::Push, Inst::Push, Inst::Add, Inst::Ret];
+    /// let span = FunctionSpan { function: 0, start: 0, end: 4, entry: Frame::new(vec![]) };
+    /// let mut cx = FrameState::<TypeSlot>::new(Frame::new(vec![]));
+    /// let options = VerifyOptions::default().with_type_maps(true);
+    /// let maps = verify_functions(&code, &[span], &mut cx, options)
+    ///     .unwrap()
+    ///     .type_maps
+    ///     .unwrap();
+    /// // Only address 0 is a leader; the state before `add` is replayed.
+    /// let before_add = maps.state_at(&code, &mut cx, 0, 2).unwrap();
+    /// assert_eq!(before_add.operands(), [Type::I64.into(), Type::I64.into()]);
+    /// ```
+    pub fn state_at<I, C>(&self, code: &[I], cx: &mut C, function: u32, address: u32) -> Option<S>
+    where
+        I: Verify<C>,
+        C: AbstractState<Snapshot = S> + ?Sized,
+    {
+        let map = self.functions.get(&function)?;
+        let body = code.get(map.start as usize..map.end as usize)?;
+        let offset = address.checked_sub(map.start)? as usize;
+        if offset >= body.len() {
+            return None;
+        }
+        let walk = Walk::new::<C>(body, map.start);
+        if !walk.reached[offset] {
+            return None;
+        }
+        // Blocks run from a leader to just before the next one.
+        let leader = (0..=offset).rev().find(|&i| walk.leader[i])?;
+        cx.restore(map.leaders.get(&(map.start + leader as u32))?);
+        for (i, instruction) in body.iter().enumerate().take(offset).skip(leader) {
+            cx.set_address(function, map.start + i as u32);
+            instruction.verify(cx).ok()?;
+        }
+        Some(cx.snapshot())
     }
 }
 
@@ -256,10 +334,15 @@ where
     for function in functions {
         let leaders = verify_function(code, function, context, &mut found);
         if let (Some(maps), Some(leaders)) = (type_maps.as_mut(), leaders) {
-            maps.functions
+            let map = maps
+                .functions
                 .entry(function.function)
-                .or_default()
-                .extend(leaders);
+                .or_insert_with(|| FunctionMap {
+                    start: function.start,
+                    end: function.end,
+                    leaders: BTreeMap::new(),
+                });
+            map.leaders.extend(leaders);
         }
     }
     found.sort_by_key(|f| (f.diagnostic.function, f.diagnostic.address, f.order));

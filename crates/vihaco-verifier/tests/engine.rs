@@ -1016,6 +1016,65 @@ fn type_maps_hold_each_reached_leaders_converged_state() {
 }
 
 #[test]
+fn any_reached_address_is_one_replay_from_its_leader() {
+    let code = [
+        Const(Type::Bool), // 0
+        CondBr(2, 4),      // 1
+        Const(Type::I64),  // 2
+        Br(6),             // 3
+        Const(Type::F64),  // 4
+        Const(Type::U64),  // 5: falls into the join
+        Pop,               // 6: join at depth 1 or 2, rejected...
+        Ret,               // 7
+        Ret,               // 8: unreachable
+    ];
+    // ...so use a well-typed variant first.
+    let mut good = code.clone();
+    good[5] = Br(6);
+    let maps = accepted(verify_spans(&good, &[span(0, 0, 9)], true))
+        .type_maps
+        .unwrap();
+    let mut cx = FrameState::new(Frame::new(vec![]));
+    let operands = |cx: &mut FrameState<TypeSlot>, address| {
+        maps.state_at(&good, cx, 0, address)
+            .map(|frame| frame.operands().to_vec())
+    };
+    let known = TypeSlot::Known;
+    // Not a leader: replayed from the leader at 0.
+    assert_eq!(operands(&mut cx, 1), Some(vec![known(Type::Bool)]));
+    // Leaders return their converged state.
+    assert_eq!(operands(&mut cx, 2), Some(vec![]));
+    assert_eq!(operands(&mut cx, 3), Some(vec![known(Type::I64)]));
+    assert_eq!(
+        operands(&mut cx, 7),
+        Some(vec![]),
+        "after the join's pop of the conflicted slot"
+    );
+    assert_eq!(operands(&mut cx, 8), None, "unreachable");
+    assert_eq!(operands(&mut cx, 9), None, "outside the function");
+    assert_eq!(
+        maps.state_at(&good, &mut cx, 1, 0),
+        None,
+        "no such function"
+    );
+
+    // In a rejection the state first saved at a mismatched join stands, so
+    // the replay continues from it.
+    let Err(rejection) = verify_spans(&code, &[span(0, 0, 9)], true) else {
+        panic!("expected a rejection");
+    };
+    let maps = rejection.type_maps.unwrap();
+    assert_eq!(
+        maps.state_at(&code, &mut cx, 0, 5).map(|f| f.depth()),
+        Some(1)
+    );
+    assert_eq!(
+        maps.state_at(&code, &mut cx, 0, 7).map(|f| f.depth()),
+        Some(0)
+    );
+}
+
+#[test]
 fn type_maps_are_returned_with_a_rejection() {
     // The join fails, so code after it is never reached by a successful
     // block, but the leaders before it still have states.
