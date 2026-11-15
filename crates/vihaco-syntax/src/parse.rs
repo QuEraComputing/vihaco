@@ -239,8 +239,27 @@ impl<I, Ty, H> ParsedModule<I, Ty, H> {
         let functions = functions::<I, Ty>()
             .parse(text)
             .into_result()
-            .map_err(|errors| eyre::eyre!("failed to parse SST functions: {:?}", errors))?;
+            .map_err(|errors| {
+                eyre::eyre!(
+                    "failed to parse SST functions: {}",
+                    describe_errors(text, &errors)
+                )
+            })?;
 
         Ok(Self { header, functions })
     }
+}
+
+/// Render parse errors for a message. A type nested past
+/// [`vihaco_abi::Type::MAX_ARRAY_DEPTH`] is named as such (with its byte span)
+/// instead of as an unexpected character or end of input.
+pub(crate) fn describe_errors(text: &str, errors: &[Simple<'_, char>]) -> String {
+    errors
+        .iter()
+        .find_map(|error| {
+            let span = error.span();
+            vihaco_abi::Type::nesting_error_at(text, span.start)
+                .map(|message| format!("{message} (at {}..{})", span.start, span.end))
+        })
+        .unwrap_or_else(|| format!("{errors:?}"))
 }

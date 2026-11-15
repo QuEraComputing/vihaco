@@ -117,7 +117,12 @@ fn array_nesting_is_limited_in_bytes_and_text() {
     bytes.push(0x03);
     let err = Type::from_bytes(&mut std::io::Cursor::new(bytes)).unwrap_err();
     assert!(err.to_string().contains("nested more than 32"), "{err}");
-    assert!(Type::from_text(&format!("{}i64", "array ".repeat(max + 1))).is_err());
+    let err = Type::from_text(&format!("{}i64", "array ".repeat(max + 1))).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("array type nested 33 levels deep; at most 32 are allowed"),
+        "{err}"
+    );
     assert!(Type::nested_array(1, deepest).is_err());
 
     // A hostile run of array bytes is rejected without overflowing the stack.
@@ -125,7 +130,11 @@ fn array_nesting_is_limited_in_bytes_and_text() {
     bytes.push(0x03);
     assert!(Type::from_bytes(&mut std::io::Cursor::new(bytes)).is_err());
     let text = format!("{}i64", "array ".repeat(200_000));
-    assert!(Type::from_text(&text).is_err());
+    let err = Type::from_text(&text).unwrap_err();
+    assert!(
+        err.to_string().contains("nested 200000 levels deep"),
+        "{err}"
+    );
 }
 
 #[test]

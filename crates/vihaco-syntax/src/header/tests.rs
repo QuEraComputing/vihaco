@@ -69,3 +69,38 @@ fn collections_are_parsed_through_the_section_header_interface() -> eyre::Result
     assert_eq!(parsed.functions[0].body.len(), 1);
     Ok(())
 }
+
+#[test]
+fn types_nested_too_deep_are_named_in_the_parse_error() -> eyre::Result<()> {
+    #[derive(vihaco_parser_derive::Parse)]
+    #[syntax_class(instruction, head = "example")]
+    #[allow(dead_code, reason = "only parsed, never inspected")]
+    enum Instruction {
+        #[pattern = "'make $0"]
+        Make(Type),
+    }
+
+    let deep = format!("{}i64", "array ".repeat(Type::MAX_ARRAY_DEPTH + 1));
+    for function in [
+        format!("fn @main(p: {deep}) {{ }}"),
+        format!("fn @main() {{ example.make {deep} }}"),
+    ] {
+        let file = SstFile::<NoContext>::from_text(&format!(
+            "sst v1\n.section(root):\n.header(root):\n.header(root).\n\
+             .text(root):\n{function}\n.text(root).\n.section(root).\n"
+        ))?;
+        let Err(err) =
+            ParsedModule::<Instruction, Type, HeaderDeclarations<Declaration>>::parse_section(
+                file.root(),
+            )
+        else {
+            panic!("`{function}` parsed");
+        };
+        assert!(
+            err.to_string()
+                .contains("array type nested 33 levels deep; at most 32 are allowed"),
+            "{err}"
+        );
+    }
+    Ok(())
+}

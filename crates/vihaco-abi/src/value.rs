@@ -100,12 +100,46 @@ impl Type {
     /// Wrap `elem` in `depth` array levels, failing past [`Type::MAX_ARRAY_DEPTH`].
     pub fn nested_array(depth: usize, elem: Type) -> Result<Type> {
         let total = depth + elem.array_depth();
-        eyre::ensure!(
-            total <= Self::MAX_ARRAY_DEPTH,
-            "array type nested {total} levels deep; at most {} are allowed",
-            Self::MAX_ARRAY_DEPTH
-        );
+        eyre::ensure!(total <= Self::MAX_ARRAY_DEPTH, Self::nesting_message(total));
         Ok((0..depth).fold(elem, |ty, _| Type::array(ty)))
+    }
+
+    /// Explain a failed type parse as too-deep nesting, if it is one.
+    ///
+    /// The type parsers reject a type nested past [`Type::MAX_ARRAY_DEPTH`]
+    /// with a position-only parse error, which reads like truncated input.
+    /// Pass the source text and the start offset of a parse error's span: if
+    /// the text there is a run of more than `MAX_ARRAY_DEPTH` `array`
+    /// prefixes, this returns the message to report instead.
+    ///
+    /// ```
+    /// # use vihaco_abi::Type;
+    /// let text = format!("{}i64", "array ".repeat(40));
+    /// assert_eq!(
+    ///     Type::nesting_error_at(&text, 0).unwrap(),
+    ///     "array type nested 40 levels deep; at most 32 are allowed",
+    /// );
+    /// assert_eq!(Type::nesting_error_at("array array i64", 0), None);
+    /// ```
+    pub fn nesting_error_at(text: &str, start: usize) -> Option<String> {
+        let mut rest = text.get(start..)?.trim_start();
+        let mut depth = 0usize;
+        while let Some(after) = rest.strip_prefix("array") {
+            let trimmed = after.trim_start();
+            if trimmed.len() == after.len() {
+                break;
+            }
+            depth += 1;
+            rest = trimmed;
+        }
+        (depth > Self::MAX_ARRAY_DEPTH).then(|| Self::nesting_message(depth))
+    }
+
+    fn nesting_message(depth: usize) -> String {
+        format!(
+            "array type nested {depth} levels deep; at most {} are allowed",
+            Self::MAX_ARRAY_DEPTH
+        )
     }
 
     /// Visit every struct-table index this type refers to, including struct
@@ -318,7 +352,7 @@ impl crate::traits::FromText for Type {
             .then_ignore(end())
             .parse(text)
             .into_result()
-            .map_err(format_value_parse_errors)
+            .map_err(|errors| format_value_parse_errors(text, errors))
     }
 }
 
@@ -411,7 +445,7 @@ impl crate::traits::FromText for Value {
             .then_ignore(end())
             .parse(text)
             .into_result()
-            .map_err(format_value_parse_errors)
+            .map_err(|errors| format_value_parse_errors(text, errors))
     }
 }
 
@@ -584,11 +618,13 @@ where
         .try_map(|text: &str, span| text.parse::<T>().map_err(|_| Simple::new(None, span)))
 }
 
-fn format_value_parse_errors(errors: Vec<Simple<'_, char>>) -> eyre::Report {
+fn format_value_parse_errors(text: &str, errors: Vec<Simple<'_, char>>) -> eyre::Report {
     let error = errors
         .into_iter()
         .next()
-        .map(|error| format!("{error:?}"))
+        .map(|error| {
+            Type::nesting_error_at(text, error.span().start).unwrap_or_else(|| format!("{error:?}"))
+        })
         .unwrap_or_else(|| "unknown parse error".to_string());
     eyre::eyre!("failed to parse value text: {error}")
 }
