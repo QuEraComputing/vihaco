@@ -334,7 +334,9 @@ fn every_constant_pushes_its_type() {
         "P::const_fn_ref @main",
         "P::ret 9",
     ];
-    let ret = ["i32", "i64", "u32", "u64", "f32", "f64", "bool", "str", "fn"];
+    let ret = [
+        "i32", "i64", "u32", "u64", "f32", "f64", "bool", "str", "fn",
+    ];
     assert_eq!(verify(&[main_fn(&[], &ret, &[], &body)]), []);
 }
 
