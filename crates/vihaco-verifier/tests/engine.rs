@@ -575,13 +575,26 @@ fn a_failing_block_reports_its_real_defect_not_a_follow_on() {
     // In the first round the header passed an i64 to 10. Neither that
     // state, nor a depth mismatch between it and the path through 14, may be
     // reported: 10 is analysed from the path through 14 alone.
+    let rejection = verify_spans(
+        &a_real_defect_after_a_failing_loop(),
+        &[span(0, 0, 15)],
+        true,
+    )
+    .unwrap_err();
     assert_eq!(
-        rejected(verify(&a_real_defect_after_a_failing_loop())),
+        found(&rejection.diagnostics),
         [
             (0, 4, mismatch("i64", "i64 | f64")),
             (0, 10, mismatch("f64", "bool")),
         ]
     );
+    let maps = rejection.type_maps.expect("type maps were requested");
+    let operands = |address| maps.get(0, address).map(|f| f.operands().to_vec());
+    // 10 is mapped at the state it fails at, from the path through 14 alone.
+    let bool_slot = TypeSlot::Known(Type::Bool);
+    assert_eq!(operands(10), Some(vec![bool_slot.clone(), bool_slot]));
+    // The loop body is reached only through the failing header.
+    assert_eq!(operands(7), None);
 }
 
 #[test]
@@ -611,13 +624,18 @@ fn a_join_into_a_failing_block_is_checked_only_between_analysed_edges() {
         Use(Type::F64),    // 16
         Ret,               // 17
     ];
+    let rejection = verify_spans(&code, &[span(0, 0, 18)], true).unwrap_err();
     assert_eq!(
-        rejected(verify(&code)),
+        found(&rejection.diagnostics),
         [
             (0, 4, mismatch("i64", "i64 | f64")),
             (0, 16, mismatch("f64", "bool")),
         ]
     );
+    let maps = rejection.type_maps.expect("type maps were requested");
+    let operands = |address| maps.get(0, address).map(|f| f.operands().to_vec());
+    let bool_slot = TypeSlot::Known(Type::Bool);
+    assert_eq!(operands(16), Some(vec![bool_slot.clone(), bool_slot]));
 }
 
 /// Verify `code`, which must be rejected with `errors` errors, and assert

@@ -125,7 +125,8 @@ pub struct Rejection<S> {
     ///
     /// Leaders reachable only through failing blocks have no entry, and
     /// neither do functions whose span is invalid. A failing block's entry
-    /// is the state it fails at.
+    /// is the state it fails at, with every other failing block passing
+    /// nothing on.
     pub type_maps: Option<TypeMaps<S>>,
 }
 

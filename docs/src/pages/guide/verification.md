@@ -212,8 +212,10 @@ reach a join with different depths), `TypeMismatch`, `CallArityMismatch`,
 message.
 
 A failing rule ends its basic block, so a block reports at most one rule error
-and code reachable only through it isn't analysed. Each defect is reported once,
-even inside a loop.
+and code reachable only through it isn't analysed. A block that fails is
+checked against the paths that don't run through another failing block, so a
+diagnostic never stems from a state some other defect produced. Each defect is
+reported once, even inside a loop.
 
 ### Type maps
 
