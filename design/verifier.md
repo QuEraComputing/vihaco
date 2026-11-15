@@ -674,7 +674,11 @@ Verification should not be optional for execution: a `Verified<M>` wrapper
 produced only by the verifier, and the stdlib image constructors (`Image::new`,
 `Loadable`) accept `Verified<LocalModule<…>>`. Constructing an image from an
 unverified module requires an explicit, greppable escape hatch
-(`Verified::assume_verified`) for tests and trusted toolchains.
+(`Verified::assume_verified`) for tests and trusted toolchains. This
+applies to `program-image-execution`. With `typed-declarations` alone, the CPU
+dialect has rules but programs still run through the legacy `ProgramImage`,
+whose module is public and unverified; there verification happens only if the
+embedder calls `verify_module` before loading.
 
 Settled in implementation (step 6):
 

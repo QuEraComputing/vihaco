@@ -26,7 +26,10 @@ crate). The `program-image-execution` feature includes it; enable the
 ## Verifying a program
 
 An [image](/guide/loadables) only accepts a `Verified` module, so verification
-is part of loading:
+is part of loading. (With `typed-declarations` alone, without
+`program-image-execution`, programs run through the legacy `ProgramImage`,
+which does not require `Verified`: there, verification happens only if you call
+`verify_module` before loading.)
 
 ```rust,ignore
 let module = metadata.into_module(code)?;   // parse and lower as usual
@@ -232,7 +235,8 @@ tables.
 tests that exercise runtime checks with deliberately ill-typed programs, for
 modules a trusted toolchain has already verified, and for module models the
 standard verifier doesn't cover. Keep it easy to find: it is the one place an
-unverified program can reach an image. (The low-level runner,
+unverified program can reach an image, outside the `typed-declarations`-only
+build described above. (The low-level runner,
 `vihaco::execution_state::{execute, resume}`, runs a plain module without an
 image and without verification; reach for it only for trusted code.)
 
