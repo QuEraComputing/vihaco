@@ -964,6 +964,61 @@ fn component_state_established_before_a_call_does_not_survive_it() {
     verify(&call_open_play, S(Seq::Close(1))).unwrap();
 }
 
+/// `TypeMaps::state_at` replays a module through a machine context: the frame
+/// and component state before any address, across a call (whose callee's
+/// signature and `after_call` apply) and inside the callee (whose signature
+/// and locals the replay selects through `set_address`).
+#[test]
+fn state_at_replays_module_state_across_calls() {
+    use Machine::{Op as O, Seq as S};
+    let module = module(
+        vec![
+            S(Seq::Open(1)),     // 0
+            O(Const(Type::U64)), // 1
+            O(Call {
+                arity: 1,
+                address: 5,
+            }), // 2
+            S(Seq::Open(2)),     // 3
+            O(Ret(1)),           // 4
+            O(Load(0, Type::U64)), // 5: helper
+            O(Ret(1)),           // 6
+        ],
+        vec![
+            decl(&[], &[Type::U64], &[], (0, 5)),
+            decl(&[Type::U64], &[Type::U64], &[], (5, 7)),
+        ],
+    );
+    let mut cx = ModuleVerifier::new(&module).with_state(Open::default());
+    let maps = cx
+        .verify(&module.code, VerifyOptions::default().with_type_maps(true))
+        .unwrap()
+        .type_maps
+        .unwrap();
+    // Only the entries are leaders: everything else is replayed.
+    assert!(maps.get(0, 3).is_none());
+    let mut state = |function, address| maps.state_at(&module.code, &mut cx, function, address);
+    let open = |channels: &[u32]| Open(channels.iter().copied().collect());
+
+    let (frame, channels) = state(0, 2).unwrap();
+    assert_eq!(frame.operands(), [TypeSlot::Known(Type::U64)]);
+    assert_eq!(channels, open(&[1]));
+    // After the call: the callee's result, and the channel forgotten.
+    let (frame, channels) = state(0, 3).unwrap();
+    assert_eq!(frame.operands(), [TypeSlot::Known(Type::U64)]);
+    assert_eq!(channels, open(&[]));
+    let (_, channels) = state(0, 4).unwrap();
+    assert_eq!(channels, open(&[2]));
+    // Inside the callee: its own locals, starting from the entry state.
+    let (frame, channels) = state(1, 6).unwrap();
+    assert_eq!(frame.locals(), [TypeSlot::Known(Type::U64)]);
+    assert_eq!(frame.operands(), [TypeSlot::Known(Type::U64)]);
+    assert_eq!(channels, open(&[]));
+    // Addresses outside the function, or past its end, have no state.
+    assert!(state(0, 5).is_none());
+    assert!(state(1, 7).is_none());
+}
+
 /// A join point for calling joins directly.
 const JOIN: JoinPoint = JoinPoint {
     function: 0,
