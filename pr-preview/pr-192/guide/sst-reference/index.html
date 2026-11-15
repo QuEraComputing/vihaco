@@ -33,9 +33,9 @@ machine with an <code>execution</code> device using the standard program dialect
 
 .section main
 .header
-.file "output.sst"
-.func @main() -> u64, locals 0
-.entry @main
+    .file "output.sst"
+    .func @main() -> u64, locals 0
+    .entry @main
 .text
 @main:
     execution::program::const_u64 42
@@ -152,15 +152,16 @@ punctuation are dialect-specific; see the
 <p>The standard header is a list of flat directives, one per line, that name
 things by symbol. The loader builds every table and index from them; no index
 or string table is written by hand:</p>
-<pre><code class="language-text">.file "loadable.sst"                  ; the file of the .func lines that follow
-.func @helper(x: u64) -> u64, locals 1
-.func @main() -> (u64, bool), locals 0
-.entry @main
-.const u64 42                         ; constants[0]
-.const str "hello"                    ; a string constant, by its text
-.const fn @helper                     ; a function reference, by name
-.source_symbol 12 "user"
-experiment.description "an example"   ; an application directive
+<pre><code class="language-text">.header
+    .file "loadable.sst"                  ; the file of the .func lines that follow
+    .func @helper(x: u64) -> u64, locals 1
+    .func @main() -> (u64, bool), locals 0
+    .entry @main
+    .const u64 42                         ; constants[0]
+    .const str "hello"                    ; a string constant, by its text
+    .const fn @helper                     ; a function reference, by name
+    .source_symbol 12 "user"
+    experiment.description "an example"   ; an application directive
 </code></pre>
 
 
@@ -338,7 +339,7 @@ fn main() {
     let report = check_program::&#x3C;Machine>(&#x26;source);
     let messages: Vec&#x3C;String> = report.iter().map(ToString::to_string).collect();
     assert_eq!(messages, [
-        "7:8: error: `.entry @start` names no `.func` directive",
+        "7:12: error: `.entry @start` names no `.func` directive",
         "11:35: error: unexpected `x` in operands of `execution::program::const_u64`",
         "12:5: error: expected an instruction, found `calculator::arithmetic::sub`",
     ]);
@@ -396,12 +397,10 @@ fn main() {
 
 .section main
 .header
-;; strings[1]
-.file "first-machine.sst"
-;; functions[0], @main = 0x0000..0x0004
-.func @main() -> u64, locals 0
-;; functions[0]
-.entry @main
+    .file "first-machine.sst"
+    ;; functions[0], @main = 0x0000..0x0004
+    .func @main() -> u64, locals 0
+    .entry @main
 .text
 ;; fn main() -> u64, locals 0, functions[0]
 @main:
@@ -426,7 +425,9 @@ follows it after two spaces. One blank line precedes <code>.global</code> and ev
 order.</li>
 <li><code>.global</code> content is consumer-defined and kept verbatim, except that trailing
 whitespace and trailing blank lines are removed.</li>
-<li>Header directives also start at column 0, one per line, in source order.
+<li>Header directives are indented four spaces under <code>.header</code>, like
+instructions under <code>.text</code>, one per line, in source order. Indentation is
+only layout: the parser ignores it.
 Their order is meaningful (<code>.func</code> and <code>.const</code> order define the tables, and
 <code>.file</code> applies to the <code>.func</code> lines after it), so the formatter never
 reorders them, and application directives stay where they are. A directive
@@ -461,7 +462,8 @@ printed declaration, it is moved above the declaration.</p>
 removed and fresh ones are written. Without them
 (<code>FormatOptions::without_generated_comments()</code>), existing own-line <code>;;</code>
 comments are still removed. Each note is written on the line above the item it
-describes:</p>
+describes. Directives that only restate their operand, <code>.entry</code> and <code>.file</code>,
+get none:</p>
 
 
 
@@ -499,15 +501,7 @@ describes:</p>
 
 
 
-
-
-
-
-
-
-
-
-<table><thead><tr><th>Item</th><th>Generated comment</th></tr></thead><tbody><tr><td><code>.func @main(...)</code></td><td><code>;; functions[1], @main = 0x0000..0x0006</code> (its index and range)</td></tr><tr><td><code>.entry @main</code></td><td><code>;; functions[1]</code></td></tr><tr><td><code>.file "loadable.sst"</code></td><td><code>;; strings[2]</code></td></tr><tr><td><code>.const u64 42</code></td><td><code>;; constants[0]</code></td></tr><tr><td><code>.const str "hello"</code> / <code>.const fn @helper</code></td><td><code>;; constants[1] = strings[3]</code> / <code>;; constants[2] = functions[0]</code></td></tr><tr><td>Function symbol <code>@main:</code></td><td><code>;; fn main() -> u64, locals 0, functions[1]</code></td></tr><tr><td>Other symbol <code>@done:</code></td><td><code>;; 0x0005</code> (its address)</td></tr><tr><td>Instruction with an <code>@name</code> operand</td><td><code>;; @done = 0x0005</code>; functions add their index: <code>;; @helper = 0x0006 (functions[0])</code></td></tr><tr><td>Instruction with a string literal</td><td><code>;; "hi" = strings[3]</code></td></tr></tbody></table>
+<table><thead><tr><th>Item</th><th>Generated comment</th></tr></thead><tbody><tr><td><code>.func @main(...)</code></td><td><code>;; functions[1], @main = 0x0000..0x0006</code> (its index and range)</td></tr><tr><td><code>.const u64 42</code></td><td><code>;; constants[0]</code></td></tr><tr><td><code>.const str "hello"</code> / <code>.const fn @helper</code></td><td><code>;; constants[1] = strings[3]</code> / <code>;; constants[2] = functions[0]</code></td></tr><tr><td>Function symbol <code>@main:</code></td><td><code>;; fn main() -> u64, locals 0, functions[1]</code></td></tr><tr><td>Other symbol <code>@done:</code></td><td><code>;; 0x0005</code> (its address)</td></tr><tr><td>Instruction with an <code>@name</code> operand</td><td><code>;; @done = 0x0005</code>; functions add their index: <code>;; @helper = 0x0006 (functions[0])</code></td></tr><tr><td>Instruction with a string literal</td><td><code>;; "hi" = strings[3]</code></td></tr></tbody></table>
 <p>For example:</p>
 <pre><code class="language-text">;; fn main() -> u64, locals 0, functions[1]
 @main:
@@ -678,7 +672,7 @@ and compatibility planning.</p> </article>  <nav class="section-pager" aria-labe
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-11-14</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-11-15</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {
