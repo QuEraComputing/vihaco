@@ -86,8 +86,9 @@ pub(crate) struct Heap {
 /// `KeyData::from_ffi` would silently force an even version odd, turning a
 /// forged small number such as `1` into a key for the first object allocated
 /// in that slot, so such words are rejected here instead. This relies on the
-/// slotmap 1.x key layout; `slot_index_alone_never_reaches_a_first_generation_object`
-/// fails if that layout changes.
+/// slotmap 1.1 key layout (the workspace pins `slotmap = "1.1"`);
+/// `slot_index_alone_never_reaches_a_first_generation_object` and
+/// `fresh_references_are_predictable_but_tag_checked` fail if it changes.
 fn key(reference: HeapRef) -> Option<DefaultKey> {
     let version = (reference >> 32) as u32;
     (version & 1 == 1).then(|| KeyData::from_ffi(reference).into())
