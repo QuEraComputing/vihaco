@@ -147,6 +147,7 @@ impl<I, Info> Verified<LocalModule<I, Value, Type, Info>> {
     ///
     /// The [`Rejection`] listing every diagnostic (and type maps, if
     /// requested), if any diagnostic is an error.
+    #[allow(clippy::type_complexity)]
     pub fn verify(
         module: LocalModule<I, Value, Type, Info>,
         options: VerifyOptions,

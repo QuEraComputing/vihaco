@@ -116,7 +116,7 @@ pub use vihaco_stdlib::{
 
 /// Load-time verification: the engine, standard capabilities, diagnostics,
 /// [`ModuleVerifier`](verifier::ModuleVerifier), and
-/// [`Verified`](verifier::Verified). See the `vihaco-verifier` crate.
+/// [`Verified`]. See the `vihaco-verifier` crate.
 #[cfg(feature = "verifier")]
 pub use vihaco_verifier as verifier;
 

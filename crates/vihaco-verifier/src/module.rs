@@ -586,6 +586,7 @@ impl<'m, S: ComponentState> WithState<'m, S> {
 
     /// Verify every function of the module against `code`, as
     /// [`ModuleVerifier::verify`] does, with component state.
+    #[allow(clippy::type_complexity)]
     pub fn verify<I>(
         &mut self,
         code: &[I],
