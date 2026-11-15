@@ -126,7 +126,10 @@ pub fn main() -> eyre::Result<()> {
     );
     let mut context = MetadataLoweringContext::new(&metadata)?;
     let code = lower_functions_with_metadata(functions, &metadata, &mut context)?;
-    let module = Verified::new(metadata.into_module(code)?)?;
+    // On failure, `into_report` lists every diagnostic with the module's
+    // names (`@main+2 (address 2)` and the instruction text).
+    let module = Verified::new(metadata.into_module(code)?)
+        .map_err(|failed| failed.into_report())?;
     let machine = Machine {
         execution: ExecutionState::new(),
         calculator: Calculator::default(),

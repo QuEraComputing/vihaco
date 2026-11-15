@@ -33,24 +33,19 @@ which does not require `Verified`: there, verification happens only if you call
 
 ```rust,ignore
 let module = metadata.into_module(code)?;   // parse and lower as usual
-let image = Image::new(Verified::new(module)?);
-let mut loaded = Loadable::new(image, machine);
+let verified = Verified::new(module).map_err(|failed| failed.into_report())?;
+let mut loaded = Loadable::new(Image::new(verified), machine);
 ```
 
 If the program has any error, `Verified::new` returns a `VerifyFailed`: it
 gives the module back (`failed.module`, or `into_parts()`) together with the
 `Rejection`, whose `diagnostics` list every finding, sorted by function and
-address. It converts into an `eyre::Report` for any instruction set, so `?`
-works; that report shows indices (`function 0, address 2`). To show the module's
-names, which every `#[composite]` instruction set provides, render it with
-`failed.display_named()`:
-
-```rust,ignore
-let verified = Verified::new(module)
-    .map_err(|failed| eyre::eyre!("{}", failed.display_named()))?;
-```
-
-which reports something like:
+address. `into_report()` turns it into an `eyre::Report` that renders every
+diagnostic with the module's names, which every `#[composite]` instruction set
+provides (`failed.display_named()` shows the same text without consuming it).
+A bare `?` also works, for any instruction set, but its report shows indices
+(`function 0, address 2`). With `into_report`, a rejected program reports
+something like:
 
 ```text
 verification failed with 1 error

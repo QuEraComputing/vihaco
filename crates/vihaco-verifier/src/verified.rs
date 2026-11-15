@@ -288,6 +288,7 @@ impl<I, Info> Verified<LocalModule<I, Value, Type, Info>> {
 /// [`eyre::Report`] whatever the instructions are. Its `Display` is the
 /// rejection's, without names (`function 0, address 2`). To show the
 /// module's names (`@main+2 (address 2)` and the instruction text), use
+/// [`into_report`](Self::into_report) (an `eyre::Report` with names) or
 /// [`display_named`](Self::display_named) when the module provides them, which
 /// every [`LocalModule`] whose instructions implement
 /// [`InstructionText`](vihaco_abi::names::InstructionText) does (every
@@ -317,6 +318,21 @@ impl<M, S> VerifyFailed<M, S> {
         M: DiagnosticNames,
     {
         self.rejection.display_with(&*self.module)
+    }
+
+    /// An [`eyre::Report`] of every diagnostic, rendered now with the
+    /// module's own names (`@main+2 (address 2)` and the instruction text),
+    /// as [`display_named`](Self::display_named) shows them.
+    ///
+    /// Use it where `?` would convert the failure without names:
+    /// `Verified::new(module).map_err(|failed| failed.into_report())?`. The
+    /// module and the structured [`Rejection`] are dropped; take them with
+    /// [`into_parts`](Self::into_parts) first if you need them.
+    pub fn into_report(self) -> eyre::Report
+    where
+        M: DiagnosticNames,
+    {
+        eyre::eyre!("{}", self.display_named())
     }
 
     /// Every diagnostic, rendered with `names`.

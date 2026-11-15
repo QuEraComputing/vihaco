@@ -1218,6 +1218,13 @@ fn only_verification_or_the_escape_hatch_builds_verified_modules() {
         "verification failed with 1 error\nerror: return value 0 of function 0: expected u64, \
          found f64\n  --> function 0, address 1"
     );
+    // `into_report` makes a report with the names.
+    let report = Verified::new(bad.clone()).unwrap_err().into_report();
+    assert_eq!(
+        format!("{report:#}"),
+        "verification failed with 1 error\nerror: return value 0 of @main: expected u64, \
+         found f64\n  --> @main+1 (address 1): Ret(1)"
+    );
 
     // The escape hatch skips verification entirely.
     assert_eq!(Verified::assume_verified(bad.clone()).code.len(), 2);

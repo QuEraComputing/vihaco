@@ -201,7 +201,10 @@ pub fn main() -> eyre::Result<()> {
     );
     let mut context = MetadataLoweringContext::new(&metadata)?;
     let code = lower_functions_with_metadata(functions, &metadata, &mut context)?;
-    let module = Verified::new(metadata.into_module(code)?)?;
+    // On failure, `into_report` lists every diagnostic with the module's
+    // names (`@main+2 (address 2)` and the instruction text).
+    let module = Verified::new(metadata.into_module(code)?)
+        .map_err(|failed| failed.into_report())?;
     let machine = Machine {
         execution: ExecutionState::new(),
         calculator: Calculator::default(),
@@ -269,7 +272,9 @@ Its name and source filename refer into `strings`.
 `Verified::new` then verifies the module: every function is checked against
 its declared signature and locals, so a program that would add a string or
 return the wrong number of values is rejected before it runs, with a
-diagnostic for each problem. An image only accepts a verified module.
+diagnostic for each problem. `into_report` renders those with the module's
+names; a bare `?` also works, but shows indices instead. An image only accepts
+a verified module.
 [Verification](/guide/verification) covers rules and diagnostics in depth.
 
 Finally, `Image::new` wraps the verified module, and `Loadable::new` pairs it
