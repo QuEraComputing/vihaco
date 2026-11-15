@@ -225,8 +225,12 @@ example a linked node with a <code>next: struct 0</code> field.</p>
 <h3 id="arrays">Arrays</h3>
 <p>Arrays are typed by their element: <code>array f64</code>, <code>array struct 0</code>, or nested,
 <code>array array u64</code>. The type can appear anywhere a type can, such as a function
-return type or a struct field. Elements are stored inline, one word each;
-struct and array elements are references to their own heap objects.</p>
+return type or a struct field. Types nest at most 32 levels deep
+(<code>Type::MAX_ARRAY_DEPTH</code>): a deeper type is a parse or decode error that names
+its depth, and lowering rejects an array instruction whose element type is
+already 32 levels deep, because its array type would be 33. Elements are stored
+inline, one word each; struct and array elements are references to their own
+heap objects.</p>
 
 
 
