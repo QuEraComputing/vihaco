@@ -54,6 +54,98 @@ fn new_values_parse_and_display() {
 }
 
 #[test]
+fn struct_types_round_trip_through_text_and_bytes() {
+    let ty = Type::Struct(258);
+    assert_eq!(encoded(&ty), vec![0x0B, 0x02, 0x01, 0x00, 0x00]);
+    let decoded = Type::from_bytes(&mut std::io::Cursor::new(encoded(&ty))).unwrap();
+    assert_eq!(decoded, ty);
+
+    assert_eq!(ty.to_string(), "struct 258");
+    assert_eq!(Type::from_text("struct 258").unwrap(), ty);
+    // `struct` shares a prefix with `str`; both must still parse.
+    assert_eq!(Type::from_text("str").unwrap(), Type::String);
+    assert!(Type::from_text("struct").is_err());
+    assert!(Type::from_text("struct x").is_err());
+}
+
+#[test]
+fn array_types_nest_and_round_trip_through_text_and_bytes() {
+    let cases = [
+        (Type::array(Type::F64), "array f64", vec![0x0C, 0x06]),
+        (
+            Type::array(Type::array(Type::U64)),
+            "array array u64",
+            vec![0x0C, 0x0C, 0x05],
+        ),
+        (
+            Type::array(Type::Struct(2)),
+            "array struct 2",
+            vec![0x0C, 0x0B, 0x02, 0x00, 0x00, 0x00],
+        ),
+    ];
+    for (ty, text, bytes) in cases {
+        assert_eq!(ty.to_string(), text);
+        assert_eq!(Type::from_text(text).unwrap(), ty);
+        assert_eq!(encoded(&ty), bytes);
+        let decoded = Type::from_bytes(&mut std::io::Cursor::new(bytes)).unwrap();
+        assert_eq!(decoded, ty);
+    }
+    assert!(Type::from_text("array").is_err());
+    assert!(Type::from_text("array nope").is_err());
+    // A truncated element type is an error, not a panic.
+    assert!(Type::from_bytes(&mut std::io::Cursor::new(vec![0x0C])).is_err());
+}
+
+#[test]
+fn array_nesting_is_limited_in_bytes_and_text() {
+    let max = Type::MAX_ARRAY_DEPTH;
+    let deepest = Type::nested_array(max, Type::I64).unwrap();
+    assert_eq!(deepest.array_depth(), max);
+
+    // At the limit: decodes and parses.
+    let mut bytes = vec![0x0C; max];
+    bytes.push(0x03);
+    assert_eq!(
+        Type::from_bytes(&mut std::io::Cursor::new(bytes)).unwrap(),
+        deepest
+    );
+    let text = format!("{}i64", "array ".repeat(max));
+    assert_eq!(Type::from_text(&text).unwrap(), deepest);
+
+    // One past the limit: an error, in both forms.
+    let mut bytes = vec![0x0C; max + 1];
+    bytes.push(0x03);
+    let err = Type::from_bytes(&mut std::io::Cursor::new(bytes)).unwrap_err();
+    assert!(err.to_string().contains("nested more than 32"), "{err}");
+    let err = Type::from_text(&format!("{}i64", "array ".repeat(max + 1))).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("array type nested 33 levels deep; at most 32 are allowed"),
+        "{err}"
+    );
+    assert!(Type::nested_array(1, deepest).is_err());
+
+    // A hostile run of array bytes is rejected without overflowing the stack.
+    let mut bytes = vec![0x0C; 2_000_000];
+    bytes.push(0x03);
+    assert!(Type::from_bytes(&mut std::io::Cursor::new(bytes)).is_err());
+    let text = format!("{}i64", "array ".repeat(200_000));
+    let err = Type::from_text(&text).unwrap_err();
+    assert!(
+        err.to_string().contains("nested 200000 levels deep"),
+        "{err}"
+    );
+}
+
+#[test]
+fn struct_refs_are_found_inside_array_element_types() {
+    let mut found = Vec::new();
+    Type::array(Type::array(Type::Struct(3))).visit_struct_refs(&mut |index| found.push(index));
+    Type::F64.visit_struct_refs(&mut |index| found.push(index));
+    assert_eq!(found, [3]);
+}
+
+#[test]
 fn scalar_instruction_traits_use_narrow_widths() {
     assert_eq!(i32::width(), 4);
     assert_eq!(f32::width(), 4);

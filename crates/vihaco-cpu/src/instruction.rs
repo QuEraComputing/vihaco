@@ -83,7 +83,7 @@ mod parse_tests {
         );
         assert_parses!("cpu.func_start", SurfaceInstruction::FunctionStart);
         assert_parses!("cpu.func_end", SurfaceInstruction::FunctionEnd);
-        assert_parses!("cpu.get_item", SurfaceInstruction::GetItem);
+        assert_parses!("cpu.array_len", SurfaceInstruction::ArrayLen);
         assert_parses!("cpu.not", SurfaceInstruction::Not);
         assert_parses!("cpu.and", SurfaceInstruction::And);
         assert_parses!("cpu.or", SurfaceInstruction::Or);
@@ -161,19 +161,51 @@ mod parse_tests {
     }
 
     #[test]
-    fn parses_heap_alloc() {
-        assert_parses!("cpu.heap_alloc 5", SurfaceInstruction::HeapAlloc(5));
+    fn parses_typed_array_instructions() {
+        use vihaco_abi::Type;
+        assert_parses!(
+            "cpu.array_new f64, 5",
+            SurfaceInstruction::ArrayNew(Type::F64, 5)
+        );
+        assert_eq!(
+            parse("cpu.array_new array struct 2, 0"),
+            SurfaceInstruction::ArrayNew(Type::array(Type::Struct(2)), 0)
+        );
+        assert_parses!("cpu.array_get u64", SurfaceInstruction::ArrayGet(Type::U64));
+        assert_parses!("cpu.array_set i64", SurfaceInstruction::ArraySet(Type::I64));
+        assert_parses!(
+            "cpu.array_reserve f32",
+            SurfaceInstruction::ArrayReserve(Type::F32)
+        );
+        assert_eq!(
+            parse("cpu.array_push array u64"),
+            SurfaceInstruction::ArrayPush(Type::array(Type::U64))
+        );
     }
 
     #[test]
-    fn parses_heap_reserve_and_push() {
-        assert_parses!("cpu.heap_reserve", SurfaceInstruction::HeapReserve);
-        assert_parses!("cpu.heap_push", SurfaceInstruction::HeapPush);
+    fn parses_struct_field_access() {
+        assert_parses!("cpu.get_field 0, 2", SurfaceInstruction::GetField(0, 2));
+        assert_parses!("cpu.set_field 1, 0", SurfaceInstruction::SetField(1, 0));
+        assert_parses!("cpu.struct_new 0, 3", SurfaceInstruction::StructNew(0, 3));
     }
 
     #[test]
-    fn parses_heap_len() {
-        assert_parses!("cpu.heap_len", SurfaceInstruction::HeapLen);
+    fn heap_instructions_that_name_no_element_type_are_gone() {
+        for retired in [
+            "cpu.heap_alloc 5",
+            "cpu.get_item",
+            "cpu.heap_push",
+            "cpu.heap_len",
+        ] {
+            assert!(
+                SurfaceInstruction::parser()
+                    .parse(retired)
+                    .into_result()
+                    .is_err(),
+                "{retired}"
+            );
+        }
     }
 
     #[test]

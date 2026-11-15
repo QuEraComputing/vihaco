@@ -133,7 +133,6 @@ lower_literal! {
     ConstF64 => crate::Word::from,
     ConstU32 => crate::word::encode_u32,
     ConstBool => crate::word::encode_bool,
-    ConstHeapRef => crate::word::encode_heap_ref,
 }
 
 #[cfg(test)]
@@ -146,6 +145,7 @@ mod metadata_context_tests {
     #[test]
     fn metadata_context_supplies_cpu_capabilities_without_extending_strings() -> eyre::Result<()> {
         let metadata: ProgramMetadata = ProgramMetadata {
+            structs: vec![],
             strings: vec!["helper".into(), "main".into(), "hello".into()],
             functions: vec![
                 FunctionInfo {

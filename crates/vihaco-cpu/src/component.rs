@@ -6,6 +6,7 @@ use crate::RuntimeInstruction;
 use crate::StepOutcome;
 use crate::Word;
 use crate::data::CPU;
+#[cfg(not(feature = "typed-declarations"))]
 use crate::word::*;
 use eyre::Result;
 use vihaco_abi::{frame::Frame, traits::Reset};
@@ -102,12 +103,25 @@ impl CPU {
             StoreF64(addr) => self.op_store(*addr),
             StoreBool(addr) => self.op_store(*addr),
             Dup => self.op_dup(),
-            HeapAlloc(n_elements) => self.op_heap_alloc(*n_elements),
-            GetItem => self.op_get_item(),
+            ArrayNew(elem, len) => self.op_array_new(elem, *len),
+            ArrayGet(elem) => self.op_array_get(elem),
+            ArraySet(elem) => self.op_array_set(elem),
             HeapDealloc => self.op_heap_dealloc(),
-            HeapReserve => self.op_heap_reserve(),
-            HeapPush => self.op_heap_push(),
-            HeapLen => self.op_heap_len(),
+            ArrayReserve(elem) => self.op_array_reserve(elem),
+            ArrayPush(elem) => self.op_array_push(elem),
+            ArrayLen => self.op_array_len(),
+            GetField(struct_id, slot) => self.op_get_field(crate::FieldSlot {
+                struct_id: *struct_id,
+                slot: *slot,
+            }),
+            SetField(struct_id, slot) => self.op_set_field(crate::FieldSlot {
+                struct_id: *struct_id,
+                slot: *slot,
+            }),
+            StructNew(struct_id, field_count) => self.op_struct_new(crate::StructLayout {
+                struct_id: *struct_id,
+                field_count: *field_count,
+            }),
             ConstI32(v) | ConstI64(v) | ConstU32(v) | ConstU64(v) | ConstF32(v) | ConstF64(v)
             | ConstBool(v) | ConstString(v) | ConstFunctionRef(v) | ConstHeapRef(v) => {
                 self.op_const(*v)
@@ -412,25 +426,32 @@ impl CPU {
     }
 
     #[cfg(not(feature = "typed-declarations"))]
-    pub fn op_heap_alloc(&mut self, n_elements: u32) -> Result<StepOutcome> {
-        let n: usize = n_elements as usize;
+    fn op_array_new(&mut self, elem: &vihaco_abi::Type, len: u32) -> Result<StepOutcome> {
+        let n = len as usize;
         self.require_operands(n)?;
         let start = self.stack.len() - n;
         let values: Vec<Word> = self.stack.drain(start..).collect();
-        let heap_id = self.push_heap_object(values);
+        let heap_id = self.alloc_heap_array(elem.clone(), values);
         self.stack_push(encode_heap_ref(heap_id));
         Ok(StepOutcome::Continue)
     }
 
     #[cfg(not(feature = "typed-declarations"))]
-    pub fn op_get_item(&mut self) -> Result<StepOutcome> {
-        let index = Self::heap_index(self.stack_pop()?)?;
+    fn op_array_get(&mut self, elem: &vihaco_abi::Type) -> Result<StepOutcome> {
+        let index = decode_u64(self.stack_pop()?);
         let heap_id = decode_heap_ref(self.stack_pop()?);
-        let value = *self
-            .heap_object(heap_id)?
-            .get(index)
-            .ok_or_else(|| eyre::eyre!("heap index {} out of bounds", index))?;
+        let value = self.heap_array_get(heap_id, elem, index)?;
         self.stack_push(value);
+        Ok(StepOutcome::Continue)
+    }
+
+    #[cfg(not(feature = "typed-declarations"))]
+    fn op_array_set(&mut self, elem: &vihaco_abi::Type) -> Result<StepOutcome> {
+        self.require_operands(3)?;
+        let value = self.stack_pop()?;
+        let index = decode_u64(self.stack_pop()?);
+        let heap_id = decode_heap_ref(self.stack_pop()?);
+        self.heap_array_set(heap_id, elem, index, value)?;
         Ok(StepOutcome::Continue)
     }
 
@@ -442,30 +463,58 @@ impl CPU {
     }
 
     #[cfg(not(feature = "typed-declarations"))]
-    fn op_heap_reserve(&mut self) -> Result<StepOutcome> {
+    fn op_array_reserve(&mut self, elem: &vihaco_abi::Type) -> Result<StepOutcome> {
         let capacity = decode_u64(self.stack_pop()?);
         let capacity = usize::try_from(capacity)
-            .map_err(|_| eyre::eyre!("heap capacity {} does not fit in usize", capacity))?;
-        let heap_id = self.heap.reserve(capacity)?;
+            .map_err(|_| eyre::eyre!("array capacity {} does not fit in usize", capacity))?;
+        let heap_id = self.reserve_heap_array(elem.clone(), capacity)?;
         self.stack_push(encode_heap_ref(heap_id));
         Ok(StepOutcome::Continue)
     }
 
     #[cfg(not(feature = "typed-declarations"))]
-    fn op_heap_push(&mut self) -> Result<StepOutcome> {
+    fn op_array_push(&mut self, elem: &vihaco_abi::Type) -> Result<StepOutcome> {
         self.require_operands(2)?;
         let value = self.stack_pop()?;
         let heap_ref = self.stack_pop()?;
-        self.heap.push(decode_heap_ref(heap_ref), value)?;
+        self.push_heap_array(decode_heap_ref(heap_ref), elem, value)?;
         self.stack_push(heap_ref);
         Ok(StepOutcome::Continue)
     }
 
     #[cfg(not(feature = "typed-declarations"))]
-    fn op_heap_len(&mut self) -> Result<StepOutcome> {
+    fn op_array_len(&mut self) -> Result<StepOutcome> {
         let heap_id = decode_heap_ref(self.stack_pop()?);
-        let len = u64::try_from(self.heap_object(heap_id)?.len())?;
+        let len = u64::try_from(self.heap_array_len(heap_id)?)?;
         self.stack_push(encode_u64(len));
+        Ok(StepOutcome::Continue)
+    }
+
+    #[cfg(not(feature = "typed-declarations"))]
+    fn op_get_field(&mut self, field: crate::FieldSlot) -> Result<StepOutcome> {
+        let heap_id = decode_heap_ref(self.stack_pop()?);
+        let value = self.heap_field(heap_id, field)?;
+        self.stack_push(value);
+        Ok(StepOutcome::Continue)
+    }
+
+    #[cfg(not(feature = "typed-declarations"))]
+    fn op_set_field(&mut self, field: crate::FieldSlot) -> Result<StepOutcome> {
+        self.require_operands(2)?;
+        let value = self.stack_pop()?;
+        let heap_id = decode_heap_ref(self.stack_pop()?);
+        self.set_heap_field(heap_id, field, value)?;
+        Ok(StepOutcome::Continue)
+    }
+
+    #[cfg(not(feature = "typed-declarations"))]
+    fn op_struct_new(&mut self, layout: crate::StructLayout) -> Result<StepOutcome> {
+        let n = layout.field_count as usize;
+        self.require_operands(n)?;
+        let start = self.stack.len() - n;
+        let values: Vec<Word> = self.stack.drain(start..).collect();
+        let heap_id = self.push_heap_struct(layout, values)?;
+        self.stack_push(encode_heap_ref(heap_id));
         Ok(StepOutcome::Continue)
     }
 
@@ -474,23 +523,13 @@ impl CPU {
         self.stack.push(v);
         Ok(StepOutcome::Continue)
     }
-
-    pub(crate) fn heap_index(value: Word) -> Result<usize> {
-        match decode_i64(value) {
-            index if index >= 0 => usize::try_from(index)
-                .map_err(|_| eyre::eyre!("heap index {} does not fit in usize", index)),
-            index => Err(eyre::eyre!(
-                "heap index must be non-negative, got {}",
-                index
-            )),
-        }
-    }
 }
 
 #[cfg(all(test, not(feature = "typed-declarations")))]
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
+    use vihaco_abi::Type;
     use vihaco_abi::frame::Frame;
     use vihaco_module::host::StackMemory;
     use vihaco_parser::Ident;
@@ -673,36 +712,38 @@ mod tests {
 
     #[test]
     #[cfg(not(feature = "typed-declarations"))]
-    fn op_heap_alloc_preserves_natural_push_order_and_returns_heap_ref() {
+    fn op_array_new_preserves_natural_push_order_and_returns_heap_ref() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_i64(10));
         cpu.stack_push(encode_i64(20));
         cpu.stack_push(encode_i64(30));
 
         let outcome = cpu
-            .execute_instruction(RuntimeInstruction::HeapAlloc(3))
+            .execute_instruction(RuntimeInstruction::ArrayNew(Type::I64, 3))
             .unwrap();
 
         assert_eq!(outcome, StepOutcome::Continue);
-        assert_eq!(cpu.stack(), &vec![encode_heap_ref(0)]);
+        assert_eq!(cpu.stack().len(), 1);
+        let reference = decode_heap_ref(cpu.stack()[0]);
         assert_eq!(
-            cpu.heap_object(0).unwrap(),
+            cpu.heap_object(reference).unwrap(),
             &[encode_i64(10), encode_i64(20), encode_i64(30)]
         );
     }
 
     #[test]
     #[cfg(not(feature = "typed-declarations"))]
-    fn op_heap_alloc_supports_empty_heap_objects() {
+    fn op_array_new_supports_empty_heap_objects() {
         let mut cpu = CPU::default();
 
         let outcome = cpu
-            .execute_instruction(RuntimeInstruction::HeapAlloc(0))
+            .execute_instruction(RuntimeInstruction::ArrayNew(Type::I64, 0))
             .unwrap();
 
         assert_eq!(outcome, StepOutcome::Continue);
-        assert_eq!(cpu.stack(), &vec![encode_heap_ref(0)]);
-        assert_eq!(cpu.heap_object(0).unwrap(), &[] as &[Word]);
+        assert_eq!(cpu.stack().len(), 1);
+        let reference = decode_heap_ref(cpu.stack()[0]);
+        assert_eq!(cpu.heap_object(reference).unwrap(), &[] as &[Word]);
     }
 
     #[test]
@@ -710,7 +751,7 @@ mod tests {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_u32(2));
         assert_eq!(
-            cpu.execute_instruction(RuntimeInstruction::HeapReserve)
+            cpu.execute_instruction(RuntimeInstruction::ArrayReserve(Type::I64))
                 .unwrap(),
             StepOutcome::Continue
         );
@@ -720,7 +761,7 @@ mod tests {
         for value in [10, 20] {
             cpu.stack_push(encode_i64(value));
             assert_eq!(
-                cpu.execute_instruction(RuntimeInstruction::HeapPush)
+                cpu.execute_instruction(RuntimeInstruction::ArrayPush(Type::I64))
                     .unwrap(),
                 StepOutcome::Continue
             );
@@ -733,7 +774,7 @@ mod tests {
 
         cpu.stack_push(encode_i64(30));
         let err = cpu
-            .execute_instruction(RuntimeInstruction::HeapPush)
+            .execute_instruction(RuntimeInstruction::ArrayPush(Type::I64))
             .unwrap_err();
         assert!(err.to_string().contains("full"));
         assert_eq!(
@@ -743,7 +784,7 @@ mod tests {
 
         cpu.stack_push(heap_ref);
         cpu.stack_push(encode_u32(1));
-        cpu.execute_instruction(RuntimeInstruction::GetItem)
+        cpu.execute_instruction(RuntimeInstruction::ArrayGet(Type::I64))
             .unwrap();
         assert_eq!(cpu.stack(), &[encode_i64(20)]);
     }
@@ -752,12 +793,12 @@ mod tests {
     fn heap_len_consumes_reference_and_preserves_other_stack_values() {
         for values in [vec![], vec![encode_i64(10), encode_i64(20)]] {
             let mut cpu = CPU::default();
-            let heap_id = cpu.push_heap_object(values.clone());
+            let heap_id = cpu.alloc_heap_array(Type::I64, values.clone());
             cpu.stack_push(encode_i64(42));
             cpu.stack_push(encode_heap_ref(heap_id));
 
             let outcome = cpu
-                .execute_instruction(RuntimeInstruction::HeapLen)
+                .execute_instruction(RuntimeInstruction::ArrayLen)
                 .unwrap();
 
             assert_eq!(outcome, StepOutcome::Continue);
@@ -773,19 +814,19 @@ mod tests {
     fn heap_len_reports_current_length_of_reserved_object() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_u64(3));
-        cpu.execute_instruction(RuntimeInstruction::HeapReserve)
+        cpu.execute_instruction(RuntimeInstruction::ArrayReserve(Type::I64))
             .unwrap();
         let heap_ref = *cpu.stack_top().unwrap();
 
-        cpu.execute_instruction(RuntimeInstruction::HeapLen)
+        cpu.execute_instruction(RuntimeInstruction::ArrayLen)
             .unwrap();
         assert_eq!(cpu.stack_pop().unwrap(), encode_u64(0));
 
         cpu.stack_push(heap_ref);
         cpu.stack_push(encode_i64(10));
-        cpu.execute_instruction(RuntimeInstruction::HeapPush)
+        cpu.execute_instruction(RuntimeInstruction::ArrayPush(Type::I64))
             .unwrap();
-        cpu.execute_instruction(RuntimeInstruction::HeapLen)
+        cpu.execute_instruction(RuntimeInstruction::ArrayLen)
             .unwrap();
         assert_eq!(cpu.stack(), &[encode_u64(1)]);
     }
@@ -793,14 +834,14 @@ mod tests {
     #[test]
     fn heap_len_rejects_invalid_and_deallocated_objects() {
         let mut cpu = CPU::default();
-        let heap_id = cpu.push_heap_object(vec![]);
+        let heap_id = cpu.alloc_heap_array(Type::I64, vec![]);
         cpu.dealloc_heap_object(heap_id).unwrap();
-        for (id, message) in [(heap_id, "deallocated"), (42, "invalid heap object id")] {
+        for id in [heap_id, 42] {
             cpu.stack_push(encode_heap_ref(id));
             let err = cpu
-                .execute_instruction(RuntimeInstruction::HeapLen)
+                .execute_instruction(RuntimeInstruction::ArrayLen)
                 .unwrap_err();
-            assert!(err.to_string().contains(message));
+            assert!(err.to_string().contains("invalid or has been deallocated"));
         }
     }
 
@@ -808,7 +849,7 @@ mod tests {
     fn heap_len_requires_operand() {
         let mut cpu = CPU::default();
         assert!(
-            cpu.execute_instruction(RuntimeInstruction::HeapLen)
+            cpu.execute_instruction(RuntimeInstruction::ArrayLen)
                 .is_err()
         );
     }
@@ -817,14 +858,14 @@ mod tests {
     fn reserved_heap_get_item_checks_current_length() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_u64(3));
-        cpu.execute_instruction(RuntimeInstruction::HeapReserve)
+        cpu.execute_instruction(RuntimeInstruction::ArrayReserve(Type::I64))
             .unwrap();
         cpu.stack_push(encode_i64(10));
-        cpu.execute_instruction(RuntimeInstruction::HeapPush)
+        cpu.execute_instruction(RuntimeInstruction::ArrayPush(Type::I64))
             .unwrap();
         cpu.stack_push(encode_u32(1));
         let err = cpu
-            .execute_instruction(RuntimeInstruction::GetItem)
+            .execute_instruction(RuntimeInstruction::ArrayGet(Type::I64))
             .unwrap_err();
         assert!(err.to_string().contains("out of bounds"));
     }
@@ -832,15 +873,15 @@ mod tests {
     #[test]
     fn heap_push_rejects_allocated_and_zero_capacity_objects() {
         for instruction in [
-            RuntimeInstruction::HeapAlloc(1),
-            RuntimeInstruction::HeapReserve,
+            RuntimeInstruction::ArrayNew(Type::I64, 1),
+            RuntimeInstruction::ArrayReserve(Type::I64),
         ] {
             let mut cpu = CPU::default();
             cpu.stack_push(encode_u64(0));
             cpu.execute_instruction(instruction).unwrap();
             cpu.stack_push(encode_i64(42));
             let err = cpu
-                .execute_instruction(RuntimeInstruction::HeapPush)
+                .execute_instruction(RuntimeInstruction::ArrayPush(Type::I64))
                 .unwrap_err();
             assert!(err.to_string().contains("full"));
         }
@@ -850,26 +891,29 @@ mod tests {
     fn heap_push_rejects_invalid_and_deallocated_objects() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_u64(1));
-        cpu.execute_instruction(RuntimeInstruction::HeapReserve)
+        cpu.execute_instruction(RuntimeInstruction::ArrayReserve(Type::I64))
             .unwrap();
+        let freed = decode_heap_ref(*cpu.stack_top().unwrap());
         cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
             .unwrap();
-        for (id, message) in [(0, "deallocated"), (42, "invalid heap object id")] {
+        for id in [freed, 42] {
             cpu.stack_push(encode_heap_ref(id));
             cpu.stack_push(encode_i64(1));
             let err = cpu
-                .execute_instruction(RuntimeInstruction::HeapPush)
+                .execute_instruction(RuntimeInstruction::ArrayPush(Type::I64))
                 .unwrap_err();
-            assert!(err.to_string().contains(message));
+            assert!(err.to_string().contains("invalid or has been deallocated"));
         }
+        // A new reservation reuses the slot under a new generation.
         cpu.stack_push(encode_u64(1));
-        cpu.execute_instruction(RuntimeInstruction::HeapReserve)
+        cpu.execute_instruction(RuntimeInstruction::ArrayReserve(Type::I64))
             .unwrap();
-        assert_eq!(cpu.stack(), &[encode_heap_ref(0)]);
+        let reused = decode_heap_ref(*cpu.stack_top().unwrap());
+        assert_ne!(reused, freed);
         cpu.stack_push(encode_i64(7));
-        cpu.execute_instruction(RuntimeInstruction::HeapPush)
+        cpu.execute_instruction(RuntimeInstruction::ArrayPush(Type::I64))
             .unwrap();
-        assert_eq!(cpu.heap_object(0).unwrap(), &[encode_i64(7)]);
+        assert_eq!(cpu.heap_object(reused).unwrap(), &[encode_i64(7)]);
     }
 
     #[test]
@@ -877,7 +921,7 @@ mod tests {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_u64(u64::MAX));
         assert!(
-            cpu.execute_instruction(RuntimeInstruction::HeapReserve)
+            cpu.execute_instruction(RuntimeInstruction::ArrayReserve(Type::I64))
                 .is_err()
         );
         assert!(cpu.heap_is_empty());
@@ -887,16 +931,16 @@ mod tests {
     fn heap_append_instructions_require_operands() {
         let mut cpu = CPU::default();
         assert!(
-            cpu.execute_instruction(RuntimeInstruction::HeapReserve)
+            cpu.execute_instruction(RuntimeInstruction::ArrayReserve(Type::I64))
                 .is_err()
         );
         assert!(
-            cpu.execute_instruction(RuntimeInstruction::HeapPush)
+            cpu.execute_instruction(RuntimeInstruction::ArrayPush(Type::I64))
                 .is_err()
         );
         cpu.stack_push(encode_heap_ref(0));
         assert!(
-            cpu.execute_instruction(RuntimeInstruction::HeapPush)
+            cpu.execute_instruction(RuntimeInstruction::ArrayPush(Type::I64))
                 .is_err()
         );
         assert_eq!(cpu.stack(), &[encode_heap_ref(0)]);
@@ -904,17 +948,17 @@ mod tests {
 
     #[test]
     #[cfg(not(feature = "typed-declarations"))]
-    fn op_get_item_reads_heap_value() {
+    fn op_array_get_reads_heap_value() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_i64(10));
         cpu.stack_push(encode_i64(20));
         cpu.stack_push(encode_i64(30));
-        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(3))
+        cpu.execute_instruction(RuntimeInstruction::ArrayNew(Type::I64, 3))
             .unwrap();
         cpu.stack_push(encode_u32(1));
 
         let outcome = cpu
-            .execute_instruction(RuntimeInstruction::GetItem)
+            .execute_instruction(RuntimeInstruction::ArrayGet(Type::I64))
             .unwrap();
 
         assert_eq!(outcome, StepOutcome::Continue);
@@ -923,13 +967,137 @@ mod tests {
 
     #[test]
     #[cfg(not(feature = "typed-declarations"))]
-    fn op_get_item_rejects_non_heap_refs() {
+    fn struct_new_and_field_access_check_the_struct_type() {
+        use RuntimeInstruction::{ArrayGet, ArrayNew, GetField, SetField, StructNew};
+        let mut cpu = CPU::default();
+        // Point { x: 1.5, y: -2 } is struct 0 with 2 fields.
+        cpu.stack_push(encode_f64(1.5));
+        cpu.stack_push(encode_i64(-2));
+        cpu.execute_instruction(StructNew(0, 2)).unwrap();
+        let point = *cpu.stack_top().unwrap();
+
+        cpu.stack_push(point);
+        cpu.stack_push(encode_i64(7));
+        let outcome = cpu.execute_instruction(SetField(0, 1)).unwrap();
+        assert_eq!(outcome, StepOutcome::Continue);
+        assert_eq!(cpu.stack(), &vec![point]);
+        cpu.execute_instruction(GetField(0, 1)).unwrap();
+        assert_eq!(cpu.stack(), &vec![encode_i64(7)]);
+
+        // Wrong struct type, missing slot, and array access all fail.
+        for (instruction, message) in [
+            (GetField(1, 0), "is struct 0, expected struct 1"),
+            (GetField(0, 2), "no field slot 2"),
+        ] {
+            cpu.stack_push(point);
+            let err = cpu.execute_instruction(instruction).unwrap_err();
+            assert!(err.to_string().contains(message), "{err}");
+        }
+        cpu.stack_push(point);
+        cpu.stack_push(encode_u32(0));
+        let err = cpu.execute_instruction(ArrayGet(Type::I64)).unwrap_err();
+        assert!(
+            err.to_string().contains("is struct 0, expected array i64"),
+            "{err}"
+        );
+
+        // An array with the right length is still not a struct.
+        cpu.stack_push(encode_i64(1));
+        cpu.stack_push(encode_i64(2));
+        cpu.execute_instruction(ArrayNew(Type::I64, 2)).unwrap();
+        let err = cpu.execute_instruction(GetField(0, 0)).unwrap_err();
+        assert!(
+            err.to_string().contains("is array i64, expected struct 0"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    #[cfg(not(feature = "typed-declarations"))]
+    fn typed_arrays_check_their_element_type_on_every_access() {
+        use RuntimeInstruction::{ArrayGet, ArrayLen, ArrayNew, ArrayPush, ArrayReserve, ArraySet};
+        let mut cpu = CPU::default();
+        // [1.5, 2.5] : array f64
+        cpu.stack_push(encode_f64(1.5));
+        cpu.stack_push(encode_f64(2.5));
+        cpu.execute_instruction(ArrayNew(Type::F64, 2)).unwrap();
+        let floats = cpu.stack_pop().unwrap();
+
+        // floats[1] = 4.0; push floats[1]
+        cpu.stack_mut()
+            .extend([floats, encode_u64(1), encode_f64(4.0)]);
+        cpu.execute_instruction(ArraySet(Type::F64)).unwrap();
+        assert!(cpu.stack().is_empty());
+        cpu.stack_mut().extend([floats, encode_u64(1)]);
+        cpu.execute_instruction(ArrayGet(Type::F64)).unwrap();
+        assert_eq!(cpu.stack_pop().unwrap(), encode_f64(4.0));
+
+        // Reading, writing, or appending as another element type fails.
+        for (instruction, operands) in [
+            (ArrayGet(Type::U64), vec![floats, encode_u64(0)]),
+            (ArraySet(Type::I64), vec![floats, encode_u64(0), 7]),
+            (ArrayPush(Type::F32), vec![floats, 7]),
+        ] {
+            cpu.stack_mut().extend(operands);
+            let err = cpu.execute_instruction(instruction).unwrap_err();
+            assert!(
+                err.to_string().contains("is array f64, expected array"),
+                "{err}"
+            );
+            cpu.stack_mut().clear();
+        }
+        // Writes stay within the current length.
+        cpu.stack_mut()
+            .extend([floats, encode_u64(2), encode_f64(0.0)]);
+        let err = cpu.execute_instruction(ArraySet(Type::F64)).unwrap_err();
+        assert!(err.to_string().contains("out of bounds"), "{err}");
+        cpu.stack_mut().clear();
+
+        // Nested: array (array f64), built by reserve + push.
+        cpu.stack_push(encode_u64(1));
+        cpu.execute_instruction(ArrayReserve(Type::array(Type::F64)))
+            .unwrap();
+        cpu.stack_push(floats);
+        cpu.execute_instruction(ArrayPush(Type::array(Type::F64)))
+            .unwrap();
+        let rows = *cpu.stack_top().unwrap();
+        cpu.execute_instruction(ArrayLen).unwrap();
+        assert_eq!(cpu.stack_pop().unwrap(), encode_u64(1));
+        cpu.stack_mut().extend([rows, encode_u64(0)]);
+        cpu.execute_instruction(ArrayGet(Type::array(Type::F64)))
+            .unwrap();
+        assert_eq!(cpu.stack_pop().unwrap(), floats);
+        cpu.stack_mut().extend([rows, encode_u64(0)]);
+        let err = cpu
+            .execute_instruction(ArrayGet(Type::array(Type::U64)))
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("is array array f64, expected array array u64"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    #[cfg(not(feature = "typed-declarations"))]
+    fn struct_new_and_set_field_require_operands() {
+        use RuntimeInstruction::{SetField, StructNew};
+        let mut cpu = CPU::default();
+        cpu.stack_push(encode_i64(1));
+        assert!(cpu.execute_instruction(StructNew(0, 2)).is_err());
+        assert_eq!(cpu.stack(), &vec![encode_i64(1)]);
+        assert!(cpu.execute_instruction(SetField(0, 0)).is_err());
+    }
+
+    #[test]
+    #[cfg(not(feature = "typed-declarations"))]
+    fn op_array_get_rejects_non_heap_refs() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_i64(7));
         cpu.stack_push(encode_u32(0));
 
         let err = cpu
-            .execute_instruction(RuntimeInstruction::GetItem)
+            .execute_instruction(RuntimeInstruction::ArrayGet(Type::I64))
             .unwrap_err();
 
         assert!(err.to_string().contains("heap"));
@@ -937,13 +1105,13 @@ mod tests {
 
     #[test]
     #[cfg(not(feature = "typed-declarations"))]
-    fn op_get_item_rejects_invalid_heap_ids() {
+    fn op_array_get_rejects_invalid_heap_ids() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_heap_ref(99));
         cpu.stack_push(encode_u32(0));
 
         let err = cpu
-            .execute_instruction(RuntimeInstruction::GetItem)
+            .execute_instruction(RuntimeInstruction::ArrayGet(Type::I64))
             .unwrap_err();
 
         assert!(err.to_string().contains("heap"));
@@ -951,15 +1119,15 @@ mod tests {
 
     #[test]
     #[cfg(not(feature = "typed-declarations"))]
-    fn op_get_item_rejects_out_of_bounds_indices() {
+    fn op_array_get_rejects_out_of_bounds_indices() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_i64(10));
-        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
+        cpu.execute_instruction(RuntimeInstruction::ArrayNew(Type::I64, 1))
             .unwrap();
         cpu.stack_push(encode_u32(3));
 
         let err = cpu
-            .execute_instruction(RuntimeInstruction::GetItem)
+            .execute_instruction(RuntimeInstruction::ArrayGet(Type::I64))
             .unwrap_err();
 
         assert!(err.to_string().contains("index"));
@@ -969,7 +1137,7 @@ mod tests {
     fn reset_clears_heap_allocations() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_i64(10));
-        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
+        cpu.execute_instruction(RuntimeInstruction::ArrayNew(Type::I64, 1))
             .unwrap();
 
         cpu.reset();
@@ -1076,15 +1244,16 @@ mod tests {
     fn op_heap_dealloc_marks_slot_dead() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_i64(42));
-        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
+        cpu.execute_instruction(RuntimeInstruction::ArrayNew(Type::I64, 1))
             .unwrap();
-        cpu.stack_push(encode_heap_ref(0));
+        let reference = decode_heap_ref(*cpu.stack_top().unwrap());
 
         cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
             .unwrap();
 
+        assert!(cpu.stack().is_empty());
         assert!(
-            cpu.heap_object(0)
+            cpu.heap_object(reference)
                 .unwrap_err()
                 .to_string()
                 .contains("deallocated")
@@ -1093,20 +1262,31 @@ mod tests {
 
     #[test]
     #[cfg(not(feature = "typed-declarations"))]
-    fn op_heap_dealloc_slot_is_reused_on_next_alloc() {
+    fn op_heap_dealloc_slot_is_reused_under_a_new_generation() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_i64(1));
-        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
+        cpu.execute_instruction(RuntimeInstruction::ArrayNew(Type::I64, 1))
             .unwrap();
+        let old = decode_heap_ref(*cpu.stack_top().unwrap());
         cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
             .unwrap();
 
         cpu.stack_push(encode_i64(2));
-        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
+        cpu.execute_instruction(RuntimeInstruction::ArrayNew(Type::I64, 1))
             .unwrap();
+        let new = decode_heap_ref(*cpu.stack_top().unwrap());
 
-        assert_eq!(cpu.stack(), &vec![encode_heap_ref(0)]);
-        assert_eq!(cpu.heap_object(0).unwrap(), &[encode_i64(2)]);
+        // Same slot, new generation: the stale reference cannot see the new object.
+        assert_eq!(old as u32, new as u32);
+        assert_ne!(old, new);
+        assert_eq!(cpu.heap_object(new).unwrap(), &[encode_i64(2)]);
+        assert!(cpu.heap_object(old).is_err());
+        cpu.stack_push(encode_heap_ref(old));
+        cpu.stack_push(encode_u32(0));
+        let err = cpu
+            .execute_instruction(RuntimeInstruction::ArrayGet(Type::I64))
+            .unwrap_err();
+        assert!(err.to_string().contains("deallocated"), "{err}");
     }
 
     #[test]
@@ -1114,18 +1294,18 @@ mod tests {
     fn op_heap_dealloc_rejects_double_free() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_i64(1));
-        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
+        cpu.execute_instruction(RuntimeInstruction::ArrayNew(Type::I64, 1))
             .unwrap();
-        cpu.stack_push(encode_heap_ref(0));
+        let reference = *cpu.stack_top().unwrap();
         cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
             .unwrap();
 
-        cpu.stack_push(encode_heap_ref(0));
+        cpu.stack_push(reference);
         let err = cpu
             .execute_instruction(RuntimeInstruction::HeapDealloc)
             .unwrap_err();
 
-        assert!(err.to_string().contains("double-free"));
+        assert!(err.to_string().contains("invalid or has been deallocated"));
     }
 
     #[test]
@@ -1138,22 +1318,21 @@ mod tests {
             .execute_instruction(RuntimeInstruction::HeapDealloc)
             .unwrap_err();
 
-        assert!(err.to_string().contains("invalid heap object id"));
+        assert!(err.to_string().contains("invalid or has been deallocated"));
     }
 
     #[test]
-    fn reset_clears_free_list() {
+    fn reset_clears_heap_and_invalidates_old_references() {
         let mut cpu = CPU::default();
         cpu.stack_push(encode_i64(1));
-        cpu.execute_instruction(RuntimeInstruction::HeapAlloc(1))
+        cpu.execute_instruction(RuntimeInstruction::ArrayNew(Type::I64, 1))
             .unwrap();
-        cpu.stack_push(encode_heap_ref(0));
-        cpu.execute_instruction(RuntimeInstruction::HeapDealloc)
-            .unwrap();
+        let reference = decode_heap_ref(cpu.stack_pop().unwrap());
 
         cpu.reset();
 
         assert!(cpu.heap_is_empty());
+        assert!(cpu.heap_object(reference).is_err());
     }
 
     #[test]

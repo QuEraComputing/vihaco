@@ -6,10 +6,12 @@
 #[vihaco_runtime::dialect]
 pub mod cpu {
     use crate::{
-        Word,
+        FieldSlot, StructLayout, Word,
+        field::{FieldOperand, StructOperand, TypeOperand},
         literal::{F32Literal, F64Literal, I32Literal, I64Literal},
         operand::{StringOperand, Target},
     };
+    use vihaco_abi::Type;
     #[instruction]
     #[pattern = "'span $0 $1 $2"]
     pub struct Span(pub u32, pub u32, pub u32);
@@ -106,29 +108,48 @@ pub mod cpu {
     #[pattern = "'dup"]
     pub struct Dup;
 
+    /// Pop `$1` values of the element type (pushed in order) and push a
+    /// reference to a full array holding them.
     #[instruction]
-    #[pattern = "'heap_alloc $0"]
-    pub struct HeapAlloc(pub u32);
+    #[pattern = "'array_new $0:TypeOperand `,` $1"]
+    pub struct ArrayNew(pub Type, pub u32);
 
+    /// Pop an index (u64) and an array reference and push that element.
+    /// Fails unless the array's element type is the given type.
     #[instruction]
-    #[pattern = "'get_item"]
-    pub struct GetItem;
+    #[pattern = "'array_get $0:TypeOperand"]
+    pub struct ArrayGet(pub Type);
 
+    /// Pop a value, an index (u64), and an array reference (reference pushed
+    /// first) and overwrite that element. The index must be below the current
+    /// length. Fails unless the array's element type is the given type.
+    #[instruction]
+    #[pattern = "'array_set $0:TypeOperand"]
+    pub struct ArraySet(pub Type);
+
+    /// Free a heap object of any kind.
     #[instruction]
     #[pattern = "'heap_dealloc"]
     pub struct HeapDealloc;
 
+    /// Pop a capacity (u64) and push a reference to an empty array of the
+    /// element type that can be appended to up to that capacity.
     #[instruction]
-    #[pattern = "'heap_reserve"]
-    pub struct HeapReserve;
+    #[pattern = "'array_reserve $0:TypeOperand"]
+    pub struct ArrayReserve(pub Type);
 
+    /// Pop a value and an array reference, append the value (the array must be
+    /// below capacity), and push the reference back. Fails unless the array's
+    /// element type is the given type.
     #[instruction]
-    #[pattern = "'heap_push"]
-    pub struct HeapPush;
+    #[pattern = "'array_push $0:TypeOperand"]
+    pub struct ArrayPush(pub Type);
 
+    /// Pop a reference to an array of any element type and push its current
+    /// length as a u64.
     #[instruction]
-    #[pattern = "'heap_len"]
-    pub struct HeapLen;
+    #[pattern = "'array_len"]
+    pub struct ArrayLen;
 
     #[instruction]
     #[pattern = "'const_i32 $0:I32Literal"]
@@ -165,10 +186,6 @@ pub mod cpu {
     #[instruction]
     #[pattern = "'const_fn_ref $0:Target"]
     pub struct ConstFunctionRef(pub Word);
-
-    #[instruction]
-    #[pattern = "'const_heap_ref $0:u32"]
-    pub struct ConstHeapRef(pub Word);
 
     #[instruction]
     #[pattern = "'add_i32"]
@@ -577,4 +594,23 @@ pub mod cpu {
     #[instruction]
     #[pattern = "'ge_f64"]
     pub struct GeF64;
+
+    /// Pop a reference to a struct and push the word in the given field.
+    /// Fails unless the object is a live struct of the field's struct type.
+    #[instruction]
+    #[pattern = "'get_field $0:FieldOperand"]
+    pub struct GetField(pub FieldSlot);
+
+    /// Pop a value and a struct reference (reference pushed first) and overwrite
+    /// the given field. Pushes nothing. Fails unless the object is a live struct
+    /// of the field's struct type.
+    #[instruction]
+    #[pattern = "'set_field $0:FieldOperand"]
+    pub struct SetField(pub FieldSlot);
+
+    /// Pop the struct's fields (pushed in declaration order) and push a
+    /// reference to a new struct object tagged with its struct type.
+    #[instruction]
+    #[pattern = "'struct_new $0:StructOperand"]
+    pub struct StructNew(pub StructLayout);
 }

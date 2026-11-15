@@ -8,11 +8,13 @@
 
 use vihaco_cpu::{
     CPU, StepOutcome, cpu, encode_f32, encode_f64, encode_function_ref, encode_i64,
+    field::StructLookup,
     lower::{FunctionLookup, LabelLookup, StringIntern},
     message,
     operand::Target,
 };
 
+use vihaco_abi::Type;
 use vihaco_module::host::{FrameMemory, StackFrame, StackMemory};
 use vihaco_runtime::{
     Dispatch, Execute, HasInstructionSet, NoMessage, Parse, Step, chumsky::Parser as _, composite,
@@ -44,6 +46,22 @@ impl StringIntern for NumericContext {
     }
 }
 
+// Numeric struct operands are still checked against a table: struct 0 has two fields.
+impl StructLookup for NumericContext {
+    fn struct_index(&self, name: &str) -> eyre::Result<u32> {
+        Err(eyre::eyre!("unknown struct {name}"))
+    }
+    fn struct_field_count(&self, struct_index: u32) -> eyre::Result<u32> {
+        match struct_index {
+            0 => Ok(2),
+            _ => Err(eyre::eyre!("unknown struct {struct_index}")),
+        }
+    }
+    fn field_index(&self, struct_index: u32, field: &str) -> eyre::Result<u32> {
+        Err(eyre::eyre!("unknown field {struct_index}.{field}"))
+    }
+}
+
 pub use vihaco_cpu::{__vihaco_fields_CPU, __vihaco_inventory_CPU};
 
 #[composite]
@@ -69,10 +87,10 @@ macro_rules! steps {
             Span, Breakpoint, Branch, ConditionalBranch, Return, Halt,
             LoadI32, LoadI64, LoadU32, LoadU64, LoadF32, LoadF64,
             LoadBool, StoreI32, StoreI64, StoreU32, StoreU64, StoreF32,
-            StoreF64, StoreBool, Dup, HeapAlloc, GetItem, HeapDealloc,
-            HeapReserve, HeapPush, HeapLen,
+            StoreF64, StoreBool, Dup, ArrayNew, ArrayGet, ArraySet, HeapDealloc,
+            ArrayReserve, ArrayPush, ArrayLen, GetField, SetField, StructNew,
             ConstI32, ConstI64, ConstU32, ConstU64, ConstF32, ConstF64,
-            ConstBool, ConstString, ConstFunctionRef, ConstHeapRef, AddI32, AddF32,
+            ConstBool, ConstString, ConstFunctionRef, AddI32, AddF32,
             AddI64, AddU32, AddU64, AddF64, SubI32, SubI64,
             SubU32, SubU64, SubF32, SubF64, MulI32, MulI64,
             MulU32, MulU64, MulF32, MulF64, DivI32, DivI64,
@@ -452,16 +470,18 @@ fn checked_execution_keeps_operand_boundaries_and_runtime_errors() {
 fn heap_and_boolean_execution_retain_checked_behavior() {
     let mut cpu = CPU::default();
     cpu.stack_mut().extend([10, 20]);
-    cpu.execute(&cpu::HeapAlloc(2), NoMessage::new()).unwrap();
+    cpu.execute(&cpu::ArrayNew(Type::U64, 2), NoMessage::new())
+        .unwrap();
     cpu.execute(&cpu::Dup, NoMessage::new()).unwrap();
     cpu.stack_push(1_u64);
-    cpu.execute(&cpu::GetItem, NoMessage::new()).unwrap();
+    cpu.execute(&cpu::ArrayGet(Type::U64), NoMessage::new())
+        .unwrap();
     assert_eq!(cpu.stack_pop().unwrap(), 20);
     let heap_ref = *cpu.stack_top().unwrap();
     cpu.execute(&cpu::HeapDealloc, NoMessage::new()).unwrap();
     cpu.stack_mut().extend([heap_ref, 0]);
     assert!(
-        cpu.execute(&cpu::GetItem, NoMessage::new())
+        cpu.execute(&cpu::ArrayGet(Type::U64), NoMessage::new())
             .unwrap_err()
             .to_string()
             .contains("deallocated")
@@ -481,31 +501,31 @@ fn reserved_heap_instructions_parse_and_dispatch_through_nested_cpu() {
     let mut machine = machine();
     let cpu = &mut machine.controller.cpu;
     cpu.stack_mut().extend([42, 2]);
-    step(&mut machine, "ctl::host::cpu::heap_reserve").unwrap();
+    step(&mut machine, "ctl::host::cpu::array_reserve u64").unwrap();
     let heap_ref = *machine.controller.cpu.stack_top().unwrap();
     step(&mut machine, "ctl::host::cpu::dup").unwrap();
-    step(&mut machine, "ctl::host::cpu::heap_len").unwrap();
+    step(&mut machine, "ctl::host::cpu::array_len").unwrap();
     assert_eq!(machine.controller.cpu.stack_pop().unwrap(), 0);
     for value in [10_u64, 20] {
         machine.controller.cpu.stack_push(value);
         step(&mut machine, "ctl::host::cpu::br 99").unwrap();
-        step(&mut machine, "ctl::host::cpu::heap_push").unwrap();
+        step(&mut machine, "ctl::host::cpu::array_push u64").unwrap();
         assert_eq!(machine.controller.cpu.take_pending_pc(), None);
         assert_eq!(machine.controller.cpu.stack(), &[42, heap_ref]);
     }
     step(&mut machine, "ctl::host::cpu::dup").unwrap();
-    step(&mut machine, "ctl::host::cpu::heap_len").unwrap();
+    step(&mut machine, "ctl::host::cpu::array_len").unwrap();
     assert_eq!(machine.controller.cpu.stack_pop().unwrap(), 2);
     machine.controller.cpu.stack_push(30_u64);
     assert!(
-        step(&mut machine, "ctl::host::cpu::heap_push")
+        step(&mut machine, "ctl::host::cpu::array_push u64")
             .unwrap_err()
             .to_string()
             .contains("full")
     );
     assert_eq!(machine.controller.cpu.stack(), &[42]);
     machine.controller.cpu.stack_mut().extend([heap_ref, 1]);
-    step(&mut machine, "ctl::host::cpu::get_item").unwrap();
+    step(&mut machine, "ctl::host::cpu::array_get u64").unwrap();
     assert_eq!(machine.controller.cpu.stack(), &[42, 20]);
 }
 
@@ -513,12 +533,21 @@ fn reserved_heap_instructions_parse_and_dispatch_through_nested_cpu() {
 fn heap_append_instructions_respect_frame_operand_boundaries() {
     let mut cpu = CPU::default();
     cpu.start_function(0, 0, 2, 0).unwrap();
-    assert!(cpu.execute(&cpu::HeapReserve, NoMessage::new()).is_err());
-    assert!(cpu.execute(&cpu::HeapLen, NoMessage::new()).is_err());
-    assert!(cpu.execute(&cpu::HeapPush, NoMessage::new()).is_err());
+    assert!(
+        cpu.execute(&cpu::ArrayReserve(Type::U64), NoMessage::new())
+            .is_err()
+    );
+    assert!(cpu.execute(&cpu::ArrayLen, NoMessage::new()).is_err());
+    assert!(
+        cpu.execute(&cpu::ArrayPush(Type::U64), NoMessage::new())
+            .is_err()
+    );
     assert_eq!(cpu.stack(), &[0, 0]);
     cpu.stack_push(0_u64);
-    assert!(cpu.execute(&cpu::HeapPush, NoMessage::new()).is_err());
+    assert!(
+        cpu.execute(&cpu::ArrayPush(Type::U64), NoMessage::new())
+            .is_err()
+    );
     assert_eq!(cpu.stack(), &[0, 0, 0]);
 }
 
@@ -526,65 +555,69 @@ fn heap_append_instructions_respect_frame_operand_boundaries() {
 fn heap_append_instructions_reject_invalid_and_deallocated_objects() {
     let mut cpu = CPU::default();
     cpu.stack_push(1_u64);
-    cpu.execute(&cpu::HeapReserve, NoMessage::new()).unwrap();
+    cpu.execute(&cpu::ArrayReserve(Type::U64), NoMessage::new())
+        .unwrap();
     let heap_ref = *cpu.stack_top().unwrap();
     cpu.execute(&cpu::HeapDealloc, NoMessage::new()).unwrap();
-    for (reference, message) in [
-        (heap_ref, "deallocated"),
-        (vihaco_cpu::encode_heap_ref(42), "invalid heap object id"),
-    ] {
+    for reference in [heap_ref, vihaco_cpu::encode_heap_ref(42)] {
         cpu.stack_push(reference);
         assert!(
-            cpu.execute(&cpu::HeapLen, NoMessage::new())
+            cpu.execute(&cpu::ArrayLen, NoMessage::new())
                 .unwrap_err()
                 .to_string()
-                .contains(message)
+                .contains("invalid or has been deallocated")
         );
         cpu.stack_mut().extend([reference, 7]);
         assert!(
-            cpu.execute(&cpu::HeapPush, NoMessage::new())
+            cpu.execute(&cpu::ArrayPush(Type::U64), NoMessage::new())
                 .unwrap_err()
                 .to_string()
-                .contains(message)
+                .contains("invalid or has been deallocated")
         );
     }
     cpu.stack_push(1_u64);
-    cpu.execute(&cpu::HeapReserve, NoMessage::new()).unwrap();
-    assert_eq!(*cpu.stack_top().unwrap(), heap_ref);
+    cpu.execute(&cpu::ArrayReserve(Type::U64), NoMessage::new())
+        .unwrap();
+    assert_ne!(*cpu.stack_top().unwrap(), heap_ref); // reused slot, new generation
     cpu.stack_push(7_u64);
-    cpu.execute(&cpu::HeapPush, NoMessage::new()).unwrap();
-    cpu.execute(&cpu::HeapLen, NoMessage::new()).unwrap();
+    cpu.execute(&cpu::ArrayPush(Type::U64), NoMessage::new())
+        .unwrap();
+    cpu.execute(&cpu::ArrayLen, NoMessage::new()).unwrap();
     assert_eq!(cpu.stack(), &[1]);
 }
 
 #[test]
-fn heap_push_rejects_full_allocations_and_get_item_checks_current_length() {
+fn array_push_rejects_full_arrays_and_array_get_checks_current_length() {
     let mut cpu = CPU::default();
     cpu.stack_push(0_u64);
-    cpu.execute(&cpu::HeapReserve, NoMessage::new()).unwrap();
+    cpu.execute(&cpu::ArrayReserve(Type::U64), NoMessage::new())
+        .unwrap();
     cpu.stack_push(7_u64);
     assert!(
-        cpu.execute(&cpu::HeapPush, NoMessage::new())
+        cpu.execute(&cpu::ArrayPush(Type::U64), NoMessage::new())
             .unwrap_err()
             .to_string()
             .contains("full")
     );
     cpu.stack_push(7_u64);
-    cpu.execute(&cpu::HeapAlloc(1), NoMessage::new()).unwrap();
+    cpu.execute(&cpu::ArrayNew(Type::U64, 1), NoMessage::new())
+        .unwrap();
     cpu.stack_push(8_u64);
     assert!(
-        cpu.execute(&cpu::HeapPush, NoMessage::new())
+        cpu.execute(&cpu::ArrayPush(Type::U64), NoMessage::new())
             .unwrap_err()
             .to_string()
             .contains("full")
     );
     cpu.stack_push(2_u64);
-    cpu.execute(&cpu::HeapReserve, NoMessage::new()).unwrap();
+    cpu.execute(&cpu::ArrayReserve(Type::U64), NoMessage::new())
+        .unwrap();
     cpu.stack_push(7_u64);
-    cpu.execute(&cpu::HeapPush, NoMessage::new()).unwrap();
+    cpu.execute(&cpu::ArrayPush(Type::U64), NoMessage::new())
+        .unwrap();
     cpu.stack_push(1_u64);
     assert!(
-        cpu.execute(&cpu::GetItem, NoMessage::new())
+        cpu.execute(&cpu::ArrayGet(Type::U64), NoMessage::new())
             .unwrap_err()
             .to_string()
             .contains("out of bounds")
@@ -634,12 +667,17 @@ fn every_executable_leaf_parses_directly_and_metadata_is_excluded() {
     check("store_f64 0", cpu::StoreF64(0));
     check("store_bool 0", cpu::StoreBool(0));
     check("dup", cpu::Dup);
-    check("heap_alloc 0", cpu::HeapAlloc(0));
-    check("get_item", cpu::GetItem);
+    check("array_new u64, 0", cpu::ArrayNew(Type::U64, 0));
+    check("array_get u64", cpu::ArrayGet(Type::U64));
+    check("array_set u64", cpu::ArraySet(Type::U64));
+    check(
+        "array_new array f64, 2",
+        cpu::ArrayNew(Type::array(Type::F64), 2),
+    );
     check("heap_dealloc", cpu::HeapDealloc);
-    check("heap_reserve", cpu::HeapReserve);
-    check("heap_push", cpu::HeapPush);
-    check("heap_len", cpu::HeapLen);
+    check("array_reserve u64", cpu::ArrayReserve(Type::U64));
+    check("array_push u64", cpu::ArrayPush(Type::U64));
+    check("array_len", cpu::ArrayLen);
     check("const_i32 0", cpu::ConstI32(0));
     check("const_i64 0", cpu::ConstI64(0));
     check("const_u32 0", cpu::ConstU32(0));
@@ -649,7 +687,6 @@ fn every_executable_leaf_parses_directly_and_metadata_is_excluded() {
     check("const_bool false", cpu::ConstBool(0));
     check("const_string 0", cpu::ConstString(0));
     check("const_fn_ref 0", cpu::ConstFunctionRef(0));
-    check("const_heap_ref 0", cpu::ConstHeapRef(0));
     check("add_i32", cpu::AddI32);
     check("add_f32", cpu::AddF32);
     check("add_i64", cpu::AddI64);
@@ -752,13 +789,21 @@ fn every_executable_leaf_parses_directly_and_metadata_is_excluded() {
     check("ge_u64", cpu::GeU64);
     check("ge_f32", cpu::GeF32);
     check("ge_f64", cpu::GeF64);
+    let slot = |struct_id, slot| vihaco_cpu::FieldSlot { struct_id, slot };
+    check("get_field 0, 1", cpu::GetField(slot(0, 1)));
+    check("set_field 0, 0", cpu::SetField(slot(0, 0)));
+    let point = vihaco_cpu::StructLayout {
+        struct_id: 0,
+        field_count: 2,
+    };
+    check("struct_new 0", cpu::StructNew(point));
     assert_eq!(
         vihaco_runtime::__private::capabilities::<CPU>().count(),
-        142
+        145
     );
     assert_eq!(
         vihaco_runtime::__private::capabilities::<Machine>().count(),
-        284
+        290
     );
     assert!(
         !vihaco_runtime::__private::capabilities::<CPU>()
@@ -768,7 +813,7 @@ fn every_executable_leaf_parses_directly_and_metadata_is_excluded() {
 
 #[test]
 fn arithmetic_shift_comparison_and_reset_semantics_are_preserved() {
-    use vihaco_cpu::{encode_heap_ref, encode_i32, encode_u32};
+    use vihaco_cpu::{encode_i32, encode_u32};
     use vihaco_module::host::StackMemory;
     use vihaco_runtime::Reset;
     let mut cpu = CPU::default();
@@ -789,8 +834,10 @@ fn arithmetic_shift_comparison_and_reset_semantics_are_preserved() {
         .extend([encode_i64(i64::MIN), encode_i64(-1)]);
     assert!(cpu.execute(&cpu::DivI64, NoMessage::new()).is_err());
     cpu.stack_push(7_u64);
-    cpu.execute(&cpu::HeapAlloc(1), NoMessage::new()).unwrap();
-    assert_eq!(cpu.stack_pop().unwrap(), encode_heap_ref(0));
+    cpu.execute(&cpu::ArrayNew(Type::U64, 1), NoMessage::new())
+        .unwrap();
+    let reference = cpu.stack_pop().unwrap();
+    assert!(cpu.stack().is_empty());
     cpu.execute(&cpu::Branch(99), NoMessage::new()).unwrap();
     cpu.execute(&cpu::ConstU64(1), NoMessage::new()).unwrap();
     assert_eq!(cpu.take_pending_pc(), None);
@@ -799,8 +846,12 @@ fn arithmetic_shift_comparison_and_reset_semantics_are_preserved() {
     assert!(cpu.stack().is_empty());
     assert!(cpu.get_frame().is_err());
     assert_eq!(cpu.take_pending_pc(), None);
-    cpu.stack_mut().extend([encode_heap_ref(0), 0]);
-    assert!(cpu.execute(&cpu::GetItem, NoMessage::new()).is_err());
+    // Reset frees the heap; the reference from before it stays invalid.
+    cpu.stack_mut().extend([reference, 0]);
+    assert!(
+        cpu.execute(&cpu::ArrayGet(Type::U64), NoMessage::new())
+            .is_err()
+    );
 }
 
 #[test]
@@ -815,7 +866,7 @@ fn sst_signatures_parse_runtime_types_without_surface_types() {
         parsed
             .params
             .iter()
-            .map(|param| param.ty)
+            .map(|param| param.ty.clone())
             .collect::<Vec<_>>(),
         [
             vihaco_abi::Type::I64,
@@ -880,6 +931,20 @@ impl FunctionLookup for SymbolLoader {
 impl StringIntern for SymbolLoader {
     fn intern_string(&mut self, text: &str) -> eyre::Result<u32> {
         self.image.intern_string(text)
+    }
+}
+
+impl StructLookup for SymbolLoader {
+    fn struct_index(&self, name: &str) -> eyre::Result<u32> {
+        Err(eyre::eyre!("fixture declares no struct {name}"))
+    }
+    fn struct_field_count(&self, struct_index: u32) -> eyre::Result<u32> {
+        Err(eyre::eyre!("fixture declares no struct {struct_index}"))
+    }
+    fn field_index(&self, struct_index: u32, field: &str) -> eyre::Result<u32> {
+        Err(eyre::eyre!(
+            "fixture declares no struct {struct_index}.{field}"
+        ))
     }
 }
 
@@ -1087,4 +1152,26 @@ fn numeric_operands_bypass_capability_calls_and_targets_reject_malformed_input()
         cpu::ConstString(0)
     );
     assert_eq!(loader.image.module.strings, ["existing"]);
+}
+
+/// Typed programs cannot write a heap reference as a literal: references are
+/// predictable, so the only way to hold one is to allocate it or receive it.
+#[test]
+fn typed_dialects_have_no_reference_literal() {
+    for source in [
+        "ctl::host::cpu::const_heap_ref 4294967297",
+        "spare::cpu::const_heap_ref 0",
+    ] {
+        assert!(
+            <Machine as HasInstructionSet>::Syntax::parser()
+                .parse(source)
+                .into_result()
+                .is_err(),
+            "{source}"
+        );
+    }
+    assert!(
+        !vihaco_runtime::__private::capabilities::<CPU>()
+            .any(|leaf| leaf.instruction == "const_heap_ref")
+    );
 }

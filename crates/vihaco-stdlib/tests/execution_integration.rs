@@ -123,6 +123,24 @@ impl vihaco_stdlib::program::lower::StringIntern for NumericContext {
     }
 }
 
+// Numeric struct operands are still checked against a table: struct 0 has two
+// fields, struct 1 has one.
+impl vihaco_cpu::field::StructLookup for NumericContext {
+    fn struct_index(&self, _: &str) -> eyre::Result<u32> {
+        Err(eyre::eyre!("numeric fixture"))
+    }
+    fn struct_field_count(&self, struct_index: u32) -> eyre::Result<u32> {
+        match struct_index {
+            0 => Ok(2),
+            1 => Ok(1),
+            _ => Err(eyre::eyre!("numeric fixture has no struct {struct_index}")),
+        }
+    }
+    fn field_index(&self, _: u32, _: &str) -> eyre::Result<u32> {
+        Err(eyre::eyre!("numeric fixture"))
+    }
+}
+
 fn machine(code: &[&str]) -> (Program, Machine) {
     let module = LocalModule {
         code: code
@@ -136,6 +154,7 @@ fn machine(code: &[&str]) -> (Program, Machine) {
                     .unwrap()
             })
             .collect::<Vec<Instruction>>(),
+        structs: vec![],
         main_function: Some(0),
         functions: vec![FunctionInfo {
             name: 0,
@@ -298,38 +317,72 @@ fn heap_transfers_use_program_operands_and_preserve_device_state() {
     let (mut module, mut vm) = machine(&[
         "program::program::const_u64 7",
         "program::program::const_u64 9",
-        "cpu::cpu::heap_alloc 2",
+        "cpu::cpu::array_new u64, 2",
+        "program::program::dup",
         "program::program::const_u64 1",
-        "cpu::cpu::get_item",
-        "program::program::ret 1",
+        "cpu::cpu::array_get u64",
+        "program::program::ret 2",
     ]);
     execute(&module, &mut vm, &[]).unwrap();
-    assert_eq!(vm.program.stack(), &[9]);
+    let [reference, item] = vm.program.stack()[..] else {
+        panic!("expected [reference, item], got {:?}", vm.program.stack());
+    };
+    assert_eq!(item, 9);
+    // A later program receives the issued reference as an argument from the
+    // host. Typed programs have no instruction that writes a reference literal.
+    for literal in [
+        "program::program::const_heap_ref 4294967297",
+        "cpu::cpu::const_heap_ref 4294967297",
+    ] {
+        assert!(Source::parser().parse(literal).into_result().is_err());
+    }
     let (readback, _) = machine(&[
-        "program::program::const_heap_ref 0",
+        "program::program::load_u64 0",
         "program::program::const_u64 0",
-        "cpu::cpu::get_item",
+        "cpu::cpu::array_get u64",
         "program::program::ret 1",
     ]);
     module = readback;
+    module.functions[0].signature.params = vec![vihaco_module::module::Parameter {
+        name: 0,
+        ty: vihaco_abi::Type::array(vihaco_abi::Type::U64),
+    }];
     vm.program.reset();
-    execute(&module, &mut vm, &[]).unwrap();
+    execute(&module, &mut vm, &[reference]).unwrap();
     assert_eq!(vm.program.stack(), &[7]); // Existing device heap survives program reset/restart.
     vm.cpu.reset();
     vm.program.reset();
-    assert!(execute(&module, &mut vm, &[]).is_err()); // CPU reset clears it.
+    assert!(execute(&module, &mut vm, &[reference]).is_err()); // CPU reset clears it.
+    // References use all 64 bits (slot + generation) and pass through locals intact.
     let (module, mut raw) = machine(&[
         "program::program::const_u64 1",
-        "cpu::cpu::heap_reserve",
+        "cpu::cpu::array_reserve u64",
         "program::program::store_u64 0",
-        "program::program::const_u64 4294967296",
+        "program::program::load_u64 0",
         "program::program::const_u64 7",
-        "cpu::cpu::heap_push",
+        "cpu::cpu::array_push u64",
+        "cpu::cpu::array_len",
         "program::program::ret 1",
     ]);
     execute(&module, &mut raw, &[]).unwrap();
-    assert_eq!(raw.program.stack(), &[1_u64 << 32]); // Decode the id without rewriting the reference.
-    for operation in ["heap_alloc 2", "heap_push"] {
+    assert_eq!(raw.program.stack(), &[1]);
+    // A number that only matches the slot index is not a reference.
+    let (module, mut raw) = machine(&[
+        "program::program::const_u64 1",
+        "cpu::cpu::array_reserve u64",
+        "program::program::store_u64 0",
+        "program::program::const_u64 1",
+        "program::program::const_u64 7",
+        "cpu::cpu::array_push u64",
+    ]);
+    let error = execute(&module, &mut raw, &[]).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("invalid or has been deallocated"),
+        "{error:#}"
+    );
+    for operation in ["array_new u64, 2", "array_push u64"] {
         let operation = format!("cpu::cpu::{operation}");
         let (module, mut vm) = machine(&["program::program::const_u64 7", &operation]);
         assert!(execute(&module, &mut vm, &[]).is_err());
@@ -339,19 +392,81 @@ fn heap_transfers_use_program_operands_and_preserve_device_state() {
     let (module, mut vm) = machine(&[
         "program::program::const_u64 7",
         "program::program::const_u64 9",
-        "cpu::cpu::heap_alloc 2",
+        "cpu::cpu::array_new u64, 2",
         "program::program::dup",
-        "cpu::cpu::heap_len",
+        "program::program::dup",
+        "cpu::cpu::array_len",
         "program::program::store_u64 0",
         "cpu::cpu::heap_dealloc",
-        "program::program::const_heap_ref 0",
+        // The remaining copy of the reference is now stale.
         "program::program::const_u64 0",
-        "cpu::cpu::get_item",
+        "cpu::cpu::array_get u64",
     ]);
     let error = execute(&module, &mut vm, &[]).unwrap_err();
     assert!(error.to_string().contains("deallocated"));
     assert_eq!(vm.program.stack(), &[2]);
     assert_eq!(vm.program.pc(), 9);
+}
+
+#[test]
+fn struct_new_allocates_tagged_structs_and_fields_are_type_checked() {
+    // Point { x: 7, y: 9 }; point.y = 4; return (point.x, point.y)
+    let (module, mut vm) = machine(&[
+        "program::program::const_u64 7",
+        "program::program::const_u64 9",
+        "cpu::cpu::struct_new 0",
+        "program::program::dup",
+        "program::program::const_u64 4",
+        "cpu::cpu::set_field 0, 1",
+        "program::program::dup",
+        "cpu::cpu::get_field 0, 0",
+        "program::program::store_u64 0",
+        "cpu::cpu::get_field 0, 1",
+        "program::program::load_u64 0",
+        "program::program::ret 2",
+    ]);
+    // `struct_new 0` popped exactly the table's two fields.
+    execute(&module, &mut vm, &[]).unwrap();
+    assert_eq!(vm.program.stack(), &[4, 7]);
+
+    // Reading a struct 1 object through a struct 0 field is a runtime type
+    // error at the faulting pc, even though slot 0 exists in both.
+    let (module, mut vm) = machine(&[
+        "program::program::const_u64 7",
+        "cpu::cpu::struct_new 1",
+        "cpu::cpu::get_field 0, 0",
+    ]);
+    let error = execute(&module, &mut vm, &[]).unwrap_err();
+    assert!(
+        error.to_string().contains("is struct 1, expected struct 0"),
+        "{error:#}"
+    );
+    assert_eq!(vm.program.pc(), 2);
+
+    // An array is never a struct, and a struct is never an array.
+    let (module, mut vm) = machine(&[
+        "program::program::const_u64 7",
+        "program::program::const_u64 9",
+        "cpu::cpu::array_new u64, 2",
+        "cpu::cpu::get_field 0, 0",
+    ]);
+    let error = execute(&module, &mut vm, &[]).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("is array u64, expected struct 0"),
+        "{error:#}"
+    );
+    let (module, mut vm) = machine(&[
+        "program::program::const_u64 7",
+        "cpu::cpu::struct_new 1",
+        "cpu::cpu::array_len",
+    ]);
+    let error = execute(&module, &mut vm, &[]).unwrap_err();
+    assert!(
+        error.to_string().contains("is struct 1, expected an array"),
+        "{error:#}"
+    );
 }
 
 #[vihaco_runtime::dialect]

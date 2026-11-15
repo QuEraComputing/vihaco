@@ -128,20 +128,3 @@ impl Execute<cpu::ConstFunctionRef> for CPU {
         Ok(StepOutcome::Continue)
     }
 }
-
-impl Execute<cpu::ConstHeapRef> for CPU {
-    type Message = NoMessage;
-    type Effect = StepOutcome;
-    type Error = eyre::Report;
-
-    fn execute(
-        &mut self,
-        instruction: &cpu::ConstHeapRef,
-        _: NoMessage,
-    ) -> eyre::Result<StepOutcome> {
-        self.clear_pending_pc();
-        let v = instruction.0;
-        self.stack.push(v);
-        Ok(StepOutcome::Continue)
-    }
-}

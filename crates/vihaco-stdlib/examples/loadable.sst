@@ -24,6 +24,7 @@ sst v1
                     file: 2,
                 },
             ],
+            structs: [],
             labels: [{ name: 3, address: 5 }],
             constants: [],
             main_function: 1, // functions[1], not instruction address 1.

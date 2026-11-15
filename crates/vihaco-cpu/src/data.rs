@@ -9,6 +9,7 @@ mod heap;
 #[cfg(not(feature = "typed-declarations"))]
 use crate::instruction::SurfaceValue;
 use heap::Heap;
+use vihaco_abi::Type;
 use vihaco_abi::frame::Frame;
 use vihaco_module::host::{FrameMemory, StackFrame, StackMemory};
 
@@ -103,24 +104,27 @@ vihaco_runtime::component! {
 
         Dup,
 
-        /// Allocate a full heap object,  where the allocation length
-        /// is the capacity.
-        #[pattern = "'heap_alloc $0"]
-        HeapAlloc(u32),
+        /// Pop `$1` values of type `$0` (pushed in order) and push a reference
+        /// to a full `array $0` holding them.
+        #[pattern = "'array_new $0 `,` $1"]
+        ArrayNew(Type, u32),
 
-        #[pattern = "'get_item"]
-        GetItem,
+        /// Pop an index (u64) and an `array $0` reference and push that element.
+        #[pattern = "'array_get $0"]
+        ArrayGet(Type),
+        /// Free a heap object of any kind.
         #[pattern = "'heap_dealloc"]
         HeapDealloc,
 
-        /// Reserves `n` slots (where `n` is the top value on the stack) that can be
-        /// pushed to.
-        #[pattern = "'heap_reserve"]
-        HeapReserve,
+        /// Pop a capacity (u64) and push a reference to an empty `array $0`
+        /// that can be appended to up to that capacity.
+        #[pattern = "'array_reserve $0"]
+        ArrayReserve(Type),
 
-        /// Push to a heap_ref that is below capacity.
-        #[pattern = "'heap_push"]
-        HeapPush,
+        /// Pop a value and an `array $0` reference, append the value (the array
+        /// must be below capacity), and push the reference back.
+        #[pattern = "'array_push $0"]
+        ArrayPush(Type),
 
         #[pattern = "'const_i32 $0"]
         ConstI32(SurfaceValue => Word),
@@ -349,9 +353,35 @@ vihaco_runtime::component! {
         #[pattern = "'ge_f64"]
         GeF64,
 
-        /// Pop a heap reference and push the object's current length as a u64.
-        #[pattern = "'heap_len"]
-        HeapLen,
+        /// Pop a reference to an array of any element type and push its
+        /// current length as a u64.
+        #[pattern = "'array_len"]
+        ArrayLen,
+
+        /// Pop a heap reference to struct `$0` and push the word in field slot `$1`.
+        /// Fails if the object is not a live struct `$0`.
+        #[pattern = "'get_field $0 `,` $1"]
+        GetField(u32, u32),
+
+        /// Pop a value and a heap reference to struct `$0` (reference pushed
+        /// first) and overwrite field slot `$1`. Pushes nothing. Fails if the
+        /// object is not a live struct `$0`.
+        #[pattern = "'set_field $0 `,` $1"]
+        SetField(u32, u32),
+
+        /// Pop `$1` field values (pushed in declaration order) and push a
+        /// reference to a new struct `$0`. `$1` must be the struct's field
+        /// count. The CPU cannot check that (it never sees the struct table):
+        /// call [`crate::check_struct_operands`] when assembling the module.
+        /// Typed dialects resolve the count from the struct table instead.
+        #[pattern = "'struct_new $0 `,` $1"]
+        StructNew(u32, u32),
+
+        /// Pop a value, an index (u64), and an `array $0` reference (pushed in
+        /// that order: reference first) and overwrite that element. The index
+        /// must be below the current length. Pushes nothing.
+        #[pattern = "'array_set $0"]
+        ArraySet(Type),
     }
 }
 
@@ -510,25 +540,69 @@ impl CPU {
             .ok_or_else(|| eyre::eyre!("local address overflow"))
     }
 
-    pub(crate) fn push_heap_object(&mut self, values: impl Into<Vec<Word>>) -> u32 {
-        self.heap.alloc(values)
+    pub(crate) fn alloc_heap_array(&mut self, elem: Type, values: impl Into<Vec<Word>>) -> u64 {
+        self.heap.alloc_array(elem, values)
     }
 
-    pub(crate) fn heap_object(&self, id: u32) -> eyre::Result<&[Word]> {
-        self.heap.get(id)
+    pub(crate) fn reserve_heap_array(&mut self, elem: Type, capacity: usize) -> eyre::Result<u64> {
+        self.heap.reserve_array(elem, capacity)
     }
 
-    #[cfg(feature = "typed-declarations")]
-    pub(crate) fn reserve_heap_object(&mut self, capacity: usize) -> eyre::Result<u32> {
-        self.heap.reserve(capacity)
+    pub(crate) fn push_heap_array(
+        &mut self,
+        id: u64,
+        elem: &Type,
+        value: Word,
+    ) -> eyre::Result<()> {
+        self.heap.push(id, elem, value)
     }
 
-    #[cfg(feature = "typed-declarations")]
-    pub(crate) fn append_heap_object(&mut self, id: u32, value: Word) -> eyre::Result<()> {
-        self.heap.push(id, value)
+    pub(crate) fn heap_array_get(&self, id: u64, elem: &Type, index: u64) -> eyre::Result<Word> {
+        self.heap.get(id, elem, index)
     }
 
-    pub(crate) fn dealloc_heap_object(&mut self, id: u32) -> eyre::Result<()> {
+    pub(crate) fn heap_array_set(
+        &mut self,
+        id: u64,
+        elem: &Type,
+        index: u64,
+        value: Word,
+    ) -> eyre::Result<()> {
+        self.heap.set(id, elem, index, value)
+    }
+
+    pub(crate) fn heap_array_len(&self, id: u64) -> eyre::Result<usize> {
+        self.heap.len(id)
+    }
+
+    /// The raw elements of an array of any element type, for test inspection.
+    #[cfg(all(test, not(feature = "typed-declarations")))]
+    pub(crate) fn heap_object(&self, id: u64) -> eyre::Result<&[Word]> {
+        self.heap.elements(id)
+    }
+
+    pub(crate) fn push_heap_struct(
+        &mut self,
+        layout: crate::StructLayout,
+        values: impl Into<Vec<Word>>,
+    ) -> eyre::Result<u64> {
+        self.heap.alloc_struct(layout, values)
+    }
+
+    pub(crate) fn heap_field(&self, id: u64, field: crate::FieldSlot) -> eyre::Result<Word> {
+        self.heap.field(id, field)
+    }
+
+    pub(crate) fn set_heap_field(
+        &mut self,
+        id: u64,
+        field: crate::FieldSlot,
+        value: Word,
+    ) -> eyre::Result<()> {
+        self.heap.set_field(id, field, value)
+    }
+
+    pub(crate) fn dealloc_heap_object(&mut self, id: u64) -> eyre::Result<()> {
         self.heap.dealloc(id)
     }
 

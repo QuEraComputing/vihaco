@@ -141,7 +141,8 @@ metadata {{
         {{ name: 0, signature: {{ params: [], ret: [u64] }}, local_count: 0,
            start_address: 0, end_address: {helper_start}, file: 2 }},
     ],
-    labels: [], constants: [], main_function: 1, source_symbols: [], extra: {{}},
+    structs: [], labels: [], constants: [], main_function: 1, source_symbols: [],
+    extra: {{}},
 }}
 .header({name}).
 .text({name}):
@@ -238,6 +239,148 @@ fn sibling_loadables_construct_and_execute_independent_programs() {
     runtime.controller.execute(&[]).unwrap();
     assert_eq!(runtime.controller.machine().execution.stack(), &[17]);
     assert_eq!(runtime.sequencer.machine().execution.stack(), &[42]);
+}
+
+fn struct_program(main_body: &str) -> String {
+    // main: 6 instructions (0..6); make_point: 4 instructions (6..10).
+    format!(
+        r#"sst v{version}
+.section(root):
+.header(root):
+metadata {{
+    strings: ["main", "make_point", "points.sst", "Point", "x", "y"],
+    structs: [
+        {{ name: 3, fields: [{{ name: 4, ty: u64 }}, {{ name: 5, ty: u64 }}] }},
+    ],
+    functions: [
+        {{ name: 0, signature: {{ params: [], ret: [u64] }}, local_count: 0,
+           start_address: 0, end_address: 6, file: 2 }},
+        {{ name: 1, signature: {{ params: [], ret: [struct 0] }}, local_count: 0,
+           start_address: 6, end_address: 10, file: 2 }},
+    ],
+    labels: [], constants: [], main_function: 0, source_symbols: [], extra: {{}},
+}}
+.header(root).
+.text(root):
+fn @main() -> u64 {{
+{main_body}
+}}
+fn @make_point() -> struct 0 {{
+execution::program::const_u64 7
+execution::program::const_u64 9
+cpu::cpu::struct_new @Point
+execution::program::ret 1
+}}
+.text(root).
+.section(root).
+"#,
+        version = vihaco_bytecode::VERSION,
+    )
+}
+
+fn load_struct_program(main_body: &str) -> eyre::Result<MachineImage<SequencerMachine>> {
+    let source = struct_program(main_body);
+    let file = SstFile::<NoContext>::from_text(&source)?;
+    construct_image::<SequencerMachine>(file.root())
+}
+
+#[test]
+fn struct_fields_resolve_by_name_through_the_metadata_struct_table() {
+    // let p = make_point(); p.y = 4; return p.y
+    let image = load_struct_program(
+        "execution::program::call 0, @make_point
+execution::program::dup
+execution::program::const_u64 4
+cpu::cpu::set_field @Point.y
+cpu::cpu::get_field @Point.y
+execution::program::ret 1",
+    )
+    .unwrap();
+    assert_eq!(image.module.structs.len(), 1);
+    assert_eq!(image.module.functions[1].signature.ret, [Type::Struct(0)]);
+    let mut loaded = Loadable::new(
+        image,
+        SequencerMachine {
+            execution: ExecutionState::new(),
+            cpu: CPU::default(),
+        },
+    );
+    loaded.execute(&[]).unwrap();
+    assert_eq!(loaded.machine().execution.stack(), &[4]);
+}
+
+fn run_struct_program(main_body: &str) -> eyre::Result<Vec<u64>> {
+    let mut loaded = Loadable::new(
+        load_struct_program(main_body)?,
+        SequencerMachine {
+            execution: ExecutionState::new(),
+            cpu: CPU::default(),
+        },
+    );
+    loaded.execute(&[])?;
+    Ok(loaded.machine().execution.stack().to_vec())
+}
+
+#[test]
+fn arrays_of_named_structs_are_built_indexed_and_type_checked() {
+    // let points = [make_point()]; return points[0].y
+    let stack = run_struct_program(
+        "execution::program::call 0, @make_point
+cpu::cpu::array_new struct @Point, 1
+execution::program::const_u64 0
+cpu::cpu::array_get struct @Point
+cpu::cpu::get_field @Point.y
+execution::program::ret 1",
+    )
+    .unwrap();
+    assert_eq!(stack, [9]);
+
+    // Reading the same array as `array u64` is a runtime type error.
+    let error = run_struct_program(
+        "execution::program::call 0, @make_point
+cpu::cpu::array_new struct @Point, 1
+execution::program::const_u64 0
+cpu::cpu::array_get u64
+cpu::cpu::get_field @Point.y
+execution::program::ret 1",
+    )
+    .unwrap_err();
+    assert!(
+        format!("{error:#}").contains("is array struct 0, expected array u64"),
+        "{error:#}"
+    );
+
+    // An element type naming an undeclared struct fails at load time.
+    let error = load_struct_program(
+        "execution::program::call 0, @make_point
+cpu::cpu::array_new struct @Line, 1
+execution::program::const_u64 0
+cpu::cpu::array_get struct @Point
+cpu::cpu::get_field @Point.y
+execution::program::ret 1",
+    )
+    .unwrap_err();
+    assert!(
+        format!("{error:#}").contains("undefined struct `Line`"),
+        "{error:#}"
+    );
+}
+
+#[test]
+fn unknown_struct_fields_fail_at_load_time() {
+    let error = load_struct_program(
+        "execution::program::call 0, @make_point
+execution::program::dup
+execution::program::const_u64 4
+cpu::cpu::set_field @Point.z
+cpu::cpu::get_field @Point.y
+execution::program::ret 1",
+    )
+    .unwrap_err();
+    assert!(
+        format!("{error:#}").contains("struct `Point` has no field `z`"),
+        "{error:#}"
+    );
 }
 
 #[test]

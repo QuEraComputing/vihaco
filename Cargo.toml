@@ -45,4 +45,5 @@ vihaco-syntax     = { version = "0.7.0", path = "crates/vihaco-syntax" }
 byteorder = "1.5.0"
 chumsky   = "0.10"
 eyre      = "0.6.12"
+slotmap   = "1.1"
 smallvec  = "1.15.1"

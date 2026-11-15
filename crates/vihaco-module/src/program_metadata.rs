@@ -13,7 +13,9 @@
 //! and `f64_bits` followed by unsigned integers preserve all IEEE-754 encodings.
 //! Custom extra records use the same delimited metadata derive as the header.
 
-use crate::module::{FunctionInfo, LabelInfo, LocalModule, NoInfo, SourceSymbolInfo};
+use crate::module::{
+    FunctionInfo, LabelInfo, LocalModule, NoInfo, SourceSymbolInfo, StructInfo, StructTypeRef,
+};
 use vihaco_abi::{Type, Value};
 
 /// All non-code fields of a `LocalModule`, supplied explicitly by a section header.
@@ -22,6 +24,7 @@ use vihaco_abi::{Type, Value};
 #[syntax_class(metadata, head = "metadata", open = "{", close = "}")]
 pub struct ProgramMetadata<V = Value, Ty = Type, Info = NoInfo> {
     pub functions: Vec<FunctionInfo<Ty>>,
+    pub structs: Vec<StructInfo<Ty>>,
     pub labels: Vec<LabelInfo>,
     pub constants: Vec<V>,
     pub strings: Vec<String>,
@@ -46,6 +49,7 @@ impl<V, Ty, Info> ProgramMetadata<V, Ty, Info> {
     ) -> ProgramMetadata<V, Ty, NewInfo> {
         ProgramMetadata {
             functions: self.functions,
+            structs: self.structs,
             labels: self.labels,
             constants: self.constants,
             strings: self.strings,
@@ -87,6 +91,26 @@ impl<V, Ty, Info> ProgramMetadata<V, Ty, Info> {
                 )?;
             }
         }
+        let mut struct_names = std::collections::BTreeSet::new();
+        for (index, info) in self.structs.iter().enumerate() {
+            let path = format!("metadata.structs[{index}]");
+            check_index(info.name, self.strings.len(), &format!("{path}.name"))?;
+            let name = &self.strings[info.name as usize];
+            eyre::ensure!(
+                struct_names.insert(name),
+                "{path}.name: duplicate struct `{name}`"
+            );
+            let mut field_names = std::collections::BTreeSet::new();
+            for (field_index, field) in info.fields.iter().enumerate() {
+                let field_path = format!("{path}.fields[{field_index}].name");
+                check_index(field.name, self.strings.len(), &field_path)?;
+                let field_name = &self.strings[field.name as usize];
+                eyre::ensure!(
+                    field_names.insert(field_name),
+                    "{field_path}: duplicate field `{field_name}` in struct `{name}`"
+                );
+            }
+        }
         for (index, label) in self.labels.iter().enumerate() {
             check_index(
                 label.name,
@@ -110,11 +134,46 @@ impl<V, Ty, Info> ProgramMetadata<V, Ty, Info> {
     }
 }
 
-impl<Ty, Info> ProgramMetadata<Value, Ty, Info> {
+impl<V, Ty: StructTypeRef, Info> ProgramMetadata<V, Ty, Info> {
+    /// Check that every struct type in signatures and struct fields names an
+    /// entry of the struct table. Structs may refer to themselves or each other.
+    pub fn validate_struct_types(&self) -> eyre::Result<()> {
+        let check = |ty: &Ty, what: &dyn Fn() -> String| {
+            let mut result = Ok(());
+            ty.visit_struct_refs(&mut |index| {
+                if result.is_ok() {
+                    result = check_index(index, self.structs.len(), &what());
+                }
+            });
+            result
+        };
+        for (index, function) in self.functions.iter().enumerate() {
+            let path = format!("metadata.functions[{index}].signature");
+            for (param, parameter) in function.signature.params.iter().enumerate() {
+                check(&parameter.ty, &|| format!("{path}.params[{param}].ty"))?;
+            }
+            for (ret, ty) in function.signature.ret.iter().enumerate() {
+                check(ty, &|| format!("{path}.ret[{ret}]"))?;
+            }
+        }
+        for (index, info) in self.structs.iter().enumerate() {
+            for (field, info) in info.fields.iter().enumerate() {
+                check(&info.ty, &|| {
+                    format!("metadata.structs[{index}].fields[{field}].ty")
+                })?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<Ty: StructTypeRef, Info> ProgramMetadata<Value, Ty, Info> {
     /// Assemble the standard value model, checking the supplied tables once.
-    /// Custom value models can assemble `LocalModule` directly after `validate`.
+    /// Custom value models can assemble `LocalModule` directly after `validate`
+    /// and `validate_struct_types`.
     pub fn into_module<I>(self, code: Vec<I>) -> eyre::Result<LocalModule<I, Value, Ty, Info>> {
         self.validate(code.len())?;
+        self.validate_struct_types()?;
         for (index, constant) in self.constants.iter().enumerate() {
             match constant {
                 Value::String(id) => check_index(
@@ -133,6 +192,7 @@ impl<Ty, Info> ProgramMetadata<Value, Ty, Info> {
         Ok(LocalModule {
             code,
             functions: self.functions,
+            structs: self.structs,
             labels: self.labels,
             constants: self.constants,
             strings: self.strings,

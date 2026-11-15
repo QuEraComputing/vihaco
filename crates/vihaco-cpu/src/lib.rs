@@ -67,11 +67,17 @@ mod display;
 #[cfg(not(feature = "typed-declarations"))]
 mod instruction;
 
+#[cfg(not(feature = "typed-declarations"))]
+mod structs;
+
 #[cfg(feature = "typed-declarations")]
 pub use dialect::cpu;
 
 #[cfg(feature = "typed-declarations")]
 mod execute;
+
+#[cfg(feature = "typed-declarations")]
+pub mod field;
 
 #[cfg(all(
     feature = "typed-declarations",
@@ -101,9 +107,12 @@ pub mod operand;
 #[doc(hidden)]
 pub use data::{__vihaco_fields_CPU, __vihaco_inventory_CPU};
 
+pub mod layout;
 #[cfg(not(feature = "program-image-execution"))]
 mod outcome;
 pub mod word;
+
+pub use layout::{FieldSlot, StructLayout};
 
 pub use data::CPU;
 
@@ -115,6 +124,9 @@ pub use data::{RuntimeInstruction, SurfaceInstruction};
 
 #[cfg(not(feature = "typed-declarations"))]
 pub use instruction::{SurfaceType, SurfaceValue};
+
+#[cfg(not(feature = "typed-declarations"))]
+pub use structs::check_struct_operands;
 
 #[cfg(not(feature = "program-image-execution"))]
 pub use outcome::StepOutcome;

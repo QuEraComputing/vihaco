@@ -34,7 +34,10 @@ where
             .parse(text)
             .into_result()
             .map(Self)
-            .map_err(|errors| eyre::eyre!("invalid header declarations: {errors:?}"))
+            .map_err(|errors| {
+                let errors = crate::parse::describe_errors(text, &errors);
+                eyre::eyre!("invalid header declarations: {errors}")
+            })
     }
 }
 

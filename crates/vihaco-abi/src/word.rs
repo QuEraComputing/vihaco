@@ -102,16 +102,17 @@ pub const fn decode_function_ref(word: Word) -> u32 {
     decode_u32(word)
 }
 
-/// Encodes a numeric heap reference.
+/// Encodes a heap reference. References use the whole word: a heap may pack a
+/// slot index and a generation into it, so no bits are discarded.
 #[inline]
-pub const fn encode_heap_ref(id: u32) -> Word {
-    encode_u32(id)
+pub const fn encode_heap_ref(reference: u64) -> Word {
+    encode_u64(reference)
 }
 
-/// Decodes a numeric heap reference.
+/// Decodes a heap reference, preserving all 64 bits.
 #[inline]
-pub const fn decode_heap_ref(word: Word) -> u32 {
-    decode_u32(word)
+pub const fn decode_heap_ref(word: Word) -> u64 {
+    decode_u64(word)
 }
 
 /// Encodes an interned string identifier.
@@ -172,6 +173,8 @@ mod tests {
         assert_eq!(decode_function_ref(encode_function_ref(7)), 7);
         assert_eq!(decode_heap_ref(encode_heap_ref(11)), 11);
         assert_eq!(decode_string_id(encode_string_id(13)), 13);
-        assert_eq!(encode_heap_ref(u32::MAX), u64::from(u32::MAX));
+        // Heap references keep their high bits (e.g. a generation).
+        assert_eq!(decode_heap_ref(encode_heap_ref(u64::MAX)), u64::MAX);
+        assert_eq!(decode_heap_ref(encode_heap_ref(7 << 32 | 3)), 7 << 32 | 3);
     }
 }

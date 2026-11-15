@@ -192,7 +192,7 @@ Constants, locals, stack and control instructions live in
 and `program::operand`. Module construction and string interning happen before
 execution. CPU computes with typed operands and returns effects; it owns no stack,
 frames, or PC. Its heap exchanges operands through the same stack protocols.
-HeapAlloc and HeapPush consume available operands sequentially on underflow.
+ArrayNew and ArrayPush consume available operands sequentially on underflow.
 Print belongs to a separate component; no Span or Breakpoint handling is added.
 Feature-disabled legacy and typed CPU behavior is retained.
 

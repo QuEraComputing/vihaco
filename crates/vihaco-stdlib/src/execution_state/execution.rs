@@ -172,19 +172,6 @@ impl Execute<program::ConstFunctionRef> for ExecutionState {
     }
 }
 
-impl Execute<program::ConstHeapRef> for ExecutionState {
-    type Message = NoMessage;
-    type Effect = ();
-    type Error = eyre::Report;
-
-    #[inline]
-    fn execute(&mut self, instruction: &program::ConstHeapRef, _: NoMessage) -> eyre::Result<()> {
-        self.ensure_running()?;
-        self.stack.push(instruction.0);
-        Ok(())
-    }
-}
-
 impl Execute<program::LoadI32> for ExecutionState {
     type Message = NoMessage;
     type Effect = ();
