@@ -1171,10 +1171,26 @@ fn instructions_render_in_source_syntax_with_names() {
         .map(expand)
     );
 
-    // Either form, pasted back in place of the program's instructions (with
+    // Names not placed `at` an instruction cannot tell which function a jump
+    // is in, so they write every jump target as its number: `@done` (at 12,
+    // in `@main`) must not leak into `@helper`'s loop back to 12.
+    let mut unscoped_expected = expected.clone();
+    unscoped_expected[9] = expand("P::cond_br 8, 0");
+    let module_text: Vec<String> = code
+        .iter()
+        .map(|instruction| instruction.text_with(&module).to_string())
+        .collect();
+    let names_text: Vec<String> = code
+        .iter()
+        .map(|instruction| instruction.text_with(&names).to_string())
+        .collect();
+    assert_eq!(module_text, unscoped_expected);
+    assert_eq!(names_text, unscoped_expected);
+
+    // Every form, pasted back in place of the program's instructions (with
     // its labels where they were), loads to the same module.
     let unexpand = |line: &str| line.replace(machine::P, "P::").replace(machine::C, "C::");
-    for texts in [&named, &numeric] {
+    for texts in [&named, &numeric, &module_text, &names_text] {
         let mut texts = texts.iter();
         let mut rewrite = |body: &[&str]| -> Vec<String> {
             body.iter()

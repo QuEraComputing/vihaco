@@ -76,12 +76,10 @@ impl<'a, Ty> ModuleNames<'a, Ty> {
     /// containing the instruction (or at its end), and in no other function:
     /// a label where one function ends and the next starts could belong to
     /// either, so such a target is written as its number, which always
-    /// parses back. Without [`at`](Self::at), the first label at `address`.
+    /// parses back. Without [`at`](Self::at) the function is unknown, so
+    /// there is none: every jump target is written as its number.
     pub fn jump_label(&self, address: u32) -> Option<&'a str> {
-        let Some(from) = self.jump_from else {
-            return self.label_at(address);
-        };
-        let function = self.function_at(from)?;
+        let function = self.function_at(self.jump_from?)?;
         let contains =
             |info: &FunctionInfo<Ty>| (info.start_address..=info.end_address).contains(&address);
         let owners = self.functions.iter().filter(|info| contains(info)).count();
@@ -100,7 +98,9 @@ impl<'a, Ty> ModuleNames<'a, Ty> {
             .map(|index| index as u32)
     }
 
-    /// The name of the first label at `address`.
+    /// The name of the first label at `address`, in any function. To name a
+    /// jump target, use [`jump_label`](Self::jump_label), which only returns
+    /// a label the jump can resolve.
     pub fn label_at(&self, address: u32) -> Option<&'a str> {
         let label = self.labels.iter().find(|label| label.address == address)?;
         self.string(label.name)
@@ -187,6 +187,8 @@ impl<Ty> TypeNames for ModuleNames<'_, Ty> {
     }
 }
 
+/// Jump targets name labels only for names placed [`at`](ModuleNames::at) the
+/// instruction being written (see [`jump_label`](ModuleNames::jump_label)).
 impl<Ty> SymbolNames for ModuleNames<'_, Ty> {
     fn field_name(&self, struct_id: u32, field: u32) -> Option<&str> {
         ModuleNames::field_name(self, struct_id, field)
@@ -309,6 +311,9 @@ impl<I, V, Ty, Info> TypeNames for LocalModule<I, V, Ty, Info> {
     }
 }
 
+/// Writes every jump target as its number: these names do not know which
+/// function the instruction being written is in, and labels resolve per
+/// function. For labels, write with `self.names().at(address)`.
 impl<I, V, Ty, Info> SymbolNames for LocalModule<I, V, Ty, Info> {
     fn field_name(&self, struct_id: u32, field: u32) -> Option<&str> {
         self.names().field_name(struct_id, field)
@@ -322,15 +327,14 @@ impl<I, V, Ty, Info> SymbolNames for LocalModule<I, V, Ty, Info> {
         self.names().function_starting_at(address)
     }
 
-    fn label_at(&self, address: u32) -> Option<&str> {
-        self.names().label_at(address)
-    }
-
     fn string(&self, index: u32) -> Option<&str> {
         self.names().string(index)
     }
 }
 
+/// Writes every jump target as its number: these names do not know which
+/// function the instruction being written is in, and labels resolve per
+/// function. For labels, write with `self.names().at(address)`.
 impl<V, Ty, Info> SymbolNames for ProgramMetadata<V, Ty, Info> {
     fn field_name(&self, struct_id: u32, field: u32) -> Option<&str> {
         self.names().field_name(struct_id, field)
@@ -342,10 +346,6 @@ impl<V, Ty, Info> SymbolNames for ProgramMetadata<V, Ty, Info> {
 
     fn function_starting_at(&self, address: u32) -> Option<u32> {
         self.names().function_starting_at(address)
-    }
-
-    fn label_at(&self, address: u32) -> Option<&str> {
-        self.names().label_at(address)
     }
 
     fn string(&self, index: u32) -> Option<&str> {
