@@ -5,9 +5,11 @@ extern crate self as vihaco_abi;
 
 pub mod effect;
 pub mod frame;
+pub mod heap;
 pub mod instruction_syntax;
 pub mod lower;
 pub mod metadata;
+pub mod names;
 pub mod program;
 #[doc(hidden)]
 pub mod traits;

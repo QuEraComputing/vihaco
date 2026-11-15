@@ -245,22 +245,7 @@ impl FunctionType {
 
 impl std::fmt::Display for FunctionType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        fn list(f: &mut std::fmt::Formatter<'_>, types: &[Type]) -> std::fmt::Result {
-            f.write_str("(")?;
-            for (index, ty) in types.iter().enumerate() {
-                if index > 0 {
-                    f.write_str(", ")?;
-                }
-                write!(f, "{ty}")?;
-            }
-            f.write_str(")")
-        }
-        list(f, &self.params)?;
-        f.write_str(" -> ")?;
-        match self.results.as_slice() {
-            [single] => write!(f, "{single}"),
-            results => list(f, results),
-        }
+        crate::names::write_function_type(f, self, None)
     }
 }
 
@@ -404,22 +389,7 @@ impl std::fmt::Display for Value {
 
 impl std::fmt::Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Type::Undefined => write!(f, "undefined"),
-            Type::String => write!(f, "str"),
-            Type::Bool => write!(f, "bool"),
-            Type::I64 => write!(f, "i64"),
-            Type::I32 => write!(f, "i32"),
-            Type::U32 => write!(f, "u32"),
-            Type::U64 => write!(f, "u64"),
-            Type::F64 => write!(f, "f64"),
-            Type::F32 => write!(f, "f32"),
-            Type::FunctionRef => write!(f, "fn"),
-            Type::HeapRef => write!(f, "heap"),
-            Type::Struct(index) => write!(f, "struct {}", index),
-            Type::Array(elem) => write!(f, "array {}", elem),
-            Type::Named(index) => write!(f, "type {}", index),
-        }
+        crate::names::write_type(f, self, None)
     }
 }
 
