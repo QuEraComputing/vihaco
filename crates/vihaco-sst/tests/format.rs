@@ -133,14 +133,12 @@ fn messy_text_is_one_item_per_line() {
 
 .section main
 .header
-;; strings[2]
-.file \"f.sst\"
-;; functions[0], @main = 0x0000..0x0004
-.func @main(), locals 0
-;; functions[1], @helper = 0x0004..0x0006
-.func @helper(), locals 0
-;; functions[0]
-.entry @main
+    .file \"f.sst\"
+    ;; functions[0], @main = 0x0000..0x0004
+    .func @main(), locals 0
+    ;; functions[1], @helper = 0x0004..0x0006
+    .func @helper(), locals 0
+    .entry @main
 .text
 ;; fn main(), locals 0, functions[0]
 @main:
@@ -195,16 +193,14 @@ fn comments_everywhere_stay_with_their_items() {
 
 .section main  ; section directive
 .header  ; header directive
-; before file
-;; strings[1]
-.file "f.sst"            ; on file
+    ; before file
+    .file "f.sst"            ; on file
 
-;;; a heading is a user comment
-;; functions[0], @main = 0x0000..0x0002
-.func @main(), locals 0  ; on main
-;; functions[0]
-.entry @main
-; end of header
+    ;;; a heading is a user comment
+    ;; functions[0], @main = 0x0000..0x0002
+    .func @main(), locals 0  ; on main
+    .entry @main
+    ; end of header
 .text  ; text directive
 ; before main
 ;; fn main(), locals 0, functions[0]
@@ -226,7 +222,7 @@ fn comments_at_the_end_of_a_block_stay_in_it() {
     );
     let formatted = assert_properties(&text);
     assert!(
-        formatted.contains(".entry @main\n\n; End of header.\n.text\n"),
+        formatted.contains("    .entry @main\n\n    ; End of header.\n.text\n"),
         "{formatted}"
     );
     assert!(
@@ -265,10 +261,10 @@ fn generated_comments_can_be_turned_off() {
     let formatted = format_with(&text, FormatOptions::without_generated_comments());
     let expected = "\
 .header
-.file \"f.sst\"
-.func @main(), locals 0
-.func @helper(), locals 0
-.entry @main
+    .file \"f.sst\"
+    .func @main(), locals 0
+    .func @helper(), locals 0
+    .entry @main
 .text
 @main:
     t.br @done
@@ -298,12 +294,12 @@ fn constants_and_parameters_are_resolved() {
 "#;
     let formatted = assert_properties(text);
     for expected in [
-        ";; functions[0], @main = 0x0000..0x0001\n.func @main(x: u64) -> (u64, bool), locals 2\n",
-        ";; constants[0]\n.const u64 7\n",
-        ";; constants[1] = strings[2]\n.const str \"f.sst\"\n",
-        ";; constants[2] = functions[0]\n.const fn @main\n",
-        ";; constants[3] = strings[3]\n.const str \"new\"\n",
-        "\n.source_symbol 3 \"loop\"\n",
+        "    ;; functions[0], @main = 0x0000..0x0001\n    .func @main(x: u64) -> (u64, bool), locals 2\n",
+        "    ;; constants[0]\n    .const u64 7\n",
+        "    ;; constants[1] = strings[2]\n    .const str \"f.sst\"\n",
+        "    ;; constants[2] = functions[0]\n    .const fn @main\n",
+        "    ;; constants[3] = strings[3]\n    .const str \"new\"\n",
+        "\n    .source_symbol 3 \"loop\"\n",
         ";; fn main(x: u64) -> (u64, bool), locals 2, functions[0]\n@main:\n",
         // Names, parameters, files, string constants, then `.text` literals.
         "    ;; \"hi\" = strings[4]\n    t.print \"hi\"\n",
@@ -486,8 +482,8 @@ fn application_directives_keep_their_place_and_break_only_inside_brackets() {
     let formatted = formatter.format(&source(&text)).unwrap();
     assert!(
         formatted.contains(
-            ".entry @main\n; The valid range.\nrange{1000000000000, 2000000000000}  ; inclusive\n\
-             sites [\n    1,                               ; first\n    2000000000,\n    3000000000,\n]\n.text\n"
+            "    .entry @main\n    ; The valid range.\n    range{1000000000000, 2000000000000}  ; inclusive\n\
+             \x20   sites [\n        1,                               ; first\n        2000000000,\n        3000000000,\n    ]\n.text\n"
         ),
         "{formatted}"
     );

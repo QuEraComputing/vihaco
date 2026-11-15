@@ -5,14 +5,15 @@
 //! by symbol, assembled into [`ProgramMetadata`].
 //!
 //! ```text
-//! .file "loadable.sst"
-//! .func @helper() -> u64, locals 0
-//! .func @main(x: u64) -> (u64, bool), locals 2
-//! .entry @main
-//! .const u64 42
-//! .const str "hello"
-//! .const fn @helper
-//! .source_symbol 12 "user"
+//! .header
+//!     .file "loadable.sst"
+//!     .func @helper() -> u64, locals 0
+//!     .func @main(x: u64) -> (u64, bool), locals 2
+//!     .entry @main
+//!     .const u64 42
+//!     .const str "hello"
+//!     .const fn @helper
+//!     .source_symbol 12 "user"
 //! ```
 //!
 //! No table index is written by hand. [`ProgramHeader`] collects directives

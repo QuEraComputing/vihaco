@@ -66,7 +66,7 @@ mod ex_quickstart {
                 printed
             })
             .collect();
-        assert_eq!(printed, header.lines().collect::<Vec<_>>());
+        assert_eq!(printed, header.lines().map(str::trim).collect::<Vec<_>>());
 
         let text = source.split(".text").nth(1).unwrap();
         let lines: Vec<_> = text
@@ -96,12 +96,10 @@ sst v2
 
 .section main
 .header
-;; strings[1]
-.file \"first-machine.sst\"
-;; functions[0], @main = 0x0000..0x0004
-.func @main() -> u64, locals 0
-;; functions[0]
-.entry @main
+    .file \"first-machine.sst\"
+    ;; functions[0], @main = 0x0000..0x0004
+    .func @main() -> u64, locals 0
+    .entry @main
 .text
 ;; fn main() -> u64, locals 0, functions[0]
 @main:

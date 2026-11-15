@@ -45,8 +45,9 @@ use self::layout::{INDENT, Line};
 use self::notes::SectionInfo;
 use crate::check::{self, Declarations, MetadataLowering, ProgramChecker, SectionChecker};
 
-/// Indentation of header directives: none, like the block directives.
-const HEADER_INDENT: usize = 0;
+/// Indentation of header directives: one level under `.header`, like
+/// instructions under `.text`. Framing directives and labels stay at column 0.
+const HEADER_INDENT: usize = INDENT;
 use crate::diagnostic::{Diagnostics, Report};
 use crate::source::{SourceFile, Span};
 
