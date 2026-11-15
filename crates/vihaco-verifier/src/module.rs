@@ -437,13 +437,15 @@ impl AbstractState for ModuleVerifier<'_> {
 /// every component state defines, because what is sound depends on the
 /// state; per-callee summaries are a possible future extension.
 pub trait ComponentState: Clone {
-    /// Join `incoming` into `self`, the state saved at a join point.
+    /// Join `incoming` into `self`, the state saved at the join point `at`.
     ///
     /// Returns whether `self` strictly changed. On error `self` must be left
     /// unchanged. The join must have finite height so the fixpoint
-    /// terminates: widen unbounded values (such as elapsed time) after a
-    /// fixed number of joins.
-    fn join(&mut self, incoming: &Self) -> Result<bool, VerifyError>;
+    /// terminates: widen unbounded values (such as elapsed time). `at` names
+    /// the leader and the edges the two states arrived along, so a join can
+    /// widen only at a loop header (an incoming `Predecessor::Jump(from)` with
+    /// `from >= at.address`) and stay precise where a diamond merges.
+    fn join(&mut self, incoming: &Self, at: &JoinPoint) -> Result<bool, VerifyError>;
 
     /// The caller's state after a call returns. `callee` is the called
     /// function for a direct call and `None` for an indirect one; `entry` is
@@ -469,7 +471,7 @@ pub trait ComponentState: Clone {
 }
 
 impl ComponentState for () {
-    fn join(&mut self, _: &()) -> Result<bool, VerifyError> {
+    fn join(&mut self, _: &(), _: &JoinPoint) -> Result<bool, VerifyError> {
         Ok(false)
     }
 
@@ -521,17 +523,17 @@ impl<T> ComponentStateOf<T> for T {
 /// distinct.
 ///
 /// ```
-/// use vihaco_verifier::{ComponentState, VerifyError, component_state};
+/// use vihaco_verifier::{ComponentState, JoinPoint, VerifyError, component_state};
 /// # #[derive(Clone, Debug, Default)]
 /// # pub struct Open;
 /// # impl ComponentState for Open {
-/// #     fn join(&mut self, _: &Self) -> Result<bool, VerifyError> { Ok(false) }
+/// #     fn join(&mut self, _: &Self, _: &JoinPoint) -> Result<bool, VerifyError> { Ok(false) }
 /// #     fn after_call(&mut self, _: Option<u32>, entry: &Self) { self.clone_from(entry) }
 /// # }
 /// # #[derive(Clone, Debug, Default)]
 /// # pub struct Elapsed;
 /// # impl ComponentState for Elapsed {
-/// #     fn join(&mut self, _: &Self) -> Result<bool, VerifyError> { Ok(false) }
+/// #     fn join(&mut self, _: &Self, _: &JoinPoint) -> Result<bool, VerifyError> { Ok(false) }
 /// #     fn after_call(&mut self, _: Option<u32>, entry: &Self) { self.clone_from(entry) }
 /// # }
 ///
@@ -558,11 +560,11 @@ macro_rules! component_state {
         }
 
         impl $crate::ComponentState for $name {
-            fn join(&mut self, incoming: &Self) -> ::core::result::Result<bool, $crate::VerifyError> {
+            fn join(&mut self, incoming: &Self, at: &$crate::JoinPoint) -> ::core::result::Result<bool, $crate::VerifyError> {
                 // Join a copy, so an error in any field leaves `self` whole.
                 let mut joined = ::core::clone::Clone::clone(self);
                 let mut changed = false;
-                $(changed |= $crate::ComponentState::join(&mut joined.$field, &incoming.$field)?;)*
+                $(changed |= $crate::ComponentState::join(&mut joined.$field, &incoming.$field, at)?;)*
                 *self = joined;
                 Ok(changed)
             }
@@ -600,7 +602,7 @@ macro_rules! component_state {
 ///
 /// ```
 /// use std::collections::BTreeSet;
-/// use vihaco_verifier::{ComponentState, ComponentStateOf, VerifyError, WithState};
+/// use vihaco_verifier::{ComponentState, ComponentStateOf, JoinPoint, VerifyError, WithState};
 ///
 /// /// The sequencer's capability: channels must be opened before use.
 /// pub trait Channels {
@@ -613,7 +615,7 @@ macro_rules! component_state {
 ///
 /// impl ComponentState for Open {
 ///     /// A channel is open after a join only if it is open on every path.
-///     fn join(&mut self, incoming: &Self) -> Result<bool, VerifyError> {
+///     fn join(&mut self, incoming: &Self, _: &JoinPoint) -> Result<bool, VerifyError> {
 ///         let before = self.0.len();
 ///         self.0.retain(|c| incoming.0.contains(c));
 ///         Ok(self.0.len() != before)
@@ -856,7 +858,7 @@ impl<S: ComponentState> AbstractState for WithState<'_, S> {
         // Join the component state on a copy first, so an error in either
         // join leaves the saved snapshot unchanged.
         let mut joined = state.clone();
-        let state_changed = joined.join(in_state)?;
+        let state_changed = joined.join(in_state, at)?;
         let frame_changed = frame.join(in_frame, at)?;
         *state = joined;
         Ok(frame_changed || state_changed)

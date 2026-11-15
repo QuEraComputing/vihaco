@@ -416,10 +416,18 @@ Depth must not depend on which edge was taken (the Wasm and JVM rule). This
 catches unbalanced diamonds at the join and loops with a nonzero depth delta at
 the loop header, while a zero-delta loop converges.
 
-Component state chooses its own join, which must have finite height. Unbounded
-abstract values, such as elapsed time on a sequencer (#121), must widen: for
-example, to "unknown" once a loop header has been joined more than a fixed
-number of times.
+Component state chooses its own join, which must have finite height.
+`ComponentState::join(&mut self, incoming, at: &JoinPoint)` receives the join
+point: the leader's address and the edges the saved and incoming states
+arrived along (`Predecessor::Entry`, `Fallthrough(from)`, `Jump(from)`), so a
+component can tell a loop header (an edge jumping back, `Jump(from)` with
+`from >= address`) from a diamond. Unbounded abstract values, such as elapsed
+time on a sequencer (#121), must widen there. The timing example in
+`crates/vihaco-verifier/tests/component_state.rs` keeps an upper bound on
+elapsed cycles: where paths merge it takes the larger bound, and at a loop
+header a disagreement widens to "unknown", so each leader's state changes at
+most twice. Across a call it becomes "unknown" too (its `after_call`), since
+the callee is verified separately.
 
 ## Diagnostics
 

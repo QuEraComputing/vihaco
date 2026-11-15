@@ -742,7 +742,7 @@ trait Channels {
 struct Open(BTreeSet<u32>);
 
 impl ComponentState for Open {
-    fn join(&mut self, incoming: &Self) -> Result<bool, VerifyError> {
+    fn join(&mut self, incoming: &Self, _: &JoinPoint) -> Result<bool, VerifyError> {
         let before = self.0.len();
         self.0.retain(|channel| incoming.0.contains(channel));
         Ok(self.0.len() != before)
@@ -964,12 +964,20 @@ fn component_state_established_before_a_call_does_not_survive_it() {
     verify(&call_open_play, S(Seq::Close(1))).unwrap();
 }
 
+/// A join point for calling joins directly.
+const JOIN: JoinPoint = JoinPoint {
+    function: 0,
+    address: 2,
+    saved_from: Predecessor::Fallthrough(1),
+    incoming_from: Predecessor::Jump(0),
+};
+
 #[test]
 fn combined_component_states_join_each_field_and_fail_atomically() {
     #[derive(Clone, Debug, PartialEq)]
     struct Fails;
     impl ComponentState for Fails {
-        fn join(&mut self, _: &Self) -> Result<bool, VerifyError> {
+        fn join(&mut self, _: &Self, _: &JoinPoint) -> Result<bool, VerifyError> {
             Err(VerifyError::rule("cannot join"))
         }
         fn after_call(&mut self, _: Option<u32>, _: &Self) {}
@@ -977,7 +985,7 @@ fn combined_component_states_join_each_field_and_fail_atomically() {
     #[derive(Clone, Debug, PartialEq, Default)]
     struct Bits(u8);
     impl ComponentState for Bits {
-        fn join(&mut self, incoming: &Self) -> Result<bool, VerifyError> {
+        fn join(&mut self, incoming: &Self, _: &JoinPoint) -> Result<bool, VerifyError> {
             let before = self.0;
             self.0 &= incoming.0;
             Ok(self.0 != before)
@@ -1008,9 +1016,9 @@ fn combined_component_states_join_each_field_and_fail_atomically() {
         open: Open(BTreeSet::from([1])),
         bits: Bits(0b11),
     };
-    assert!(saved.join(&incoming).unwrap());
+    assert!(saved.join(&incoming, &JOIN).unwrap());
     assert_eq!(saved.open, Open(BTreeSet::from([1])));
-    assert!(!saved.join(&incoming).unwrap());
+    assert!(!saved.join(&incoming, &JOIN).unwrap());
     // Each field is reachable through `ComponentStateOf`.
     assert_eq!(ComponentStateOf::<Bits>::component(&saved), &Bits(0b11));
     ComponentStateOf::<Open>::component_mut(&mut saved)
@@ -1027,7 +1035,7 @@ fn combined_component_states_join_each_field_and_fail_atomically() {
         open: Open(BTreeSet::from([1])),
         fails: Fails,
     };
-    assert!(saved.join(&incoming).is_err());
+    assert!(saved.join(&incoming, &JOIN).is_err());
     assert_eq!(saved, before, "a failed join leaves the saved state");
 
     // After a call, each field applies its own `after_call`.

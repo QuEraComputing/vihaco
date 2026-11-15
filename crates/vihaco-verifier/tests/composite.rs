@@ -346,7 +346,7 @@ fn the_generated_aggregate_reports_each_components_errors() {
 struct OpenChannels(BTreeSet<u32>);
 
 impl ComponentState for OpenChannels {
-    fn join(&mut self, incoming: &Self) -> Result<bool, VerifyError> {
+    fn join(&mut self, incoming: &Self, _: &JoinPoint) -> Result<bool, VerifyError> {
         let before = self.0.len();
         self.0.retain(|channel| incoming.0.contains(channel));
         Ok(self.0.len() != before)

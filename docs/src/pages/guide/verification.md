@@ -395,7 +395,7 @@ state, so machines can combine it with other components' states:
 use std::collections::BTreeSet;
 use vihaco::{
     Verify,
-    verifier::{ComponentState, ComponentStateOf, VerifyError, WithState},
+    verifier::{ComponentState, ComponentStateOf, JoinPoint, VerifyError, WithState},
 };
 
 /// The sequencer's capability: channels must be opened before use.
@@ -408,7 +408,7 @@ pub trait Channels {
 pub struct Open(BTreeSet<u32>);
 
 impl ComponentState for Open {
-    fn join(&mut self, incoming: &Self) -> Result<bool, VerifyError> {
+    fn join(&mut self, incoming: &Self, _: &JoinPoint) -> Result<bool, VerifyError> {
         let before = self.0.len();
         self.0.retain(|channel| incoming.0.contains(channel));
         Ok(self.0.len() != before)
