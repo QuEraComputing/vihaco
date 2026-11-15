@@ -332,8 +332,9 @@ return in: true for open channels (entry "none open"; a helper then cannot
 play on a channel its caller opened), false for accumulating state such as an
 elapsed-time budget (entry "0 elapsed", while a callee may spend any amount),
 which must become "unknown" instead. A custom call-like rule must use the call
-helpers or call `Signatures::after_call` itself. Per-callee summaries (the callee's exit
-state, computed in call-graph order) are a possible future extension.
+helpers or call `Signatures::after_call` itself. Per-callee summaries (the
+callee's exit state, computed in call-graph order) are a possible future
+extension.
 
 ## The engine
 

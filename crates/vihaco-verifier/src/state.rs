@@ -30,8 +30,9 @@ pub struct JoinPoint {
 /// [`FrameState`](crate::FrameState) implements this for the operand stack and
 /// locals. A machine-specific context that wraps it joins its own state
 /// alongside, for example a set of open channels joined by intersection; that
-/// state must also have finite height (widen unbounded values, such as
-/// elapsed time, after a fixed number of joins).
+/// state must also have finite height: widen unbounded values, such as
+/// elapsed time, at a loop header (a [`JoinPoint`] with an incoming
+/// `Predecessor::Jump(from)` where `from >= address`).
 pub trait AbstractState {
     /// A saved copy of the state.
     type Snapshot: Clone;
