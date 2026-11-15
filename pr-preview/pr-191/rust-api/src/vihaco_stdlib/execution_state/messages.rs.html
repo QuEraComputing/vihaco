@@ -94,78 +94,80 @@
 <a href=#94 id=94 data-nosnippet>94</a>            .position(|f| f.start_address == instruction.<span class="number">1</span>)
 <a href=#95 id=95 data-nosnippet>95</a>            .ok_or_else(|| unknown_call_target(instruction.<span class="number">1</span>))<span class="question-mark">?</span>;
 <a href=#96 id=96 data-nosnippet>96</a>        <span class="kw">let </span>(arity, locals, target) = function_entry(module, function)<span class="question-mark">?</span>;
-<a href=#97 id=97 data-nosnippet>97</a>        <span class="kw">if </span>instruction.<span class="number">0 </span><span class="kw">as </span>usize != arity {
-<a href=#98 id=98 data-nosnippet>98</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(call_arity_mismatch());
-<a href=#99 id=99 data-nosnippet>99</a>        }
-<a href=#100 id=100 data-nosnippet>100</a>        <span class="prelude-val">Ok</span>(<span class="self">Self </span>{
-<a href=#101 id=101 data-nosnippet>101</a>            function,
-<a href=#102 id=102 data-nosnippet>102</a>            arity,
-<a href=#103 id=103 data-nosnippet>103</a>            locals,
-<a href=#104 id=104 data-nosnippet>104</a>            target,
-<a href=#105 id=105 data-nosnippet>105</a>            indirect: <span class="bool-val">false</span>,
-<a href=#106 id=106 data-nosnippet>106</a>        })
-<a href=#107 id=107 data-nosnippet>107</a>    }
-<a href=#108 id=108 data-nosnippet>108</a>}
-<a href=#109 id=109 data-nosnippet>109</a>
-<a href=#110 id=110 data-nosnippet>110</a><span class="kw">impl</span>&lt;P, F, Code, V, Ty, Info&gt;
-<a href=#111 id=111 data-nosnippet>111</a>    PrepareMessage&lt;P, F, program::IndirectCall, LocalModule&lt;Code, V, Ty, Info&gt;&gt; <span class="kw">for </span>CallMessage
-<a href=#112 id=112 data-nosnippet>112</a><span class="kw">where
-<a href=#113 id=113 data-nosnippet>113</a>    </span>P: HasProgram&lt;Program = ExecutionState&gt;,
-<a href=#114 id=114 data-nosnippet>114</a>    Ty: PartialEq&lt;vihaco_abi::Type&gt; + std::fmt::Display,
-<a href=#115 id=115 data-nosnippet>115</a>{
-<a href=#116 id=116 data-nosnippet>116</a>    <span class="attr">#[inline]
-<a href=#117 id=117 data-nosnippet>117</a>    </span><span class="kw">fn </span>prepare(
-<a href=#118 id=118 data-nosnippet>118</a>        parent: <span class="kw-2">&amp;mut </span>P,
-<a href=#119 id=119 data-nosnippet>119</a>        instruction: <span class="kw-2">&amp;</span>program::IndirectCall,
-<a href=#120 id=120 data-nosnippet>120</a>        module: <span class="kw-2">&amp;</span>LocalModule&lt;Code, V, Ty, Info&gt;,
-<a href=#121 id=121 data-nosnippet>121</a>    ) -&gt; eyre::Result&lt;<span class="self">Self</span>&gt; {
-<a href=#122 id=122 data-nosnippet>122</a>        parent.program().ensure_running()<span class="question-mark">?</span>;
-<a href=#123 id=123 data-nosnippet>123</a>        <span class="kw">let </span>function = decode_function_ref(parent.program().peek_operand()<span class="question-mark">?</span>) <span class="kw">as </span>usize;
-<a href=#124 id=124 data-nosnippet>124</a>        <span class="kw">let </span>(arity, locals, target) = function_entry(module, function)<span class="question-mark">?</span>;
-<a href=#125 id=125 data-nosnippet>125</a>        <span class="comment">// A function reference is only callable at its declared signature.
-<a href=#126 id=126 data-nosnippet>126</a>        </span><span class="kw">let </span>signature = <span class="kw-2">&amp;</span>module.functions[function].signature;
-<a href=#127 id=127 data-nosnippet>127</a>        <span class="kw">if </span>!signature.matches(<span class="kw-2">&amp;</span>instruction.<span class="number">0</span>) {
-<a href=#128 id=128 data-nosnippet>128</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(indirect_signature_mismatch(<span class="kw-2">&amp;</span>instruction.<span class="number">0</span>, signature));
-<a href=#129 id=129 data-nosnippet>129</a>        }
-<a href=#130 id=130 data-nosnippet>130</a>        <span class="prelude-val">Ok</span>(<span class="self">Self </span>{
-<a href=#131 id=131 data-nosnippet>131</a>            function,
-<a href=#132 id=132 data-nosnippet>132</a>            arity,
-<a href=#133 id=133 data-nosnippet>133</a>            locals,
-<a href=#134 id=134 data-nosnippet>134</a>            target,
-<a href=#135 id=135 data-nosnippet>135</a>            indirect: <span class="bool-val">true</span>,
-<a href=#136 id=136 data-nosnippet>136</a>        })
-<a href=#137 id=137 data-nosnippet>137</a>    }
-<a href=#138 id=138 data-nosnippet>138</a>}
-<a href=#139 id=139 data-nosnippet>139</a>
-<a href=#140 id=140 data-nosnippet>140</a><span class="attr">#[cold]
-<a href=#141 id=141 data-nosnippet>141</a>#[inline(never)]
-<a href=#142 id=142 data-nosnippet>142</a></span><span class="kw">fn </span>unknown_call_target(target: u32) -&gt; eyre::Report {
-<a href=#143 id=143 data-nosnippet>143</a>    <span class="macro">eyre::eyre!</span>(<span class="string">"unknown call target {target}"</span>)
-<a href=#144 id=144 data-nosnippet>144</a>}
-<a href=#145 id=145 data-nosnippet>145</a>
-<a href=#146 id=146 data-nosnippet>146</a><span class="attr">#[cold]
-<a href=#147 id=147 data-nosnippet>147</a>#[inline(never)]
-<a href=#148 id=148 data-nosnippet>148</a></span><span class="kw">fn </span>indirect_signature_mismatch&lt;Ty: std::fmt::Display&gt;(
-<a href=#149 id=149 data-nosnippet>149</a>    expected: <span class="kw-2">&amp;</span>vihaco_abi::FunctionType,
-<a href=#150 id=150 data-nosnippet>150</a>    found: <span class="kw-2">&amp;</span>vihaco_module::module::Signature&lt;Ty&gt;,
-<a href=#151 id=151 data-nosnippet>151</a>) -&gt; eyre::Report {
-<a href=#152 id=152 data-nosnippet>152</a>    <span class="kw">let </span>list = |types: <span class="kw-2">&amp;mut </span><span class="kw">dyn </span>Iterator&lt;Item = <span class="kw-2">&amp;</span>Ty&gt;| {
-<a href=#153 id=153 data-nosnippet>153</a>        types
-<a href=#154 id=154 data-nosnippet>154</a>            .map(ToString::to_string)
-<a href=#155 id=155 data-nosnippet>155</a>            .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;()
-<a href=#156 id=156 data-nosnippet>156</a>            .join(<span class="string">", "</span>)
-<a href=#157 id=157 data-nosnippet>157</a>    };
-<a href=#158 id=158 data-nosnippet>158</a>    <span class="kw">let </span>params = list(<span class="kw-2">&amp;mut </span>found.params.iter().map(|param| <span class="kw-2">&amp;</span>param.ty));
-<a href=#159 id=159 data-nosnippet>159</a>    <span class="kw">let </span>results = list(<span class="kw-2">&amp;mut </span>found.ret.iter());
-<a href=#160 id=160 data-nosnippet>160</a>    <span class="macro">eyre::eyre!</span>(
-<a href=#161 id=161 data-nosnippet>161</a>        <span class="string">"call_indirect expects a function of type {expected}, but the referenced function has \
-<a href=#162 id=162 data-nosnippet>162</a>         type ({params}) -&gt; ({results})"
-<a href=#163 id=163 data-nosnippet>163</a>    </span>)
-<a href=#164 id=164 data-nosnippet>164</a>}
-<a href=#165 id=165 data-nosnippet>165</a>
-<a href=#166 id=166 data-nosnippet>166</a><span class="attr">#[cold]
-<a href=#167 id=167 data-nosnippet>167</a>#[inline(never)]
-<a href=#168 id=168 data-nosnippet>168</a></span><span class="kw">fn </span>call_arity_mismatch() -&gt; eyre::Report {
-<a href=#169 id=169 data-nosnippet>169</a>    <span class="macro">eyre::eyre!</span>(<span class="string">"call arity mismatch"</span>)
-<a href=#170 id=170 data-nosnippet>170</a>}
+<a href=#97 id=97 data-nosnippet>97</a>        parent.program().check_call_depth(module, function)<span class="question-mark">?</span>;
+<a href=#98 id=98 data-nosnippet>98</a>        <span class="kw">if </span>instruction.<span class="number">0 </span><span class="kw">as </span>usize != arity {
+<a href=#99 id=99 data-nosnippet>99</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(call_arity_mismatch());
+<a href=#100 id=100 data-nosnippet>100</a>        }
+<a href=#101 id=101 data-nosnippet>101</a>        <span class="prelude-val">Ok</span>(<span class="self">Self </span>{
+<a href=#102 id=102 data-nosnippet>102</a>            function,
+<a href=#103 id=103 data-nosnippet>103</a>            arity,
+<a href=#104 id=104 data-nosnippet>104</a>            locals,
+<a href=#105 id=105 data-nosnippet>105</a>            target,
+<a href=#106 id=106 data-nosnippet>106</a>            indirect: <span class="bool-val">false</span>,
+<a href=#107 id=107 data-nosnippet>107</a>        })
+<a href=#108 id=108 data-nosnippet>108</a>    }
+<a href=#109 id=109 data-nosnippet>109</a>}
+<a href=#110 id=110 data-nosnippet>110</a>
+<a href=#111 id=111 data-nosnippet>111</a><span class="kw">impl</span>&lt;P, F, Code, V, Ty, Info&gt;
+<a href=#112 id=112 data-nosnippet>112</a>    PrepareMessage&lt;P, F, program::IndirectCall, LocalModule&lt;Code, V, Ty, Info&gt;&gt; <span class="kw">for </span>CallMessage
+<a href=#113 id=113 data-nosnippet>113</a><span class="kw">where
+<a href=#114 id=114 data-nosnippet>114</a>    </span>P: HasProgram&lt;Program = ExecutionState&gt;,
+<a href=#115 id=115 data-nosnippet>115</a>    Ty: PartialEq&lt;vihaco_abi::Type&gt; + std::fmt::Display,
+<a href=#116 id=116 data-nosnippet>116</a>{
+<a href=#117 id=117 data-nosnippet>117</a>    <span class="attr">#[inline]
+<a href=#118 id=118 data-nosnippet>118</a>    </span><span class="kw">fn </span>prepare(
+<a href=#119 id=119 data-nosnippet>119</a>        parent: <span class="kw-2">&amp;mut </span>P,
+<a href=#120 id=120 data-nosnippet>120</a>        instruction: <span class="kw-2">&amp;</span>program::IndirectCall,
+<a href=#121 id=121 data-nosnippet>121</a>        module: <span class="kw-2">&amp;</span>LocalModule&lt;Code, V, Ty, Info&gt;,
+<a href=#122 id=122 data-nosnippet>122</a>    ) -&gt; eyre::Result&lt;<span class="self">Self</span>&gt; {
+<a href=#123 id=123 data-nosnippet>123</a>        parent.program().ensure_running()<span class="question-mark">?</span>;
+<a href=#124 id=124 data-nosnippet>124</a>        <span class="kw">let </span>function = decode_function_ref(parent.program().peek_operand()<span class="question-mark">?</span>) <span class="kw">as </span>usize;
+<a href=#125 id=125 data-nosnippet>125</a>        <span class="kw">let </span>(arity, locals, target) = function_entry(module, function)<span class="question-mark">?</span>;
+<a href=#126 id=126 data-nosnippet>126</a>        parent.program().check_call_depth(module, function)<span class="question-mark">?</span>;
+<a href=#127 id=127 data-nosnippet>127</a>        <span class="comment">// A function reference is only callable at its declared signature.
+<a href=#128 id=128 data-nosnippet>128</a>        </span><span class="kw">let </span>signature = <span class="kw-2">&amp;</span>module.functions[function].signature;
+<a href=#129 id=129 data-nosnippet>129</a>        <span class="kw">if </span>!signature.matches(<span class="kw-2">&amp;</span>instruction.<span class="number">0</span>) {
+<a href=#130 id=130 data-nosnippet>130</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(indirect_signature_mismatch(<span class="kw-2">&amp;</span>instruction.<span class="number">0</span>, signature));
+<a href=#131 id=131 data-nosnippet>131</a>        }
+<a href=#132 id=132 data-nosnippet>132</a>        <span class="prelude-val">Ok</span>(<span class="self">Self </span>{
+<a href=#133 id=133 data-nosnippet>133</a>            function,
+<a href=#134 id=134 data-nosnippet>134</a>            arity,
+<a href=#135 id=135 data-nosnippet>135</a>            locals,
+<a href=#136 id=136 data-nosnippet>136</a>            target,
+<a href=#137 id=137 data-nosnippet>137</a>            indirect: <span class="bool-val">true</span>,
+<a href=#138 id=138 data-nosnippet>138</a>        })
+<a href=#139 id=139 data-nosnippet>139</a>    }
+<a href=#140 id=140 data-nosnippet>140</a>}
+<a href=#141 id=141 data-nosnippet>141</a>
+<a href=#142 id=142 data-nosnippet>142</a><span class="attr">#[cold]
+<a href=#143 id=143 data-nosnippet>143</a>#[inline(never)]
+<a href=#144 id=144 data-nosnippet>144</a></span><span class="kw">fn </span>unknown_call_target(target: u32) -&gt; eyre::Report {
+<a href=#145 id=145 data-nosnippet>145</a>    <span class="macro">eyre::eyre!</span>(<span class="string">"unknown call target {target}"</span>)
+<a href=#146 id=146 data-nosnippet>146</a>}
+<a href=#147 id=147 data-nosnippet>147</a>
+<a href=#148 id=148 data-nosnippet>148</a><span class="attr">#[cold]
+<a href=#149 id=149 data-nosnippet>149</a>#[inline(never)]
+<a href=#150 id=150 data-nosnippet>150</a></span><span class="kw">fn </span>indirect_signature_mismatch&lt;Ty: std::fmt::Display&gt;(
+<a href=#151 id=151 data-nosnippet>151</a>    expected: <span class="kw-2">&amp;</span>vihaco_abi::FunctionType,
+<a href=#152 id=152 data-nosnippet>152</a>    found: <span class="kw-2">&amp;</span>vihaco_module::module::Signature&lt;Ty&gt;,
+<a href=#153 id=153 data-nosnippet>153</a>) -&gt; eyre::Report {
+<a href=#154 id=154 data-nosnippet>154</a>    <span class="kw">let </span>list = |types: <span class="kw-2">&amp;mut </span><span class="kw">dyn </span>Iterator&lt;Item = <span class="kw-2">&amp;</span>Ty&gt;| {
+<a href=#155 id=155 data-nosnippet>155</a>        types
+<a href=#156 id=156 data-nosnippet>156</a>            .map(ToString::to_string)
+<a href=#157 id=157 data-nosnippet>157</a>            .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;()
+<a href=#158 id=158 data-nosnippet>158</a>            .join(<span class="string">", "</span>)
+<a href=#159 id=159 data-nosnippet>159</a>    };
+<a href=#160 id=160 data-nosnippet>160</a>    <span class="kw">let </span>params = list(<span class="kw-2">&amp;mut </span>found.params.iter().map(|param| <span class="kw-2">&amp;</span>param.ty));
+<a href=#161 id=161 data-nosnippet>161</a>    <span class="kw">let </span>results = list(<span class="kw-2">&amp;mut </span>found.ret.iter());
+<a href=#162 id=162 data-nosnippet>162</a>    <span class="macro">eyre::eyre!</span>(
+<a href=#163 id=163 data-nosnippet>163</a>        <span class="string">"call_indirect expects a function of type {expected}, but the referenced function has \
+<a href=#164 id=164 data-nosnippet>164</a>         type ({params}) -&gt; ({results})"
+<a href=#165 id=165 data-nosnippet>165</a>    </span>)
+<a href=#166 id=166 data-nosnippet>166</a>}
+<a href=#167 id=167 data-nosnippet>167</a>
+<a href=#168 id=168 data-nosnippet>168</a><span class="attr">#[cold]
+<a href=#169 id=169 data-nosnippet>169</a>#[inline(never)]
+<a href=#170 id=170 data-nosnippet>170</a></span><span class="kw">fn </span>call_arity_mismatch() -&gt; eyre::Report {
+<a href=#171 id=171 data-nosnippet>171</a>    <span class="macro">eyre::eyre!</span>(<span class="string">"call arity mismatch"</span>)
+<a href=#172 id=172 data-nosnippet>172</a>}
 </code></pre></div></section></main></body></html>

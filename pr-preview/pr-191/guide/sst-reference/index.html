@@ -205,7 +205,10 @@ The CPU instructions name the struct, by name or by table index:</p>
 <p>Lowering resolves every form against this table: the field count of
 <code>struct_new</code> always comes from the table, and an unknown struct, field, or slot
 is a load-time error. (The legacy CPU instruction enum has no lowering step and
-takes <code>struct_new 0, 2</code> and <code>get_field 0, 1</code> with explicit numbers.)</p>
+takes <code>struct_new 0, 2</code> and <code>get_field 0, 1</code> with explicit numbers. Those are
+checked against the struct table only if the embedder calls
+<code>vihaco_cpu::check_struct_operands</code> when assembling the module; otherwise the
+CPU trusts the written field count.)</p>
 <p>Heap objects are type-checked at runtime. Each object records what it is: an
 array with a specific element type, or a specific struct. <code>get_field</code> and
 <code>set_field</code> fail unless the reference is to a live struct of the field’s struct
@@ -213,9 +216,12 @@ type, and the array instructions reject structs, so a struct’s shape never
 changes. Field values themselves are untyped words; the CPU does not check that
 a value stored in an <code>f64</code> field is an <code>f64</code>.</p>
 <p>Heap references are opaque 64-bit values. A reference to a freed object stays
-invalid even after its slot is reused, so it can never reach the new object.
-Do not write references as literals; use the reference an allocating
-instruction returned.</p>
+invalid after its slot is reused (for up to 2^31 reuses of that slot), so it
+does not reach the new object. References are predictable rather than secret,
+so the typed dialects have no instruction that writes one as a literal: use the
+reference an allocating instruction returned, or one the host passed in. (The
+legacy enum build still has <code>const_heap_ref N</code>; runtime tag checks apply to
+whatever word it pushes.)</p>
 <p>Types in signatures and fields may name a struct as <code>struct N</code>, its index in
 <code>structs</code>. At runtime such a value is a heap reference to a <code>struct N</code> object.
 Module assembly rejects <code>struct N</code> indices outside the table, including ones

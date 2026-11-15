@@ -3,8 +3,10 @@
 <a href="struct.Verified.html#method.verify" title="associated function vihaco::Verified::verify"><code>Verified::verify</code></a>, <a href="struct.Verified.html#method.verify_with_state" title="associated function vihaco::Verified::verify_with_state"><code>Verified::verify_with_state</code></a>) and the explicit
 escape hatch <a href="struct.Verified.html#method.assume_verified" title="associated function vihaco::Verified::assume_verified"><code>Verified::assume_verified</code></a>. Executable images take a
 <code>Verified</code> module (the stdlib <code>Image::new</code>, and through it <code>Loadable</code>), so
-a program cannot run without either passing verification or a greppable
-<code>assume_verified</code> at its construction site.</p>
+a program cannot run <strong>through an <code>Image</code> or <code>Loadable</code></strong> without either
+passing verification or a greppable <code>assume_verified</code> at its construction
+site. The stdlib’s low-level runner (<code>execution_state::execute</code> and
+<code>resume</code>) takes a plain module and does not verify it.</p>
 <p><code>Verified</code> gives shared access to the module through <a href="https://doc.rust-lang.org/1.99.0/core/ops/deref/trait.Deref.html" title="trait core::ops::deref::Deref"><code>Deref</code></a> and
 <a href="struct.Verified.html#method.get" title="method vihaco::Verified::get"><code>get</code></a>, but no mutable access: changing the module could
 invalidate the verification. <a href="struct.Verified.html#method.into_inner" title="method vihaco::Verified::into_inner"><code>into_inner</code></a> gives

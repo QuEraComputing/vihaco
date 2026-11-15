@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["MAX_LOCALS"],"struct":["FieldInfo","FunctionInfo","LabelInfo","LocalModule","NamedTypeInfo","NoInfo","Parameter","ProgramMetadata","Signature","SourceSymbolInfo","StructInfo"],"trait":["StructTypeRef"]};
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_MAX_CALL_DEPTH","MAX_LOCALS"],"struct":["FieldInfo","FunctionInfo","LabelInfo","LocalModule","NamedTypeInfo","NoInfo","Parameter","ProgramMetadata","Signature","SourceSymbolInfo","StructInfo"],"trait":["StructTypeRef"]};

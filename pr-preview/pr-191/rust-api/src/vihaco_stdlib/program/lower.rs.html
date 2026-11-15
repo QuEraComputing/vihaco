@@ -150,18 +150,17 @@
 <a href=#150 id=150 data-nosnippet>150</a>    ConstF64 =&gt; vihaco_abi::word::Word::from,
 <a href=#151 id=151 data-nosnippet>151</a>    ConstU32 =&gt; vihaco_abi::word::encode_u32,
 <a href=#152 id=152 data-nosnippet>152</a>    ConstBool =&gt; vihaco_abi::word::encode_bool,
-<a href=#153 id=153 data-nosnippet>153</a>    ConstHeapRef =&gt; vihaco_abi::word::encode_heap_ref,
-<a href=#154 id=154 data-nosnippet>154</a>}
-<a href=#155 id=155 data-nosnippet>155</a>
-<a href=#156 id=156 data-nosnippet>156</a><span class="comment">// String interning belongs to module construction, before immutable loading.
-<a href=#157 id=157 data-nosnippet>157</a></span><span class="kw">impl</span>&lt;I, V, Ty, Info&gt; StringIntern <span class="kw">for </span>vihaco_module::module::LocalModule&lt;I, V, Ty, Info&gt; {
-<a href=#158 id=158 data-nosnippet>158</a>    <span class="kw">fn </span>intern_string(<span class="kw-2">&amp;mut </span><span class="self">self</span>, value: <span class="kw-2">&amp;</span>str) -&gt; eyre::Result&lt;u32&gt; {
-<a href=#159 id=159 data-nosnippet>159</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(index) = <span class="self">self</span>.strings.iter().position(|existing| existing == value) {
-<a href=#160 id=160 data-nosnippet>160</a>            <span class="kw">return </span><span class="prelude-val">Ok</span>(u32::try_from(index)<span class="question-mark">?</span>);
-<a href=#161 id=161 data-nosnippet>161</a>        }
-<a href=#162 id=162 data-nosnippet>162</a>        <span class="kw">let </span>index = u32::try_from(<span class="self">self</span>.strings.len())<span class="question-mark">?</span>;
-<a href=#163 id=163 data-nosnippet>163</a>        <span class="self">self</span>.strings.push(value.to_owned());
-<a href=#164 id=164 data-nosnippet>164</a>        <span class="prelude-val">Ok</span>(index)
-<a href=#165 id=165 data-nosnippet>165</a>    }
-<a href=#166 id=166 data-nosnippet>166</a>}
+<a href=#153 id=153 data-nosnippet>153</a>}
+<a href=#154 id=154 data-nosnippet>154</a>
+<a href=#155 id=155 data-nosnippet>155</a><span class="comment">// String interning belongs to module construction, before immutable loading.
+<a href=#156 id=156 data-nosnippet>156</a></span><span class="kw">impl</span>&lt;I, V, Ty, Info&gt; StringIntern <span class="kw">for </span>vihaco_module::module::LocalModule&lt;I, V, Ty, Info&gt; {
+<a href=#157 id=157 data-nosnippet>157</a>    <span class="kw">fn </span>intern_string(<span class="kw-2">&amp;mut </span><span class="self">self</span>, value: <span class="kw-2">&amp;</span>str) -&gt; eyre::Result&lt;u32&gt; {
+<a href=#158 id=158 data-nosnippet>158</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(index) = <span class="self">self</span>.strings.iter().position(|existing| existing == value) {
+<a href=#159 id=159 data-nosnippet>159</a>            <span class="kw">return </span><span class="prelude-val">Ok</span>(u32::try_from(index)<span class="question-mark">?</span>);
+<a href=#160 id=160 data-nosnippet>160</a>        }
+<a href=#161 id=161 data-nosnippet>161</a>        <span class="kw">let </span>index = u32::try_from(<span class="self">self</span>.strings.len())<span class="question-mark">?</span>;
+<a href=#162 id=162 data-nosnippet>162</a>        <span class="self">self</span>.strings.push(value.to_owned());
+<a href=#163 id=163 data-nosnippet>163</a>        <span class="prelude-val">Ok</span>(index)
+<a href=#164 id=164 data-nosnippet>164</a>    }
+<a href=#165 id=165 data-nosnippet>165</a>}
 </code></pre></div></section></main></body></html>

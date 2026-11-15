@@ -169,7 +169,9 @@ tables.</p>
 tests that exercise runtime checks with deliberately ill-typed programs, for
 modules a trusted toolchain has already verified, and for module models the
 standard verifier doesn’t cover. Keep it easy to find: it is the one place an
-unverified program can reach an image.</p>
+unverified program can reach an image. (The low-level runner,
+<code>vihaco::execution_state::{execute, resume}</code>, runs a plain module without an
+image and without verification; reach for it only for trusted code.)</p>
 <h2 id="writing-typing-rules">Writing typing rules</h2>
 <p>A rule implements <code>Verify&#x3C;C></code> for an instruction type. <code>C</code> is the verifier
 context, and the rule names only the <strong>capabilities</strong> it needs as bounds, never
@@ -309,6 +311,20 @@ impl&#x3C;C: Channels + ?Sized> Verify&#x3C;C> for Play {
 </code></pre>
 <p>An embedder then verifies with <code>Verified::verify_with_state(module, Open::default(), options)</code>, which starts every function with that state. A
 machine whose components each add state combines them as a tuple.</p>
+<p>Component state does not flow through calls. Each function is verified
+separately from the entry state, so the entry state must assume nothing a
+caller might not have set up (here: no channels open). After a call, the
+caller’s state is reset to the entry state (<code>ComponentState::after_call</code>’s
+default), because the callee may have changed anything:</p>
+<pre><code class="language-text">open 1
+call 0, @helper   // the caller's state is reset: channel 1 is no longer open
+play 1            // rejected: channel 1 is not open
+</code></pre>
+<p>A helper therefore cannot rely on a channel its caller opened; open channels
+in the function that plays on them, or after the call. A component can
+override <code>after_call</code> with a different approximation, as long as it assumes
+no more than any callee could leave behind. Per-callee summaries are a
+possible future extension.</p>
 <p>Next, <a href="/vihaco/pr-preview/pr-191/guide/parser">give your instructions a source spelling</a>.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/pr-preview/pr-191/guide/loadables" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Images and Loadables</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/pr-preview/pr-191/guide/parser" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Parsing source</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#verifying-a-program" data-toc-link="#verifying-a-program">Verifying a program</a></li><li><a href="#writing-typing-rules" data-toc-link="#writing-typing-rules">Writing typing rules</a></li> </ol> </details> </div> </main> <script>
         // Scroll-spy: mark the TOC link for the section currently in view.
         (() => {
