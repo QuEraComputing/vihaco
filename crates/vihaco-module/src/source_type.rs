@@ -53,34 +53,46 @@ impl From<Type> for SourceType {
 
 impl<'src> Parse<'src> for SourceType {
     fn parser() -> impl Parser<'src, &'src str, Self, extra::Err<Simple<'src, char>>> {
-        // `recursive` needs cloneable parsers; `Parse::parser` is not `Clone`.
-        let resolved = Type::parser().boxed();
-        recursive(move |source| {
-            let named_struct = just("struct")
-                .then(text::whitespace().at_least(1))
-                .then(just('@'))
-                .ignore_then(vihaco_parser::ident())
-                .map(|name| SourceType::StructSymbol(Ident(name)));
-            let named_type = just("type")
-                .then(text::whitespace().at_least(1))
-                .then(just('@'))
-                .ignore_then(vihaco_parser::ident())
-                .map(|name| SourceType::NamedSymbol(Ident(name)));
-            let array = just("array")
-                .then(text::whitespace().at_least(1))
-                .ignore_then(source)
-                .map(|elem| match elem {
-                    // Keep fully resolved types in one piece.
-                    SourceType::Resolved(elem) => SourceType::Resolved(Type::array(elem)),
-                    elem => SourceType::Array(Box::new(elem)),
-                });
-            choice((
-                named_struct,
-                named_type,
-                array,
-                resolved.clone().map(SourceType::Resolved),
-            ))
+        // `array` prefixes are counted rather than parsed recursively, so a
+        // type nested past `Type::MAX_ARRAY_DEPTH` is rejected instead of
+        // overflowing the stack.
+        let prefixes = just("array")
+            .then(text::whitespace().at_least(1))
+            .repeated()
+            .count();
+        let named_struct = just("struct")
+            .then(text::whitespace().at_least(1))
+            .then(just('@'))
+            .ignore_then(vihaco_parser::ident())
+            .map(|name| SourceType::StructSymbol(Ident(name)));
+        let named_type = just("type")
+            .then(text::whitespace().at_least(1))
+            .then(just('@'))
+            .ignore_then(vihaco_parser::ident())
+            .map(|name| SourceType::NamedSymbol(Ident(name)));
+        let element = choice((
+            named_struct,
+            named_type,
+            Type::parser().map(SourceType::Resolved),
+        ));
+        prefixes.then(element).try_map(|(depth, elem), span| {
+            SourceType::nested(depth, elem).ok_or(Simple::new(None, span))
         })
+    }
+}
+
+impl SourceType {
+    /// Wrap `elem` in `depth` array levels, or `None` past
+    /// [`Type::MAX_ARRAY_DEPTH`].
+    fn nested(depth: usize, elem: SourceType) -> Option<SourceType> {
+        match elem {
+            // Keep fully resolved types in one piece.
+            SourceType::Resolved(ty) => {
+                Type::nested_array(depth, ty).ok().map(SourceType::Resolved)
+            }
+            elem => (depth <= Type::MAX_ARRAY_DEPTH)
+                .then(|| (0..depth).fold(elem, |ty, _| SourceType::Array(Box::new(ty)))),
+        }
     }
 }
 
@@ -197,6 +209,19 @@ mod tests {
         let nested = parse("array array struct @Point");
         assert_eq!(nested.to_string(), "array array struct @Point");
         assert_eq!(parse("type @location").to_string(), "type @location");
+    }
+
+    #[test]
+    fn source_type_nesting_is_limited() {
+        let max = Type::MAX_ARRAY_DEPTH;
+        let deep = parse(&format!("{}struct @Point", "array ".repeat(max)));
+        assert!(matches!(deep, SourceType::Array(_)));
+        for elem in ["struct @Point", "u64"] {
+            let past = format!("{}{elem}", "array ".repeat(max + 1));
+            assert!(SourceType::parser().parse(&past).into_result().is_err());
+        }
+        let hostile = format!("{}u64", "array ".repeat(200_000));
+        assert!(SourceType::parser().parse(&hostile).into_result().is_err());
     }
 
     #[test]
