@@ -3,6 +3,9 @@
 
 //! Literal parser values converted into encoded runtime words.
 
+use std::fmt;
+
+use vihaco_abi::names::{OperandText, SymbolNames};
 use vihaco_abi::word::Word;
 
 #[derive(vihaco_parser_derive::Parse, Clone, Debug, PartialEq)]
@@ -42,5 +45,29 @@ pub struct F64Literal(f64);
 impl From<F64Literal> for Word {
     fn from(value: F64Literal) -> Self {
         vihaco_abi::word::encode_f64(value.0)
+    }
+}
+
+impl OperandText<Word> for I32Literal {
+    fn write_operand(value: &Word, _: &dyn SymbolNames, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", vihaco_abi::word::decode_i32(*value))
+    }
+}
+
+impl OperandText<Word> for I64Literal {
+    fn write_operand(value: &Word, _: &dyn SymbolNames, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", vihaco_abi::word::decode_i64(*value))
+    }
+}
+
+impl OperandText<Word> for F32Literal {
+    fn write_operand(value: &Word, _: &dyn SymbolNames, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", vihaco_abi::word::decode_f32(*value))
+    }
+}
+
+impl OperandText<Word> for F64Literal {
+    fn write_operand(value: &Word, _: &dyn SymbolNames, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", vihaco_abi::word::decode_f64(*value))
     }
 }

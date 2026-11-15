@@ -19,33 +19,7 @@ use crate::{Component, Execute, Field};
 pub use vihaco_parser_derive::__dialect_parsers;
 pub use vihaco_runtime_derive::__inventory_collect;
 
-/// Write a composite instruction for messages: its qualified mnemonic
-/// (`cpu::cpu::get_field`), then the leaf's operands as its `Debug` output
-/// shows them, without the leaf's type name (`FieldSlot { struct_id: 0, slot:
-/// 1 }`, or `1, 4` for a tuple of scalars).
-pub fn write_instruction(
-    f: &mut core::fmt::Formatter<'_>,
-    prefix: &str,
-    mnemonic: &str,
-    leaf: &dyn core::fmt::Debug,
-) -> core::fmt::Result {
-    f.write_str(prefix)?;
-    f.write_str(mnemonic)?;
-    let debug = format!("{leaf:?}");
-    // Skip the leaf's own type name, then show what follows as operands.
-    let operands = debug
-        .trim_start_matches(|c: char| c.is_alphanumeric() || c == '_')
-        .trim();
-    let operands = operands
-        .strip_prefix('(')
-        .and_then(|inner| inner.strip_suffix(')'))
-        .unwrap_or(operands);
-    if operands.is_empty() {
-        Ok(())
-    } else {
-        write!(f, " {operands}")
-    }
-}
+pub use vihaco_abi::names::{InstructionText, SymbolNames, operand_text};
 
 /// Indexed instruction types; slots are not bytecode identities.
 pub trait LeafAt<const SLOT: usize> {

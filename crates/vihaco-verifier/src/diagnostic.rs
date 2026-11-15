@@ -14,7 +14,7 @@
 use std::fmt;
 
 use vihaco_abi::Type;
-use vihaco_abi::names::TypeNames;
+use vihaco_abi::names::{InstructionText, SymbolNames, TypeNames};
 use vihaco_module::module::{FrameError, LocalModule};
 
 use crate::slot::TypeSlot;
@@ -305,34 +305,28 @@ impl DiagnosticKind {
     }
 }
 
-/// Names for rendering diagnostics: the module's function, parameter, struct,
-/// field and named-type names, and its instructions.
+/// Names for rendering diagnostics: the module's names (through
+/// [`SymbolNames`]: functions, structs, fields, named types, labels,
+/// strings), parameter names, function starts, and its instructions in source
+/// syntax.
 ///
-/// Implemented for [`LocalModule`]s whose instructions implement `Display`,
-/// which every `#[composite]` instruction set does. Implement it for other
-/// module models to render their diagnostics with names.
-pub trait DiagnosticNames: TypeNames {
-    /// The name of function `function`, without the leading `@`.
-    fn function_name(&self, function: u32) -> Option<&str>;
-
+/// Implemented for [`LocalModule`]s whose instructions implement
+/// [`InstructionText`], which every `#[composite]` instruction set does.
+/// Implement it for other module models to render their diagnostics with
+/// names. Verification itself needs none of this; only rendering does.
+pub trait DiagnosticNames: SymbolNames {
     /// The address of the first instruction of function `function`.
     fn function_start(&self, function: u32) -> Option<u32>;
 
     /// The name of parameter `index` of function `function`.
     fn parameter_name(&self, function: u32, index: usize) -> Option<&str>;
 
-    /// The name of field `field` of struct `struct_id`.
-    fn field_name(&self, struct_id: u32, field: u32) -> Option<&str>;
-
-    /// The instruction at `address`, for showing it at a location.
-    fn instruction(&self, address: u32) -> Option<&dyn fmt::Display>;
+    /// The instruction at `address` in source syntax, operands by name
+    /// (`cpu::cpu::set_field @Point.y`).
+    fn instruction_text(&self, address: u32) -> Option<String>;
 }
 
-impl<I: fmt::Display, V, Ty, Info> DiagnosticNames for LocalModule<I, V, Ty, Info> {
-    fn function_name(&self, function: u32) -> Option<&str> {
-        self.names().function_name(function)
-    }
-
+impl<I: InstructionText, V, Ty, Info> DiagnosticNames for LocalModule<I, V, Ty, Info> {
     fn function_start(&self, function: u32) -> Option<u32> {
         Some(self.functions.get(function as usize)?.start_address)
     }
@@ -341,14 +335,9 @@ impl<I: fmt::Display, V, Ty, Info> DiagnosticNames for LocalModule<I, V, Ty, Inf
         self.names().parameter_name(function, index)
     }
 
-    fn field_name(&self, struct_id: u32, field: u32) -> Option<&str> {
-        self.names().field_name(struct_id, field)
-    }
-
-    fn instruction(&self, address: u32) -> Option<&dyn fmt::Display> {
-        self.code
-            .get(address as usize)
-            .map(|instruction| instruction as &dyn fmt::Display)
+    fn instruction_text(&self, address: u32) -> Option<String> {
+        let instruction = self.code.get(address as usize)?;
+        Some(instruction.text_with(&self.names()).to_string())
     }
 }
 
@@ -390,7 +379,7 @@ impl Diagnostic {
     ///
     /// ```text
     /// error: operand 0 of `cpu::cpu::get_field`: expected struct Point, found struct Pair
-    ///   --> @main+2 (address 2): cpu::cpu::get_field FieldSlot { struct_id: 0, slot: 1 }
+    ///   --> @main+2 (address 2): cpu::cpu::get_field @Point.y
     /// ```
     pub fn display_with<'a>(&'a self, names: &'a dyn DiagnosticNames) -> impl fmt::Display + 'a {
         Rendered {
@@ -469,8 +458,8 @@ impl<'a> Renderer<'a> {
         ty.display_with(self.type_names()).to_string()
     }
 
-    fn instruction(&self, address: u32) -> Option<&'a dyn fmt::Display> {
-        self.names?.instruction(address)
+    fn instruction(&self, address: u32) -> Option<String> {
+        self.names?.instruction_text(address)
     }
 
     /// `@main` or `function 0`.
@@ -511,8 +500,7 @@ impl<'a> Renderer<'a> {
     /// The instruction's mnemonic in backticks, or `the instruction`.
     fn who(&self) -> String {
         match self.instruction(self.diagnostic.address) {
-            Some(instruction) => {
-                let text = instruction.to_string();
+            Some(text) => {
                 let mnemonic = text.split_whitespace().next().unwrap_or_default();
                 format!("`{mnemonic}`")
             }

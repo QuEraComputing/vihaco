@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Showing types by name.
+//! Showing types and instructions by name.
 //!
 //! A [`Type`] refers to structs and named types by table index (`struct 0`,
 //! `type 1`). Messages meant for people should show the names the program
@@ -9,9 +9,18 @@
 //! names up, typically in a module's struct and named-type tables, and
 //! [`Type::display_with`] and [`FunctionType::display_with`] render with them.
 //! An index without a name falls back to the numeric form.
+//!
+//! Instructions render the same way: [`InstructionText`] writes an
+//! instruction in its source syntax (`set_field @Point.y`, `call 1, @helper`),
+//! with each operand written by its syntax type's [`OperandText`] impl and
+//! names looked up through [`SymbolNames`]. Typed dialects generate
+//! `InstructionText` from each instruction's `#[pattern]`, and composites
+//! from their leaves.
 
 use std::fmt;
+use std::marker::PhantomData;
 
+use crate::word::{Word, decode_bool, decode_u32};
 use crate::{FunctionType, Type};
 
 /// Names for the struct and named-type tables, used to show types by name.
@@ -77,6 +86,241 @@ impl FunctionType {
     /// name, as [`Type::display_with`] does: `(struct Point) -> f64`.
     pub fn display_with<'a>(&'a self, names: &'a dyn TypeNames) -> impl fmt::Display + 'a {
         Named(move |f: &mut fmt::Formatter<'_>| write_function_type(f, self, Some(names)))
+    }
+}
+
+/// Names for instruction operands: types (through [`TypeNames`]), struct
+/// fields, functions, labels and strings.
+///
+/// Every method defaults to "no name", so an operand renders in its numeric
+/// source form. `vihaco-module` implements this for modules and program
+/// metadata.
+pub trait SymbolNames: TypeNames {
+    /// The name of field `field` of struct `struct_id`.
+    fn field_name(&self, struct_id: u32, field: u32) -> Option<&str> {
+        let _ = (struct_id, field);
+        None
+    }
+
+    /// The name of function `function`, without the leading `@`.
+    fn function_name(&self, function: u32) -> Option<&str> {
+        let _ = function;
+        None
+    }
+
+    /// The function whose first instruction is at `address` (the first such
+    /// entry in table order, as a direct `call` resolves it).
+    fn function_starting_at(&self, address: u32) -> Option<u32> {
+        let _ = address;
+        None
+    }
+
+    /// The name of a label at `address`, without the leading `@`.
+    fn label_at(&self, address: u32) -> Option<&str> {
+        let _ = address;
+        None
+    }
+
+    /// String-table entry `index`.
+    fn string(&self, index: u32) -> Option<&str> {
+        let _ = index;
+        None
+    }
+
+    /// `@name` for a jump or call target at `address`: the function starting
+    /// there, else a label there, else the address itself.
+    fn write_target(&self, address: u32, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = self
+            .function_starting_at(address)
+            .and_then(|function| self.function_name(function))
+            .or_else(|| self.label_at(address));
+        match name {
+            Some(name) => write!(f, "@{name}"),
+            None => write!(f, "{address}"),
+        }
+    }
+}
+
+/// No names: every operand renders in its numeric form.
+impl SymbolNames for () {}
+
+impl<T: SymbolNames + ?Sized> SymbolNames for &T {
+    fn field_name(&self, struct_id: u32, field: u32) -> Option<&str> {
+        (**self).field_name(struct_id, field)
+    }
+
+    fn function_name(&self, function: u32) -> Option<&str> {
+        (**self).function_name(function)
+    }
+
+    fn function_starting_at(&self, address: u32) -> Option<u32> {
+        (**self).function_starting_at(address)
+    }
+
+    fn label_at(&self, address: u32) -> Option<&str> {
+        (**self).label_at(address)
+    }
+
+    fn string(&self, index: u32) -> Option<&str> {
+        (**self).string(index)
+    }
+}
+
+/// How a syntax operand type writes the runtime value it lowers to, in source
+/// syntax.
+///
+/// `Self` is the operand's syntax type (the `T` in a pattern's `$0:T`), and
+/// `Runtime` the instruction field it lowers to. For example the CPU's
+/// `FieldOperand` writes a runtime `FieldSlot` as `@Point.y`, or `0, 1` when
+/// the struct has no name. Operands whose syntax type has no impl fall back
+/// to the runtime value's `Display`, then its `Debug`.
+pub trait OperandText<Runtime: ?Sized> {
+    /// Write `value` as this operand type's source syntax.
+    fn write_operand(
+        value: &Runtime,
+        names: &dyn SymbolNames,
+        f: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result;
+}
+
+/// Writes the type in source syntax, by name where `names` has one.
+impl OperandText<Type> for Type {
+    fn write_operand(
+        value: &Type,
+        names: &dyn SymbolNames,
+        f: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
+        write_type(f, value, Some(names))
+    }
+}
+
+/// Writes the function type in source syntax, by name where `names` has one.
+impl OperandText<FunctionType> for FunctionType {
+    fn write_operand(
+        value: &FunctionType,
+        names: &dyn SymbolNames,
+        f: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
+        write_function_type(f, value, Some(names))
+    }
+}
+
+/// An encoded `bool` word, as `true` or `false`.
+impl OperandText<Word> for bool {
+    fn write_operand(value: &Word, _: &dyn SymbolNames, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", decode_bool(*value))
+    }
+}
+
+/// An encoded `u32` word.
+impl OperandText<Word> for u32 {
+    fn write_operand(value: &Word, _: &dyn SymbolNames, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", decode_u32(*value))
+    }
+}
+
+/// An instruction written in its source syntax, with operands named through
+/// [`SymbolNames`].
+///
+/// Typed dialects generate this from each instruction's `#[pattern]`, and
+/// composites from their leaves (prefixed with the instruction's route as SST
+/// writes it, `cpu::cpu::set_field @Point.y`). A composite instruction's
+/// `Display` is its text without names.
+pub trait InstructionText {
+    /// Write this instruction in source syntax, naming operands through `names`.
+    fn write_text(&self, names: &dyn SymbolNames, f: &mut fmt::Formatter<'_>) -> fmt::Result;
+
+    /// This instruction's text with names, as a `Display` value.
+    fn text_with<'a>(&'a self, names: &'a dyn SymbolNames) -> impl fmt::Display + 'a
+    where
+        Self: Sized,
+    {
+        Named(move |f: &mut fmt::Formatter<'_>| self.write_text(names, f))
+    }
+}
+
+/// Text that is already source syntax writes itself, for hand-written
+/// fixtures and tools that keep instructions as text.
+impl InstructionText for str {
+    fn write_text(&self, _: &dyn SymbolNames, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self)
+    }
+}
+
+impl<T: InstructionText + ?Sized> InstructionText for &T {
+    fn write_text(&self, names: &dyn SymbolNames, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (**self).write_text(names, f)
+    }
+}
+
+/// Support for generated [`InstructionText`] impls: picks [`OperandText`] for
+/// an operand when its syntax type has one, else the runtime value's
+/// `Display`, else its `Debug`, by autoref-based method selection.
+#[doc(hidden)]
+pub mod operand_text {
+    use super::*;
+
+    /// One operand: the runtime `value`, written as syntax type `S`.
+    pub struct OperandRef<'a, S: ?Sized, R: ?Sized>(pub &'a R, pub PhantomData<fn() -> *const S>);
+
+    impl<'a, S: ?Sized, R: ?Sized> OperandRef<'a, S, R> {
+        pub fn new(value: &'a R) -> Self {
+            OperandRef(value, PhantomData)
+        }
+    }
+
+    pub trait ViaOperandText {
+        fn write_operand_text(
+            &self,
+            names: &dyn SymbolNames,
+            f: &mut fmt::Formatter<'_>,
+        ) -> fmt::Result;
+    }
+
+    impl<S: OperandText<R> + ?Sized, R: ?Sized> ViaOperandText for &&OperandRef<'_, S, R> {
+        fn write_operand_text(
+            &self,
+            names: &dyn SymbolNames,
+            f: &mut fmt::Formatter<'_>,
+        ) -> fmt::Result {
+            S::write_operand(self.0, names, f)
+        }
+    }
+
+    pub trait ViaDisplay {
+        fn write_operand_text(
+            &self,
+            names: &dyn SymbolNames,
+            f: &mut fmt::Formatter<'_>,
+        ) -> fmt::Result;
+    }
+
+    impl<S: ?Sized, R: fmt::Display + ?Sized> ViaDisplay for &OperandRef<'_, S, R> {
+        fn write_operand_text(
+            &self,
+            _: &dyn SymbolNames,
+            f: &mut fmt::Formatter<'_>,
+        ) -> fmt::Result {
+            fmt::Display::fmt(self.0, f)
+        }
+    }
+
+    pub trait ViaDebug {
+        fn write_operand_text(
+            &self,
+            names: &dyn SymbolNames,
+            f: &mut fmt::Formatter<'_>,
+        ) -> fmt::Result;
+    }
+
+    impl<S: ?Sized, R: fmt::Debug + ?Sized> ViaDebug for OperandRef<'_, S, R> {
+        fn write_operand_text(
+            &self,
+            _: &dyn SymbolNames,
+            f: &mut fmt::Formatter<'_>,
+        ) -> fmt::Result {
+            fmt::Debug::fmt(self.0, f)
+        }
     }
 }
 

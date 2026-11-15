@@ -17,8 +17,11 @@
 //! element [`Type`] stored in the runtime instruction always agree with the
 //! tables. The CPU then checks each heap object against them at runtime.
 
+use std::fmt;
+
 use crate::{FieldSlot, StructLayout, cpu};
 use chumsky::{error::Simple, extra, prelude::*};
+use vihaco_abi::names::{OperandText, SymbolNames};
 use vihaco_abi::{FunctionType, Lower, Syntax, Type};
 use vihaco_module::loader::MetadataLoweringContext;
 use vihaco_parser::{Ident, Parse};
@@ -141,6 +144,113 @@ pub enum FieldOperand {
     Resolved(u32, u32),
     #[pattern = "`@` $0"]
     Symbol(Ident),
+}
+
+/// A type, with structs and named types by name: `array struct @Point`.
+impl OperandText<Type> for TypeOperand {
+    fn write_operand(
+        ty: &Type,
+        names: &dyn SymbolNames,
+        f: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
+        write_source_type(ty, names, f)
+    }
+}
+
+/// A function type, with structs and named types by name:
+/// `(struct @Point) -> u64`.
+impl OperandText<FunctionType> for FunctionTypeOperand {
+    fn write_operand(
+        ty: &FunctionType,
+        names: &dyn SymbolNames,
+        f: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
+        let list = |f: &mut fmt::Formatter<'_>, types: &[Type]| -> fmt::Result {
+            f.write_str("(")?;
+            for (index, ty) in types.iter().enumerate() {
+                if index > 0 {
+                    f.write_str(", ")?;
+                }
+                write_source_type(ty, names, f)?;
+            }
+            f.write_str(")")
+        };
+        list(f, &ty.params)?;
+        f.write_str(" -> ")?;
+        match ty.results.as_slice() {
+            [single] => write_source_type(single, names, f),
+            results => list(f, results),
+        }
+    }
+}
+
+/// `@Point`, or the struct-table index.
+impl OperandText<StructLayout> for StructOperand {
+    fn write_operand(
+        layout: &StructLayout,
+        names: &dyn SymbolNames,
+        f: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
+        match names.struct_name(layout.struct_id) {
+            Some(name) => write!(f, "@{name}"),
+            None => write!(f, "{}", layout.struct_id),
+        }
+    }
+}
+
+/// `@Point.y`, or `struct_index, slot`.
+impl OperandText<FieldSlot> for FieldOperand {
+    fn write_operand(
+        field: &FieldSlot,
+        names: &dyn SymbolNames,
+        f: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
+        match (
+            names.struct_name(field.struct_id),
+            names.field_name(field.struct_id, field.slot),
+        ) {
+            (Some(name), Some(slot)) => write!(f, "@{name}.{slot}"),
+            _ => write!(f, "{}, {}", field.struct_id, field.slot),
+        }
+    }
+}
+
+/// `@location`, or the named-type-table index.
+impl OperandText<u32> for NamedTypeOperand {
+    fn write_operand(
+        index: &u32,
+        names: &dyn SymbolNames,
+        f: &mut fmt::Formatter<'_>,
+    ) -> fmt::Result {
+        match names.named_type_name(*index) {
+            Some(name) => write!(f, "@{name}"),
+            None => write!(f, "{index}"),
+        }
+    }
+}
+
+/// A type as source writes it: named structs and named types with `@`
+/// (`struct @Point`, `type @location`), others numerically.
+fn write_source_type(
+    ty: &Type,
+    names: &dyn SymbolNames,
+    f: &mut fmt::Formatter<'_>,
+) -> fmt::Result {
+    match ty {
+        Type::Array(elem) => {
+            f.write_str("array ")?;
+            write_source_type(elem, names, f)
+        }
+        Type::Struct(index) => match names.struct_name(*index) {
+            Some(name) => write!(f, "struct @{name}"),
+            None => write!(f, "struct {index}"),
+        },
+        Type::Named(index) => match names.named_type_name(*index) {
+            Some(name) => write!(f, "type @{name}"),
+            None => write!(f, "type {index}"),
+        },
+        ty => write!(f, "{ty}"),
+    }
 }
 
 /// Resolve structs and fields against the section's struct table.

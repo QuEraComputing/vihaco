@@ -28,7 +28,6 @@ pub fn execute<M, I, V, Ty, Info>(
     arguments: &[Word],
 ) -> eyre::Result<()>
 where
-    I: std::fmt::Display,
     M: HasProgram<Program = ExecutionState>
         + Dispatch<LocalModule<I, V, Ty, Info>, Instruction = I>,
 {
@@ -50,14 +49,16 @@ where
 /// # Errors
 /// Rejects reentrant execution, invalid running state, invalid fetches, PC
 /// overflow, or a failure returned by the authored Dispatch/Step. A step's
-/// failure is located: `at @main+2 (address 2): cpu::cpu::get_field ...`,
-/// followed by the error, with heap types shown by the module's names.
+/// failure is a [`StepError`] located at its instruction (`at @main+2
+/// (address 2) `cpu::cpu::get_field @Point.y`: ...`), with heap types shown
+/// by the module's names; the instruction text comes from
+/// [`Dispatch::instruction_text`], so a hand-written machine without it shows
+/// the location alone.
 pub fn resume<M, I, V, Ty, Info>(
     module: &LocalModule<I, V, Ty, Info>,
     machine: &mut M,
 ) -> eyre::Result<()>
 where
-    I: std::fmt::Display,
     M: HasProgram<Program = ExecutionState>
         + Dispatch<LocalModule<I, V, Ty, Info>, Instruction = I>,
 {
@@ -86,7 +87,11 @@ where
             if result.is_err() || program.halted {
                 program.pc = position;
             }
-            result.map_err(|error| step_error(error, module, position, instruction))?;
+            result.map_err(|error| {
+                let names = module.names();
+                let text = M::instruction_text(instruction, &names);
+                step_error(error, module, position, text)
+            })?;
         }
         Ok(())
     })();
@@ -98,20 +103,24 @@ where
 /// by the module's names.
 #[cold]
 #[inline(never)]
-fn step_error<I: std::fmt::Display, V, Ty, Info>(
+fn step_error<I, V, Ty, Info>(
     error: eyre::Report,
     module: &LocalModule<I, V, Ty, Info>,
     position: u32,
-    instruction: &I,
+    instruction: Option<String>,
 ) -> eyre::Report {
     let names = module.names();
     let message = match error.downcast_ref::<HeapError>() {
         Some(heap) => heap.display_with(&names).to_string(),
         None => format!("{error:#}"),
     };
+    let location = match instruction {
+        Some(text) => format!("{} `{text}`", names.location(position)),
+        None => names.location(position).to_string(),
+    };
     StepError {
         address: position,
-        location: format!("{} `{instruction}`", names.location(position)),
+        location,
         message,
         error,
     }
@@ -121,10 +130,14 @@ fn step_error<I: std::fmt::Display, V, Ty, Info>(
 /// An instruction failed while executing a program.
 ///
 /// Displays as one line, the location, the instruction, then the failure:
-/// `at @main+2 (address 2) `cpu::cpu::get_field FieldSlot { struct_id: 0,
-/// slot: 0 }`: type error: heap object (slot 1, generation 1) is struct
-/// Pair, expected struct Point`. The original error is kept for inspection
-/// ([`StepError::error`]), for example to downcast a device's own error type.
+/// `at @main+2 (address 2) `cpu::cpu::get_field @Point.x`: type error: heap
+/// object (slot 1, generation 1) is struct Pair, expected struct Point`.
+///
+/// The step's original error is its [`source`](std::error::Error::source),
+/// so `eyre::Report::chain` and `downcast_ref` on the chain reach it (for
+/// example a [`HeapError`] or a device's own error type); [`StepError::error`]
+/// returns it directly. `downcast_ref::<HeapError>()` on the returned report
+/// itself finds the `StepError`, not the inner error: search the chain.
 #[derive(Debug)]
 pub struct StepError {
     address: u32,
@@ -156,4 +169,8 @@ impl std::fmt::Display for StepError {
     }
 }
 
-impl std::error::Error for StepError {}
+impl std::error::Error for StepError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.error.as_ref())
+    }
+}

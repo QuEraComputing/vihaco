@@ -132,7 +132,11 @@ where
     M: HasInstructionSet,
     M::Syntax: Parse<'src> + 'src + Lower<MetadataLoweringContext, Runtime = M::Runtime>,
     // A rejection displays with the module's names, so its instructions show.
-    M::Runtime: for<'m> Verify<ModuleVerifier<'m>> + std::fmt::Display + Send + Sync + 'static,
+    M::Runtime: for<'m> Verify<ModuleVerifier<'m>>
+        + vihaco_runtime::InstructionText
+        + Send
+        + Sync
+        + 'static,
 {
     Ok(Image::new(Verified::new(construct_module::<M>(section)?)?))
 }
@@ -400,6 +404,16 @@ execution::program::ret 1";
             .downcast_ref::<vihaco_abi::heap::HeapError>()
             .is_some()
     );
+    // The step's error is the StepError's source, so the report's chain
+    // reaches the HeapError without knowing about StepError.
+    let heap = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<vihaco_abi::heap::HeapError>());
+    assert!(
+        matches!(heap, Some(vihaco_abi::heap::HeapError::TypeMismatch { .. })),
+        "{heap:?}"
+    );
+    assert_eq!(error.chain().count(), 2);
 
     // An element type naming an undeclared struct fails at load time.
     let error = load_struct_program(
@@ -429,9 +443,17 @@ cpu::cpu::unwrap @location
 execution::program::ret 1";
     let image = load_struct_program(source).unwrap();
     assert_eq!(image.module().types.len(), 1);
-    let code = format!("{:?}", image.module().code);
-    assert!(code.contains("ArrayNew(type 0, 1)"), "{code}");
-    assert!(code.contains("Wrap(0)"), "{code}");
+    let code: Vec<String> = image
+        .module()
+        .code
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert!(
+        code.contains(&"cpu::cpu::array_new type 0, 1".into()),
+        "{code:?}"
+    );
+    assert!(code.contains(&"cpu::cpu::wrap 0".into()), "{code:?}");
     assert_eq!(run_struct_program(source).unwrap(), [7]);
 
     // Numeric references are checked against the table too.
@@ -572,13 +594,9 @@ fn failed_image_construction_leaves_installed_program_unchanged() {
 
 #[test]
 fn execution_borrows_non_clone_instructions_from_the_paired_image() {
+    // A hand-written instruction set needs neither `Clone` nor `Display`:
+    // without `Dispatch::instruction_text`, errors show the location alone.
     struct Instruction(Box<u64>);
-    // Execution errors name the failing instruction.
-    impl std::fmt::Display for Instruction {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "instruction {}", self.0)
-        }
-    }
     type Program = LocalModule<Instruction, Value, Type>;
     struct Machine {
         execution: ExecutionState,

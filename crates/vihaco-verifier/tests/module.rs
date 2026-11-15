@@ -1172,8 +1172,12 @@ fn only_verification_or_the_escape_hatch_builds_verified_modules() {
 }
 
 /// Diagnostics show the fixture's instructions as their `Debug` form.
-impl std::fmt::Display for Op {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl vihaco_abi::names::InstructionText for Op {
+    fn write_text(
+        &self,
+        _: &dyn vihaco_abi::names::SymbolNames,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
         write!(f, "{self:?}")
     }
 }

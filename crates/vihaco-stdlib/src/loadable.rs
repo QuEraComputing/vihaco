@@ -91,8 +91,6 @@ where
 
 impl<Inst, V, Ty, Info, M> Loadable<Image<Inst, V, Ty, Info>, M>
 where
-    // Execution errors show the failing instruction.
-    Inst: std::fmt::Display,
     M: HasProgram<Program = ExecutionState>
         + Dispatch<LocalModule<Inst, V, Ty, Info>, Instruction = Inst>,
 {

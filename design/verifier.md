@@ -473,14 +473,28 @@ pub enum DiagnosticKind {
 Diagnostics hold data, not text: types are `Type` and `TypeSlot` values,
 tables and roles are enums. They render through the module:
 `Diagnostic::display_with(&module)` (and `Rejection::display_with`) take a
-`DiagnosticNames`, implemented for `LocalModule`s whose instructions display,
-and show the location as `@main+2 (address 2)` with the instruction text,
-structs and named types by name, and parameter and field names:
+`DiagnosticNames`, implemented for `LocalModule`s whose instructions implement
+`InstructionText`, and show the location as `@main+2 (address 2)` with the
+instruction in source syntax, structs and named types by name, and parameter
+and field names:
 
 ```text
 error: operand 0 of `cpu::cpu::get_field`: expected struct Point, found struct Pair
-  --> @main+1 (address 1): cpu::cpu::get_field FieldSlot { struct_id: 0, slot: 0 }
+  --> @main+1 (address 1): cpu::cpu::get_field @Point.x
 ```
+
+Instruction text is generated, never scraped from `Debug`. A typed dialect
+derives `InstructionText` for each instruction from its `#[pattern]`: tokens
+and punctuation as written, and each operand through its syntax type's
+`OperandText<Runtime>` impl, which writes the lowered runtime value back in
+source form with names from `SymbolNames` (`FieldOperand` writes a `FieldSlot`
+as `@Point.y`, `Target` writes an address as `@helper`, `TypeOperand` writes
+`struct @Point`, `FunctionTypeOperand` writes `(struct @Point) -> u64`). An
+operand type without an impl falls back to the runtime value's `Display`, then
+`Debug`. A composite prefixes each leaf's text with its route as SST writes it
+(`cpu::cpu::`), the device alias followed by the dialect, so the text can be
+pasted back into a program. Without names (plain `Display`) operands use their
+numeric forms (`get_field 0, 0`, `call 1, 3`).
 
 The plain `Display` works without the module and shows indices
 (`function 0, address 1`, `struct 0`). Lowering errors use the same location

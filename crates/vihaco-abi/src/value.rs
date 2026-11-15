@@ -52,8 +52,7 @@ impl Value {
     }
 }
 
-/// `Debug` shows the source spelling, as `Display` does (`struct 0`).
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     Undefined,
     String,
@@ -228,8 +227,7 @@ impl Type {
 /// `-> (u64, u64)` for several). `call_indirect` carries one as its expected
 /// signature, which the runtime compares with the target function's declared
 /// signature before calling.
-/// `Debug` shows the source spelling, as `Display` does (`(u64) -> f64`).
-#[derive(Clone, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct FunctionType {
     pub params: Vec<Type>,
     pub results: Vec<Type>,
@@ -392,18 +390,6 @@ impl std::fmt::Display for Value {
 impl std::fmt::Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         crate::names::write_type(f, self, None)
-    }
-}
-
-impl std::fmt::Debug for Type {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        crate::names::write_type(f, self, None)
-    }
-}
-
-impl std::fmt::Debug for FunctionType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        crate::names::write_function_type(f, self, None)
     }
 }
 

@@ -236,12 +236,12 @@ them:
 - The warning `Unreachable`, and `Rule` for any other error a rule returns.
 
 `diagnostic.display_with(&module)` renders one with the module's names: the
-location as `@main+2 (address 2)` followed by the instruction, structs and named
-types by name, parameters and fields by name. A few examples:
+location as `@main+2 (address 2)` followed by the instruction in source syntax,
+structs and named types by name, parameters and fields by name. A few examples:
 
 ```text
 error: argument 0 (p0) of @helper: expected u64, found f64
-  --> @main+1 (address 1): execution::program::call 1, 3
+  --> @main+1 (address 1): execution::program::call 1, @helper
 error: local 0 is declared f64, but `execution::program::load_u64` accesses it as u64 (use the access for f64, or the untyped one)
   --> @main+0 (address 0): execution::program::load_u64 0
 error: operand stack depth differs where paths join: 1 from @main+3 (execution::program::br 6), 2 from @main+5 (falling through)

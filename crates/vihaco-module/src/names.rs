@@ -7,9 +7,11 @@
 
 use std::fmt;
 
-use vihaco_abi::names::TypeNames;
+use vihaco_abi::names::{SymbolNames, TypeNames};
 
-use crate::module::{FunctionInfo, LocalModule, NamedTypeInfo, ProgramMetadata, StructInfo};
+use crate::module::{
+    FunctionInfo, LabelInfo, LocalModule, NamedTypeInfo, ProgramMetadata, StructInfo,
+};
 
 /// A read-only view of a module's name-bearing tables.
 ///
@@ -21,6 +23,7 @@ pub struct ModuleNames<'a, Ty> {
     functions: &'a [FunctionInfo<Ty>],
     structs: &'a [StructInfo<Ty>],
     types: &'a [NamedTypeInfo<Ty>],
+    labels: &'a [LabelInfo],
     strings: &'a [String],
 }
 
@@ -44,8 +47,30 @@ impl<'a, Ty> ModuleNames<'a, Ty> {
             functions,
             structs,
             types,
+            labels: &[],
             strings,
         }
+    }
+
+    /// Also name jump targets with `labels`.
+    pub fn with_labels(mut self, labels: &'a [LabelInfo]) -> Self {
+        self.labels = labels;
+        self
+    }
+
+    /// The first function, in table order, whose first instruction is at
+    /// `address`, as a direct `call` resolves it.
+    pub fn function_starting_at(&self, address: u32) -> Option<u32> {
+        self.functions
+            .iter()
+            .position(|info| info.start_address == address)
+            .map(|index| index as u32)
+    }
+
+    /// The name of the first label at `address`.
+    pub fn label_at(&self, address: u32) -> Option<&'a str> {
+        let label = self.labels.iter().find(|label| label.address == address)?;
+        self.string(label.name)
     }
 
     /// String-table entry `index`.
@@ -127,6 +152,28 @@ impl<Ty> TypeNames for ModuleNames<'_, Ty> {
     }
 }
 
+impl<Ty> SymbolNames for ModuleNames<'_, Ty> {
+    fn field_name(&self, struct_id: u32, field: u32) -> Option<&str> {
+        ModuleNames::field_name(self, struct_id, field)
+    }
+
+    fn function_name(&self, function: u32) -> Option<&str> {
+        ModuleNames::function_name(self, function)
+    }
+
+    fn function_starting_at(&self, address: u32) -> Option<u32> {
+        ModuleNames::function_starting_at(self, address)
+    }
+
+    fn label_at(&self, address: u32) -> Option<&str> {
+        ModuleNames::label_at(self, address)
+    }
+
+    fn string(&self, index: u32) -> Option<&str> {
+        ModuleNames::string(self, index)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FunctionName<'a> {
     Named(&'a str),
@@ -166,6 +213,7 @@ impl<I, V, Ty, Info> LocalModule<I, V, Ty, Info> {
     /// Names from this module's tables, for messages.
     pub fn names(&self) -> ModuleNames<'_, Ty> {
         ModuleNames::new(&self.functions, &self.structs, &self.types, &self.strings)
+            .with_labels(&self.labels)
     }
 }
 
@@ -173,6 +221,7 @@ impl<V, Ty, Info> ProgramMetadata<V, Ty, Info> {
     /// Names from these tables, for messages.
     pub fn names(&self) -> ModuleNames<'_, Ty> {
         ModuleNames::new(&self.functions, &self.structs, &self.types, &self.strings)
+            .with_labels(&self.labels)
     }
 }
 
@@ -183,6 +232,50 @@ impl<I, V, Ty, Info> TypeNames for LocalModule<I, V, Ty, Info> {
 
     fn named_type_name(&self, index: u32) -> Option<&str> {
         self.names().named_type_name(index)
+    }
+}
+
+impl<I, V, Ty, Info> SymbolNames for LocalModule<I, V, Ty, Info> {
+    fn field_name(&self, struct_id: u32, field: u32) -> Option<&str> {
+        self.names().field_name(struct_id, field)
+    }
+
+    fn function_name(&self, function: u32) -> Option<&str> {
+        self.names().function_name(function)
+    }
+
+    fn function_starting_at(&self, address: u32) -> Option<u32> {
+        self.names().function_starting_at(address)
+    }
+
+    fn label_at(&self, address: u32) -> Option<&str> {
+        self.names().label_at(address)
+    }
+
+    fn string(&self, index: u32) -> Option<&str> {
+        self.names().string(index)
+    }
+}
+
+impl<V, Ty, Info> SymbolNames for ProgramMetadata<V, Ty, Info> {
+    fn field_name(&self, struct_id: u32, field: u32) -> Option<&str> {
+        self.names().field_name(struct_id, field)
+    }
+
+    fn function_name(&self, function: u32) -> Option<&str> {
+        self.names().function_name(function)
+    }
+
+    fn function_starting_at(&self, address: u32) -> Option<u32> {
+        self.names().function_starting_at(address)
+    }
+
+    fn label_at(&self, address: u32) -> Option<&str> {
+        self.names().label_at(address)
+    }
+
+    fn string(&self, index: u32) -> Option<&str> {
+        self.names().string(index)
     }
 }
 

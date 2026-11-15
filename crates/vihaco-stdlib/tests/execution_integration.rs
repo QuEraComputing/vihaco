@@ -428,7 +428,7 @@ fn recursion_stops_at_the_call_depth_limit_naming_the_function() {
     let error = execute(&module, &mut vm, &[]).unwrap_err();
     assert_eq!(
         error.to_string(),
-        "at @main+0 (address 0) `program::program::call 0, 0`: call to `@main` (function 0) \
+        "at @main+0 (address 0) `program::program::call 0, @main`: call to `@main` (function 0) \
          exceeds the maximum call depth of 4 frames"
     );
     assert_eq!(vm.program.frames().len(), 4);

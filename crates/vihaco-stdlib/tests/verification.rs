@@ -872,8 +872,19 @@ fn indirect_call_signatures_may_name_structs_and_named_types() {
         format!("{:?}", load(&named).unwrap().code),
         format!("{:?}", load(&numeric).unwrap().code)
     );
-    let code = format!("{:?}", load(&named).unwrap().code);
-    assert!(code.contains("IndirectCall((type 0) -> u64)"), "{code}");
+    let code: Vec<String> = load(&named)
+        .unwrap()
+        .code
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert!(
+        code.contains(&routes(&format!(
+            "{}call_indirect (type 0) -> u64",
+            machine::P
+        ))),
+        "{code:?}"
+    );
 
     // A name the signature passes to the verifier is checked against the
     // tables: `lane` is a different named type, so the argument mismatches.
@@ -1052,6 +1063,92 @@ fn rendered_main(params: &[&str], ret: &[&str], locals: &[&str], body: &[&str]) 
     message
 }
 
+/// Instructions render in source syntax: with the module's names
+/// (`InstructionText`), operands come back as the program wrote them; without
+/// names (`Display`), in their numeric source forms. Either way the text is
+/// valid SST that parses back to the same instruction.
+#[test]
+fn instructions_render_in_source_syntax_with_names() {
+    use vihaco_runtime::InstructionText as _;
+    let body = [
+        "C::set_field @Point.y",
+        "P::call_indirect (struct @Point) -> u64",
+        "C::wrap @location",
+        "P::call 1, @helper",
+        "C::array_new array struct @Pair, 2",
+        "C::struct_new @Point",
+        "P::const_f64 2.5",
+        "P::const_bool true",
+        "P::cond_br 9, 9",
+        "P::halt",
+    ];
+    let module = load(&[
+        main_fn(&[], &[], &[], &body),
+        Function {
+            name: "helper",
+            params: &["u64"],
+            ret: &[],
+            locals: &[],
+            body: &["P::ret 0"],
+        },
+    ])
+    .unwrap();
+    let names = module.names();
+    let named: Vec<String> = module.code[..body.len()]
+        .iter()
+        .map(|instruction| instruction.text_with(&names).to_string())
+        .collect();
+    let expand = |line: &str| line.replace("P::", machine::P).replace("C::", machine::C);
+    let expected: Vec<String> = body.iter().map(|line| expand(line)).collect();
+    assert_eq!(named, expected);
+    let numeric: Vec<String> = module.code[..body.len()]
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(
+        numeric,
+        [
+            "C::set_field 0, 1",
+            "P::call_indirect (struct 0) -> u64",
+            "C::wrap 0",
+            "P::call 1, 10",
+            "C::array_new array struct 1, 2",
+            "C::struct_new 0",
+            "P::const_f64 2.5",
+            "P::const_bool true",
+            "P::cond_br 9, 9",
+            "P::halt",
+        ]
+        .map(expand)
+    );
+    // Both forms parse back to the instruction they came from.
+    let unexpand = |line: &str| line.replace(machine::P, "P::").replace(machine::C, "C::");
+    for text in named.iter().chain(&numeric) {
+        let source = unexpand(text);
+        let reparsed = load(&[
+            main_fn(&[], &[], &[], &[source.as_str(), "P::halt"]),
+            Function {
+                name: "helper",
+                params: &["u64"],
+                ret: &[],
+                locals: &[],
+                body: &["P::ret 0"],
+            },
+        ]);
+        let index = named
+            .iter()
+            .chain(&numeric)
+            .position(|t| t == text)
+            .unwrap()
+            % body.len();
+        // Jump targets are absolute addresses, so only compare instructions
+        // that do not depend on the program's layout.
+        if !text.contains("call 1") && !text.contains("cond_br") {
+            assert_eq!(reparsed.unwrap().code[0], module.code[index], "{text}");
+        }
+    }
+}
+
 #[test]
 fn diagnostics_name_types_roles_and_locations() {
     // Point is struct 0, Pair struct 1.
@@ -1064,7 +1161,7 @@ fn diagnostics_name_types_roles_and_locations() {
         ),
         routes(
             "error: operand 0 of `C::get_field`: expected struct Point, found struct Pair\n  \
-         --> @main+1 (address 1): C::get_field FieldSlot { struct_id: 0, slot: 0 }"
+         --> @main+1 (address 1): C::get_field @Point.x"
         )
     );
     assert_eq!(
@@ -1081,7 +1178,7 @@ fn diagnostics_name_types_roles_and_locations() {
         ),
         routes(
             "error: field Point.x: expected i64, found u64\n  \
-         --> @main+2 (address 2): C::struct_new StructLayout { struct_id: 0, field_count: 2 }"
+         --> @main+2 (address 2): C::struct_new @Point"
         )
     );
     assert_eq!(
@@ -1121,7 +1218,7 @@ fn diagnostics_name_types_roles_and_locations() {
         calls,
         [
             "error: argument 0 (p0) of @helper: expected u64, found f64\n  \
-          --> @main+1 (address 1): P::call 1, 3"
+          --> @main+1 (address 1): P::call 1, @helper"
         ]
     );
 }

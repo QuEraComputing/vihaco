@@ -44,9 +44,14 @@ use crate::stack::Frame;
 ///     Halt,
 /// }
 ///
-/// // Diagnostics show the instruction at each location.
-/// impl std::fmt::Display for Inst {
-///     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+/// // Diagnostics show the instruction at each location. (Composites
+/// // generate this from their patterns.)
+/// impl vihaco_abi::names::InstructionText for Inst {
+///     fn write_text(
+///         &self,
+///         _: &dyn vihaco_abi::names::SymbolNames,
+///         f: &mut std::fmt::Formatter<'_>,
+///     ) -> std::fmt::Result {
 ///         f.write_str(match self {
 ///             Inst::ConstI64 => "const_i64",
 ///             Inst::Halt => "halt",
@@ -282,8 +287,10 @@ impl<I, Info> Verified<LocalModule<I, Value, Type, Info>> {
 ///
 /// Displays every diagnostic with the module's names (see
 /// [`Rejection::display_with`]) when the module provides them, which every
-/// [`LocalModule`] whose instructions implement `Display` does, and then
-/// converts into an [`eyre::Report`] with `?`.
+/// [`LocalModule`] whose instructions implement
+/// [`InstructionText`](vihaco_abi::names::InstructionText) does (every
+/// `#[composite]` instruction set), and then converts into an
+/// [`eyre::Report`] with `?`.
 pub struct VerifyFailed<M, S = Frame<TypeSlot>> {
     /// The module, unchanged (boxed, so the error stays small).
     pub module: Box<M>,

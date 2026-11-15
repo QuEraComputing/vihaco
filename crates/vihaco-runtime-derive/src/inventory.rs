@@ -632,10 +632,20 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
             }
         }
     };
-    // Runtime instructions display as their qualified source mnemonic and
-    // operands, for diagnostics and runtime errors that name an instruction.
+    // Runtime instructions write themselves in source syntax, routed as SST
+    // writes them (`cpu::cpu::set_field @Point.y`), for diagnostics and runtime
+    // errors that name an instruction. `Display` is the text without names.
     let display = if entries.is_empty() {
         quote! {
+            impl #root::__private::InstructionText for #runtime {
+                fn write_text(
+                    &self,
+                    _: &dyn #root::__private::SymbolNames,
+                    _: &mut ::core::fmt::Formatter<'_>,
+                ) -> ::core::fmt::Result {
+                    match *self {}
+                }
+            }
             impl ::core::fmt::Display for #runtime {
                 fn fmt(&self, _: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                     match *self {}
@@ -658,13 +668,24 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
                 }
                 prefix.push_str(&entry.record.dialect.unraw().to_string());
                 prefix.push_str("::");
-                quote!(Self::#variant(instruction) => #root::__private::write_instruction(
-                f, #prefix, <#ty as #root::__private::InstructionSpec>::MNEMONIC, instruction))
+                quote!(Self::#variant(instruction) => {
+                    f.write_str(#prefix)?;
+                    <#ty as #root::__private::InstructionText>::write_text(instruction, names, f)
+                })
             });
         quote! {
+            impl #root::__private::InstructionText for #runtime {
+                fn write_text(
+                    &self,
+                    names: &dyn #root::__private::SymbolNames,
+                    f: &mut ::core::fmt::Formatter<'_>,
+                ) -> ::core::fmt::Result {
+                    match self { #(#arms),* }
+                }
+            }
             impl ::core::fmt::Display for #runtime {
                 fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-                    match self { #(#arms),* }
+                    <Self as #root::__private::InstructionText>::write_text(self, &(), f)
                 }
             }
         }
@@ -764,6 +785,14 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
             #[inline(always)]
             fn dispatch(&mut self, instruction: &#runtime, context: &#execution_context) -> #root::eyre::Result<()> {
                 #dispatch_body
+            }
+            fn instruction_text(
+                instruction: &#runtime,
+                names: &dyn #root::__private::SymbolNames,
+            ) -> ::core::option::Option<::std::string::String> {
+                ::core::option::Option::Some(::std::string::ToString::to_string(
+                    &#root::__private::InstructionText::text_with(instruction, names),
+                ))
             }
         }
     })
