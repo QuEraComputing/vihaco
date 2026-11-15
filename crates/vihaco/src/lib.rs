@@ -61,7 +61,7 @@ pub use runtime::{
 };
 
 pub use traits::{FromBytes, FromText, GetProgramInfo, Reset};
-pub use vihaco_abi::{Lower, Runtime, Syntax};
+pub use vihaco_abi::{Flow, Lower, Runtime, Syntax, Verify};
 pub use vihaco_parser::Parse;
 pub use vihaco_parser::SurfaceInstruction;
 #[doc(hidden)]

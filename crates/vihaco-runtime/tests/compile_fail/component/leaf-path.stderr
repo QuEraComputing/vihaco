@@ -10,8 +10,8 @@ error[E0223]: ambiguous associated type
 9 | #[instructions { control::Halt }]
   |                  ^^^^^^^^^^^^^
   |
-help: if there were a trait named `Example` with associated type `__VihacoDialect` implemented for `Halt`, you could use the fully-qualified path
+help: if there were a trait named `Example` with associated type `__VihacoDialect` implemented for `control::Halt`, you could use the fully-qualified path
   |
 9 - #[instructions { control::Halt }]
-9 + #[instructions { <Halt as Example>::Halt }]
+9 + #[instructions { <control::Halt as Example>::Halt }]
   |

@@ -92,6 +92,8 @@ pub enum Flow {
     /// verified separately).
     Next,
     /// Continue at each listed address, with no fallthrough (`br`, `cond_br`).
+    /// At least one address: an empty jump is a structural error (`EmptyJump`),
+    /// not a terminator.
     Jump(SmallVec<[u32; 2]>),
     /// Leave the function (`ret`).
     Return,
@@ -362,7 +364,12 @@ pub enum DiagnosticKind {
     CallArityMismatch { callee: u32, declared: usize, found: usize },
     ReturnCountMismatch { declared: usize, found: usize },
     LocalIndexOutOfRange { index: u32, count: u32 },
+    LocalCountMismatch { expected: usize, found: usize },
     InvalidControlFlowTarget { target: u32 },
+    /// A `Flow::Jump` with no targets: a jump must name an address.
+    EmptyJump,
+    /// A function's `start..end` is reversed or extends past the code.
+    InvalidFunctionSpan { start: u32, end: u32, code_len: usize },
     MissingTerminator,
     Unreachable,
     /// A component-defined error, from a rule or capability.
@@ -372,11 +379,48 @@ pub enum DiagnosticKind {
 
 - Standard capabilities return a `VerifyError` that maps to a structured kind;
   any other error a rule returns becomes `Rule`.
-- A rule error ends its block's replay, so a block reports at most one rule
-  error; blocks downstream still report from their own converged states.
-- Consecutive underflows at one address collapse into one.
+- A rule error ends its block, so a block reports at most one rule error, and
+  the block passes no state to its successors. Blocks with states from other
+  paths still report; code reachable only through the failed block is not
+  analysed and has no type-map entry, which is safe because verification has
+  already failed. Because a block may pass states on in early fixpoint rounds
+  and fail only at convergence, the engine then reruns the fixpoint with the
+  out-edges of failing blocks cut. It settles on a cut set `C` where every
+  uncut block passes in `fixpoint(C)` and every cut block `L` fails in
+  `fixpoint(C \ {L})`, alternately cutting uncut blocks that fail and
+  restoring cut blocks whose failure was a follow-on effect (they pass once
+  the other cut blocks pass nothing on). Each block is restored at most once,
+  so this terminates, and the cut set never empties while a block fails. Only
+  a cut block that has a state in `fixpoint(C)` and that another cut block
+  reaches needs a fixpoint of its own, and only if that other block passed a
+  state on in some round of the uncut fixpoint (cutting a block that never did
+  changes nothing). A failing block usually fails in every round, so
+  independent errors that fail on first entry cost a few fixpoints, not one
+  each, even when each failing branch rejoins the code after it. Others, such
+  as loop headers that pass on first entry and fail after the back edge,
+  cost a fixpoint each, so these reruns are capped at a fixed budget (64
+  whole-function fixpoints per function): rejecting a function costs at most
+  the budget plus two fixpoints. Past the budget the engine stops refining
+  and keeps the current cut set, so the function is still rejected with
+  every real error found, but a follow-on diagnostic may appear; the
+  guarantees below hold within the budget.
+- A failing block `L` is replayed, and mapped, from its state in
+  `fixpoint(C \ {L})`: fed by analysed blocks and by `L`'s own loops (which is
+  what makes a loop header fail), but not by another failing block. Joins are
+  checked only between edges from analysed blocks. So no diagnostic stems
+  from a state another failing block passed on, and code reachable only
+  through failing blocks has no type-map entry. (A block cut again after its
+  one restore keeps the state it was cut at, as a fallback; past the budget,
+  a cut block is replayed from its state in `fixpoint(C)` if it fails there,
+  else from the state it was cut at.)
+- Consecutive underflows at one address collapse into one: a rule returns one
+  result per address, and the replay visits each address once.
 - `Unreachable` is a **warning**: unreachable code never runs, and code
-  generators emit it routinely. Every other kind is an error.
+  generators emit it routinely. One warning is reported per contiguous run of
+  unreachable code, at its first address; unreachable code is not verified and
+  its jump targets are not checked. Every other kind is an error.
+- Diagnostics are sorted by function and address. `DiagnosticKind`
+  is `#[non_exhaustive]`, so new structural checks are not breaking changes.
 
 ## Outputs
 
@@ -386,7 +430,9 @@ A successful verification produces:
   [Enforcement](#enforcement)).
 - Optionally, **type maps**: each leader's converged state. Any address's state
   is one block replay away, so debuggers and observers can show what each local
-  and operand slot holds at a breakpoint (#175, #176). Off by default.
+  and operand slot holds at a breakpoint (#175, #176). Off by default, and
+  produced only when verification succeeds; returning them with a rejection
+  (for an IDE showing types next to errors) is a possible extension.
 
 ## Required metadata changes
 

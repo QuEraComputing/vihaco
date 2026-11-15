@@ -1,0 +1,22 @@
+[package]
+name = "vihaco-verifier"
+edition = "2024"
+description = "Load-time verification engine for vihaco programs: control-flow fixpoint, abstract operand stacks, structured diagnostics."
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+eyre = { workspace = true }
+smallvec = { workspace = true }
+vihaco-abi = { workspace = true }
+
+[features]
+default = []
+# Runs the integration test against a real `#[composite]` machine, whose
+# generated `Verify` aggregate exists only in typed-declaration builds.
+typed-declarations = ["vihaco-runtime/typed-declarations"]
+
+[dev-dependencies]
+vihaco-runtime = { workspace = true }
