@@ -95,7 +95,7 @@ where
     lower_functions(functions, context)
 }
 
-impl<I, Ty: PartialEq + Clone + std::fmt::Display + StructTypeRef, H> ParsedModule<I, Ty, H> {
+impl<I, S, H> ParsedModule<I, S, H> {
     /// Validate declarations and tables, lower instructions with the supplied
     /// context, and assemble a module without inventing or reordering metadata.
     ///
@@ -106,10 +106,16 @@ impl<I, Ty: PartialEq + Clone + std::fmt::Display + StructTypeRef, H> ParsedModu
     /// Additional capabilities can be supplied by a consumer-owned context.
     /// The header itself is not interpreted by this method.
     ///
+    /// Function headers may use a source type such as
+    /// [`SourceType`](vihaco_module::module::SourceType) that names structs and
+    /// named types; they are resolved against the metadata (see
+    /// [`ResolveType`]). Resolve a header parsed the same way with
+    /// [`ProgramMetadata::resolve_types`] first.
+    ///
     /// # Errors
     /// Returns declaration, table, or lowering errors. Context mutations before
     /// an error are retained; no partial module is returned.
-    pub fn lower_with_metadata<C, Info>(
+    pub fn lower_with_metadata<C, Ty, Info>(
         self,
         metadata: ProgramMetadata<Value, Ty, Info>,
         context: &mut C,
@@ -117,6 +123,8 @@ impl<I, Ty: PartialEq + Clone + std::fmt::Display + StructTypeRef, H> ParsedModu
     where
         I: Lower<C>,
         C: FunctionScope,
+        S: ResolveType<Ty>,
+        Ty: PartialEq + Clone + std::fmt::Display + StructTypeRef,
     {
         validate_program_functions(&self.functions, &metadata)?;
         let code = lower_functions(self.functions, context)?;

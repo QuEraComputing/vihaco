@@ -233,7 +233,6 @@ fn load(functions: &[Function]) -> eyre::Result<Module> {
 /// and named types may be written by name (`struct @Pair`) in function
 /// headers, `locals`, and struct fields; names resolve against the header's
 /// own tables.
-#[cfg(feature = "program-image-execution")]
 fn load_named(functions: &[Function]) -> eyre::Result<Module> {
     use vihaco_module::module::SourceType;
     let source = sst(functions);
@@ -245,8 +244,11 @@ fn load_named(functions: &[Function]) -> eyre::Result<Module> {
     >::parse_section(file.root())?;
     let metadata = header.0.resolve_types::<Type>()?;
     let mut context = MetadataLoweringContext::new(&metadata)?;
-    let code = vihaco_syntax::lower_functions_with_metadata(functions, &metadata, &mut context)?;
-    metadata.into_module(code)
+    vihaco_syntax::ParsedModule {
+        header: (),
+        functions,
+    }
+    .lower_with_metadata(metadata, &mut context)
 }
 
 /// Every diagnostic of a program, errors and warnings.
@@ -1188,7 +1190,6 @@ fn structural_diagnostics_name_the_function_and_its_range() {
 
 /// Names are accepted in every type position: function headers, `locals`
 /// and signatures in the metadata, resolved against the header's tables.
-#[cfg(feature = "program-image-execution")]
 #[test]
 fn function_headers_and_locals_may_name_struct_types() {
     let program = [main_fn(
