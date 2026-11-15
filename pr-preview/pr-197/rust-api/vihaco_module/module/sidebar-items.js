@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_LOCALS"],"enum":["FrameError","SourceType"],"fn":["explain_metadata"],"struct":["FieldInfo","FunctionInfo","LabelInfo","LocalModule","Location","ModuleNames","NamedTypeInfo","NoInfo","Parameter","ProgramMetadata","Signature","SourceSymbolInfo","StructInfo","TypeLookup"],"trait":["ResolveType","StructTypeRef"]};

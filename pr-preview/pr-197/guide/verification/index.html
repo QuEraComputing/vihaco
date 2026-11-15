@@ -1,0 +1,533 @@
+<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Check programs before they run: typing rules for components, and verified images for embedders."><title>Verification — vihaco</title><script>
+      (() => {
+        // localStorage can throw when storage is blocked (hardened privacy
+        // settings, sandboxed frames); fall back to "auto" so the theme still
+        // applies before first paint.
+        let stored = "auto";
+        try { stored = localStorage.getItem("vihaco-theme") || "auto"; } catch (e) {}
+        const sysDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const resolved = stored === "auto" ? (sysDark ? "dark" : "light") : stored;
+        document.documentElement.setAttribute("data-theme", resolved);
+        document.documentElement.setAttribute("data-theme-pref", stored);
+      })();
+    </script><link rel="stylesheet" href="/vihaco/pr-preview/pr-197/_astro/Base.Wd5z-zFf.css"></head> <body> <header class="masthead"> <div class="masthead-inner"> <a class="brand" href="/vihaco/pr-preview/pr-197/"> <span class="brand-mark" aria-hidden="true"></span> <span class="brand-mono">vihaco</span> <span class="brand-sub">/ virtual ISA &amp; machine framework</span> </a> <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Open navigation menu"> <span class="nav-toggle-bars" aria-hidden="true"></span> </button> <nav class="nav-links" id="primary-nav"> <a href="/vihaco/pr-preview/pr-197/">Overview</a><a href="/vihaco/pr-preview/pr-197/quickstart">Quick Start</a><a href="/vihaco/pr-preview/pr-197/guide" aria-current="page">Author’s Guide</a><a href="/vihaco/pr-preview/pr-197/reference">Reference</a> <div class="theme-toggle" role="group" aria-label="Theme"> <button type="button" data-theme-set="light" title="Light theme" aria-label="Light theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <circle cx="12" cy="12" r="4"></circle> <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path> </svg> </button> <button type="button" data-theme-set="dark" title="Dark theme" aria-label="Dark theme" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path> </svg> </button> <button type="button" data-theme-set="auto" title="Match system theme" aria-label="Auto (follow system)" aria-pressed="false"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <rect x="3" y="4" width="18" height="13" rx="2"></rect> <path d="M8 21h8M12 17v4"></path> </svg> </button> </div> </nav> </div> </header> <main> <div class="page-shell page-shell--3col"> <details class="page-sections side-nav" aria-label="Author’s guide"> <summary class="page-toc-label">Author’s guide</summary> <ol> <li> <a href="/vihaco/pr-preview/pr-197/guide">Start here</a> </li><li> <a href="/vihaco/pr-preview/pr-197/guide/mental-model">The mental model</a> </li><li> <a href="/vihaco/pr-preview/pr-197/guide/first-machine">Your first machine</a> </li><li> <a href="/vihaco/pr-preview/pr-197/guide/essentials">Essential concepts</a> </li><li> <a href="/vihaco/pr-preview/pr-197/guide/instructions">Dialects and instructions</a> </li><li> <a href="/vihaco/pr-preview/pr-197/guide/components">Writing components</a> </li><li> <a href="/vihaco/pr-preview/pr-197/guide/messages">Preparing messages</a> </li><li> <a href="/vihaco/pr-preview/pr-197/guide/stack">Stack inputs and outputs</a> </li><li> <a href="/vihaco/pr-preview/pr-197/guide/composites">Writing composites</a> </li><li> <a href="/vihaco/pr-preview/pr-197/guide/execution">Executing one instruction</a> </li><li> <a href="/vihaco/pr-preview/pr-197/guide/effects">Handling effects</a> </li><li> <a href="/vihaco/pr-preview/pr-197/guide/program-execution">Running programs</a> </li><li> <a href="/vihaco/pr-preview/pr-197/guide/loadables">Images and Loadables</a> </li><li> <a href="/vihaco/pr-preview/pr-197/guide/verification" aria-current="page">Verification</a> </li><li> <a href="/vihaco/pr-preview/pr-197/guide/parser">Parsing source</a> </li><li> <a href="/vihaco/pr-preview/pr-197/guide/parser-advanced">Loading SST programs</a> </li><li> <a href="/vihaco/pr-preview/pr-197/guide/sst-reference">Emitting SST from a compiler</a> </li><li> <a href="/vihaco/pr-preview/pr-197/guide/instructions-advanced">Binary formats</a> </li><li> <a href="/vihaco/pr-preview/pr-197/guide/patterns">Patterns for larger machines</a> </li><li> <a href="/vihaco/pr-preview/pr-197/guide/testing">Testing and extending</a> </li><li> <a href="/vihaco/pr-preview/pr-197/guide/parser-patterns">Pattern parser reference</a> </li> </ol> </details> <div class="page-toc-content">  <article class="shell narrow guide-body"> <h1 id="verification">Verification</h1>
+<p>Verification checks a whole program before it runs. A verified program can’t
+hand an instruction an operand of the wrong type, underflow the operand stack,
+call a function with the wrong arguments, return the wrong values, or reach a
+join point with an inconsistent stack. The runtime still checks heap tags,
+bounds, and freed objects, because some facts only exist at run time.</p>
+<p>Each component supplies a <strong>typing rule</strong> for its instructions, and the
+framework does the rest: it finds the basic blocks of each function, walks them
+to a fixpoint, merges stack states where paths join, and reports every problem
+at once. A machine can only be verified if every instruction in it has a rule,
+and the compiler checks that.</p>
+<p>Verification lives in the <code>vihaco::verifier</code> module (the <code>vihaco-verifier</code>
+crate). The <code>program-image-execution</code> feature includes it; enable the
+<code>verifier</code> feature to use it on its own.</p>
+<h2 id="verifying-a-program">Verifying a program</h2>
+<p>An <a href="/vihaco/pr-preview/pr-197/guide/loadables">image</a> only accepts a <code>Verified</code> module, so verification
+is part of loading:</p>
+<pre><code class="language-rust,ignore">let module = metadata.into_module(code)?;   // parse and lower as usual
+let image = Image::new(Verified::new(module)?);
+let mut loaded = Loadable::new(image, machine);
+</code></pre>
+<p>If the program has any error, <code>Verified::new</code> returns a <code>VerifyFailed</code>: it
+gives the module back (<code>failed.module</code>, or <code>into_parts()</code>) together with the
+<code>Rejection</code>, whose <code>diagnostics</code> list every finding, sorted by function and
+address. It displays them all with the module’s names and converts into an
+<code>eyre::Report</code>, so <code>?</code> reports something like:</p>
+<pre><code class="language-text">verification failed with 1 error
+error: operand 0 of `mixer::mixer::scale_f64`: expected f64, found u64
+  --> @main+2 (address 2): mixer::mixer::scale_f64
+</code></pre>
+<p>Use <code>Verified::verify</code> to choose options and keep the result: it returns the
+verified module together with a <code>Verification</code> holding any warnings (code no
+path reaches is reported as <code>Unreachable</code>, a warning, not an error) and, if you
+asked for them, type maps.</p>
+<p>The example below gives a small mixing device typing rules, then verifies one
+good and one bad program. Setup that isn’t about verification (parsing the
+source, and execution, which this page doesn’t need) is folded away.</p>
+<pre><code class="language-rust">use vihaco::{
+    Execute, HasInstructionSet, Type, Value, Verified, Verify, component, composite, dialect,
+    module::{LocalModule, ProgramMetadata},
+    verifier::{DiagnosticKind, Role, TypeSlot, TypedSlot, TypedStack, VerifyOptions, stack_rules},
+};
+
+#[dialect]
+pub mod mixer {
+    /// `[f64, f64] -> [f64]`: multiply two samples.
+    #[instruction]
+    #[pattern = "'scale_f64"]
+    pub struct ScaleF64;
+
+    /// Pop `n` samples and push their sum. The count is an immediate operand.
+    #[instruction]
+    #[pattern = "'sum_f64 $0"]
+    pub struct SumF64(pub u32);
+}
+
+#[component]
+#[instructions { mixer }]
+#[derive(Default)]
+pub struct Mixer;
+
+// A fixed stack effect is one line.
+stack_rules! {
+    mixer::ScaleF64: [Type::F64, Type::F64] -> [Type::F64];
+}
+
+// Anything else is a `Verify` impl, bounded on the capabilities it uses.
+impl&#x3C;C: TypedStack + ?Sized> Verify&#x3C;C> for mixer::SumF64 {
+    fn verify(&#x26;self, cx: &#x26;mut C) -> eyre::Result&#x3C;()> {
+        for (index, sample) in cx.pop_n(self.0 as usize)?.iter().enumerate() {
+            sample
+                .check(&#x26;Type::F64)
+                .map_err(|error| error.with_role(Role::Operand(index as u32)))?;
+        }
+        cx.push(C::Slot::of_type(Type::F64));
+        Ok(())
+    }
+}
+
+#[composite]
+pub struct Machine {
+    #[device(0)]
+    #[program]
+    execution: vihaco_stdlib::ExecutionState,
+    #[device(1)]
+    mixer: Mixer,
+}
+
+type Program = LocalModule&#x3C;&#x3C;Machine as HasInstructionSet>::Runtime, Value, Type>;
+
+fn main() -> eyre::Result&#x3C;()> {
+    let good = load(&#x26;[
+        "execution::program::const_f64 1.5",
+        "execution::program::const_f64 2.0",
+        "mixer::mixer::scale_f64",
+        "execution::program::const_f64 0.5",
+        "mixer::mixer::sum_f64 2",
+        "execution::program::ret 1",
+    ])?;
+    let options = VerifyOptions::default().with_type_maps(true);
+    let (verified, verification) = Verified::verify(good, options)?;
+    assert!(verification.warnings.is_empty());
+    assert_eq!(verified.code.len(), 6);
+
+    // Type maps hold the converged state at each block's first instruction.
+    let maps = verification.type_maps.expect("requested");
+    assert_eq!(maps.get(0, 0).unwrap().operands(), &#x26;[] as &#x26;[TypeSlot]);
+
+    // `scale_f64` needs two `f64` samples, but finds a `u64` below the top.
+    let bad = load(&#x26;[
+        "execution::program::const_u64 3",
+        "execution::program::const_f64 2.0",
+        "mixer::mixer::scale_f64",
+        "execution::program::ret 1",
+    ])?;
+    let failed = Verified::verify(bad, options).unwrap_err();
+    // The error displays every diagnostic with the module's names.
+    assert_eq!(
+        failed.to_string(),
+        "verification failed with 1 error\n\
+         error: operand 0 of `mixer::mixer::scale_f64`: expected f64, found u64\n  \
+         --> @main+2 (address 2): mixer::mixer::scale_f64"
+    );
+    // It also holds the data: the module, given back, and each diagnostic.
+    let (module, rejection) = failed.into_parts();
+    let [error] = rejection.diagnostics.as_slice() else { panic!("{rejection}") };
+    assert_eq!((error.function, error.address), (0, 2));
+    assert_eq!(
+        error.kind,
+        DiagnosticKind::TypeMismatch {
+            role: Some(Role::Operand(0)),
+            expected: Type::F64.into(),
+            found: TypeSlot::Known(Type::U64),
+        }
+    );
+    assert_eq!(module.code.len(), 4);
+    // Rejections carry type maps too, so a tool can show types next to errors.
+    assert!(rejection.type_maps.is_some());
+    Ok(())
+}
+</code></pre>
+<h3 id="diagnostics">Diagnostics</h3>
+<p>A <code>Diagnostic</code> holds data, not text: the function (its index in the function
+table), the instruction address, a severity, and a <code>DiagnosticKind</code>. Kinds carry
+types as <code>Type</code> and <code>TypeSlot</code> values and table indices, so tools can inspect
+them:</p>
+<ul>
+<li><code>TypeMismatch { role, expected, found }</code>: <code>role</code> says what the value is to
+the instruction (<code>Role::Operand(n)</code>, counted bottom first like a stack
+effect, <code>Local(i)</code>, <code>StoredValue(i)</code>, <code>Argument { callee, index }</code>,
+<code>Return(n)</code>, or <code>Field { struct_id, field }</code>); <code>found</code> is a
+<code>TypeSlot::Conflict</code> with the join address when two paths disagreed.</li>
+<li><code>StackUnderflow { needed, depth }</code>, and <code>StackDepthMismatch</code> with the
+<code>Predecessor</code> edge of each depth (the function entry, a jump, or falling
+through).</li>
+<li><code>CallArityMismatch</code>, <code>ReturnCountMismatch</code>, <code>LocalIndexOutOfRange</code>,
+<code>InvalidControlFlowTarget</code> (with the function’s range), <code>InvalidFunctionSpan</code>,
+<code>InvalidFrame</code>, <code>MissingTerminator</code>, and <code>Unverifiable</code>.</li>
+<li>Lookups that miss: <code>UnknownEntry { table, index, len }</code>, <code>UnknownField</code>,
+<code>UndefinedNamedType</code>, <code>NoFunctionAt</code>, and <code>FieldCountMismatch</code>.</li>
+<li>The warning <code>Unreachable</code>, and <code>Rule</code> for any other error a rule returns.</li>
+</ul>
+<p><code>diagnostic.display_with(&#x26;module)</code> renders one with the module’s names: the
+location as <code>@main+2 (address 2)</code> followed by the instruction, structs and named
+types by name, parameters and fields by name. A few examples:</p>
+<pre><code class="language-text">error: argument 0 (p0) of @helper: expected u64, found f64
+  --> @main+1 (address 1): execution::program::call 1, 3
+error: local 0 is declared f64, but `execution::program::load_u64` accesses it as u64 (use the access for f64, or the untyped one)
+  --> @main+0 (address 0): execution::program::load_u64 0
+error: operand stack depth differs where paths join: 1 from @main+3 (execution::program::br 6), 2 from @main+5 (falling through)
+  --> @main+6 (address 6): execution::program::ret 1
+error: operand 0 of `cpu::cpu::add_u64`: expected u64, found u64 or f64 (paths disagree at join @main+5)
+  --> @main+6 (address 6): cpu::cpu::add_u64
+</code></pre>
+<p><code>rejection.display_with(&#x26;module)</code> renders a whole rejection; <code>VerifyFailed</code>
+does this for you. A diagnostic’s plain <code>Display</code> works without the module and
+shows indices instead (<code>struct 0</code>, <code>function 0, address 2</code>).</p>
+<p>A failing rule ends its basic block, so a block reports at most one rule error
+and code reachable only through it isn’t analysed. Each defect is reported once,
+even inside a loop.</p>
+<h3 id="type-maps">Type maps</h3>
+<p>With <code>VerifyOptions::with_type_maps(true)</code>, both a <code>Verification</code> and a
+<code>Rejection</code> carry <code>TypeMaps</code>: the converged state (locals and operand stack) at
+the first instruction of each reached block. <code>maps.state_at(&#x26;module.code, &#x26;mut cx, function, address)</code> replays a block from its leader to give the state
+before any instruction, which is what a debugger or observer needs to show what
+each stack slot holds at a breakpoint (pass a <code>ModuleVerifier::new(&#x26;module)</code> as
+<code>cx</code>). In a rejection, blocks that were only reachable through a failing block
+have no entry.</p>
+<h3 id="without-a-verified-wrapper">Without a <code>Verified</code> wrapper</h3>
+<p><code>verify_module(&#x26;module, options)</code> verifies a borrowed module without consuming
+it, which is handy in tests. <code>ModuleVerifier</code> is the standard context behind
+both: it reads the module’s function, struct, named-type, constant, and string
+tables.</p>
+<p>A hand-written context, or a module model the standard verifier doesn’t cover,
+verifies through <code>Verified::verify_with(module, |module| ...)</code>: the closure
+builds the context from the module and runs it, and the module is marked
+verified when it returns a <code>Verification</code>.</p>
+<p><code>Verified::assume_verified(module)</code> skips verification explicitly. Use it for
+tests that exercise runtime checks with deliberately ill-typed programs, and for
+modules a trusted toolchain has already verified. Keep it easy to find: it is
+the one place an unverified program can reach an image.</p>
+<h2 id="writing-typing-rules">Writing typing rules</h2>
+<p>A rule implements <code>Verify&#x3C;C></code> for an instruction type. <code>C</code> is the verifier
+context, and the rule names only the <strong>capabilities</strong> it needs as bounds, never
+a concrete verifier. That keeps rules usable in any machine. A missing rule or
+capability is a compile error that says so: “instruction <code>Pulse</code> has no
+verification rule for context <code>ModuleVerifier&#x3C;'m></code>”, or “verifier context
+<code>FrameState&#x3C;TypeSlot></code> does not provide the <code>Signatures</code> capability”.</p>
+<pre><code class="language-rust,ignore">pub trait Verify&#x3C;C: ?Sized> {
+    /// Where control goes after this instruction; `Flow::Next` by default.
+    fn flow(&#x26;self) -> Flow { Flow::Next }
+    /// Check the inputs against the abstract state in `cx` and update it.
+    fn verify(&#x26;self, cx: &#x26;mut C) -> eyre::Result&#x3C;()>;
+}
+</code></pre>
+<p>Only control-flow instructions override <code>flow</code>: <code>Flow::jump(target)</code> for a
+branch, <code>Flow::jump_to([a, b])</code> for a conditional one, <code>Flow::Return</code> and
+<code>Flow::Halt</code> for terminators. <code>flow</code> must depend only on the instruction’s own
+operands, because the verifier uses it to find blocks before any state exists.</p>
+<p>Most rules need only a typed operand stack: bound <code>C: TypedStack</code>. Rules with a
+fixed stack effect are one line each with <code>stack_rules!</code>, as <code>scale_f64</code> above;
+write <code>Instruction as this: [..] -> [..];</code> when the types depend on the
+instruction’s operands (<code>array_get T</code> is
+<code>Get as this: [Type::array(this.0.clone()), Type::U64] -> [this.0.clone()]</code>).</p>
+<p>The standard capabilities, all provided by <code>ModuleVerifier</code>:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Capability</th><th>Provides</th></tr></thead><tbody><tr><td><code>OperandStack</code></td><td><code>pop</code>, <code>pop_typed</code>, <code>pop_n</code>, <code>push</code>, <code>peek</code>, <code>depth</code>; <code>TypedStack</code> when its slots are <code>TypedSlot</code>s</td></tr><tr><td><code>Locals</code></td><td>the function’s declared locals, <code>local(i)</code> and <code>set_local(i, slot)</code></td></tr><tr><td><code>Signatures&#x3C;Type></code></td><td>function signatures by index or address, and the current function’s</td></tr><tr><td><code>StructTypes&#x3C;Type></code></td><td>field counts and field types from the struct table</td></tr><tr><td><code>NamedTypes&#x3C;Type></code></td><td>named-type indices by name, and their representations</td></tr><tr><td><code>Constants&#x3C;Value, Type></code></td><td>the constant and string tables</td></tr></tbody></table>
+<p><code>stack_effect(cx, [inputs], [outputs])</code> applies a fixed effect by hand, and
+<code>slot.check(&#x26;ty)</code> checks one slot. Errors from either carry a <code>Role</code> when the
+helper knows it; add one to your own with <code>error.with_role(Role::Operand(n))</code>.
+For instructions several dialects share there are helpers that keep rules
+identical: <code>call_effect</code> and <code>return_effect</code>, <code>direct_call_effect</code> and
+<code>indirect_call_effect</code>, <code>load_local</code> and <code>store_local</code>, <code>struct_new_effect</code> and
+<code>set_field_effect</code>, <code>string_constant</code>, <code>function_constant</code>, and <code>pop_array</code>.</p>
+<p>A conflicting slot, left where two paths disagreed about a type, never
+satisfies a typed pop. Named types are nominal: <code>type 0</code> satisfies only itself.</p>
+<h3 id="counts-must-be-immediates">Counts must be immediates</h3>
+<p>The verifier only sees the program text, so an instruction’s stack effect must
+follow from its operands. Carry counts and shapes as immediate operands, as
+<code>sum_f64 2</code> does above. When an instruction takes its operand count from a
+runtime value (say, a count popped from the stack), its rule should report it
+with <code>VerifyError::unverifiable(reason)</code>, which produces the standard
+<code>Unverifiable</code> error rather than an ad-hoc message:</p>
+<pre><code class="language-rust">use vihaco::{
+    Type, Verify,
+    verifier::{TypedStack, VerifyError},
+};
+
+/// Pops a `u64` count, then that many samples: not statically checkable.
+pub struct SumDynamic;
+
+impl&#x3C;C: TypedStack + ?Sized> Verify&#x3C;C> for SumDynamic {
+    fn verify(&#x26;self, cx: &#x26;mut C) -> eyre::Result&#x3C;()> {
+        cx.pop_typed(&#x26;Type::U64)?;
+        Err(VerifyError::unverifiable("`sum_dynamic` pops its sample count from the stack").into())
+    }
+}
+</code></pre>
+<h3 id="component-state">Component state</h3>
+<p>Some correctness facts aren’t about operand types: a sequencer may need a
+channel opened before it plays on it. Such a component defines its own
+capability trait and abstract state. The state implements <code>ComponentState</code>,
+whose <code>join</code> merges the states of two paths (a channel is open after a join
+only if it is open on every path) and must have finite height. The framework’s
+<code>WithState&#x3C;'_, S></code> context wraps <code>ModuleVerifier</code> and joins <code>S</code> alongside the
+frame.</p>
+<p>The component crate implements its capability for every <code>WithState</code> whose
+state <em>contains</em> its own (<code>S: ComponentStateOf&#x3C;Open></code>), not for one concrete
+state, so machines can combine it with other components’ states:</p>
+<pre><code class="language-rust">use std::collections::BTreeSet;
+use vihaco::{
+    Verify,
+    verifier::{ComponentState, ComponentStateOf, VerifyError, WithState},
+};
+
+/// The sequencer's capability: channels must be opened before use.
+pub trait Channels {
+    fn open(&#x26;mut self, channel: u32);
+    fn require_open(&#x26;self, channel: u32) -> Result&#x3C;(), VerifyError>;
+}
+
+#[derive(Clone, Default)]
+pub struct Open(BTreeSet&#x3C;u32>);
+
+impl ComponentState for Open {
+    fn join(&#x26;mut self, incoming: &#x26;Self) -> Result&#x3C;bool, VerifyError> {
+        let before = self.0.len();
+        self.0.retain(|channel| incoming.0.contains(channel));
+        Ok(self.0.len() != before)
+    }
+}
+
+impl&#x3C;S: ComponentStateOf&#x3C;Open>> Channels for WithState&#x3C;'_, S> {
+    fn open(&#x26;mut self, channel: u32) {
+        self.component_mut::&#x3C;Open>().0.insert(channel);
+    }
+    fn require_open(&#x26;self, channel: u32) -> Result&#x3C;(), VerifyError> {
+        if self.component::&#x3C;Open>().0.contains(&#x26;channel) {
+            Ok(())
+        } else {
+            Err(VerifyError::rule(format!("channel {channel} is not open")))
+        }
+    }
+}
+
+/// `play c`: the rule needs only the `Channels` capability.
+pub struct Play(pub u32);
+
+impl&#x3C;C: Channels + ?Sized> Verify&#x3C;C> for Play {
+    fn verify(&#x26;self, cx: &#x26;mut C) -> eyre::Result&#x3C;()> {
+        Ok(cx.require_open(self.0)?)
+    }
+}
+</code></pre>
+<p>An embedder then verifies with <code>Verified::verify_with_state(module, Open::default(), options)</code>, which starts every function with that state.</p>
+<p>A machine whose components each add state, possibly from different crates,
+declares one combined state with <code>component_state!</code>. It joins field by field and
+implements <code>ComponentStateOf</code> for each field, so every component’s capability
+works unchanged and the machine crate writes no delegation:</p>
+<pre><code class="language-rust,ignore">vihaco::verifier::component_state! {
+    #[derive(Clone, Default)]
+    pub struct MachineState {
+        pub open: sequencer::Open,
+        pub elapsed: timing::Elapsed,
+    }
+}
+
+let (verified, _) = Verified::verify_with_state(module, MachineState::default(), options)?;
+</code></pre>
+<p>Next, <a href="/vihaco/pr-preview/pr-197/guide/parser">give your instructions a source spelling</a>.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/pr-preview/pr-197/guide/loadables" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Images and Loadables</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/pr-preview/pr-197/guide/parser" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Parsing source</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#verifying-a-program" data-toc-link="#verifying-a-program">Verifying a program</a></li><li><a href="#writing-typing-rules" data-toc-link="#writing-typing-rules">Writing typing rules</a></li> </ol> </details> </div> </main> <script>
+        // Scroll-spy: mark the TOC link for the section currently in view.
+        (() => {
+          const links = Array.from(document.querySelectorAll(".page-toc [data-toc-link]"));
+          if (!links.length) return;
+          const targets = links
+            .map((a) => {
+              const href = a.getAttribute("data-toc-link") || "";
+              const id = href.startsWith("#") ? href.slice(1) : null;
+              const el = id ? document.getElementById(id) : null;
+              return el ? { link: a, el } : null;
+            })
+            .filter(Boolean);
+          if (!targets.length) return;
+          const ANCHOR = 120;
+          function update() {
+            let activeIdx = 0;
+            for (let i = 0; i < targets.length; i++) {
+              const top = targets[i].el.getBoundingClientRect().top;
+              if (top - ANCHOR <= 0) activeIdx = i;
+              else break;
+            }
+            for (let i = 0; i < targets.length; i++) {
+              targets[i].link.setAttribute("aria-current", i === activeIdx ? "true" : "false");
+            }
+          }
+          update();
+          window.addEventListener("scroll", update, { passive: true });
+          window.addEventListener("resize", update);
+        })();
+      </script> <script>
+      // Mobile navigation drawer + responsive open-state for the sidebar TOCs.
+      (() => {
+        const mq = window.matchMedia("(min-width: 901px)");
+        const sideNavs = document.querySelectorAll("details.side-nav");
+        function syncSideNavs() {
+          for (const d of sideNavs) {
+            if (mq.matches) d.setAttribute("open", "");
+            else d.removeAttribute("open");
+          }
+        }
+        syncSideNavs();
+        mq.addEventListener("change", syncSideNavs);
+
+        const toggle = document.querySelector(".nav-toggle");
+        const nav = document.getElementById("primary-nav");
+        if (toggle && nav) {
+          function setOpen(open) {
+            toggle.setAttribute("aria-expanded", open ? "true" : "false");
+            toggle.setAttribute("aria-label", open ? "Close navigation menu" : "Open navigation menu");
+            nav.toggleAttribute("data-open", open);
+          }
+          toggle.addEventListener("click", () => {
+            const open = toggle.getAttribute("aria-expanded") !== "true";
+            setOpen(open);
+          });
+          nav.addEventListener("click", (e) => {
+            if (e.target && e.target.closest && e.target.closest("a")) setOpen(false);
+          });
+          const mqNav = window.matchMedia("(min-width: 721px)");
+          mqNav.addEventListener("change", () => setOpen(false));
+        }
+      })();
+    </script><script>
+      // Inject a copy button into every <pre> block.
+      (() => {
+        const COPY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+        const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+        for (const pre of document.querySelectorAll("pre")) {
+          if (pre.querySelector(".copy-btn")) continue;
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "copy-btn";
+          btn.setAttribute("aria-label", "Copy code to clipboard");
+          btn.innerHTML = COPY_SVG + "<span>Copy</span>";
+          pre.appendChild(btn);
+          btn.addEventListener("click", async () => {
+            const code = pre.querySelector("code");
+            let raw;
+            if (code) {
+              raw = code.innerText;
+            } else {
+              const clone = pre.cloneNode(true);
+              for (const el of clone.querySelectorAll(".copy-btn")) el.remove();
+              raw = clone.innerText;
+            }
+            const text = raw.replace(/\n$/, "");
+            try {
+              await navigator.clipboard.writeText(text);
+            } catch {
+              const ta = document.createElement("textarea");
+              ta.value = text;
+              ta.style.position = "fixed";
+              ta.style.opacity = "0";
+              document.body.appendChild(ta);
+              ta.select();
+              try { document.execCommand("copy"); } catch {}
+              document.body.removeChild(ta);
+            }
+            btn.dataset.state = "copied";
+            btn.innerHTML = CHECK_SVG + "<span>Copied</span>";
+            setTimeout(() => {
+              btn.removeAttribute("data-state");
+              btn.innerHTML = COPY_SVG + "<span>Copy</span>";
+            }, 1500);
+          });
+        }
+      })();
+    </script><script>
+      // Theme switcher: light / dark / auto, persisted in localStorage.
+      (() => {
+        const root = document.documentElement;
+        const mql = window.matchMedia("(prefers-color-scheme: dark)");
+        const buttons = document.querySelectorAll(".theme-toggle button[data-theme-set]");
+        // localStorage may be unavailable (blocked storage); degrade gracefully
+        // so the toggle still themes the page for the current session.
+        const readPref = () => {
+          try { return localStorage.getItem("vihaco-theme") || "auto"; } catch (e) { return "auto"; }
+        };
+        function apply(pref) {
+          const resolved = pref === "auto" ? (mql.matches ? "dark" : "light") : pref;
+          root.setAttribute("data-theme", resolved);
+          root.setAttribute("data-theme-pref", pref);
+          try { localStorage.setItem("vihaco-theme", pref); } catch (e) {}
+          for (const b of buttons) {
+            b.setAttribute("aria-pressed", b.dataset.themeSet === pref ? "true" : "false");
+          }
+        }
+        apply(readPref());
+        for (const b of buttons) b.addEventListener("click", () => apply(b.dataset.themeSet));
+        mql.addEventListener("change", () => {
+          if (readPref() === "auto") apply("auto");
+        });
+      })();
+    </script><button type="button" class="back-to-top" aria-label="Back to top" hidden> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M12 19V5"></path> <path d="m5 12 7-7 7 7"></path> </svg> </button> <script>
+      (() => {
+        const btn = document.querySelector(".back-to-top");
+        if (!btn) return;
+        const threshold = () => Math.max(window.innerHeight * 1.2, 600);
+        function sync() {
+          btn.toggleAttribute("hidden", !(window.scrollY > threshold()));
+        }
+        btn.addEventListener("click", () => {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+          const brand = document.querySelector(".brand");
+          if (brand && brand.focus) brand.focus({ preventScroll: true });
+        });
+        window.addEventListener("scroll", sync, { passive: true });
+        window.addEventListener("resize", sync);
+        sync();
+      })();
+    </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
+          documentation generated <time>2026-11-15</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+      (() => {
+        if (typeof hljs === "undefined") return;
+        for (const el of document.querySelectorAll("pre code[class*='language-']")) {
+          hljs.highlightElement(el);
+        }
+      })();
+    </script></body> </html>
