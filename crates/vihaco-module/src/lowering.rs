@@ -34,6 +34,10 @@ pub struct MetadataLoweringContext {
     struct_names: HashMap<String, u32>,
     /// Per struct-table entry: its name, field count, and field name to slot index.
     structs: Vec<StructFields>,
+    /// Named-type name to named-type-table index.
+    type_names: HashMap<String, u32>,
+    /// The length of the named-type table.
+    type_count: u32,
     labels: HashMap<String, u32>,
 }
 
@@ -111,11 +115,23 @@ impl MetadataLoweringContext {
                 slots,
             });
         }
+        let mut type_names = HashMap::new();
+        for (index, info) in metadata.types.iter().enumerate() {
+            let name = name_at(info.name, &|| format!("metadata.types[{index}].name"))?;
+            eyre::ensure!(
+                type_names
+                    .insert(name.clone(), u32::try_from(index)?)
+                    .is_none(),
+                "named type `{name}` has duplicate metadata"
+            );
+        }
         Ok(Self {
             strings,
             functions,
             struct_names,
             structs,
+            type_names,
+            type_count: u32::try_from(metadata.types.len())?,
             labels: HashMap::new(),
         })
     }
@@ -150,6 +166,24 @@ impl MetadataLoweringContext {
             .get(field)
             .copied()
             .ok_or_else(|| eyre::eyre!("struct `{}` has no field `{field}`", entry.name))
+    }
+
+    /// Look up a named type's index in the supplied metadata named-type table.
+    pub fn named_type_index(&self, name: &str) -> eyre::Result<u32> {
+        self.type_names
+            .get(name)
+            .copied()
+            .ok_or_else(|| eyre::eyre!("undefined named type `{name}`"))
+    }
+
+    /// Check that `index` is an entry of the named-type table.
+    pub fn check_named_type(&self, index: u32) -> eyre::Result<()> {
+        eyre::ensure!(
+            index < self.type_count,
+            "named type {index} is outside the named-type table of length {}",
+            self.type_count
+        );
+        Ok(())
     }
 
     /// Look up a function's executable start address.
@@ -210,7 +244,9 @@ impl FunctionScope for MetadataLoweringContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::module::{FieldInfo, FunctionInfo, NoInfo, Parameter, Signature, StructInfo};
+    use crate::module::{
+        FieldInfo, FunctionInfo, NamedTypeInfo, NoInfo, Parameter, Signature, StructInfo,
+    };
     use vihaco_abi::Type;
 
     fn metadata() -> ProgramMetadata {
@@ -223,6 +259,18 @@ mod tests {
                 "Point".into(),
                 "x".into(),
                 "y".into(),
+                "location".into(),
+                "lane".into(),
+            ],
+            types: vec![
+                NamedTypeInfo {
+                    name: 7,
+                    repr: Type::U64,
+                },
+                NamedTypeInfo {
+                    name: 8,
+                    repr: Type::U64,
+                },
             ],
             structs: vec![StructInfo {
                 name: 4,
@@ -244,7 +292,7 @@ mod tests {
                         params: vec![],
                         ret: vec![],
                     },
-                    local_count: 3,
+                    locals: vec![Type::U64, Type::F64, Type::Struct(0)],
                     start_address: 7,
                     end_address: 9,
                     file: 0,
@@ -255,7 +303,7 @@ mod tests {
                         params: vec![],
                         ret: vec![],
                     },
-                    local_count: 0,
+                    locals: vec![],
                     start_address: 0,
                     end_address: 7,
                     file: 0,
@@ -284,7 +332,7 @@ mod tests {
         assert_eq!(context.label_address("done")?, 8);
         assert!(context.label_address("only_first").is_err());
         assert!(context.string_index("missing").is_err());
-        assert_eq!(metadata.strings.len(), 7);
+        assert_eq!(metadata.strings.len(), 9);
         Ok(())
     }
 
@@ -336,6 +384,7 @@ mod tests {
             name: 0,
             ty: Type::Struct(1),
         });
+        bad.functions[0].locals[0] = Type::Struct(1);
         let err = into_module(bad).unwrap_err();
         assert!(err.to_string().contains("signature.params[0].ty"), "{err}");
         let mut bad = metadata();
@@ -350,6 +399,10 @@ mod tests {
             .push(Type::array(Type::array(Type::Struct(1))));
         let err = into_module(bad).unwrap_err();
         assert!(err.to_string().contains("signature.ret[0]"), "{err}");
+        let mut bad = metadata();
+        bad.functions[0].locals[2] = Type::array(Type::Struct(1));
+        let err = into_module(bad).unwrap_err();
+        assert!(err.to_string().contains("functions[0].locals[2]"), "{err}");
         let mut arrays = metadata();
         arrays.structs[0].fields[0].ty = Type::array(Type::Struct(0));
         assert!(into_module(arrays).is_ok());
@@ -374,6 +427,168 @@ mod tests {
             err.to_string().contains("duplicate struct `Point`"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn named_type_lookups_resolve_table_indices() -> eyre::Result<()> {
+        let mut metadata = metadata();
+        let context = MetadataLoweringContext::new(&metadata)?;
+        assert_eq!(context.named_type_index("location")?, 0);
+        assert_eq!(context.named_type_index("lane")?, 1);
+        let err = context.named_type_index("zone").unwrap_err();
+        assert!(
+            err.to_string().contains("undefined named type `zone`"),
+            "{err}"
+        );
+        context.check_named_type(1)?;
+        let err = context.check_named_type(2).unwrap_err();
+        assert!(
+            err.to_string().contains("outside the named-type table"),
+            "{err}"
+        );
+
+        metadata.types.push(metadata.types[0].clone());
+        let err = MetadataLoweringContext::new(&metadata).unwrap_err();
+        assert!(err.to_string().contains("duplicate"), "{err}");
+        metadata.types.pop();
+        metadata.types[0].name = 99;
+        assert!(MetadataLoweringContext::new(&metadata).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn named_type_tables_are_validated_at_module_assembly() {
+        let into_module = |metadata: ProgramMetadata| metadata.into_module(vec![(); 9]);
+
+        // Every scalar word type may represent a named type.
+        for repr in [
+            Type::I32,
+            Type::I64,
+            Type::U32,
+            Type::U64,
+            Type::F32,
+            Type::F64,
+            Type::Bool,
+        ] {
+            let mut good = metadata();
+            good.types[0].repr = repr;
+            assert!(into_module(good).is_ok());
+        }
+        // Nothing else does: not strings, references, heap types, or names.
+        for repr in [
+            Type::String,
+            Type::FunctionRef,
+            Type::HeapRef,
+            Type::Struct(0),
+            Type::array(Type::U64),
+            Type::Named(1),
+        ] {
+            let mut bad = metadata();
+            bad.types[0].repr = repr.clone();
+            let err = into_module(bad).unwrap_err();
+            assert!(err.to_string().contains("types[0].repr"), "{repr}: {err}");
+        }
+
+        // Names are in range and unique.
+        let mut bad = metadata();
+        bad.types[1].name = 99;
+        let err = into_module(bad).unwrap_err();
+        assert!(err.to_string().contains("types[1].name"), "{err}");
+        let mut bad = metadata();
+        bad.types[1].name = 7;
+        let err = into_module(bad).unwrap_err();
+        assert!(
+            err.to_string().contains("duplicate named type `location`"),
+            "{err}"
+        );
+
+        // Every `type N` reference names a table entry, at any nesting depth.
+        let mut good = metadata();
+        good.functions[0].signature.ret.push(Type::Named(1));
+        good.structs[0].fields[0].ty = Type::array(Type::Named(0));
+        good.functions[0].locals[0] = Type::Named(0);
+        assert!(into_module(good).is_ok());
+        let mut bad = metadata();
+        bad.functions[0].signature.ret.push(Type::Named(2));
+        let err = into_module(bad).unwrap_err();
+        assert!(err.to_string().contains("signature.ret[0]"), "{err}");
+        let mut bad = metadata();
+        bad.functions[0].signature.params.push(Parameter {
+            name: 0,
+            ty: Type::Named(2),
+        });
+        bad.functions[0].locals[0] = Type::Named(2);
+        let err = into_module(bad).unwrap_err();
+        assert!(err.to_string().contains("signature.params[0].ty"), "{err}");
+        let mut bad = metadata();
+        bad.functions[0].locals[1] = Type::array(Type::array(Type::Named(5)));
+        let err = into_module(bad).unwrap_err();
+        assert!(err.to_string().contains("functions[0].locals[1]"), "{err}");
+        let mut bad = metadata();
+        bad.structs[0].fields[1].ty = Type::array(Type::Named(2));
+        let err = into_module(bad).unwrap_err();
+        assert!(err.to_string().contains("structs[0].fields[1].ty"), "{err}");
+        let mut none = metadata();
+        none.types.clear();
+        none.functions[0].locals[0] = Type::Named(0);
+        let err = into_module(none).unwrap_err();
+        assert!(
+            err.to_string().contains("outside table of length 0"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn declared_locals_are_validated() {
+        let into_module = |metadata: ProgramMetadata| metadata.into_module(vec![(); 9]);
+
+        // At most `MAX_LOCALS` locals.
+        let mut bad = metadata();
+        bad.functions[1].locals = vec![Type::U64; crate::module::MAX_LOCALS + 1];
+        let err = into_module(bad).unwrap_err();
+        assert!(err.to_string().contains("exceed the maximum"), "{err}");
+        let mut most = metadata();
+        most.functions[1].locals = vec![Type::U64; crate::module::MAX_LOCALS];
+        assert!(into_module(most).is_ok());
+
+        // At least one local per parameter.
+        let mut bad = metadata();
+        bad.functions[1].signature.params = vec![Parameter {
+            name: 0,
+            ty: Type::U64,
+        }];
+        let err = into_module(bad).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("functions[1].locals: fewer locals than parameters"),
+            "{err}"
+        );
+
+        // The leading locals are the parameter types.
+        let mut bad = metadata();
+        bad.functions[0].signature.params = vec![
+            Parameter {
+                name: 0,
+                ty: Type::U64,
+            },
+            Parameter {
+                name: 0,
+                ty: Type::I64,
+            },
+        ];
+        let err = into_module(bad).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("functions[0].locals[1]: type differs from parameter 1"),
+            "{err}"
+        );
+        let mut good = metadata();
+        good.functions[0].signature.params = vec![Parameter {
+            name: 0,
+            ty: Type::U64,
+        }];
+        assert!(into_module(good).is_ok());
+        assert_eq!(metadata().functions[0].local_count(), 3);
     }
 
     #[test]
@@ -406,6 +621,7 @@ mod tests {
         assert_eq!(converted.extra, 6);
         assert_eq!(converted.functions, original.functions);
         assert_eq!(converted.structs, original.structs);
+        assert_eq!(converted.types, original.types);
         assert_eq!(converted.labels, original.labels);
         assert_eq!(converted.strings, original.strings);
         assert_eq!(converted.constants, original.constants);

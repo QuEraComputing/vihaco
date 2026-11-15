@@ -1,26 +1,31 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Struct and type operands for the struct and array instructions, and their lowering.
+//! Struct, named-type, and type operands for the struct, array, `wrap`, and
+//! `unwrap` instructions, and their lowering.
 //!
 //! Structs are written by name (`struct_new @Point`, `get_field @Point.y`) or
-//! by struct-table index (`struct_new 0`, `get_field 0, 1`). Array element
-//! types are ordinary types, where a struct may also be named:
-//! `array_new struct @Point, 4`, `array_get array f64`. Every form is resolved
-//! against the section's struct table through [`StructLookup`] when the
-//! program is lowered, so the [`StructLayout`], [`FieldSlot`], and element
-//! [`Type`] stored in the runtime instruction always agree with the table. The
-//! CPU then checks each heap object against them at runtime.
+//! by struct-table index (`struct_new 0`, `get_field 0, 1`). Named types are
+//! written the same way (`wrap @location`, `wrap 0`). Array element types are
+//! ordinary types, where a struct or named type may also be named:
+//! `array_new struct @Point, 4`, `array_get type @location`, and so may the
+//! types in a `call_indirect` signature: `call_indirect (struct @Point) -> u64`.
+//! Every form is
+//! resolved against the section's struct table through [`StructLookup`] and
+//! its named-type table through [`NamedTypeLookup`] when the program is
+//! lowered, so the [`StructLayout`], [`FieldSlot`], named-type index, and
+//! element [`Type`] stored in the runtime instruction always agree with the
+//! tables. The CPU then checks each heap object against them at runtime.
 
 use crate::{FieldSlot, StructLayout, cpu};
 use chumsky::{error::Simple, extra, prelude::*};
-use vihaco_abi::{Lower, Syntax, Type};
+use vihaco_abi::{FunctionType, Lower, Syntax, Type};
 use vihaco_module::loader::MetadataLoweringContext;
 use vihaco_parser::{Ident, Parse};
 
-/// A type as written in source: any [`Type`], where struct types may also be
-/// named (`struct @Point`), nested up to [`Type::MAX_ARRAY_DEPTH`] levels deep
-/// (`array array struct @Point`).
+/// A type as written in source: any [`Type`], where struct and named types may
+/// also be named (`struct @Point`, `type @location`), nested up to
+/// [`Type::MAX_ARRAY_DEPTH`] levels deep (`array array struct @Point`).
 #[derive(Clone, Debug, PartialEq)]
 pub enum TypeOperand {
     /// A type with no names to resolve, such as `f64` or `array struct 0`.
@@ -29,6 +34,8 @@ pub enum TypeOperand {
     Array(Box<TypeOperand>),
     /// `struct @Name`.
     StructSymbol(Ident),
+    /// `type @name`.
+    NamedSymbol(Ident),
 }
 
 impl<'src> Parse<'src> for TypeOperand {
@@ -45,7 +52,16 @@ impl<'src> Parse<'src> for TypeOperand {
             .then(just('@'))
             .ignore_then(vihaco_parser::ident())
             .map(|name| TypeOperand::StructSymbol(Ident(name)));
-        let element = choice((named_struct, Type::parser().map(TypeOperand::Resolved)));
+        let named_type = just("type")
+            .then(text::whitespace().at_least(1))
+            .then(just('@'))
+            .ignore_then(vihaco_parser::ident())
+            .map(|name| TypeOperand::NamedSymbol(Ident(name)));
+        let element = choice((
+            named_struct,
+            named_type,
+            Type::parser().map(TypeOperand::Resolved),
+        ));
         prefixes.then(element).try_map(|(depth, elem), span| {
             TypeOperand::nested(depth, elem).ok_or(Simple::new(None, span))
         })
@@ -66,10 +82,51 @@ impl TypeOperand {
     }
 }
 
+/// A function type as written in source, `(struct @Point, type @location) ->
+/// u64`: a [`FunctionType`] whose parameter and result types may name structs
+/// and named types, as a [`TypeOperand`] does. Numeric forms (`struct 0`,
+/// `type 0`) are accepted too. Lowering resolves every name and checks every
+/// reference against the tables.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FunctionTypeOperand {
+    /// Parameter types.
+    pub params: Vec<TypeOperand>,
+    /// Result types.
+    pub results: Vec<TypeOperand>,
+}
+
+impl<'src> Parse<'src> for FunctionTypeOperand {
+    fn parser() -> impl Parser<'src, &'src str, Self, extra::Err<Simple<'src, char>>> {
+        // The same shape as `FunctionType`'s parser, over type operands.
+        let ws = one_of(" \t").repeated();
+        let ty = TypeOperand::parser().boxed();
+        let list = ty
+            .clone()
+            .separated_by(just(',').padded_by(ws))
+            .collect::<Vec<_>>()
+            .padded_by(ws)
+            .delimited_by(just('('), just(')'));
+        let results = list.clone().or(ty.map(|ty| vec![ty]));
+        list.then_ignore(just("->").padded_by(ws))
+            .then(results)
+            .map(|(params, results)| FunctionTypeOperand { params, results })
+    }
+}
+
 /// A struct, by struct-table index or `@Struct` name.
 #[derive(vihaco_parser_derive::Parse, Clone, Debug, PartialEq)]
 #[syntax_class(value)]
 pub enum StructOperand {
+    #[pattern = "$0"]
+    Resolved(u32),
+    #[pattern = "`@` $0"]
+    Symbol(Ident),
+}
+
+/// A named type, by named-type-table index or `@name`.
+#[derive(vihaco_parser_derive::Parse, Clone, Debug, PartialEq)]
+#[syntax_class(value)]
+pub enum NamedTypeOperand {
     #[pattern = "$0"]
     Resolved(u32),
     #[pattern = "`@` $0"]
@@ -105,6 +162,50 @@ impl StructLookup for MetadataLoweringContext {
     }
     fn field_index(&self, struct_index: u32, field: &str) -> eyre::Result<u32> {
         MetadataLoweringContext::field_index(self, struct_index, field)
+    }
+}
+
+/// Resolve named types against the section's named-type table.
+pub trait NamedTypeLookup {
+    /// The named-type-table index of the named type called `name`.
+    fn named_type_index(&self, name: &str) -> eyre::Result<u32>;
+    /// Check that `index` is an entry of the named-type table.
+    fn check_named_type(&self, index: u32) -> eyre::Result<()>;
+}
+
+impl NamedTypeLookup for MetadataLoweringContext {
+    fn named_type_index(&self, name: &str) -> eyre::Result<u32> {
+        MetadataLoweringContext::named_type_index(self, name)
+    }
+    fn check_named_type(&self, index: u32) -> eyre::Result<()> {
+        MetadataLoweringContext::check_named_type(self, index)
+    }
+}
+
+fn named_type<C: NamedTypeLookup + ?Sized>(
+    operand: NamedTypeOperand,
+    context: &C,
+) -> eyre::Result<u32> {
+    match operand {
+        NamedTypeOperand::Resolved(index) => {
+            context.check_named_type(index)?;
+            Ok(index)
+        }
+        NamedTypeOperand::Symbol(name) => context.named_type_index(name.as_str()),
+    }
+}
+
+impl<C: NamedTypeLookup + ?Sized> Lower<C> for cpu::Wrap<Syntax> {
+    type Runtime = cpu::Wrap;
+    fn lower(self, context: &mut C) -> eyre::Result<Self::Runtime> {
+        Ok(cpu::Wrap(named_type(self.0, context)?))
+    }
+}
+
+impl<C: NamedTypeLookup + ?Sized> Lower<C> for cpu::Unwrap<Syntax> {
+    type Runtime = cpu::Unwrap;
+    fn lower(self, context: &mut C) -> eyre::Result<Self::Runtime> {
+        Ok(cpu::Unwrap(named_type(self.0, context)?))
     }
 }
 
@@ -173,18 +274,27 @@ impl<C: StructLookup + ?Sized> Lower<C> for cpu::SetField<Syntax> {
     }
 }
 
-/// Resolve struct names in a type, and check that every struct type it refers
-/// to (named or numeric) exists in the struct table.
-fn resolve_type<C: StructLookup + ?Sized>(operand: TypeOperand, context: &C) -> eyre::Result<Type> {
+/// Resolve struct and named-type names in a type, and check that every struct
+/// and named type it refers to (named or numeric) exists in its table.
+fn resolve_type<C: StructLookup + NamedTypeLookup + ?Sized>(
+    operand: TypeOperand,
+    context: &C,
+) -> eyre::Result<Type> {
     let ty = match operand {
         TypeOperand::Resolved(ty) => ty,
         TypeOperand::Array(elem) => Type::array(resolve_type(*elem, context)?),
         TypeOperand::StructSymbol(name) => Type::Struct(context.struct_index(name.as_str())?),
+        TypeOperand::NamedSymbol(name) => Type::Named(context.named_type_index(name.as_str())?),
     };
     let mut result = Ok(());
     ty.visit_struct_refs(&mut |index| {
         if result.is_ok() {
             result = context.struct_field_count(index).map(drop);
+        }
+    });
+    ty.visit_named_refs(&mut |index| {
+        if result.is_ok() {
+            result = context.check_named_type(index);
         }
     });
     result.map(|()| ty)
@@ -193,7 +303,7 @@ fn resolve_type<C: StructLookup + ?Sized>(operand: TypeOperand, context: &C) -> 
 /// Resolve an array element type. The array type itself (`array <elem>`) must
 /// stay within [`Type::MAX_ARRAY_DEPTH`] like every other type, so the element
 /// type may nest one level less.
-fn resolve_element_type<C: StructLookup + ?Sized>(
+fn resolve_element_type<C: StructLookup + NamedTypeLookup + ?Sized>(
     operand: TypeOperand,
     context: &C,
 ) -> eyre::Result<Type> {
@@ -208,7 +318,33 @@ fn resolve_element_type<C: StructLookup + ?Sized>(
     Ok(elem)
 }
 
-impl<C: StructLookup + ?Sized> Lower<C> for cpu::ArrayNew<Syntax> {
+/// Resolve every type of a `call_indirect` signature: names are looked up, and
+/// every struct and named type, named or numbered, is checked against its table.
+pub fn resolve_function_type<C: StructLookup + NamedTypeLookup + ?Sized>(
+    operand: FunctionTypeOperand,
+    context: &C,
+) -> eyre::Result<FunctionType> {
+    let resolve = |types: Vec<TypeOperand>| -> eyre::Result<Vec<Type>> {
+        types
+            .into_iter()
+            .map(|ty| resolve_type(ty, context))
+            .collect()
+    };
+    Ok(FunctionType {
+        params: resolve(operand.params)?,
+        results: resolve(operand.results)?,
+    })
+}
+
+#[cfg(not(feature = "program-image-execution"))]
+impl<C: StructLookup + NamedTypeLookup + ?Sized> Lower<C> for cpu::IndirectCall<Syntax> {
+    type Runtime = cpu::IndirectCall;
+    fn lower(self, context: &mut C) -> eyre::Result<Self::Runtime> {
+        Ok(cpu::IndirectCall(resolve_function_type(self.0, context)?))
+    }
+}
+
+impl<C: StructLookup + NamedTypeLookup + ?Sized> Lower<C> for cpu::ArrayNew<Syntax> {
     type Runtime = cpu::ArrayNew;
     fn lower(self, context: &mut C) -> eyre::Result<Self::Runtime> {
         Ok(cpu::ArrayNew(
@@ -220,7 +356,7 @@ impl<C: StructLookup + ?Sized> Lower<C> for cpu::ArrayNew<Syntax> {
 
 macro_rules! lower_element_type {
     ($($instruction:ident),* $(,)?) => {$(
-        impl<C: StructLookup + ?Sized> Lower<C> for cpu::$instruction<Syntax> {
+        impl<C: StructLookup + NamedTypeLookup + ?Sized> Lower<C> for cpu::$instruction<Syntax> {
             type Runtime = cpu::$instruction;
             fn lower(self, context: &mut C) -> eyre::Result<Self::Runtime> {
                 Ok(cpu::$instruction(resolve_element_type(self.0, context)?))
@@ -236,8 +372,22 @@ mod tests {
     use super::*;
     use vihaco_runtime::Parse;
 
-    /// Struct 0 is `Point { x, y }`; struct 1 is `Unit {}`.
+    /// Struct 0 is `Point { x, y }`; struct 1 is `Unit {}`. Named type 0 is
+    /// `location`.
     struct Points;
+
+    impl NamedTypeLookup for Points {
+        fn named_type_index(&self, name: &str) -> eyre::Result<u32> {
+            match name {
+                "location" => Ok(0),
+                _ => Err(eyre::eyre!("undefined named type `{name}`")),
+            }
+        }
+        fn check_named_type(&self, index: u32) -> eyre::Result<()> {
+            eyre::ensure!(index == 0, "named type {index} is outside the table");
+            Ok(())
+        }
+    }
 
     impl StructLookup for Points {
         fn struct_index(&self, name: &str) -> eyre::Result<u32> {
@@ -407,6 +557,82 @@ mod tests {
             err.to_string().contains("nested 200000 levels deep"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn named_types_resolve_by_name_and_index() {
+        assert_eq!(
+            lower::<cpu::Wrap<Syntax>>("wrap @location").unwrap(),
+            cpu::Wrap(0)
+        );
+        assert_eq!(lower::<cpu::Wrap<Syntax>>("wrap 0").unwrap(), cpu::Wrap(0));
+        assert_eq!(
+            lower::<cpu::Unwrap<Syntax>>("unwrap @location").unwrap(),
+            cpu::Unwrap(0)
+        );
+        let err = lower::<cpu::Wrap<Syntax>>("wrap @lane").unwrap_err();
+        assert!(
+            err.to_string().contains("undefined named type `lane`"),
+            "{err}"
+        );
+        assert!(lower::<cpu::Unwrap<Syntax>>("unwrap 1").is_err());
+
+        // Element types may name named types, at any depth, or number them.
+        assert_eq!(
+            lower::<cpu::ArrayNew<Syntax>>("array_new type @location, 2").unwrap(),
+            cpu::ArrayNew(Type::Named(0), 2)
+        );
+        assert_eq!(
+            lower::<cpu::ArrayGet<Syntax>>("array_get array type @location").unwrap(),
+            cpu::ArrayGet(Type::array(Type::Named(0)))
+        );
+        assert_eq!(
+            lower::<cpu::ArrayPush<Syntax>>("array_push type 0").unwrap(),
+            cpu::ArrayPush(Type::Named(0))
+        );
+        let err = lower::<cpu::ArrayNew<Syntax>>("array_new type @lane, 1").unwrap_err();
+        assert!(
+            err.to_string().contains("undefined named type `lane`"),
+            "{err}"
+        );
+        assert!(lower::<cpu::ArrayGet<Syntax>>("array_get type 3").is_err());
+        assert!(lower::<cpu::ArrayGet<Syntax>>("array_get array type 3").is_err());
+    }
+
+    #[test]
+    fn function_types_resolve_names_and_check_numeric_references() {
+        let lower_signature = |text: &str| {
+            FunctionTypeOperand::parser()
+                .then_ignore(end())
+                .parse(text)
+                .into_result()
+                .map_err(|errors| eyre::eyre!("{errors:?}"))
+                .and_then(|operand| resolve_function_type(operand, &Points))
+        };
+        assert_eq!(
+            lower_signature("(struct @Point, type @location) -> u64").unwrap(),
+            FunctionType::new([Type::Struct(0), Type::Named(0)], [Type::U64])
+        );
+        assert_eq!(
+            lower_signature("(struct 0, array type 0) -> (struct @Unit, f64)").unwrap(),
+            FunctionType::new(
+                [Type::Struct(0), Type::array(Type::Named(0))],
+                [Type::Struct(1), Type::F64]
+            )
+        );
+        assert_eq!(
+            lower_signature("() -> ()").unwrap(),
+            FunctionType::new([], [])
+        );
+        let err = lower_signature("(struct @Line) -> ()").unwrap_err();
+        assert!(err.to_string().contains("undefined struct `Line`"), "{err}");
+        let err = lower_signature("() -> type @lane").unwrap_err();
+        assert!(
+            err.to_string().contains("undefined named type `lane`"),
+            "{err}"
+        );
+        assert!(lower_signature("(struct 7) -> ()").is_err());
+        assert!(lower_signature("() -> array type 3").is_err());
     }
 
     #[test]

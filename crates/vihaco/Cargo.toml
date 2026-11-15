@@ -24,10 +24,15 @@ vihaco-syntax = { workspace = true }
 vihaco-parser = { workspace = true }
 vihaco-parser-derive = { workspace = true }
 vihaco-stdlib = { workspace = true }
+vihaco-verifier = { workspace = true, optional = true }
 
 [features]
-program-image-execution = ["typed-declarations", "vihaco-runtime/program-image-execution", "vihaco-stdlib/program-image-execution", "vihaco-syntax/program-image-execution"]
+# Images require verified modules, so program-image execution includes the verifier.
+program-image-execution = ["verifier", "typed-declarations", "vihaco-runtime/program-image-execution", "vihaco-stdlib/program-image-execution", "vihaco-syntax/program-image-execution"]
 typed-declarations = ["vihaco-runtime/typed-declarations", "vihaco-syntax/typed-declarations", "vihaco-stdlib/typed-declarations"]
+# Load-time verification (`vihaco::verifier`). Rules are generated for typed
+# composites only, so this implies `typed-declarations`.
+verifier = ["typed-declarations", "dep:vihaco-verifier"]
 
 [dev-dependencies]
 trybuild = "1.0"

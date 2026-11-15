@@ -9,6 +9,12 @@ use vihaco_runtime::{Dispatch, HasProgram};
 
 /// Enter main and execute through the composite's authored Steps.
 ///
+/// This is the low-level, **unverified** runner: it accepts any plain module.
+/// Load-time verification is enforced by [`Image`](crate::Image), which only
+/// takes a `Verified` module, and so by [`Loadable`](crate::Loadable); use those
+/// for programs from untrusted sources. Runtime checks (operand bounds, heap
+/// tags, frame and call-depth limits) still apply here.
+///
 /// Devices remain in place. Instructions borrow the caller-owned module; there
 /// is no instruction clone, generated Step, or imposed effect-application policy.
 ///

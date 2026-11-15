@@ -37,13 +37,20 @@ pub trait TypedSlot: Lattice {
     /// Accept this slot where a value of type `expected` is required, or
     /// report a [`DiagnosticKind::TypeMismatch`](crate::DiagnosticKind::TypeMismatch).
     fn expect(&self, expected: &Type) -> Result<(), VerifyError>;
+
+    /// The type every path agrees this slot has, or `None` (for example after
+    /// a conflict). Rules that accept a family of types, such as any
+    /// `array T`, inspect it.
+    fn known_type(&self) -> Option<&Type>;
 }
 
 /// Whether a value of type `found` may be used where `expected` is required.
 ///
 /// Types are compatible when they are equal; in addition, `struct N` and
 /// `array T` satisfy `heap`, so instructions that accept any heap object accept
-/// both. `heap` satisfies neither `struct N` nor `array T`.
+/// both. `heap` satisfies neither `struct N` nor `array T`. A named type
+/// `type N` is nominal and satisfies only itself: not its representation,
+/// another named type, or `heap`.
 pub fn type_satisfies(found: &Type, expected: &Type) -> bool {
     found == expected
         || (matches!(expected, Type::HeapRef) && matches!(found, Type::Struct(_) | Type::Array(_)))
@@ -86,6 +93,13 @@ impl TypedSlot for TypeSlot {
             _ => Err(VerifyError::type_mismatch(expected, self)),
         }
     }
+
+    fn known_type(&self) -> Option<&Type> {
+        match self {
+            TypeSlot::Known(ty) => Some(ty),
+            TypeSlot::Conflict(..) => None,
+        }
+    }
 }
 
 impl From<Type> for TypeSlot {
@@ -119,6 +133,23 @@ mod tests {
         assert!(!type_satisfies(
             &Type::array(Type::U64),
             &Type::array(Type::F64)
+        ));
+    }
+
+    #[test]
+    fn named_types_satisfy_only_themselves() {
+        assert!(type_satisfies(&Type::Named(0), &Type::Named(0)));
+        assert!(!type_satisfies(&Type::Named(0), &Type::Named(1)));
+        assert!(!type_satisfies(&Type::Named(0), &Type::U64));
+        assert!(!type_satisfies(&Type::U64, &Type::Named(0)));
+        assert!(!type_satisfies(&Type::Named(0), &Type::HeapRef));
+        assert!(type_satisfies(
+            &Type::array(Type::Named(0)),
+            &Type::array(Type::Named(0))
+        ));
+        assert!(!type_satisfies(
+            &Type::array(Type::Named(0)),
+            &Type::array(Type::U64)
         ));
     }
 

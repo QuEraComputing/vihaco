@@ -28,6 +28,19 @@ pub struct FunctionSpan<S> {
     pub entry: S,
 }
 
+impl<S> FunctionSpan<S> {
+    /// The same span with its entry state transformed, for example to pair a
+    /// standard frame with a wrapping context's own entry state.
+    pub fn map_entry<T>(self, map: impl FnOnce(S) -> T) -> FunctionSpan<T> {
+        FunctionSpan {
+            function: self.function,
+            start: self.start,
+            end: self.end,
+            entry: map(self.entry),
+        }
+    }
+}
+
 /// Options for [`verify_functions`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct VerifyOptions {
@@ -99,23 +112,41 @@ pub struct Verification<S> {
 
 /// A failed verification: at least one diagnostic has [`Severity::Error`].
 ///
-/// Converts into an [`eyre::Report`]; its `Display` lists every diagnostic.
+/// Converts into an [`eyre::Report`] when `S` is `Debug + Send + Sync +
+/// 'static`; its `Display` lists every diagnostic.
 ///
 /// [`Severity::Error`]: crate::Severity::Error
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Rejection {
+#[derive(Clone, Debug, PartialEq)]
+pub struct Rejection<S> {
     /// Every diagnostic, errors and warnings, sorted by function then address.
     pub diagnostics: Vec<Diagnostic>,
+    /// Each reached leader's converged state, when requested through
+    /// [`VerifyOptions::type_maps`], so tools can show types next to errors.
+    ///
+    /// Leaders reachable only through failing blocks have no entry, and
+    /// neither do functions whose span is invalid. A failing block's entry
+    /// is the state it fails at, with every other failing block passing
+    /// nothing on.
+    pub type_maps: Option<TypeMaps<S>>,
 }
 
-impl Rejection {
+impl<S> Rejection<S> {
     /// The diagnostics that reject the program.
     pub fn errors(&self) -> impl Iterator<Item = &Diagnostic> {
         self.diagnostics.iter().filter(|d| d.is_error())
     }
+
+    /// The same rejection without its type maps, for example to keep only the
+    /// diagnostics of a rejection whose states are not `Send`.
+    pub fn without_type_maps<T>(self) -> Rejection<T> {
+        Rejection {
+            diagnostics: self.diagnostics,
+            type_maps: None,
+        }
+    }
 }
 
-impl fmt::Display for Rejection {
+impl<S> fmt::Display for Rejection<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let count = self.errors().count();
         write!(
@@ -130,7 +161,7 @@ impl fmt::Display for Rejection {
     }
 }
 
-impl std::error::Error for Rejection {}
+impl<S: fmt::Debug> std::error::Error for Rejection<S> {}
 
 /// Verify each function in `functions` against `code`, the section's
 /// instructions indexed by section-local address.
@@ -172,6 +203,8 @@ impl std::error::Error for Rejection {}
 /// fail), so no diagnostic stems from a state another failing block passed
 /// on (within the cap on reruns). Every diagnostic of every function is
 /// returned, sorted by function then address.
+/// Type maps, when requested, are returned with a [`Rejection`] as well as
+/// with a [`Verification`].
 ///
 /// The fixpoint terminates provided the context's joins have finite height
 /// (see [`Lattice`](crate::Lattice)).
@@ -185,7 +218,7 @@ pub fn verify_functions<I, C>(
     functions: &[FunctionSpan<C::Snapshot>],
     context: &mut C,
     options: VerifyOptions,
-) -> Result<Verification<C::Snapshot>, Rejection>
+) -> Result<Verification<C::Snapshot>, Rejection<C::Snapshot>>
 where
     I: Verify<C>,
     C: AbstractState + ?Sized,
@@ -204,7 +237,10 @@ where
     found.sort_by_key(|f| (f.diagnostic.function, f.diagnostic.address, f.order));
     let diagnostics: Vec<Diagnostic> = found.into_iter().map(|f| f.diagnostic).collect();
     if diagnostics.iter().any(Diagnostic::is_error) {
-        Err(Rejection { diagnostics })
+        Err(Rejection {
+            diagnostics,
+            type_maps,
+        })
     } else {
         Ok(Verification {
             warnings: diagnostics,

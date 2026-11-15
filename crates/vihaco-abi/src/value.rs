@@ -71,6 +71,11 @@ pub enum Type {
     /// A heap reference to an array whose elements all have the given type.
     /// Written `array <elem>`, e.g. `array f64` or `array array u64`.
     Array(Box<Type>),
+    /// A named type, by index into the module's named-type table. Written
+    /// `type N`. Named types are nominal: at runtime a value is the same word
+    /// as the table entry's scalar representation, but for verification it
+    /// satisfies only itself.
+    Named(u32),
 }
 
 impl Type {
@@ -194,6 +199,122 @@ impl Type {
             _ => {}
         }
     }
+
+    /// Visit every named-type-table index this type refers to, including named
+    /// types nested inside array element types.
+    pub fn visit_named_refs(&self, visit: &mut dyn FnMut(u32)) {
+        match self {
+            Type::Named(index) => visit(*index),
+            Type::Array(elem) => elem.visit_named_refs(visit),
+            _ => {}
+        }
+    }
+
+    /// Whether this is a scalar word type that may represent a named type:
+    /// `i32`, `i64`, `u32`, `u64`, `f32`, `f64` or `bool`.
+    pub fn is_scalar_word(&self) -> bool {
+        matches!(
+            self,
+            Type::I32 | Type::I64 | Type::U32 | Type::U64 | Type::F32 | Type::F64 | Type::Bool
+        )
+    }
+}
+
+/// A function type: parameter and result types, without names.
+///
+/// Written `(u64, f64) -> u64`: parameters in parentheses, then `->` and the
+/// results, as one type or a parenthesized list (`-> ()` for none,
+/// `-> (u64, u64)` for several). `call_indirect` carries one as its expected
+/// signature, which the runtime compares with the target function's declared
+/// signature before calling.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct FunctionType {
+    pub params: Vec<Type>,
+    pub results: Vec<Type>,
+}
+
+impl FunctionType {
+    /// A function type with the given parameter and result types.
+    pub fn new(params: impl Into<Vec<Type>>, results: impl Into<Vec<Type>>) -> Self {
+        Self {
+            params: params.into(),
+            results: results.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for FunctionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn list(f: &mut std::fmt::Formatter<'_>, types: &[Type]) -> std::fmt::Result {
+            f.write_str("(")?;
+            for (index, ty) in types.iter().enumerate() {
+                if index > 0 {
+                    f.write_str(", ")?;
+                }
+                write!(f, "{ty}")?;
+            }
+            f.write_str(")")
+        }
+        list(f, &self.params)?;
+        f.write_str(" -> ")?;
+        match self.results.as_slice() {
+            [single] => write!(f, "{single}"),
+            results => list(f, results),
+        }
+    }
+}
+
+impl<'src> vihaco_parser::Parse<'src> for FunctionType {
+    fn parser() -> impl Parser<'src, &'src str, Self, ValueParseExtra<'src>> {
+        function_type_text_parser()
+    }
+}
+
+impl crate::traits::FromText for FunctionType {
+    fn from_text(text: &str) -> eyre::Result<Self>
+    where
+        Self: Sized,
+    {
+        function_type_text_parser()
+            .then_ignore(end())
+            .parse(text)
+            .into_result()
+            .map_err(|errors| format_value_parse_errors(text, errors))
+    }
+}
+
+/// Encoded as the parameter count (`u32` LE), the parameter types, the result
+/// count, and the result types.
+impl crate::traits::FromBytes for FunctionType {
+    fn from_bytes<R: std::io::Read>(bytes: &mut R) -> eyre::Result<Self>
+    where
+        Self: Sized,
+    {
+        let list = |bytes: &mut R| -> eyre::Result<Vec<Type>> {
+            let count = bytes.read_u32::<LittleEndian>()?;
+            // Grow as types decode, so a corrupt count cannot force a huge allocation.
+            let mut types = Vec::new();
+            for _ in 0..count {
+                types.push(<Type as crate::traits::FromBytes>::from_bytes(bytes)?);
+            }
+            Ok(types)
+        };
+        let params = list(bytes)?;
+        let results = list(bytes)?;
+        Ok(Self { params, results })
+    }
+}
+
+impl crate::traits::WriteBytes for FunctionType {
+    fn write_bytes<W: std::io::Write>(&self, io: &mut W) -> eyre::Result<()> {
+        for types in [&self.params, &self.results] {
+            io.write_u32::<LittleEndian>(u32::try_from(types.len())?)?;
+            for ty in types {
+                crate::traits::WriteBytes::write_bytes(ty, io)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Parse type syntax directly into the runtime type vocabulary.
@@ -297,6 +418,7 @@ impl std::fmt::Display for Type {
             Type::HeapRef => write!(f, "heap"),
             Type::Struct(index) => write!(f, "struct {}", index),
             Type::Array(elem) => write!(f, "array {}", elem),
+            Type::Named(index) => write!(f, "type {}", index),
         }
     }
 }
@@ -381,6 +503,7 @@ impl Type {
             0x09 => Ok(Type::I32),
             0x0A => Ok(Type::F32),
             0x0B => Ok(Type::Struct(bytes.read_u32::<LittleEndian>()?)),
+            0x0D => Ok(Type::Named(bytes.read_u32::<LittleEndian>()?)),
             _ => Err(eyre::eyre!("Unknown type byte: {}", type_byte)),
         }
     }
@@ -415,10 +538,11 @@ impl crate::traits::WriteBytes for Type {
             Type::F32 => 0x0A,
             Type::Struct(_) => 0x0B,
             Type::Array(_) => 0x0C,
+            Type::Named(_) => 0x0D,
         };
         io.write_u8(type_byte)?;
         match self {
-            Type::Struct(index) => io.write_u32::<LittleEndian>(*index)?,
+            Type::Struct(index) | Type::Named(index) => io.write_u32::<LittleEndian>(*index)?,
             Type::Array(elem) => elem.write_bytes(io)?,
             _ => {}
         }
@@ -570,8 +694,13 @@ fn element_type_text_parser<'src>()
             .then_ignore(text::whitespace().at_least(1))
             .ignore_then(scalar_text::<u32>())
             .map(Type::Struct);
+        let named_type = just("type")
+            .then_ignore(text::whitespace().at_least(1))
+            .ignore_then(scalar_text::<u32>())
+            .map(Type::Named);
         choice((
             struct_type,
+            named_type,
             just("undefined").to(Type::Undefined),
             just("undef").to(Type::Undefined),
             just("string").to(Type::String),
@@ -589,6 +718,20 @@ fn element_type_text_parser<'src>()
             just("heap").to(Type::HeapRef),
         ))
     }
+}
+
+fn function_type_text_parser<'src>()
+-> impl Parser<'src, &'src str, FunctionType, ValueParseExtra<'src>> + Clone {
+    let ws = one_of(" \t").repeated();
+    let list = type_text_parser()
+        .separated_by(just(',').padded_by(ws))
+        .collect::<Vec<_>>()
+        .padded_by(ws)
+        .delimited_by(just('('), just(')'));
+    let results = list.clone().or(type_text_parser().map(|ty| vec![ty]));
+    list.then_ignore(just("->").padded_by(ws))
+        .then(results)
+        .map(|(params, results)| FunctionType { params, results })
 }
 
 fn value_text_parser<'src>() -> impl Parser<'src, &'src str, Value, ValueParseExtra<'src>> + Clone {

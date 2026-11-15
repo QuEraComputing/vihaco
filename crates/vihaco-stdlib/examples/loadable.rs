@@ -15,7 +15,7 @@ use vihaco_module::{
     module::{LocalModule, ProgramMetadata},
 };
 use vihaco_runtime::{Apply, BuildMessage, Execute, HasInstructionSet, Step, composite, field};
-use vihaco_stdlib::{ExecutionState, Image, Loadable};
+use vihaco_stdlib::{ExecutionState, Image, Loadable, Verified};
 use vihaco_syntax::{HeaderDeclarations, ParsedModule, lower_functions_with_metadata};
 
 // This composite owns mutable devices and invocation state, while its image
@@ -170,7 +170,14 @@ impl Runtime {
         let code = lower_functions_with_metadata(functions, &metadata, &mut context)?;
         let module = metadata.map_extra(|_| info).into_module(code)?;
 
-        // 5. Wrap the completed module and pair it with a fresh execution machine.
+        // 5. Verify the module against the composite's typing rules, then wrap
+        // it and pair it with a fresh execution machine. Warnings (such as
+        // unreachable code) don't reject the program; errors do.
+        let (module, verification) =
+            Verified::verify(module, vihaco_verifier::VerifyOptions::default())?;
+        for warning in &verification.warnings {
+            eprintln!("{warning}");
+        }
         let image = Image::new(module);
         let machine = Machine {
             execution: ExecutionState::new(),
@@ -192,10 +199,10 @@ fn main() -> eyre::Result<()> {
     let mut runtime = Runtime::from_sst(&source)?;
     drop(source);
 
-    println!("{}", runtime.controller.image().module.extra.description);
+    println!("{}", runtime.controller.image().module().extra.description);
     println!(
         "Loaded {} instructions",
-        runtime.controller.image().module.code.len()
+        runtime.controller.image().module().code.len()
     );
 
     // 6. Enter main. Dispatch borrows instructions and metadata from the image
@@ -215,13 +222,30 @@ mod tests {
     #[test]
     fn collected_declarations_and_lowered_bodies_form_an_executable_image() -> eyre::Result<()> {
         let mut runtime = Runtime::from_sst(include_str!("loadable.sst"))?;
-        assert_eq!(runtime.controller.image().module.main_function, Some(1));
+        assert_eq!(runtime.controller.image().module().main_function, Some(1));
         assert_eq!(
-            runtime.controller.image().module.extra.description,
+            runtime.controller.image().module().extra.description,
             "Loadable SST example: 21 * 2"
         );
         runtime.controller.execute(&[])?;
         assert_eq!(runtime.controller.machine().execution.stack(), &[42]);
+        Ok(())
+    }
+
+    #[test]
+    fn the_example_program_passes_load_time_verification() -> eyre::Result<()> {
+        let runtime = Runtime::from_sst(include_str!("loadable.sst"))?;
+        let verification = vihaco_verifier::verify_module(
+            runtime.controller.image().module(),
+            vihaco_verifier::VerifyOptions::default(),
+        )
+        .map_err(|rejection| eyre::eyre!("{rejection:?}"))?;
+        // `const_u64 999` after the branch to `@done` never runs.
+        assert_eq!(verification.warnings.len(), 1);
+        assert_eq!(
+            verification.warnings[0].kind,
+            vihaco_verifier::DiagnosticKind::Unreachable
+        );
         Ok(())
     }
 

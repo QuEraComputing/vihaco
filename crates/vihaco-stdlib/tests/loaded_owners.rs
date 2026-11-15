@@ -14,7 +14,8 @@ use vihaco_runtime::{
     Apply, BuildMessage, Composite, Dispatch, Execute, HasInstructionSet, HasProgram, Lower,
     NoMessage, Parse, Step, chumsky::prelude::*, composite, field,
 };
-use vihaco_stdlib::{ExecutionState, Image, Loadable, program::program};
+use vihaco_stdlib::{ExecutionState, Image, Loadable, Verified, program::program};
+use vihaco_verifier::{ModuleVerifier, Verify};
 
 type Module<M> = LocalModule<<M as HasInstructionSet>::Runtime, Value, Type>;
 type MachineImage<M> = Image<<M as HasInstructionSet>::Runtime>;
@@ -107,9 +108,7 @@ impl FromText for Header {
 
 impl SstHeader for Header {}
 
-fn construct_image<'src, M>(
-    section: SstSectionView<'src, NoContext>,
-) -> eyre::Result<MachineImage<M>>
+fn construct_module<'src, M>(section: SstSectionView<'src, NoContext>) -> eyre::Result<Module<M>>
 where
     M: HasInstructionSet,
     M::Syntax: Parse<'src> + 'src + Lower<MetadataLoweringContext, Runtime = M::Runtime>,
@@ -118,12 +117,23 @@ where
         vihaco_syntax::ParsedModule::<M::Syntax, Type, Header>::parse_section(section)?;
     let metadata = header.0;
     let mut context = MetadataLoweringContext::new(&metadata)?;
-    let module = vihaco_syntax::ParsedModule {
+    vihaco_syntax::ParsedModule {
         header: (),
         functions,
     }
-    .lower_with_metadata(metadata, &mut context)?;
-    Ok(Image::new(module))
+    .lower_with_metadata(metadata, &mut context)
+}
+
+/// Parse, lower, and verify a section into an image.
+fn construct_image<'src, M>(
+    section: SstSectionView<'src, NoContext>,
+) -> eyre::Result<MachineImage<M>>
+where
+    M: HasInstructionSet,
+    M::Syntax: Parse<'src> + 'src + Lower<MetadataLoweringContext, Runtime = M::Runtime>,
+    M::Runtime: for<'m> Verify<ModuleVerifier<'m>>,
+{
+    Ok(Image::new(Verified::new(construct_module::<M>(section)?)?))
 }
 
 fn section_source(name: &str, main: &str, helper: &str) -> String {
@@ -136,12 +146,12 @@ fn section_source(name: &str, main: &str, helper: &str) -> String {
 metadata {{
     strings: ["main", "helper", "source.sst"],
     functions: [
-        {{ name: 1, signature: {{ params: [], ret: [u64] }}, local_count: 0,
+        {{ name: 1, signature: {{ params: [], ret: [u64] }}, locals: [],
            start_address: {helper_start}, end_address: {end}, file: 2 }},
-        {{ name: 0, signature: {{ params: [], ret: [u64] }}, local_count: 0,
+        {{ name: 0, signature: {{ params: [], ret: [u64] }}, locals: [],
            start_address: 0, end_address: {helper_start}, file: 2 }},
     ],
-    structs: [], labels: [], constants: [], main_function: 1, source_symbols: [],
+    structs: [], types: [], labels: [], constants: [], main_function: 1, source_symbols: [],
     extra: {{}},
 }}
 .header({name}).
@@ -227,7 +237,7 @@ fn sibling_loadables_construct_and_execute_independent_programs() {
     };
     drop(file);
     drop(source);
-    assert_eq!(runtime.controller.image().module.main_function, Some(1));
+    assert_eq!(runtime.controller.image().module().main_function, Some(1));
     runtime.controller.execute(&[]).unwrap();
     runtime.sequencer.execute(&[]).unwrap();
     assert_eq!(runtime.controller.machine().execution.stack(), &[11]);
@@ -242,21 +252,24 @@ fn sibling_loadables_construct_and_execute_independent_programs() {
 }
 
 fn struct_program(main_body: &str) -> String {
-    // main: 6 instructions (0..6); make_point: 4 instructions (6..10).
+    // main: 0..n; make_point: 4 instructions after it.
+    let main_end = main_body.lines().count();
+    let point_end = main_end + 4;
     format!(
         r#"sst v{version}
 .section(root):
 .header(root):
 metadata {{
-    strings: ["main", "make_point", "points.sst", "Point", "x", "y"],
+    strings: ["main", "make_point", "points.sst", "Point", "x", "y", "location"],
     structs: [
         {{ name: 3, fields: [{{ name: 4, ty: u64 }}, {{ name: 5, ty: u64 }}] }},
     ],
+    types: [{{ name: 6, repr: u64 }}],
     functions: [
-        {{ name: 0, signature: {{ params: [], ret: [u64] }}, local_count: 0,
-           start_address: 0, end_address: 6, file: 2 }},
-        {{ name: 1, signature: {{ params: [], ret: [struct 0] }}, local_count: 0,
-           start_address: 6, end_address: 10, file: 2 }},
+        {{ name: 0, signature: {{ params: [], ret: [u64] }}, locals: [],
+           start_address: 0, end_address: {main_end}, file: 2 }},
+        {{ name: 1, signature: {{ params: [], ret: [struct 0] }}, locals: [],
+           start_address: {main_end}, end_address: {point_end}, file: 2 }},
     ],
     labels: [], constants: [], main_function: 0, source_symbols: [], extra: {{}},
 }}
@@ -278,10 +291,19 @@ execution::program::ret 1
     )
 }
 
+/// Parse, lower, and verify a struct program: well-formed fixtures pass
+/// load-time verification against the composite's generated rules.
 fn load_struct_program(main_body: &str) -> eyre::Result<MachineImage<SequencerMachine>> {
     let source = struct_program(main_body);
     let file = SstFile::<NoContext>::from_text(&source)?;
     construct_image::<SequencerMachine>(file.root())
+}
+
+/// Parse and lower a struct program without verifying it.
+fn load_unverified_struct_program(main_body: &str) -> eyre::Result<Module<SequencerMachine>> {
+    let source = struct_program(main_body);
+    let file = SstFile::<NoContext>::from_text(&source)?;
+    construct_module::<SequencerMachine>(file.root())
 }
 
 #[test]
@@ -296,8 +318,8 @@ cpu::cpu::get_field @Point.y
 execution::program::ret 1",
     )
     .unwrap();
-    assert_eq!(image.module.structs.len(), 1);
-    assert_eq!(image.module.functions[1].signature.ret, [Type::Struct(0)]);
+    assert_eq!(image.module().structs.len(), 1);
+    assert_eq!(image.module().functions[1].signature.ret, [Type::Struct(0)]);
     let mut loaded = Loadable::new(
         image,
         SequencerMachine {
@@ -310,8 +332,12 @@ execution::program::ret 1",
 }
 
 fn run_struct_program(main_body: &str) -> eyre::Result<Vec<u64>> {
+    run_image(load_struct_program(main_body)?)
+}
+
+fn run_image(image: MachineImage<SequencerMachine>) -> eyre::Result<Vec<u64>> {
     let mut loaded = Loadable::new(
-        load_struct_program(main_body)?,
+        image,
         SequencerMachine {
             execution: ExecutionState::new(),
             cpu: CPU::default(),
@@ -324,27 +350,41 @@ fn run_struct_program(main_body: &str) -> eyre::Result<Vec<u64>> {
 #[test]
 fn arrays_of_named_structs_are_built_indexed_and_type_checked() {
     // let points = [make_point()]; return points[0].y
-    let stack = run_struct_program(
-        "execution::program::call 0, @make_point
+    let source = "execution::program::call 0, @make_point
 cpu::cpu::array_new struct @Point, 1
 execution::program::const_u64 0
 cpu::cpu::array_get struct @Point
 cpu::cpu::get_field @Point.y
-execution::program::ret 1",
-    )
-    .unwrap();
+execution::program::ret 1";
+    let stack = run_struct_program(source).unwrap();
     assert_eq!(stack, [9]);
 
-    // Reading the same array as `array u64` is a runtime type error.
-    let error = run_struct_program(
-        "execution::program::call 0, @make_point
+    // Reading the same array as `array u64` is a runtime type error, and the
+    // verifier rejects the program before it runs.
+    let ill_typed = "execution::program::call 0, @make_point
 cpu::cpu::array_new struct @Point, 1
 execution::program::const_u64 0
 cpu::cpu::array_get u64
 cpu::cpu::get_field @Point.y
-execution::program::ret 1",
-    )
-    .unwrap_err();
+execution::program::ret 1";
+    let module = load_unverified_struct_program(ill_typed).unwrap();
+    let rejection =
+        vihaco_verifier::verify_module(&module, vihaco_verifier::VerifyOptions::default())
+            .unwrap_err();
+    assert_eq!(
+        rejection.diagnostics[0].kind,
+        vihaco_verifier::DiagnosticKind::TypeMismatch {
+            expected: "array u64".into(),
+            found: "array struct 0".into()
+        }
+    );
+    // Constructing the image verifies it, so only the escape hatch runs it.
+    let error = load_struct_program(ill_typed).unwrap_err();
+    assert!(
+        format!("{error:#}").contains("verification failed"),
+        "{error:#}"
+    );
+    let error = run_image(Image::new(Verified::assume_verified(module))).unwrap_err();
     assert!(
         format!("{error:#}").contains("is array struct 0, expected array u64"),
         "{error:#}"
@@ -364,6 +404,54 @@ execution::program::ret 1",
         format!("{error:#}").contains("undefined struct `Line`"),
         "{error:#}"
     );
+}
+
+#[test]
+fn named_types_resolve_by_name_through_the_metadata_type_table() {
+    // let locations = [wrap(7)]; return unwrap(locations[0])
+    let source = "execution::program::const_u64 7
+cpu::cpu::wrap @location
+cpu::cpu::array_new type @location, 1
+execution::program::const_u64 0
+cpu::cpu::array_get type @location
+cpu::cpu::unwrap @location
+execution::program::ret 1";
+    let image = load_struct_program(source).unwrap();
+    assert_eq!(image.module().types.len(), 1);
+    let code = format!("{:?}", image.module().code);
+    assert!(code.contains("ArrayNew(Named(0), 1)"), "{code}");
+    assert!(code.contains("Wrap(0)"), "{code}");
+    assert_eq!(run_struct_program(source).unwrap(), [7]);
+
+    // Numeric references are checked against the table too.
+    let stack = run_struct_program(
+        "execution::program::const_u64 7
+cpu::cpu::wrap 0
+cpu::cpu::unwrap @location
+execution::program::ret 1",
+    )
+    .unwrap();
+    assert_eq!(stack, [7]);
+    for (body, message) in [
+        ("cpu::cpu::wrap @lane", "undefined named type `lane`"),
+        ("cpu::cpu::wrap 1", "outside the named-type table"),
+        (
+            "cpu::cpu::array_new type @lane, 1",
+            "undefined named type `lane`",
+        ),
+        (
+            "cpu::cpu::array_get array type 3",
+            "outside the named-type table",
+        ),
+    ] {
+        let error = load_struct_program(&format!(
+            "execution::program::const_u64 7
+{body}
+execution::program::ret 1"
+        ))
+        .unwrap_err();
+        assert!(format!("{error:#}").contains(message), "{body}: {error:#}");
+    }
 }
 
 #[test]
@@ -391,7 +479,7 @@ fn construction_resets_previous_invocation_without_resetting_machine_state() {
         visits: 7,
         fail_once: false,
     };
-    machine.execution.start(&image.module, &[]).unwrap();
+    machine.execution.start(image.module(), &[]).unwrap();
     assert!(!machine.execution.is_halted());
     let loaded = Loadable::new(image, machine);
     assert!(loaded.machine().execution.is_halted());
@@ -410,12 +498,12 @@ fn active_replacement_is_rejected_and_faulted_invocation_can_resume() {
             .to_string()
             .contains("injected")
     );
-    let image = loaded.image().module.code.as_ptr();
+    let image = loaded.image().module().code.as_ptr();
     let pc = loaded.machine().execution.pc();
     let frames = loaded.machine().execution.frames().len();
     let visits = loaded.machine().visits;
     assert!(loaded.replace_image(controller_image(17)).is_err());
-    assert_eq!(loaded.image().module.code.as_ptr(), image);
+    assert_eq!(loaded.image().module().code.as_ptr(), image);
     assert_eq!(loaded.machine().execution.pc(), pc);
     assert_eq!(loaded.machine().execution.frames().len(), frames);
     assert_eq!(loaded.machine().visits, visits);
@@ -442,10 +530,10 @@ fn explicit_reset_abandons_invocation_and_extraction_preserves_parts() {
     assert_eq!(loaded.machine().visits, 1);
     loaded.replace_image(controller_image(17)).unwrap();
     loaded.execute(&[]).unwrap();
-    let image_pointer = loaded.image().module.code.as_ptr();
+    let image_pointer = loaded.image().module().code.as_ptr();
     let visits = loaded.machine().visits;
     let (image, machine) = loaded.into_parts();
-    assert_eq!(image.module.code.as_ptr(), image_pointer);
+    assert_eq!(image.module().code.as_ptr(), image_pointer);
     assert_eq!(machine.visits, visits);
     assert_eq!(machine.execution.stack(), &[17]);
 }
@@ -463,9 +551,9 @@ fn failed_image_construction_leaves_installed_program_unchanged() {
         )
     );
     let file = SstFile::<NoContext>::from_text(&source).unwrap();
-    let image_pointer = loaded.image().module.code.as_ptr();
+    let image_pointer = loaded.image().module().code.as_ptr();
     assert!(construct_image::<ControllerMachine>(file.root()).is_err());
-    assert_eq!(loaded.image().module.code.as_ptr(), image_pointer);
+    assert_eq!(loaded.image().module().code.as_ptr(), image_pointer);
     assert_eq!(loaded.machine().visits, 0);
     loaded.execute(&[]).unwrap();
     assert_eq!(loaded.machine().execution.stack(), &[11]);
@@ -497,7 +585,8 @@ fn execution_borrows_non_clone_instructions_from_the_paired_image() {
             self.execution.execute(&program::Halt, NoMessage::new())
         }
     }
-    let image = Image::new(Program {
+    // A test-local instruction set with no verifier rules.
+    let image = Image::new(Verified::assume_verified(Program {
         code: vec![Instruction(Box::new(42))],
         main_function: Some(0),
         functions: vec![FunctionInfo {
@@ -506,13 +595,13 @@ fn execution_borrows_non_clone_instructions_from_the_paired_image() {
                 params: vec![],
                 ret: vec![],
             },
-            local_count: 0,
+            locals: vec![],
             start_address: 0,
             end_address: 1,
             file: 0,
         }],
         ..Default::default()
-    });
+    }));
     let mut loaded = Loadable::new(
         image,
         Machine {

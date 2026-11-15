@@ -46,8 +46,10 @@ an existing wrapper contract can reuse the composite's input and result handling
 
 ## Add an independently loaded program
 
-Define its composite and context, build and validate its module, and pair its
-Image and machine in a Loadable owned by an outer runtime. Decide how the
+Define its composite and context, build and verify its module, and pair its
+Image and machine in a Loadable owned by an outer runtime. Tests that exercise
+runtime checks with deliberately ill-typed programs can build the image with
+`Verified::assume_verified`. Decide how the
 application starts it and handles its output. Keep invocation reset and device
 reset as separate choices.
 

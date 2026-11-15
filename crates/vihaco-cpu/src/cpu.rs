@@ -7,11 +7,11 @@
 pub mod cpu {
     use crate::{
         FieldSlot, StructLayout, Word,
-        field::{FieldOperand, StructOperand, TypeOperand},
+        field::{FieldOperand, FunctionTypeOperand, NamedTypeOperand, StructOperand, TypeOperand},
         literal::{F32Literal, F64Literal, I32Literal, I64Literal},
         operand::{StringOperand, Target},
     };
-    use vihaco_abi::Type;
+    use vihaco_abi::{FunctionType, Type};
     #[instruction]
     #[pattern = "'span $0 $1 $2"]
     pub struct Span(pub u32, pub u32, pub u32);
@@ -32,9 +32,15 @@ pub mod cpu {
     #[pattern = "'ret $0"]
     pub struct Return(pub u32);
 
+    /// Call the function referenced by the top operand (`fn`), passing the
+    /// arguments below it. The operand is the expected signature, written
+    /// `call_indirect (u64, f64) -> u64`; the call fails at runtime unless the
+    /// referenced function declares exactly this signature. Structs and named
+    /// types in it may be named (`call_indirect (struct @Point) -> type
+    /// @location`) and are resolved when the program is lowered.
     #[instruction]
-    #[pattern = "'call_indirect"]
-    pub struct IndirectCall;
+    #[pattern = "'call_indirect $0:FunctionTypeOperand"]
+    pub struct IndirectCall(pub FunctionType);
 
     #[instruction]
     #[pattern = "'call $0 `,` $1:Target"]
@@ -103,6 +109,19 @@ pub mod cpu {
     #[instruction]
     #[pattern = "'store_bool $0"]
     pub struct StoreBool(pub u32);
+
+    /// Push local `$0`, whatever its declared type. Unlike the typed loads,
+    /// this can load struct, array, named-type, `fn`, and `str` locals.
+    #[instruction]
+    #[pattern = "'load $0"]
+    pub struct Load(pub u32);
+
+    /// Pop the top operand into local `$0`, which must have the operand's
+    /// declared type. Unlike the typed stores, this can store struct, array,
+    /// named-type, `fn`, and `str` values.
+    #[instruction]
+    #[pattern = "'store $0"]
+    pub struct Store(pub u32);
 
     #[instruction]
     #[pattern = "'dup"]
@@ -613,4 +632,17 @@ pub mod cpu {
     #[instruction]
     #[pattern = "'struct_new $0:StructOperand"]
     pub struct StructNew(pub StructLayout);
+
+    /// Reinterpret the top word, of the named type's representation, as a
+    /// value of the named type (by named-type-table index). A runtime no-op:
+    /// named types exist only for verification.
+    #[instruction]
+    #[pattern = "'wrap $0:NamedTypeOperand"]
+    pub struct Wrap(pub u32);
+
+    /// Reinterpret the top word, of the named type, as its representation. A
+    /// runtime no-op.
+    #[instruction]
+    #[pattern = "'unwrap $0:NamedTypeOperand"]
+    pub struct Unwrap(pub u32);
 }

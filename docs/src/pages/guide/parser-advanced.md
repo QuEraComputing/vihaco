@@ -68,8 +68,8 @@ can refer to a label farther down the function.
 
 Assemble the result with `metadata.into_module(code)`. It keeps your table order
 and checks standard value references. If your declarations need a different
-runtime metadata type, use `map_extra`. You can then wrap the module in an Image
-and pair it with a machine in a Loadable.
+runtime metadata type, use `map_extra`. You can then verify the module
+(`Verified::new`), wrap it in an Image, and pair it with a machine in a Loadable.
 
 If lowering fails, it returns no partial instruction vector. Any changes already
 made to the context remain, though; the pipeline doesn't roll them back.

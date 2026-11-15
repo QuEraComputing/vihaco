@@ -3,7 +3,7 @@
 
 //! Checked word backing for frame locals and typed operands.
 
-use super::{ExecutionState, function_entry};
+use super::{ExecutionState, call_too_deep, function_entry};
 use vihaco_abi::{frame::Frame, traits::Reset, word::*};
 use vihaco_module::module::LocalModule;
 use vihaco_module::{PopStack, PushStack};
@@ -32,7 +32,8 @@ impl ExecutionState {
     ///
     /// # Errors
     /// Rejects an active invocation, invalid metadata/target, a wrong argument
-    /// count, or allocation failure, preserving the preceding logical state.
+    /// count, a call-depth limit of 0 (the entry frame counts against it), or
+    /// allocation failure, preserving the preceding logical state.
     pub fn start<I, V, Ty, Info>(
         &mut self,
         module: &LocalModule<I, V, Ty, Info>,
@@ -47,6 +48,10 @@ impl ExecutionState {
             .ok_or_else(|| eyre::eyre!("module has no main function"))?;
         let (arity, locals, target) = function_entry(module, function as usize)?;
         eyre::ensure!(arguments.len() == arity, "entry argument count mismatch");
+        // The entry frame counts against the limit, as every call's does.
+        if self.max_call_depth == 0 {
+            return Err(call_too_deep(module, function as usize, 0));
+        }
         self.stack
             .try_reserve(locals.saturating_sub(self.stack.len()))?;
         if self.frames.capacity() == 0 {

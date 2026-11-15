@@ -19,13 +19,67 @@
 //!   context's state. [`FrameState`] implements it (and [`OperandStack`]) for
 //!   a standard [`Frame`] of locals and operands; a machine-specific context
 //!   can wrap it and join its own state alongside.
-//! - [`verify_functions`]: the engine, returning a [`Verification`] (possibly
-//!   with warnings and [`TypeMaps`]) or a [`Rejection`] listing every
-//!   diagnostic.
+//! - [`verify_functions`]: the engine, returning a [`Verification`] (with
+//!   any warnings) or a [`Rejection`] listing every diagnostic. Either carries
+//!   [`TypeMaps`] when [`VerifyOptions::type_maps`] asks for them.
+//! - [`Diagnostic`] and [`DiagnosticKind`]: structured findings. Rules raise
+//!   them through [`VerifyError`]; [`VerifyError::unverifiable`] reports an
+//!   instruction whose operand count comes from a runtime value
+//!   ([`DiagnosticKind::Unverifiable`]), since device instructions must carry
+//!   counts as immediates to be checked.
+//! - [`Locals`], [`Signatures`], [`StructTypes`], [`NamedTypes`] and
+//!   [`Constants`]: the standard capabilities beyond the operand stack, with
+//!   [`call_effect`] and [`return_effect`] for calls and returns checked
+//!   against signatures.
+//! - Shared rule helpers for instructions several dialects implement:
+//!   [`load_local`] and [`store_local`], [`direct_call_effect`] and
+//!   [`indirect_call_effect`], [`string_constant`] and [`function_constant`],
+//!   and [`pop_array`].
+//! - [`ModuleVerifier`]: the standard context for a [`LocalModule`] using
+//!   vihaco's [`Type`] and [`Value`], providing every standard capability
+//!   from the module's metadata. [`verify_module`] verifies a whole module
+//!   with it. [`WithState`] wraps it with a component's own
+//!   [`ComponentState`], for machines whose components need more.
+//! - [`Verified`]: a module that passed verification, built by
+//!   [`Verified::new`], [`Verified::verify`] or
+//!   [`Verified::verify_with_state`], or explicitly by
+//!   [`Verified::assume_verified`]. The stdlib `Image::new` accepts only a
+//!   `Verified` module, so programs are verified as part of loading.
 //!
+//! [`LocalModule`]: vihaco_module::module::LocalModule
+//!
+//! # Embedding
+//!
+//! A host verifies a lowered module once, before building its image:
+//!
+//! ```ignore
+//! let (module, verification) = Verified::verify(module, VerifyOptions::default())?;
+//! for warning in &verification.warnings {
+//!     eprintln!("{warning}"); // for example, unreachable code
+//! }
+//! let image = vihaco_stdlib::Image::new(module);
+//! ```
+//!
+//! A [`Rejection`] lists every error, sorted by function and address, and
+//! converts into an [`eyre::Report`]. With
+//! [`VerifyOptions::with_type_maps`], both outcomes carry the converged state
+//! at each reached block leader, for debuggers and editors.
+//!
+//! # Writing rules
+//!
+//! A rule implements [`Verify<C>`](Verify) for an instruction, bounding `C`
+//! only on the capabilities it uses, so it works in any machine whose context
+//! provides them; the `#[composite]` macro aggregates the rules of every
+//! device. Rules that only need the operand stack use [`stack_effect`];
+//! control-flow instructions also override [`Verify::flow`].
+//!
+//! Facade users reach this crate as `vihaco::verifier` (the `verifier`
+//! feature, implied by `program-image-execution`).//!
 //! # Example
 //!
-//! A tiny instruction set with typed rules, verified with the standard frame:
+//! A tiny instruction set with typed rules, verified with the bare engine and
+//! the standard frame (a module is usually verified with [`verify_module`]
+//! instead, which builds the entry states from its metadata):
 //!
 //! ```
 //! use vihaco_verifier::{
@@ -77,18 +131,31 @@
 //! );
 //! ```
 
+mod capability;
 mod diagnostic;
 mod engine;
+mod module;
+mod rules;
 mod slot;
 mod stack;
 mod state;
+mod verified;
 
+pub use capability::{
+    Constants, Locals, NamedTypes, Signatures, StructTypes, call_effect, return_effect,
+};
 pub use diagnostic::{Diagnostic, DiagnosticKind, Severity, VerifyError};
 pub use engine::{
     FunctionSpan, Rejection, TypeMaps, Verification, VerifyOptions, verify_functions,
 };
+pub use module::{ComponentState, ModuleVerifier, WithState, verify_module};
+pub use rules::{
+    direct_call_effect, function_constant, indirect_call_effect, load_local, pop_array,
+    store_local, string_constant,
+};
 pub use slot::{Lattice, TypeSlot, TypedSlot, type_satisfies};
 pub use stack::{Frame, FrameState, OperandStack, stack_effect};
 pub use state::AbstractState;
+pub use verified::Verified;
 
-pub use vihaco_abi::{Flow, Type, Verify};
+pub use vihaco_abi::{Flow, FunctionType, Type, Value, Verify};

@@ -7,9 +7,9 @@ use std::cell::Cell;
 use std::collections::BTreeSet;
 
 use vihaco_verifier::{
-    AbstractState, Diagnostic, DiagnosticKind, Flow, Frame, FrameState, FunctionSpan, OperandStack,
-    Rejection, Severity, Type, TypeSlot, TypedSlot, Verification, Verify, VerifyError,
-    VerifyOptions, stack_effect, verify_functions,
+    AbstractState, Diagnostic, DiagnosticKind, Flow, Frame, FrameState, FunctionSpan, Locals,
+    OperandStack, Rejection, Severity, Type, TypeSlot, TypedSlot, Verification, Verify,
+    VerifyError, VerifyOptions, stack_effect, verify_functions,
 };
 
 thread_local! {
@@ -47,6 +47,9 @@ enum Op {
     Fail(&'static str),
     /// A jump table: continue at any listed address (possibly none).
     Table(Vec<u32>),
+    /// Pop a `u64` count, then that many values: the count is a runtime
+    /// value, so the rule reports the instruction as unverifiable.
+    PopDynamic,
     /// A no-op that counts its runs.
     Mark,
 }
@@ -90,6 +93,13 @@ where
                 FAIL_RUNS.with(|runs| runs.set(runs.get() + 1));
                 eyre::bail!("{message}");
             }
+            Op::PopDynamic => {
+                cx.pop_expect(&Type::U64)?;
+                return Err(VerifyError::unverifiable(
+                    "pops a number of operands given by a runtime value",
+                )
+                .into());
+            }
         }
         Ok(())
     }
@@ -97,7 +107,7 @@ where
 
 use Op::*;
 
-type Outcome = Result<Verification<Frame<TypeSlot>>, Rejection>;
+type Outcome = Result<Verification<Frame<TypeSlot>>, Rejection<Frame<TypeSlot>>>;
 
 fn span(function: u32, start: u32, end: u32) -> FunctionSpan<Frame<TypeSlot>> {
     FunctionSpan {
@@ -496,6 +506,17 @@ fn code_reachable_only_through_a_failing_block_is_not_analysed() {
         found(&rejection.diagnostics),
         [(0, 2, mismatch("i64", "i64 | f64"))]
     );
+    let maps = rejection.type_maps.expect("type maps were requested");
+    let operands = |address| maps.get(0, address).map(|f| f.operands().to_vec());
+    // The header is mapped at the state it fails at: the join of the entry
+    // path and the back edge.
+    assert_eq!(
+        operands(1),
+        Some(vec![TypeSlot::Conflict(Type::I64, Type::F64)])
+    );
+    // The loop body and the exit are reached only through the header.
+    assert_eq!(operands(5), None);
+    assert_eq!(operands(8), None);
 }
 
 #[test]
@@ -554,13 +575,26 @@ fn a_failing_block_reports_its_real_defect_not_a_follow_on() {
     // In the first round the header passed an i64 to 10. Neither that
     // state, nor a depth mismatch between it and the path through 14, may be
     // reported: 10 is analysed from the path through 14 alone.
+    let rejection = verify_spans(
+        &a_real_defect_after_a_failing_loop(),
+        &[span(0, 0, 15)],
+        true,
+    )
+    .unwrap_err();
     assert_eq!(
-        rejected(verify(&a_real_defect_after_a_failing_loop())),
+        found(&rejection.diagnostics),
         [
             (0, 4, mismatch("i64", "i64 | f64")),
             (0, 10, mismatch("f64", "bool")),
         ]
     );
+    let maps = rejection.type_maps.expect("type maps were requested");
+    let operands = |address| maps.get(0, address).map(|f| f.operands().to_vec());
+    // 10 is mapped at the state it fails at, from the path through 14 alone.
+    let bool_slot = TypeSlot::Known(Type::Bool);
+    assert_eq!(operands(10), Some(vec![bool_slot.clone(), bool_slot]));
+    // The loop body is reached only through the failing header.
+    assert_eq!(operands(7), None);
 }
 
 #[test]
@@ -590,13 +624,18 @@ fn a_join_into_a_failing_block_is_checked_only_between_analysed_edges() {
         Use(Type::F64),    // 16
         Ret,               // 17
     ];
+    let rejection = verify_spans(&code, &[span(0, 0, 18)], true).unwrap_err();
     assert_eq!(
-        rejected(verify(&code)),
+        found(&rejection.diagnostics),
         [
             (0, 4, mismatch("i64", "i64 | f64")),
             (0, 16, mismatch("f64", "bool")),
         ]
     );
+    let maps = rejection.type_maps.expect("type maps were requested");
+    let operands = |address| maps.get(0, address).map(|f| f.operands().to_vec());
+    let bool_slot = TypeSlot::Known(Type::Bool);
+    assert_eq!(operands(16), Some(vec![bool_slot.clone(), bool_slot]));
 }
 
 /// Verify `code`, which must be rejected with `errors` errors, and assert
@@ -897,6 +936,56 @@ fn type_maps_hold_each_reached_leaders_converged_state() {
     assert_eq!(maps.function(3).unwrap().len(), 4);
 }
 
+#[test]
+fn type_maps_are_returned_with_a_rejection() {
+    // The join fails, so code after it is never reached by a successful
+    // block, but the leaders before it still have states.
+    let code = [
+        Const(Type::Bool), // 0
+        CondBr(2, 4),      // 1
+        Const(Type::I64),  // 2
+        Br(5),             // 3
+        Const(Type::F64),  // 4
+        Use(Type::I64),    // 5 (join): conflict
+        Br(7),             // 6
+        Ret,               // 7: only reachable through the failed block
+    ];
+    let Err(rejection) = verify_spans(&code, &[span(0, 0, 8)], true) else {
+        panic!("expected a rejection");
+    };
+    assert_eq!(rejection.errors().count(), 1);
+    assert_eq!(rejection.diagnostics[0].address, 5);
+    let maps = rejection.type_maps.expect("type maps were requested");
+    let operands = |address| maps.get(0, address).map(|f| f.operands().to_vec());
+    assert_eq!(operands(0), Some(vec![]));
+    assert_eq!(
+        operands(5),
+        Some(vec![TypeSlot::Conflict(Type::I64, Type::F64)])
+    );
+    assert_eq!(operands(7), None, "reached only through the failed block");
+
+    // Without the option, a rejection carries no type maps either.
+    let Err(rejection) = verify_spans(&code, &[span(0, 0, 8)], false) else {
+        panic!("expected a rejection");
+    };
+    assert!(rejection.type_maps.is_none());
+}
+
+#[test]
+fn a_runtime_operand_count_is_unverifiable() {
+    let errors = rejected(verify(&[Const(Type::U64), PopDynamic, Ret]));
+    assert_eq!(
+        errors,
+        [(
+            0,
+            1,
+            DiagnosticKind::Unverifiable {
+                reason: "pops a number of operands given by a runtime value".into()
+            }
+        )]
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Component state: a sequencer whose channels must be opened before use.
 // ---------------------------------------------------------------------------
@@ -1006,7 +1095,7 @@ impl AbstractState for SeqVerifier {
 
 type SeqSnapshot = (Frame<TypeSlot>, BTreeSet<u32>);
 
-fn verify_seq(code: &[Seq]) -> Result<Verification<SeqSnapshot>, Rejection> {
+fn verify_seq(code: &[Seq]) -> Result<Verification<SeqSnapshot>, Rejection<SeqSnapshot>> {
     let entry = (Frame::new(vec![]), BTreeSet::new());
     let mut cx = SeqVerifier {
         frame: FrameState::new(entry.0.clone()),

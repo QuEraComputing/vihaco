@@ -10,6 +10,7 @@ pub struct LocalModule<I, V, Ty, Info = NoInfo> {
     pub code: Vec<I>,
     pub functions: Vec<FunctionInfo<Ty>>,
     pub structs: Vec<StructInfo<Ty>>,
+    pub types: Vec<NamedTypeInfo<Ty>>,
     pub labels: Vec<LabelInfo>,
     pub constants: Vec<V>,
     pub strings: Vec<String>,
@@ -27,6 +28,7 @@ where
             code: Vec::new(),
             functions: Vec::new(),
             structs: Vec::new(),
+            types: Vec::new(),
             labels: Vec::new(),
             constants: Vec::new(),
             strings: Vec::new(),
@@ -49,11 +51,37 @@ pub struct SourceSymbolInfo {
 pub struct FunctionInfo<Type> {
     pub name: u32, // index into the string interner
     pub signature: Signature<Type>,
-    /// Reserved local slots, including parameters, for this function.
-    pub local_count: u32,
+    /// The declared type of every local slot, parameters first: the leading
+    /// `signature.params.len()` entries are the parameter types. Written
+    /// `locals: [u64, f64]` in metadata headers. At most [`MAX_LOCALS`]
+    /// entries, checked by [`ProgramMetadata::validate`].
+    pub locals: Vec<Type>,
     pub start_address: u32, // corresponds to a label noop
     pub end_address: u32,   // corresponds to a label noop
     pub file: u32,
+}
+
+/// The largest number of local slots, parameters included, a function may
+/// declare. [`ProgramMetadata::validate`] enforces it, and runtime frame entry
+/// re-checks it before allocating, since modules can also be built directly.
+pub const MAX_LOCALS: usize = 65_536;
+
+/// The default limit on nested call frames (the entry function's frame
+/// included) for the standard runtimes: the stdlib `ExecutionState` and the
+/// CPU. A call that would exceed it fails, naming the callee, instead of
+/// recursing until memory runs out.
+///
+/// Verification cannot bound recursion, so this is a runtime check. Each frame
+/// holds at most [`MAX_LOCALS`] words, so the stack is bounded by
+/// `limit × MAX_LOCALS` words plus operands; embedders that need a tighter
+/// memory bound lower the limit (`set_max_call_depth`).
+pub const DEFAULT_MAX_CALL_DEPTH: usize = 10_000;
+
+impl<Type> FunctionInfo<Type> {
+    /// The number of local slots, parameters included (`locals.len()`).
+    pub fn local_count(&self) -> usize {
+        self.locals.len()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
@@ -61,6 +89,31 @@ pub struct FunctionInfo<Type> {
 pub struct Signature<Ty> {
     pub params: Vec<Parameter<Ty>>,
     pub ret: Vec<Ty>,
+}
+
+impl<Ty> Signature<Ty> {
+    /// Whether this signature has exactly the parameter and result types of
+    /// `ty`, ignoring parameter names; `call_indirect` checks its target this
+    /// way before calling.
+    pub fn matches(&self, ty: &vihaco_abi::FunctionType) -> bool
+    where
+        Ty: PartialEq<vihaco_abi::Type>,
+    {
+        self.params.len() == ty.params.len()
+            && self.ret.len() == ty.results.len()
+            && self.params.iter().zip(&ty.params).all(|(p, t)| p.ty == *t)
+            && self.ret.iter().zip(&ty.results).all(|(r, t)| r == t)
+    }
+}
+
+impl Signature<vihaco_abi::Type> {
+    /// The parameter and result types, without parameter names.
+    pub fn function_type(&self) -> vihaco_abi::FunctionType {
+        vihaco_abi::FunctionType {
+            params: self.params.iter().map(|param| param.ty.clone()).collect(),
+            results: self.ret.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
@@ -87,17 +140,55 @@ pub struct FieldInfo<Ty> {
     pub ty: Ty,
 }
 
-/// Exposes the struct-table reference carried by a type, if any, so module
-/// assembly can check `Type::Struct` indices against the struct table.
+/// A named type declaration: a nominal type represented by a scalar word.
+/// `Type::Named(i)` (written `type i`) refers to entry `i` of the named-type
+/// table. At runtime a value of a named type is the same word as its `repr`;
+/// the name exists only for verification, where `type i` satisfies only
+/// itself.
+#[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
+#[syntax_class(metadata, open = "{", close = "}")]
+pub struct NamedTypeInfo<Ty> {
+    pub name: u32, // index into the string interner
+    /// The scalar word type representing values of this type: one of `i32`,
+    /// `i64`, `u32`, `u64`, `f32`, `f64` or `bool`.
+    pub repr: Ty,
+}
+
+/// Exposes the table references carried by a type, so module assembly can
+/// check `Type::Struct` indices against the struct table and `Type::Named`
+/// indices against the named-type table, and check named-type
+/// representations.
 pub trait StructTypeRef {
     /// Visit every struct-table index this type refers to, including ones
     /// nested inside compound types such as array element types.
     fn visit_struct_refs(&self, visit: &mut dyn FnMut(u32));
+
+    /// Visit every named-type-table index this type refers to, including ones
+    /// nested inside compound types. Type models without named types keep the
+    /// default, which visits nothing.
+    fn visit_named_refs(&self, visit: &mut dyn FnMut(u32)) {
+        let _ = visit;
+    }
+
+    /// Whether this type may represent a named type (a scalar word type).
+    /// Type models without named types keep the default, `false`, so their
+    /// named-type tables must be empty.
+    fn is_named_type_repr(&self) -> bool {
+        false
+    }
 }
 
 impl StructTypeRef for vihaco_abi::Type {
     fn visit_struct_refs(&self, visit: &mut dyn FnMut(u32)) {
         vihaco_abi::Type::visit_struct_refs(self, visit)
+    }
+
+    fn visit_named_refs(&self, visit: &mut dyn FnMut(u32)) {
+        vihaco_abi::Type::visit_named_refs(self, visit)
+    }
+
+    fn is_named_type_repr(&self) -> bool {
+        self.is_scalar_word()
     }
 }
 
@@ -173,6 +264,18 @@ where
                 }
                 let close = if info.fields.is_empty() { "}" } else { " }" };
                 writeln!(f, "{close}")?;
+            }
+        }
+        if !self.types.is_empty() {
+            writeln!(f)?;
+            ".type".keyword().fmt(f)?;
+            writeln!(f)?;
+            for (type_idx, info) in self.types.iter().enumerate() {
+                let name = self
+                    .strings
+                    .get(info.name as usize)
+                    .map_or_else(|| format!("#{}", info.name), Clone::clone);
+                writeln!(f, "0x{:04X} {} = {}", type_idx, name, info.repr)?;
             }
         }
         if !self.source_symbols.is_empty() {
@@ -254,5 +357,51 @@ mod tests {
         let text = module.to_string();
         assert!(text.contains("0x0000 Point { x: f64, y: i64 }\n"), "{text}");
         assert!(text.contains("0x0001 Point {}\n"), "{text}");
+    }
+
+    #[test]
+    fn signatures_match_function_types_ignoring_parameter_names() {
+        use vihaco_abi::{FunctionType, Type};
+        let signature = Signature {
+            params: vec![
+                Parameter {
+                    name: 3,
+                    ty: Type::U64,
+                },
+                Parameter {
+                    name: 4,
+                    ty: Type::F64,
+                },
+            ],
+            ret: vec![Type::Bool],
+        };
+        let ty = FunctionType::new([Type::U64, Type::F64], [Type::Bool]);
+        assert_eq!(signature.function_type(), ty);
+        assert!(signature.matches(&ty));
+        assert!(!signature.matches(&FunctionType::new([Type::U64, Type::F64], [])));
+        assert!(!signature.matches(&FunctionType::new([Type::U64], [Type::Bool])));
+        assert!(!signature.matches(&FunctionType::new([Type::F64, Type::U64], [Type::Bool])));
+    }
+
+    #[test]
+    fn display_lists_named_type_table() {
+        let module: LocalModule<MockInst, u64, &str> = LocalModule {
+            strings: vec!["location".into(), "lane".into()],
+            types: vec![
+                NamedTypeInfo {
+                    name: 0,
+                    repr: "u64",
+                },
+                NamedTypeInfo {
+                    name: 7,
+                    repr: "u64",
+                },
+            ],
+            ..LocalModule::default()
+        };
+        let text = module.to_string();
+        assert!(text.contains(".type\n"), "{text}");
+        assert!(text.contains("0x0000 location = u64\n"), "{text}");
+        assert!(text.contains("0x0001 #7 = u64\n"), "{text}");
     }
 }

@@ -146,9 +146,116 @@ fn struct_refs_are_found_inside_array_element_types() {
 }
 
 #[test]
+fn named_types_round_trip_through_text_and_bytes() {
+    let cases = [
+        (
+            Type::Named(258),
+            "type 258",
+            vec![0x0D, 0x02, 0x01, 0x00, 0x00],
+        ),
+        (
+            Type::array(Type::Named(1)),
+            "array type 1",
+            vec![0x0C, 0x0D, 0x01, 0x00, 0x00, 0x00],
+        ),
+    ];
+    for (ty, text, bytes) in cases {
+        assert_eq!(ty.to_string(), text);
+        assert_eq!(Type::from_text(text).unwrap(), ty);
+        assert_eq!(encoded(&ty), bytes);
+        let decoded = Type::from_bytes(&mut std::io::Cursor::new(bytes)).unwrap();
+        assert_eq!(decoded, ty);
+    }
+    assert!(Type::from_text("type").is_err());
+    assert!(Type::from_text("type @lane").is_err());
+    assert!(Type::from_bytes(&mut std::io::Cursor::new(vec![0x0D, 0x01])).is_err());
+}
+
+#[test]
+fn named_refs_are_found_inside_array_element_types() {
+    let mut found = Vec::new();
+    Type::array(Type::array(Type::Named(4))).visit_named_refs(&mut |index| found.push(index));
+    Type::Struct(4).visit_named_refs(&mut |index| found.push(index));
+    assert_eq!(found, [4]);
+    let mut structs = Vec::new();
+    Type::Named(2).visit_struct_refs(&mut |index| structs.push(index));
+    assert!(structs.is_empty());
+}
+
+#[test]
+fn only_scalar_words_represent_named_types() {
+    for ty in [
+        Type::I32,
+        Type::I64,
+        Type::U32,
+        Type::U64,
+        Type::F32,
+        Type::F64,
+        Type::Bool,
+    ] {
+        assert!(ty.is_scalar_word(), "{ty}");
+    }
+    for ty in [
+        Type::String,
+        Type::FunctionRef,
+        Type::HeapRef,
+        Type::Undefined,
+        Type::Struct(0),
+        Type::array(Type::U64),
+        Type::Named(0),
+    ] {
+        assert!(!ty.is_scalar_word(), "{ty}");
+    }
+}
+
+#[test]
 fn scalar_instruction_traits_use_narrow_widths() {
     assert_eq!(i32::width(), 4);
     assert_eq!(f32::width(), 4);
     assert_eq!(encoded(&1.0_f32), 1.0_f32.to_le_bytes());
     assert_eq!(encoded(&-7_i32), (-7_i32).to_le_bytes());
+}
+
+#[test]
+fn function_types_round_trip_through_text_and_bytes() {
+    use vihaco_abi::FunctionType;
+    let cases = [
+        (
+            FunctionType::new([Type::U64, Type::F64], [Type::U64]),
+            "(u64, f64) -> u64",
+        ),
+        (FunctionType::new([], []), "() -> ()"),
+        (
+            FunctionType::new([Type::array(Type::Struct(1))], [Type::I64, Type::Named(2)]),
+            "(array struct 1) -> (i64, type 2)",
+        ),
+    ];
+    for (ty, text) in cases {
+        assert_eq!(ty.to_string(), text);
+        assert_eq!(FunctionType::from_text(text).unwrap(), ty);
+        let bytes = encoded(&ty);
+        let decoded = FunctionType::from_bytes(&mut std::io::Cursor::new(bytes)).unwrap();
+        assert_eq!(decoded, ty);
+    }
+    // Spacing is free within a line, and one result may be parenthesized.
+    assert_eq!(
+        FunctionType::from_text("(u64,f64)->(u64)").unwrap(),
+        FunctionType::new([Type::U64, Type::F64], [Type::U64])
+    );
+    assert_eq!(
+        encoded(&FunctionType::new([Type::U64], [])),
+        vec![1, 0, 0, 0, 0x05, 0, 0, 0, 0]
+    );
+    for bad in [
+        "u64 -> u64",
+        "(u64)",
+        "(u64) ->",
+        "(u64,) -> u64",
+        "(nope) -> u64",
+    ] {
+        assert!(FunctionType::from_text(bad).is_err(), "{bad}");
+    }
+    // A truncated encoding is an error, not a panic or a huge allocation.
+    let truncated = vec![0xFF, 0xFF, 0xFF, 0xFF, 0x05];
+    assert!(FunctionType::from_bytes(&mut std::io::Cursor::new(truncated)).is_err());
 }

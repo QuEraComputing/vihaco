@@ -34,11 +34,11 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       # The author guide is also checked in its program-image configuration.
       # Facade opt-in forwards through stdlib to CPU and lower framework crates.
+      # `vihaco-verifier/typed-declarations` is test-only: it enables the
+      # verifier's composite integration test.
       - run: cargo clippy --workspace --exclude vihaco-doctests --all-targets --features vihaco/typed-declarations -- -D warnings
-      - run: cargo clippy --workspace --exclude vihaco-doctests --all-targets --features vihaco/program-image-execution -- -D warnings
+      - run: cargo clippy --workspace --exclude vihaco-doctests --all-targets --features vihaco/program-image-execution,vihaco-verifier/typed-declarations -- -D warnings
       - run: cargo clippy -p vihaco-doctests --all-targets --features program-image-execution -- -D warnings
-      # The verifier's composite integration test needs its own feature.
-      - run: cargo clippy -p vihaco-verifier --all-targets --features typed-declarations -- -D warnings
       # Broken intra-doc links are errors, in each configuration that changes
       # the public API. `vihaco-doctests` is a dev-only crate with no API docs.
       - name: Rustdoc (broken links are errors)
@@ -81,6 +81,7 @@ jobs:
           cargo check -p vihaco-module --no-default-features --features program-image-execution
           cargo check -p vihaco-runtime --no-default-features --features program-image-execution
           cargo check -p vihaco --no-default-features --features program-image-execution
+          cargo check -p vihaco --no-default-features --features verifier
           cargo check -p vihaco-cpu --no-default-features --features program-image-execution
           cargo check -p vihaco-cpu --no-default-features --features typed-declarations,program-image-execution
 
@@ -103,9 +104,8 @@ jobs:
       # `vihaco-doctests` crate) and runs the runnable ones.
       - run: cargo test --workspace --all-targets
       - run: cargo test --workspace --exclude vihaco-doctests --all-targets --features vihaco/typed-declarations
-      - run: cargo test --workspace --exclude vihaco-doctests --all-targets --features vihaco/program-image-execution
+      - run: cargo test --workspace --exclude vihaco-doctests --all-targets --features vihaco/program-image-execution,vihaco-verifier/typed-declarations
       - run: cargo test -p vihaco-doctests --all-targets --features program-image-execution
-      - run: cargo test -p vihaco-verifier --all-targets --features typed-declarations
       - run: cargo test --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-off
       - run: cargo test --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-on -p cpu-direct
       - run: cargo test --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-indirect

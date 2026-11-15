@@ -12,6 +12,7 @@ use vihaco_cpu::{
     encode_string_id, message,
 };
 
+use vihaco_abi::{FunctionType, Type};
 use vihaco_module::host::{StackFrame, StackMemory};
 use vihaco_runtime::{BuildMessage, Execute, NoMessage, Step, composite, field};
 
@@ -21,6 +22,7 @@ struct Machine {
     #[device(0)]
     cpu: CPU,
     functions: Vec<message::FunctionInfo>,
+    signatures: Vec<FunctionType>,
     strings: Vec<String>,
     outcomes: Vec<StepOutcome>,
     print_messages_built: usize,
@@ -42,17 +44,24 @@ impl BuildMessage<field!(Machine::cpu), cpu::Call, (), message::FunctionInfo> fo
     }
 }
 
-impl BuildMessage<field!(Machine::cpu), cpu::IndirectCall, (), message::FunctionInfo> for Machine {
+impl BuildMessage<field!(Machine::cpu), cpu::IndirectCall, (), message::IndirectCallee>
+    for Machine
+{
     fn build_message(
         &mut self,
         _: &cpu::IndirectCall,
         _: &(),
-    ) -> eyre::Result<message::FunctionInfo> {
-        let index = decode_function_ref(*self.cpu.stack_top()?);
-        self.functions
-            .get(index as usize)
+    ) -> eyre::Result<message::IndirectCallee> {
+        let index = decode_function_ref(*self.cpu.stack_top()?) as usize;
+        let info = self
+            .functions
+            .get(index)
             .copied()
-            .ok_or_else(|| eyre::eyre!("unknown function reference"))
+            .ok_or_else(|| eyre::eyre!("unknown function reference"))?;
+        Ok(message::IndirectCallee {
+            info,
+            signature: self.signatures[index].clone(),
+        })
     }
 }
 
@@ -93,6 +102,11 @@ where
     <Machine as Step<field!(Machine::cpu), I>>::step(machine, &instruction, &())
 }
 
+/// The signature of the one function the fixture machine declares.
+fn unary() -> FunctionType {
+    FunctionType::new([Type::U64], [])
+}
+
 fn machine() -> Machine {
     Machine {
         functions: vec![message::FunctionInfo {
@@ -100,6 +114,7 @@ fn machine() -> Machine {
             start_address: 20,
             local_count: 3,
         }],
+        signatures: vec![FunctionType::new([Type::U64], [])],
         strings: vec!["hello".into()],
         ..Default::default()
     }
@@ -127,7 +142,7 @@ fn direct_and_indirect_calls_use_resolved_metadata() -> eyre::Result<()> {
     let mut indirect = machine();
     indirect.cpu.stack_push(9u64);
     indirect.cpu.stack_push(encode_function_ref(0));
-    step(&mut indirect, cpu::IndirectCall)?;
+    step(&mut indirect, cpu::IndirectCall(unary()))?;
     assert_eq!(indirect.cpu.take_pending_pc(), Some(20));
     assert_eq!(indirect.cpu.get_frame()?.local_count, 3);
     assert_eq!(indirect.cpu.get_frame()?.function, Some(0));
@@ -157,7 +172,7 @@ fn preparation_error_prevents_execution() {
     let mut machine = machine();
     machine.cpu.stack_push(encode_function_ref(9));
     let before = *machine.cpu.stack_top().unwrap();
-    let error = step(&mut machine, cpu::IndirectCall).unwrap_err();
+    let error = step(&mut machine, cpu::IndirectCall(unary())).unwrap_err();
     assert!(error.to_string().contains("unknown function reference"));
     assert_eq!(*machine.cpu.stack_top().unwrap(), before);
     assert!(machine.cpu.get_frame().is_err());
@@ -174,6 +189,6 @@ fn explicit_message_parameter_is_still_the_execute_message() {
     }
     require_builder::<Machine, field!(Machine::cpu), cpu::ConstU64, NoMessage>();
     require_builder::<Machine, field!(Machine::cpu), cpu::Call, message::FunctionInfo>();
-    require_builder::<Machine, field!(Machine::cpu), cpu::IndirectCall, message::FunctionInfo>();
+    require_builder::<Machine, field!(Machine::cpu), cpu::IndirectCall, message::IndirectCallee>();
     require_builder::<Machine, field!(Machine::cpu), cpu::Print, message::Print>();
 }

@@ -35,13 +35,14 @@ sst v1
                 {
                     name: 0,
                     signature: { params: [], ret: [u64] },
-                    local_count: 0,
+                    locals: [],
                     start_address: 0,
                     end_address: 2,
                     file: 1,
                 },
             ],
             structs: [],
+            types: [],
             labels: [],
             constants: [],
             main_function: 0,
@@ -109,6 +110,7 @@ comma-separated lists; trailing commas are accepted. The standard schema is
 | `strings` | An ordered array of quoted strings, including function names, parameter names, filenames, label names, and literals needed by lowering. String indices are zero-based. |
 | `functions` | An ordered array of function records, described below. Array position is the function index; this order may differ from function-body order. |
 | `structs` | An ordered array of struct declarations, described below. Array position is the struct index that `struct N` types refer to. Emit `[]` when the program declares none. |
+| `types` | An ordered array of named-type declarations, described below. Array position is the index that `type N` types refer to. Emit `[]` when the program declares none. |
 | `labels` | Records `{ name: string_index, address: instruction_address }`. Every source label needs a matching name and absolute section-local address. |
 | `constants` | An ordered array of values parsed by the target's value parser. Constant indices are array positions. |
 | `main_function` | The entry function's table index, or `null` when no entry is selected. It is not an instruction address. |
@@ -121,7 +123,7 @@ Each function record contains:
 |---|---|
 | `name` | Index of the function name in `strings`, without the source `@` prefix. Function names must be unique for standard metadata-backed lookup. |
 | `signature` | `{ params: [{ name: string_index, ty: type }, ...], ret: [type, ...] }`. Parameter names, order, and types and return types must match the source declaration. |
-| `local_count` | Total reserved local slots, including parameters. Must be at least the parameter count; the loader does not infer extra locals. |
+| `locals` | The declared type of every local slot, parameters first: `[u64, f64]`. The leading entries must equal the parameter types, so there are at least as many locals as parameters; the loader does not infer extra locals. At most 65,536 entries (`MAX_LOCALS`). |
 | `start_address` | Index of the first instruction in this function's body in the concatenated code vector. |
 | `end_address` | Exclusive end of that body's instruction range. |
 | `file` | Index of the source filename in `strings`. |
@@ -200,6 +202,43 @@ metadata {
     functions: [/* ... */],
     structs: [
         { name: 2, fields: [{ name: 3, ty: f64 }, { name: 4, ty: i64 }] },
+    ],
+    // ... remaining tables
+};
+```
+
+### Named types
+
+A named type is a nominal type represented by a scalar word. Each record in
+`types` is `{ name: string_index, repr: type }`, where `repr` is one of `i32`,
+`i64`, `u32`, `u64`, `f32`, `f64`, or `bool`, and names are unique. Types
+anywhere in the header, including array elements and struct fields, may refer
+to entry `N` as `type N`; module assembly rejects indices outside the table.
+
+At runtime a named-type value is the same word as its representation. The
+name only matters for verification, where `type N` satisfies only itself:
+not its representation, and not another named type with the same
+representation. Two CPU instructions convert explicitly, and do nothing at
+runtime:
+
+| Instruction | Effect |
+|---|---|
+| `wrap @location` or `wrap 0` | Reinterpret the top word, of the representation type, as the named type. |
+| `unwrap @location` or `unwrap 0` | Reinterpret the top word, of the named type, as its representation. |
+
+Type operands of the array instructions accept `type @location` as well as
+`type 0`; lowering resolves names against `types`, and an unknown name or index
+is a load-time error. The same holds for the types in a `call_indirect`
+signature, which may also name structs:
+`call_indirect (struct @Point, type @location) -> u64`. Binary bytecode always
+stores the resolved indices.
+
+```text
+metadata {
+    strings: ["main", "lanes.sst", "location", "lane"],
+    types: [
+        { name: 2, repr: u64 },
+        { name: 3, repr: u64 },
     ],
     // ... remaining tables
 };

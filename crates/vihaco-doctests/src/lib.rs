@@ -85,6 +85,9 @@ mod authors {
     #[doc = include_str!("../../../docs/src/pages/guide/loadables.md")]
     mod loadables {}
 
+    #[doc = include_str!("../../../docs/src/pages/guide/verification.md")]
+    mod verification {}
+
     #[doc = include_str!("../../../docs/src/pages/guide/patterns.md")]
     mod patterns {}
 

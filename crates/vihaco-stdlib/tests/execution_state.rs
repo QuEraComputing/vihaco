@@ -15,13 +15,14 @@ fn module() -> LocalModule<(), (), (), ()> {
     LocalModule {
         code: vec![()],
         structs: vec![],
+        types: vec![],
         functions: vec![FunctionInfo {
             name: 0,
             signature: Signature {
                 params: vec![vihaco_module::module::Parameter { name: 0, ty: () }],
                 ret: vec![],
             },
-            local_count: 2,
+            locals: vec![(), ()],
             start_address: 0,
             end_address: 0,
             file: 0,
@@ -55,11 +56,37 @@ fn invalid_entry_preserves_state() {
     let mut module = module();
     let mut stack = ExecutionState::new();
     assert!(stack.start(&module, &[]).is_err());
-    module.functions[0].local_count = 0;
+    module.functions[0].locals.clear();
     assert!(stack.start(&module, &[7]).is_err());
-    module.functions[0].local_count = 2;
+    module.functions[0].locals = vec![(), ()];
     module.functions[0].start_address = 1;
     assert!(stack.start(&module, &[7]).is_err());
+    assert!(stack.is_halted());
+    assert!(stack.stack().is_empty());
+    assert!(stack.frames().is_empty());
+}
+
+#[test]
+fn oversized_frames_are_rejected_before_allocating() {
+    let mut module = module();
+    // Zero-sized local types make a huge declared frame free to build; without
+    // the cap, entry would try to reserve `usize::MAX` words.
+    module.functions[0].locals = vec![(); usize::MAX];
+    let mut stack = ExecutionState::new();
+    let err = stack.start(&module, &[7]).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        format!(
+            "function 0 declares {} locals, more than the maximum of 65536",
+            usize::MAX
+        )
+    );
+    module.strings = vec!["main".into()];
+    let err = stack.start(&module, &[7]).unwrap_err();
+    assert!(
+        err.to_string().starts_with("`@main` (function 0) declares"),
+        "{err}"
+    );
     assert!(stack.is_halted());
     assert!(stack.stack().is_empty());
     assert!(stack.frames().is_empty());

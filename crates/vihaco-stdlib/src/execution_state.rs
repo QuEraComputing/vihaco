@@ -12,7 +12,7 @@
 //! use vihaco_abi::{Type, Value};
 //! use vihaco_module::module::{LocalModule, FunctionInfo, Signature};
 //! use vihaco_runtime::{composite, field, Apply, BuildMessage, Execute, HasInstructionSet, Step};
-//! use vihaco_stdlib::{ExecutionState, Image, execution_state::execute, program::program};
+//! use vihaco_stdlib::{ExecutionState, Image, Verified, execution_state::execute, program::program};
 //! use vihaco_cpu::{CPU, cpu};
 //!
 //! #[composite]
@@ -58,9 +58,10 @@
 //!     ],
 //!     main_function: Some(0),
 //!     structs: vec![],
+//!     types: vec![],
 //!     functions: vec![FunctionInfo {
 //!         name: 0, signature: Signature { params: vec![], ret: vec![Type::U64] },
-//!         local_count: 0, start_address: 0, end_address: 4, file: 0,
+//!         locals: vec![], start_address: 0, end_address: 4, file: 0,
 //!     }],
 //!     ..Default::default()
 //! };
@@ -71,11 +72,11 @@
 //! }
 //! impl Loaded {
 //!     fn run(&mut self) -> eyre::Result<()> {
-//!         execute(&self.image.module, &mut self.machine, &[])
+//!         execute(self.image.module(), &mut self.machine, &[])
 //!     }
 //! }
 //! let mut loaded = Loaded {
-//!     image: Image::new(module),
+//!     image: Image::new(Verified::new(module)?),
 //!     machine: Machine { execution: ExecutionState::new(), cpu: CPU::default() },
 //! };
 //! loaded.run()?;
@@ -84,7 +85,7 @@
 //! ```
 use crate::program::program;
 use vihaco_abi::{frame::Frame, word::Word};
-use vihaco_module::module::LocalModule;
+use vihaco_module::module::{DEFAULT_MAX_CALL_DEPTH, LocalModule, MAX_LOCALS};
 
 mod execution;
 mod messages;
@@ -105,6 +106,7 @@ pub struct ExecutionState {
     pc: u32,
     halted: bool,
     executing: bool,
+    max_call_depth: usize,
 }
 
 impl Default for ExecutionState {
@@ -115,6 +117,7 @@ impl Default for ExecutionState {
             pc: 0,
             halted: true,
             executing: false,
+            max_call_depth: DEFAULT_MAX_CALL_DEPTH,
         }
     }
 }
@@ -122,6 +125,36 @@ impl Default for ExecutionState {
 impl ExecutionState {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The most call frames (the entry function's included) an invocation
+    /// may have at once; [`DEFAULT_MAX_CALL_DEPTH`] unless changed.
+    pub fn max_call_depth(&self) -> usize {
+        self.max_call_depth
+    }
+
+    /// Limit nested call frames to `depth`. A call that would exceed it fails
+    /// with an error naming the callee, before any frame storage is reserved.
+    pub fn set_max_call_depth(&mut self, depth: usize) {
+        self.max_call_depth = depth;
+    }
+
+    /// [`Self::set_max_call_depth`], by value.
+    pub fn with_max_call_depth(mut self, depth: usize) -> Self {
+        self.set_max_call_depth(depth);
+        self
+    }
+
+    /// Fail if entering `function` would exceed the call-depth limit.
+    fn check_call_depth<I, V, Ty, Info>(
+        &self,
+        module: &LocalModule<I, V, Ty, Info>,
+        function: usize,
+    ) -> eyre::Result<()> {
+        if self.frames.len() >= self.max_call_depth {
+            return Err(call_too_deep(module, function, self.max_call_depth));
+        }
+        Ok(())
     }
 }
 
@@ -133,6 +166,7 @@ impl Clone for ExecutionState {
             pc: self.pc,
             halted: self.halted,
             executing: false,
+            max_call_depth: self.max_call_depth,
         }
     }
 }
@@ -151,7 +185,13 @@ fn function_entry<I, V, Ty, Info>(
         .functions
         .get(index)
         .ok_or_else(|| unknown_function(index))?;
-    if (function.local_count as usize) < function.signature.params.len() {
+    let locals = function.local_count();
+    // Modules can be built without `ProgramMetadata::validate`, so re-check
+    // the frame bound before any caller reserves or resizes storage.
+    if locals > MAX_LOCALS {
+        return Err(too_many_locals(module, index, locals));
+    }
+    if locals < function.signature.params.len() {
         return Err(invalid_local_count());
     }
     if (function.start_address as usize) >= module.code.len() {
@@ -159,7 +199,7 @@ fn function_entry<I, V, Ty, Info>(
     }
     Ok((
         function.signature.params.len(),
-        function.local_count as usize,
+        locals,
         function.start_address,
     ))
 }
@@ -168,6 +208,44 @@ fn function_entry<I, V, Ty, Info>(
 #[inline(never)]
 fn unknown_function(index: usize) -> eyre::Report {
     eyre::eyre!("unknown function reference {index}")
+}
+
+/// `@name (function N)`, or `function N` if the name is not in the string table.
+fn describe_function<I, V, Ty, Info>(module: &LocalModule<I, V, Ty, Info>, index: usize) -> String {
+    let name = module
+        .functions
+        .get(index)
+        .and_then(|function| module.strings.get(function.name as usize));
+    match name {
+        Some(name) => format!("`@{name}` (function {index})"),
+        None => format!("function {index}"),
+    }
+}
+
+#[cold]
+#[inline(never)]
+fn too_many_locals<I, V, Ty, Info>(
+    module: &LocalModule<I, V, Ty, Info>,
+    index: usize,
+    locals: usize,
+) -> eyre::Report {
+    eyre::eyre!(
+        "{} declares {locals} locals, more than the maximum of {MAX_LOCALS}",
+        describe_function(module, index)
+    )
+}
+
+#[cold]
+#[inline(never)]
+fn call_too_deep<I, V, Ty, Info>(
+    module: &LocalModule<I, V, Ty, Info>,
+    index: usize,
+    limit: usize,
+) -> eyre::Report {
+    eyre::eyre!(
+        "call to {} exceeds the maximum call depth of {limit} frames",
+        describe_function(module, index)
+    )
 }
 
 #[cold]

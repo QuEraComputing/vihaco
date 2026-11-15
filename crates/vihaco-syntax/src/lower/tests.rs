@@ -22,13 +22,14 @@ impl Lower<MetadataLoweringContext> for Literal {
 fn one_function_metadata() -> ProgramMetadata {
     ProgramMetadata {
         structs: vec![],
+        types: vec![],
         functions: vec![FunctionInfo {
             name: 0,
             signature: Signature {
                 params: vec![],
                 ret: vec![],
             },
-            local_count: 2,
+            locals: vec![Type::U64, Type::F64],
             start_address: 0,
             end_address: 1,
             file: 1,
@@ -59,7 +60,7 @@ fn standard_loading_works_with_and_without_typed_declarations() -> eyre::Result<
     let mut context = MetadataLoweringContext::new(&metadata)?;
     let module = parsed.lower_with_metadata(metadata.map_extra(|_| 7u8), &mut context)?;
     assert_eq!(module.code, [42]);
-    assert_eq!(module.functions[0].local_count, 2);
+    assert_eq!(module.functions[0].local_count(), 2);
     assert_eq!(module.extra, 7);
     Ok(())
 }
@@ -249,6 +250,7 @@ mod typed {
     fn metadata() -> ProgramMetadata {
         ProgramMetadata {
             structs: vec![],
+            types: vec![],
             strings: vec![
                 "main".into(),
                 "helper".into(),
@@ -263,7 +265,7 @@ mod typed {
                         params: vec![],
                         ret: vec![],
                     },
-                    local_count: 3,
+                    locals: vec![Type::U64; 3],
                     start_address: 3,
                     end_address: 7,
                     file: 3,
@@ -274,7 +276,7 @@ mod typed {
                         params: vec![],
                         ret: vec![],
                     },
-                    local_count: 2,
+                    locals: vec![Type::U64, Type::F64],
                     start_address: 0,
                     end_address: 3,
                     file: 3,
@@ -333,7 +335,7 @@ mod typed {
     {
         let mut metadata = metadata();
         let mut context = context(&metadata)?;
-        metadata.functions[0].local_count = 0;
+        metadata.functions[0].locals.clear();
         metadata.functions[0].end_address = 8;
         assert!(
             parsed()

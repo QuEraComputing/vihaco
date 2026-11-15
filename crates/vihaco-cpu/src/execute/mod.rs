@@ -24,3 +24,6 @@ mod locals;
 
 #[cfg_attr(feature = "program-image-execution", path = "values/logic.rs")]
 mod logic;
+
+#[cfg_attr(feature = "program-image-execution", path = "values/named.rs")]
+mod named;

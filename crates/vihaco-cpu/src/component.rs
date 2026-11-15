@@ -110,6 +110,8 @@ impl CPU {
             ArrayReserve(elem) => self.op_array_reserve(elem),
             ArrayPush(elem) => self.op_array_push(elem),
             ArrayLen => self.op_array_len(),
+            // Named types exist only for verification: the word is unchanged.
+            Wrap(_) | Unwrap(_) => self.stack_top().map(|_| StepOutcome::Continue),
             GetField(struct_id, slot) => self.op_get_field(crate::FieldSlot {
                 struct_id: *struct_id,
                 slot: *slot,
@@ -339,6 +341,21 @@ impl CPU {
         self.enter_function(arity, target, local_count, Some(function))
     }
 
+    /// The most call frames (the entry function's included) may be active at
+    /// once; [`DEFAULT_MAX_CALL_DEPTH`] unless changed.
+    ///
+    /// [`DEFAULT_MAX_CALL_DEPTH`]: vihaco_module::module::DEFAULT_MAX_CALL_DEPTH
+    pub fn max_call_depth(&self) -> usize {
+        self.max_call_depth
+            .unwrap_or(vihaco_module::module::DEFAULT_MAX_CALL_DEPTH)
+    }
+
+    /// Limit nested call frames to `depth`. A call that would exceed it fails,
+    /// naming the callee, before the stack grows.
+    pub fn set_max_call_depth(&mut self, depth: usize) {
+        self.max_call_depth = Some(depth);
+    }
+
     /// Shared frame setup for program entry and call instructions.
     pub(crate) fn enter_function(
         &mut self,
@@ -347,6 +364,26 @@ impl CPU {
         local_count: u32,
         function: Option<usize>,
     ) -> eyre::Result<StepOutcome> {
+        // The CPU never sees function names; name the callee by index and
+        // entry address.
+        let callee = || match function {
+            Some(index) => format!("function {index} (at address {target})"),
+            None => format!("the function at address {target}"),
+        };
+        // Function metadata can bypass `ProgramMetadata::validate`, so bound
+        // the frame before growing the stack.
+        eyre::ensure!(
+            local_count as usize <= vihaco_module::module::MAX_LOCALS,
+            "{} declares {local_count} locals, more than the maximum of {}",
+            callee(),
+            vihaco_module::module::MAX_LOCALS
+        );
+        let limit = self.max_call_depth();
+        eyre::ensure!(
+            self.frames.len() < limit,
+            "call to {} exceeds the maximum call depth of {limit} frames",
+            callee()
+        );
         self.require_operands(arity as usize)?;
         self.ensure_local_count_is_at_least_arity(arity, local_count)?;
         let base = self.stack.len() - arity as usize;
@@ -708,6 +745,21 @@ mod tests {
         assert_eq!(outcome, StepOutcome::Continue);
 
         assert_eq!(cpu.stack(), &vec![encode_i64(999)],);
+    }
+
+    #[test]
+    fn wrap_and_unwrap_leave_the_word_unchanged() {
+        let mut cpu = CPU::default();
+        assert!(
+            cpu.execute_instruction(RuntimeInstruction::Wrap(0))
+                .is_err()
+        );
+        cpu.stack_push(encode_u64(7));
+        for instruction in [RuntimeInstruction::Wrap(0), RuntimeInstruction::Unwrap(0)] {
+            let outcome = cpu.execute_instruction(instruction).unwrap();
+            assert_eq!(outcome, StepOutcome::Continue);
+            assert_eq!(cpu.stack(), &vec![encode_u64(7)]);
+        }
     }
 
     #[test]

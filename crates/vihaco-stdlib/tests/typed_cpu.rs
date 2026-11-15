@@ -8,13 +8,13 @@
 
 use vihaco_cpu::{
     CPU, StepOutcome, cpu, encode_f32, encode_f64, encode_function_ref, encode_i64,
-    field::StructLookup,
+    field::{NamedTypeLookup, StructLookup},
     lower::{FunctionLookup, LabelLookup, StringIntern},
     message,
     operand::Target,
 };
 
-use vihaco_abi::Type;
+use vihaco_abi::{FunctionType, Type};
 use vihaco_module::host::{FrameMemory, StackFrame, StackMemory};
 use vihaco_runtime::{
     Dispatch, Execute, HasInstructionSet, NoMessage, Parse, Step, chumsky::Parser as _, composite,
@@ -62,6 +62,17 @@ impl StructLookup for NumericContext {
     }
 }
 
+// Numeric named-type operands are checked too: the table has one entry.
+impl NamedTypeLookup for NumericContext {
+    fn named_type_index(&self, name: &str) -> eyre::Result<u32> {
+        Err(eyre::eyre!("unknown named type {name}"))
+    }
+    fn check_named_type(&self, index: u32) -> eyre::Result<()> {
+        eyre::ensure!(index == 0, "unknown named type {index}");
+        Ok(())
+    }
+}
+
 pub use vihaco_cpu::{__vihaco_fields_CPU, __vihaco_inventory_CPU};
 
 #[composite]
@@ -87,7 +98,7 @@ macro_rules! steps {
             Span, Breakpoint, Branch, ConditionalBranch, Return, Halt,
             LoadI32, LoadI64, LoadU32, LoadU64, LoadF32, LoadF64,
             LoadBool, StoreI32, StoreI64, StoreU32, StoreU64, StoreF32,
-            StoreF64, StoreBool, Dup, ArrayNew, ArrayGet, ArraySet, HeapDealloc,
+            StoreF64, StoreBool, Load, Store, Dup, ArrayNew, ArrayGet, ArraySet, HeapDealloc,
             ArrayReserve, ArrayPush, ArrayLen, GetField, SetField, StructNew,
             ConstI32, ConstI64, ConstU32, ConstU64, ConstF32, ConstF64,
             ConstBool, ConstString, ConstFunctionRef, AddI32, AddF32,
@@ -107,7 +118,7 @@ macro_rules! steps {
             LtU32, LtU64, LtF32, LtF64, GtI32, GtI64,
             GtU32, GtU64, GtF32, GtF64, LeI32, LeI64,
             LeU32, LeU64, LeF32, LeF64, GeI32, GeI64,
-            GeU32, GeU64, GeF32, GeF64
+            GeU32, GeU64, GeF32, GeF64, Wrap, Unwrap
         );
         impl Step<$route, cpu::Call> for $machine {
             fn step(&mut self, instruction: &cpu::Call, _: &()) -> eyre::Result<()> {
@@ -119,8 +130,9 @@ macro_rules! steps {
         }
         impl Step<$route, cpu::IndirectCall> for $machine {
             fn step(&mut self, instruction: &cpu::IndirectCall, _: &()) -> eyre::Result<()> {
-                self.$($device).+.execute(instruction, message::FunctionInfo {
-                    arity: 0, start_address: 0, local_count: 0,
+                self.$($device).+.execute(instruction, message::IndirectCallee {
+                    info: message::FunctionInfo { arity: 0, start_address: 0, local_count: 0 },
+                    signature: instruction.0.clone(),
                 })?;
                 Ok(())
             }
@@ -384,15 +396,30 @@ fn typed_messages_preserve_direct_indirect_calls_and_returns() {
     assert_eq!(cpu.take_pending_pc(), Some(8));
     assert_eq!(cpu.stack(), &[10, 20, 0, 0, 99, 44]);
     cpu.stack_push(encode_function_ref(2));
-    cpu.execute(
-        &cpu::IndirectCall,
-        message::FunctionInfo {
+    let unary = FunctionType::new([Type::U64], []);
+    let callee = message::IndirectCallee {
+        info: message::FunctionInfo {
             arity: 1,
             start_address: 200,
             local_count: 2,
         },
-    )
-    .unwrap();
+        signature: unary.clone(),
+    };
+    // The referenced function must have exactly the instruction's signature.
+    let error = cpu
+        .execute(
+            &cpu::IndirectCall(FunctionType::new([Type::I64], [])),
+            callee.clone(),
+        )
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("expects a function of type (i64) -> (), but the referenced function has type (u64) -> ()"),
+        "{error}"
+    );
+    assert_eq!(cpu.stack(), &[10, 20, 0, 0, 99, 44, encode_function_ref(2)]);
+    cpu.execute(&cpu::IndirectCall(unary), callee).unwrap();
     assert_eq!(cpu.get_frame().unwrap().function, Some(2));
     assert_eq!(cpu.get_local(0).unwrap(), &44);
     assert_eq!(cpu.take_pending_pc(), Some(200));
@@ -648,7 +675,17 @@ fn every_executable_leaf_parses_directly_and_metadata_is_excluded() {
     check("br 0", cpu::Branch(0));
     check("cond_br 0, 0", cpu::ConditionalBranch(0, 0));
     check("ret 0", cpu::Return(0));
-    check("call_indirect", cpu::IndirectCall);
+    check(
+        "call_indirect () -> ()",
+        cpu::IndirectCall(FunctionType::default()),
+    );
+    check(
+        "call_indirect (u64, struct 0) -> (f64, bool)",
+        cpu::IndirectCall(FunctionType::new(
+            [Type::U64, Type::Struct(0)],
+            [Type::F64, Type::Bool],
+        )),
+    );
     check("call 0, 0", cpu::Call(0, 0));
     check("halt", cpu::Halt);
     check("print", cpu::Print);
@@ -666,6 +703,8 @@ fn every_executable_leaf_parses_directly_and_metadata_is_excluded() {
     check("store_f32 0", cpu::StoreF32(0));
     check("store_f64 0", cpu::StoreF64(0));
     check("store_bool 0", cpu::StoreBool(0));
+    check("load 3", cpu::Load(3));
+    check("store 3", cpu::Store(3));
     check("dup", cpu::Dup);
     check("array_new u64, 0", cpu::ArrayNew(Type::U64, 0));
     check("array_get u64", cpu::ArrayGet(Type::U64));
@@ -797,18 +836,57 @@ fn every_executable_leaf_parses_directly_and_metadata_is_excluded() {
         field_count: 2,
     };
     check("struct_new 0", cpu::StructNew(point));
+    check("wrap 0", cpu::Wrap(0));
+    check("unwrap 0", cpu::Unwrap(0));
     assert_eq!(
         vihaco_runtime::__private::capabilities::<CPU>().count(),
-        145
+        149
     );
     assert_eq!(
         vihaco_runtime::__private::capabilities::<Machine>().count(),
-        290
+        298
     );
     assert!(
         !vihaco_runtime::__private::capabilities::<CPU>()
             .any(|leaf| matches!(leaf.instruction, "label" | "func_start" | "func_end"))
     );
+}
+
+#[test]
+fn untyped_loads_and_stores_copy_words_like_typed_ones() {
+    let mut cpu = CPU::default();
+    cpu.start_function(0, 0, 2, 0).unwrap();
+    cpu.stack_push(encode_f64(2.5));
+    cpu.execute(&cpu::Store(1), NoMessage::new()).unwrap();
+    cpu.execute(&cpu::Load(1), NoMessage::new()).unwrap();
+    assert_eq!(cpu.stack(), &[0, encode_f64(2.5), encode_f64(2.5)]);
+    assert!(cpu.execute(&cpu::Load(2), NoMessage::new()).is_err());
+    assert!(cpu.execute(&cpu::Store(2), NoMessage::new()).is_err());
+}
+
+#[test]
+fn wrap_and_unwrap_leave_the_word_unchanged() {
+    let mut cpu = CPU::default();
+    assert!(cpu.execute(&cpu::Wrap(0), NoMessage::new()).is_err());
+    cpu.stack_push(7_u64);
+    assert_eq!(
+        cpu.execute(&cpu::Wrap(0), NoMessage::new()).unwrap(),
+        StepOutcome::Continue
+    );
+    assert_eq!(cpu.stack(), &[7]);
+    assert_eq!(
+        cpu.execute(&cpu::Unwrap(0), NoMessage::new()).unwrap(),
+        StepOutcome::Continue
+    );
+    assert_eq!(cpu.stack(), &[7]);
+
+    // Through the composite, with lowering checking the operand.
+    let mut machine = machine();
+    step(&mut machine, "ctl::host::cpu::const_u64 9").unwrap();
+    step(&mut machine, "ctl::host::cpu::wrap 0").unwrap();
+    step(&mut machine, "ctl::host::cpu::unwrap 0").unwrap();
+    assert_eq!(machine.controller.cpu.stack(), &[9]);
+    assert!(step(&mut machine, "ctl::host::cpu::wrap 1").is_err());
 }
 
 #[test]
@@ -945,6 +1023,15 @@ impl StructLookup for SymbolLoader {
         Err(eyre::eyre!(
             "fixture declares no struct {struct_index}.{field}"
         ))
+    }
+}
+
+impl NamedTypeLookup for SymbolLoader {
+    fn named_type_index(&self, name: &str) -> eyre::Result<u32> {
+        Err(eyre::eyre!("fixture declares no named type {name}"))
+    }
+    fn check_named_type(&self, index: u32) -> eyre::Result<()> {
+        Err(eyre::eyre!("fixture declares no named type {index}"))
     }
 }
 

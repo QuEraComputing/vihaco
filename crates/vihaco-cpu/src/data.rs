@@ -35,6 +35,8 @@ vihaco_runtime::component! {
         pub(crate) pending_pc: Option<u32>,
         pub(crate) current_pc: u32,
         pub(crate) return_values: Vec<Word>,
+        /// `None` means `DEFAULT_MAX_CALL_DEPTH`.
+        pub(crate) max_call_depth: Option<usize>,
     }
 
     type Type = vihaco_abi::Type;
@@ -382,6 +384,16 @@ vihaco_runtime::component! {
         /// must be below the current length. Pushes nothing.
         #[pattern = "'array_set $0"]
         ArraySet(Type),
+
+        /// Reinterpret the top word as named type `$0` (a named-type-table
+        /// index). A runtime no-op: named types exist only for verification.
+        #[pattern = "'wrap $0"]
+        Wrap(u32),
+
+        /// Reinterpret the top word, of named type `$0`, as its
+        /// representation. A runtime no-op.
+        #[pattern = "'unwrap $0"]
+        Unwrap(u32),
     }
 }
 
@@ -406,6 +418,8 @@ pub struct CPU {
     pub(crate) pending_pc: Option<u32>,
     pub(crate) current_pc: u32,
     pub(crate) return_values: Vec<Word>,
+    /// `None` means `DEFAULT_MAX_CALL_DEPTH`.
+    pub(crate) max_call_depth: Option<usize>,
 }
 
 impl StackMemory for CPU {

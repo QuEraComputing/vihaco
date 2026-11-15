@@ -121,11 +121,13 @@ traits remain in `vihaco-module`. Direct stdlib consumers enable
 to CPU and runtime. Enabling only a CPU feature does not activate stdlib above it.
 
 The nondefault `program-image-execution` feature on `vihaco-stdlib`, `vihaco-cpu`,
-`vihaco`, or `vihaco-runtime` implies `typed-declarations`. The host owns a
+`vihaco`, or `vihaco-runtime` implies `typed-declarations`; on `vihaco` it also
+implies `verifier`, which re-exports the load-time verifier as `vihaco::verifier`. The host owns a
 `LocalModule`; the machine contains an `ExecutionState` component marked
 `#[program]`, which supplies execution-state access and operand-storage wiring.
 Call `vihaco_stdlib::execution_state::execute(&module, &mut machine, arguments)`
-(or the facade's `execute`) to enter main. `resume(&module, &mut machine)` requires
+(or `vihaco::execution_state::execute`, the unverified runner; prefer
+`Loadable`) to enter main. `resume(&module, &mut machine)` requires
 the same unchanged module associated with that invocation; identity is not enforced.
 
 `ExecutionState` owns call frames, locals, operands, private PC, and halt/running
@@ -138,14 +140,16 @@ With `program-image-execution`, use `Loadable<Image<Instruction>, Machine>` to
 pair immutable program data with a composite containing `ExecutionState` and
 other devices. An ordinary outer runtime holds each independently loaded program
 as a field. Construct a module explicitly through SST parsing and lowering (or
-bytecode decoding), wrap it in `Image::new(module)`, and construct
-`Loadable::new(image, machine)`. Ordinary nested composites share the enclosing
+bytecode decoding), verify it with `Verified::new(module)`, wrap it in
+`Image::new(verified)`, and construct `Loadable::new(image, machine)`. Images
+only accept verified modules; `Verified::assume_verified` is the explicit escape
+hatch for tests and trusted toolchains. Ordinary nested composites share the enclosing
 program's image.
 
 The complete [Loadable example](crates/vihaco-stdlib/examples/loadable.rs) and its
 [SST source](crates/vihaco-stdlib/examples/loadable.sst) show section selection,
 individual header-declaration preparation, metadata validation, symbolic function/label lowering,
-image construction, authored Steps, and execution. Run it from the repository root:
+load-time verification, image construction, authored Steps, and execution. Run it from the repository root:
 
 ```sh
 cargo run -p vihaco-stdlib --features program-image-execution --example loadable
@@ -224,6 +228,7 @@ needs; there is no umbrella crate.
 | [`vihaco-runtime-derive`](crates/vihaco-runtime-derive) | `#[derive(Message)]`, `component!`, `#[composite]`, `#[observe]`, re-exported through `vihaco-runtime`'s `derive` feature. |
 | [`vihaco-stdlib`](crates/vihaco-stdlib) | Standard-library components and observers, including `ProgramImage` and `StdoutObserver`. |
 | [`vihaco-syntax`](crates/vihaco-syntax) | Typed SST parsing and module construction (`Resolve`). |
+| [`vihaco-verifier`](crates/vihaco-verifier) | Load-time verification: the control-flow fixpoint engine, standard capabilities, structured diagnostics, type maps, `ModuleVerifier`, and `Verified<M>`. Re-exported as `vihaco::verifier` with the `verifier` feature. |
 | [`vihaco-cpu`](crates/vihaco-cpu) | A ready-made CPU/host component — a small stack machine (constants, arithmetic, branches, halt, …) with a `StepOutcome` control-flow effect. Use directly, or as a reference for writing your own. |
 | [`vihaco-parser`](crates/vihaco-parser) | The `Parse<'src>` and `SurfaceInstruction` traits plus lexical, primitive, and collection implementations shared by the parser derive. |
 | [`vihaco-parser-derive`](crates/vihaco-parser-derive) | `#[derive(Parse)]` — turns instruction, value, and type enums or structs into [chumsky](https://github.com/zesterer/chumsky) parsers via `#[syntax_class]` and `#[pattern]`. |

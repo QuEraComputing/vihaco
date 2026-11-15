@@ -659,6 +659,7 @@ dependencies = [
  "vihaco-runtime",
  "vihaco-stdlib",
  "vihaco-syntax",
+ "vihaco-verifier",
 ]
 
 [[package]]
@@ -708,6 +709,7 @@ dependencies = [
  "vihaco-parser",
  "vihaco-parser-derive",
  "vihaco-runtime",
+ "vihaco-verifier",
 ]
 
 [[package]]
@@ -800,6 +802,7 @@ dependencies = [
  "vihaco-parser-derive",
  "vihaco-runtime",
  "vihaco-syntax",
+ "vihaco-verifier",
 ]
 
 [[package]]
@@ -822,6 +825,7 @@ dependencies = [
  "eyre",
  "smallvec",
  "vihaco-abi",
+ "vihaco-module",
  "vihaco-runtime",
 ]
 

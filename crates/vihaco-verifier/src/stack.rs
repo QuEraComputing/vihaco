@@ -7,15 +7,18 @@ use std::fmt;
 
 use vihaco_abi::Type;
 
-use crate::diagnostic::{DiagnosticKind, VerifyError};
+use crate::capability::Locals;
+use crate::diagnostic::VerifyError;
 use crate::slot::{Lattice, TypedSlot};
 use crate::state::AbstractState;
 
 /// Capability: the abstract operand stack of the function being verified.
 ///
 /// Depth counts operands only, from the function's first operand, so popping
-/// an empty stack is a [`DiagnosticKind::StackUnderflow`]: no operand
-/// instruction can reach the function's locals or its caller's frame.
+/// an empty stack is a [`StackUnderflow`]: no operand instruction can reach
+/// the function's locals or its caller's frame.
+///
+/// [`StackUnderflow`]: crate::DiagnosticKind::StackUnderflow
 pub trait OperandStack {
     /// The abstract value held in each stack slot.
     type Slot: Lattice;
@@ -36,8 +39,10 @@ pub trait OperandStack {
     /// Pop the top `n` operands, returned bottom first.
     ///
     /// Bounded: if fewer than `n` operands are present this reports a single
-    /// [`DiagnosticKind::StackUnderflow`] and leaves the stack unchanged, so a
-    /// huge count costs at most `O(depth)`.
+    /// [`StackUnderflow`] and leaves the stack unchanged, so a huge count
+    /// costs at most `O(depth)`.
+    ///
+    /// [`StackUnderflow`]: crate::DiagnosticKind::StackUnderflow
     fn pop_n(&mut self, n: usize) -> Result<Vec<Self::Slot>, VerifyError> {
         if n > self.depth() {
             return Err(VerifyError::stack_underflow());
@@ -138,11 +143,13 @@ impl<S: Lattice> Frame<S> {
 
     /// Join `incoming` into `self`, the frame saved at a join point.
     ///
-    /// Operand depths must agree ([`DiagnosticKind::StackDepthMismatch`]
-    /// otherwise), and so must local counts
-    /// ([`DiagnosticKind::LocalCountMismatch`]); then locals and operands are
-    /// joined slot-wise. Returns
-    /// whether `self` strictly changed. On error `self` is left unchanged.
+    /// Operand depths must agree ([`StackDepthMismatch`] otherwise), and so
+    /// must local counts ([`LocalCountMismatch`]); then locals and operands
+    /// are joined slot-wise. Returns whether `self` strictly changed. On error
+    /// `self` is left unchanged.
+    ///
+    /// [`StackDepthMismatch`]: crate::DiagnosticKind::StackDepthMismatch
+    /// [`LocalCountMismatch`]: crate::DiagnosticKind::LocalCountMismatch
     pub fn join(&mut self, incoming: &Self) -> Result<bool, VerifyError> {
         if self.operands.len() != incoming.operands.len() {
             return Err(VerifyError::stack_depth_mismatch(
@@ -151,10 +158,12 @@ impl<S: Lattice> Frame<S> {
             ));
         }
         if self.locals.len() != incoming.locals.len() {
-            return Err(VerifyError::new(DiagnosticKind::LocalCountMismatch {
-                expected: self.locals.len(),
-                found: incoming.locals.len(),
-            }));
+            return Err(VerifyError::new(
+                crate::DiagnosticKind::LocalCountMismatch {
+                    expected: self.locals.len(),
+                    found: incoming.locals.len(),
+                },
+            ));
         }
         let mut changed = false;
         let saved = self.locals.iter_mut().chain(self.operands.iter_mut());
@@ -192,7 +201,7 @@ impl<S: fmt::Display> fmt::Display for Frame<S> {
 /// The standard verifier context for one function: a [`Frame`] plus the
 /// current position.
 ///
-/// Implements [`OperandStack`] and [`AbstractState`]. A machine-specific
+/// Implements [`OperandStack`], [`Locals`] and [`AbstractState`]. A machine-specific
 /// context can wrap a `FrameState`, delegate [`OperandStack`] to it, and join
 /// its own state alongside the frame's.
 #[derive(Clone, Debug)]
@@ -226,34 +235,32 @@ impl<S: Lattice> FrameState<S> {
     pub fn address(&self) -> u32 {
         self.address
     }
+}
 
-    /// The number of locals in the frame.
-    pub fn local_count(&self) -> u32 {
-        self.frame.locals.len() as u32
+/// Bounds-checked against the frame's locals.
+impl<S: Lattice> Locals for FrameState<S> {
+    fn local_count(&self) -> u32 {
+        // Frames come from declared locals, capped well below `u32::MAX`.
+        u32::try_from(self.frame.locals.len()).unwrap_or(u32::MAX)
     }
 
-    /// Local `index`, or [`DiagnosticKind::LocalIndexOutOfRange`].
-    pub fn local(&self, index: u32) -> Result<&S, VerifyError> {
+    fn local(&self, index: u32) -> Result<&S, VerifyError> {
+        let count = self.local_count();
         self.frame
             .locals
             .get(index as usize)
-            .ok_or_else(|| self.local_out_of_range(index))
+            .ok_or_else(|| VerifyError::local_index_out_of_range(index, count))
     }
 
-    /// Overwrite local `index`, or report
-    /// [`DiagnosticKind::LocalIndexOutOfRange`].
-    pub fn set_local(&mut self, index: u32, slot: S) -> Result<(), VerifyError> {
-        let error = self.local_out_of_range(index);
-        let local = self.frame.locals.get_mut(index as usize).ok_or(error)?;
+    fn set_local(&mut self, index: u32, slot: S) -> Result<(), VerifyError> {
+        let count = self.local_count();
+        let local = self
+            .frame
+            .locals
+            .get_mut(index as usize)
+            .ok_or_else(|| VerifyError::local_index_out_of_range(index, count))?;
         *local = slot;
         Ok(())
-    }
-
-    fn local_out_of_range(&self, index: u32) -> VerifyError {
-        VerifyError::new(DiagnosticKind::LocalIndexOutOfRange {
-            index,
-            count: self.local_count(),
-        })
     }
 }
 
@@ -315,7 +322,7 @@ impl<S: Lattice> AbstractState for FrameState<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::TypeSlot;
+    use crate::{DiagnosticKind, TypeSlot};
 
     fn slot(ty: Type) -> TypeSlot {
         TypeSlot::Known(ty)

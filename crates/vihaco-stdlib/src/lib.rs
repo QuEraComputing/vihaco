@@ -20,6 +20,10 @@ pub mod image;
 #[cfg(feature = "program-image-execution")]
 pub use image::Image;
 
+/// Re-exported so image construction needs no direct `vihaco-verifier` dependency.
+#[cfg(feature = "program-image-execution")]
+pub use vihaco_verifier::Verified;
+
 #[cfg(feature = "program-image-execution")]
 pub mod loadable;
 

@@ -11,11 +11,13 @@ authors.workspace = true
 eyre = { workspace = true }
 smallvec = { workspace = true }
 vihaco-abi = { workspace = true }
+vihaco-module = { workspace = true }
 
 [features]
 default = []
-# Runs the integration test against a real `#[composite]` machine, whose
-# generated `Verify` aggregate exists only in typed-declaration builds.
+# Test-only: runs the integration test against a real `#[composite]` machine,
+# whose generated `Verify` aggregate exists only in typed-declaration builds.
+# It changes nothing for dependents; CI enables it explicitly.
 typed-declarations = ["vihaco-runtime/typed-declarations"]
 
 [dev-dependencies]

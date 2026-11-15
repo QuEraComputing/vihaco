@@ -110,18 +110,26 @@ impl Execute<cpu::Return> for CPU {
 }
 
 impl Execute<cpu::IndirectCall> for CPU {
-    type Message = crate::message::FunctionInfo;
+    type Message = crate::message::IndirectCallee;
     type Effect = StepOutcome;
     type Error = eyre::Report;
 
     fn execute(
         &mut self,
-        _instruction: &cpu::IndirectCall,
+        instruction: &cpu::IndirectCall,
         message: Self::Message,
     ) -> eyre::Result<StepOutcome> {
         self.clear_pending_pc();
-        let (arity, target) = (message.arity, message.start_address);
-        let local_count = message.local_count;
+        // A function reference is only callable at its declared signature.
+        eyre::ensure!(
+            message.signature == instruction.0,
+            "call_indirect expects a function of type {}, but the referenced function has type {}",
+            instruction.0,
+            message.signature
+        );
+        let info = message.info;
+        let (arity, target) = (info.arity, info.start_address);
+        let local_count = info.local_count;
         // Only the function reference is an operand; metadata comes from the message.
         let required = (arity as usize)
             .checked_add(1)
