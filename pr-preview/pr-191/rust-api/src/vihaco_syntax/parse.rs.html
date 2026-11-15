@@ -251,16 +251,25 @@
 <a href=#251 id=251 data-nosnippet>251</a>}
 <a href=#252 id=252 data-nosnippet>252</a>
 <a href=#253 id=253 data-nosnippet>253</a><span class="doccomment">/// Render parse errors for a message. A type nested past
-<a href=#254 id=254 data-nosnippet>254</a>/// [`vihaco_abi::Type::MAX_ARRAY_DEPTH`] is named as such (with its byte span)
-<a href=#255 id=255 data-nosnippet>255</a>/// instead of as an unexpected character or end of input.
-<a href=#256 id=256 data-nosnippet>256</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>describe_errors(text: <span class="kw-2">&amp;</span>str, errors: <span class="kw-2">&amp;</span>[Simple&lt;<span class="lifetime">'_</span>, char&gt;]) -&gt; String {
-<a href=#257 id=257 data-nosnippet>257</a>    errors
-<a href=#258 id=258 data-nosnippet>258</a>        .iter()
-<a href=#259 id=259 data-nosnippet>259</a>        .find_map(|error| {
-<a href=#260 id=260 data-nosnippet>260</a>            <span class="kw">let </span>span = error.span();
-<a href=#261 id=261 data-nosnippet>261</a>            vihaco_abi::Type::nesting_error_at(text, span.start)
-<a href=#262 id=262 data-nosnippet>262</a>                .map(|message| <span class="macro">format!</span>(<span class="string">"{message} (at {}..{})"</span>, span.start, span.end))
-<a href=#263 id=263 data-nosnippet>263</a>        })
-<a href=#264 id=264 data-nosnippet>264</a>        .unwrap_or_else(|| <span class="macro">format!</span>(<span class="string">"{errors:?}"</span>))
-<a href=#265 id=265 data-nosnippet>265</a>}
+<a href=#254 id=254 data-nosnippet>254</a>/// [`vihaco_abi::Type::MAX_ARRAY_DEPTH`] is named as such (with the error's
+<a href=#255 id=255 data-nosnippet>255</a>/// byte span) instead of as an unexpected character or end of input, even when
+<a href=#256 id=256 data-nosnippet>256</a>/// the parser reports the error at an enclosing token such as the `(` of a
+<a href=#257 id=257 data-nosnippet>257</a>/// return list.
+<a href=#258 id=258 data-nosnippet>258</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>describe_errors(text: <span class="kw-2">&amp;</span>str, errors: <span class="kw-2">&amp;</span>[Simple&lt;<span class="lifetime">'_</span>, char&gt;]) -&gt; String {
+<a href=#259 id=259 data-nosnippet>259</a>    <span class="kw">let </span>at = |message: String, error: <span class="kw-2">&amp;</span>Simple&lt;<span class="lifetime">'_</span>, char&gt;| {
+<a href=#260 id=260 data-nosnippet>260</a>        <span class="kw">let </span>span = error.span();
+<a href=#261 id=261 data-nosnippet>261</a>        <span class="macro">format!</span>(<span class="string">"{message} (at {}..{})"</span>, span.start, span.end)
+<a href=#262 id=262 data-nosnippet>262</a>    };
+<a href=#263 id=263 data-nosnippet>263</a>    errors
+<a href=#264 id=264 data-nosnippet>264</a>        .iter()
+<a href=#265 id=265 data-nosnippet>265</a>        .find_map(|error| {
+<a href=#266 id=266 data-nosnippet>266</a>            vihaco_abi::Type::nesting_error_at(text, error.span().start)
+<a href=#267 id=267 data-nosnippet>267</a>                .map(|message| at(message, error))
+<a href=#268 id=268 data-nosnippet>268</a>        })
+<a href=#269 id=269 data-nosnippet>269</a>        .or_else(|| {
+<a href=#270 id=270 data-nosnippet>270</a>            <span class="kw">let </span>error = errors.first()<span class="question-mark">?</span>;
+<a href=#271 id=271 data-nosnippet>271</a>            vihaco_abi::Type::nesting_error_in(text).map(|message| at(message, error))
+<a href=#272 id=272 data-nosnippet>272</a>        })
+<a href=#273 id=273 data-nosnippet>273</a>        .unwrap_or_else(|| <span class="macro">format!</span>(<span class="string">"{errors:?}"</span>))
+<a href=#274 id=274 data-nosnippet>274</a>}
 </code></pre></div></section></main></body></html>
