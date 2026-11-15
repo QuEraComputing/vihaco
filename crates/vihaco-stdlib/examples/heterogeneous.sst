@@ -1,0 +1,34 @@
+sst v2
+
+; Two machines in one file: `controller` runs on a CPU-style machine, and
+; `fpga` on a pulse generator with its own `pulse` dialect.
+.section controller
+.header
+    .file "heterogeneous.sst"
+    .func @main() -> u64, locals 0
+    .entry @main
+    .const str "start"
+.text
+@main:
+    execution::program::const_string "pulse sequence"
+    execution::program::const_u64 20
+    execution::program::const_u64 2
+    cpu::cpu::mul_u64
+    execution::program::ret 1
+
+.section fpga
+.header
+    .file "heterogeneous.sst"
+    .func @sequence() -> u64, locals 0
+    .entry @sequence
+.text
+@sequence:
+    pulser::pulse::play 0, 40
+    pulser::pulse::wait 10
+@again:
+    pulser::pulse::play 1, 40
+    execution::program::const_bool false
+    execution::program::cond_br @again, @done
+@done:
+    execution::program::const_u64 1
+    execution::program::ret 1
