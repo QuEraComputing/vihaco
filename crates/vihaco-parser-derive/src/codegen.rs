@@ -1716,6 +1716,12 @@ pub fn dialect_parsers(root: TokenStream2, item: TokenStream2) -> Result<TokenSt
                         Ok(self)
                     }
                 }
+                impl<#loader: ?Sized> #root::Raise<#loader> for #runtime {
+                    type Syntax = Self;
+                    fn raise(&self, _: &#loader) -> #root::eyre::Result<Self> {
+                        Ok(::core::clone::Clone::clone(self))
+                    }
+                }
             }
         } else {
             let types = format_ident!("__{}Types", runtime);

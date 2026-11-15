@@ -32,7 +32,7 @@ mod notes;
 use std::marker::PhantomData;
 
 use vihaco_abi::Lower;
-use vihaco_bytecode::NoContext;
+use vihaco_bytecode::{NoContext, SSTGlobalContext};
 use vihaco_module::loader::MetadataLoweringContext;
 use vihaco_module::module::{
     ConstantValue, NoInfo, ProgramDirective, ProgramHeader, StandardDirective, Symbol,
@@ -43,13 +43,16 @@ use vihaco_runtime::HasInstructionSet;
 use self::comments::{Comment, blank_line_between, starts_line, user_part};
 use self::layout::{INDENT, Line};
 use self::notes::SectionInfo;
-use crate::check::{self, Declarations, MetadataLowering, ProgramChecker, SectionChecker};
+use crate::check::{
+    self, AsSectionChecker, Declarations, MetadataLowering, ProgramChecker, Routed, Routes,
+    SectionChecker,
+};
+use crate::diagnostic::{Diagnostics, Report};
+use crate::source::{SourceFile, Span};
 
 /// Indentation of header directives: one level under `.header`, like
 /// instructions under `.text`. Framing directives and labels stay at column 0.
 const HEADER_INDENT: usize = INDENT;
-use crate::diagnostic::{Diagnostics, Report};
-use crate::source::{SourceFile, Span};
 
 /// Formatter settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -180,53 +183,10 @@ where
     /// from being formatted without changing its meaning.
     pub fn format(&mut self, source: &SourceFile) -> Result<String, Report>
     where
-        for<'src> M::Syntax: Parse<'src>,
-        M::Syntax: Print + 'static,
-        for<'src> D: Parse<'src>,
-        D: Print + StandardDirective + 'static,
-        D::Type: Print + Clone,
-        D::Value: ConstantValue + Clone,
-        ProgramChecker<M, Declarations<D>, L, C>: SectionChecker,
+        Self: SectionFormat,
     {
-        let report = self.checker.check(source);
-        if report.has_errors() {
-            return Err(report);
-        }
-        let mut out = Diagnostics::new(source);
-        let Some(model) = read::<M::Syntax, D>(source, &mut out) else {
-            return Err(out.finish());
-        };
-        let mut writer = Writer {
-            source,
-            options: &self.options,
-            annotators: &mut self.annotators,
-            out: &mut out,
-        };
-        let formatted = writer.file(&model);
-        if out.error_count() > 0 {
-            return Err(out.finish());
-        }
-
-        // The formatter must never change meaning: read the output back and
-        // compare it with the input.
-        let output = SourceFile::new(source.name(), formatted.as_str());
-        let mut again = Diagnostics::new(&output);
-        let reread = read::<M::Syntax, D>(&output, &mut again);
-        let same = self.checker.check(&output).is_ok()
-            && reread.is_some_and(|reread| snapshot(&reread) == snapshot(&model));
-        if !same {
-            let mut out = Diagnostics::new(source);
-            let diagnostic = out
-                .build_error(
-                    Span::point(0),
-                    "formatting would change the meaning of this file",
-                )
-                .with_label("in this file")
-                .with_note("this is a formatter bug; the file was left unchanged");
-            out.push(diagnostic);
-            return Err(out.finish());
-        }
-        Ok(formatted)
+        let options = self.options.clone();
+        format_file(&mut Single(self), source, &options)
     }
 }
 
@@ -258,63 +218,454 @@ where
         .format(source)
 }
 
+/// Formats a file whose sections may target different machines.
+///
+/// Like [`FileChecker`](crate::FileChecker), each section is formatted (and
+/// checked first) by the [`Formatter`] registered for its name, or by the
+/// default one; a section with neither is an error, as is a registered
+/// section that the file does not contain. The `.global` block is checked as
+/// `C` and kept verbatim. The [`FormatOptions`] are the file's; the options
+/// of the registered formatters are not used.
+///
+/// ```
+/// # use vihaco_sst::{FileFormatter, FormatOptions, Formatter, SourceFile, format::SectionFormat};
+/// # fn demo<Controller, Fpga>(source: &SourceFile) -> Result<String, vihaco_sst::Report>
+/// # where
+/// #     Controller: vihaco_runtime::HasInstructionSet + 'static,
+/// #     Fpga: vihaco_runtime::HasInstructionSet + 'static,
+/// #     Formatter<Controller>: SectionFormat,
+/// #     Formatter<Fpga>: SectionFormat,
+/// # {
+/// FileFormatter::new()
+///     .section::<Controller>("controller")
+///     .section::<Fpga>("fpga")
+///     .options(FormatOptions::default())
+///     .format(source)
+/// # }
+/// ```
+pub struct FileFormatter<C = NoContext> {
+    routes: Routes<dyn SectionFormat>,
+    options: FormatOptions,
+    global: PhantomData<fn() -> C>,
+}
+
+impl FileFormatter {
+    /// A formatter with no sections registered, for a file without a
+    /// `.global` context, with default options.
+    pub fn new() -> Self {
+        Self {
+            routes: Routes::default(),
+            options: FormatOptions::default(),
+            global: PhantomData,
+        }
+    }
+}
+
+impl Default for FileFormatter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<C> FileFormatter<C> {
+    /// Format section `name` as a program for machine `M`, with the standard
+    /// formatter `Formatter::<M>::new()`. The section is required.
+    #[must_use]
+    pub fn section<M>(self, name: impl Into<String>) -> Self
+    where
+        M: HasInstructionSet + 'static,
+        Formatter<M>: SectionFormat,
+    {
+        self.section_with(name, Formatter::<M>::new())
+    }
+
+    /// Format section `name` with `formatter`, for example one with an
+    /// application header or annotators. The section is required.
+    #[must_use]
+    pub fn section_with(
+        mut self,
+        name: impl Into<String>,
+        formatter: impl SectionFormat + 'static,
+    ) -> Self {
+        self.routes.insert(name.into(), Box::new(formatter));
+        self
+    }
+
+    /// Format every section without its own formatter as a program for `M`.
+    #[must_use]
+    pub fn default_section<M>(self) -> Self
+    where
+        M: HasInstructionSet + 'static,
+        Formatter<M>: SectionFormat,
+    {
+        self.default_with(Formatter::<M>::new())
+    }
+
+    /// Format every section without its own formatter with `formatter`.
+    #[must_use]
+    pub fn default_with(mut self, formatter: impl SectionFormat + 'static) -> Self {
+        self.routes.set_default(Box::new(formatter));
+        self
+    }
+
+    /// Use `options`.
+    #[must_use]
+    pub fn options(mut self, options: FormatOptions) -> Self {
+        self.options = options;
+        self
+    }
+
+    /// Check and parse the `.global` block as `C2`.
+    pub fn with_global_context<C2>(self) -> FileFormatter<C2> {
+        FileFormatter {
+            routes: self.routes,
+            options: self.options,
+            global: PhantomData,
+        }
+    }
+
+    /// Format `source`, or return the report of everything that prevents it
+    /// from being formatted without changing its meaning.
+    pub fn format(&mut self, source: &SourceFile) -> Result<String, Report>
+    where
+        C: SSTGlobalContext,
+    {
+        let options = self.options.clone();
+        format_file(self, source, &options)
+    }
+}
+
+mod sealed {
+    pub trait Sealed {}
+    impl<M: vihaco_runtime::HasInstructionSet, D, L, C> Sealed for super::Formatter<M, D, L, C> {}
+}
+
+/// A [`Formatter`] for one machine, as one section of a
+/// [`FileFormatter`] or a [`Disassembler`](crate::Disassembler).
+///
+/// Implemented by every `Formatter<M, D, L, C>` that can format; it cannot
+/// be implemented outside this crate. Its methods are internal.
+pub trait SectionFormat: sealed::Sealed {
+    #[doc(hidden)]
+    fn checker(&mut self) -> &mut dyn SectionChecker;
+
+    /// Read `section`, write it in the canonical layout, and snapshot it.
+    #[doc(hidden)]
+    fn format_section(
+        &mut self,
+        source: &SourceFile,
+        section: &check::Section<'_>,
+        options: &FormatOptions,
+        out: &mut Diagnostics<'_>,
+    ) -> Option<FormattedSection>;
+
+    /// Read `section` and snapshot it.
+    #[doc(hidden)]
+    fn snapshot_section(
+        &self,
+        source: &SourceFile,
+        section: &check::Section<'_>,
+        out: &mut Diagnostics<'_>,
+    ) -> Option<SectionSnapshot>;
+}
+
+impl<M, D, L, C> SectionFormat for Formatter<M, D, L, C>
+where
+    M: HasInstructionSet,
+    for<'src> M::Syntax: Parse<'src>,
+    M::Syntax: Print + 'static,
+    for<'src> D: Parse<'src>,
+    D: Print + StandardDirective + 'static,
+    D::Type: Print + Clone,
+    D::Value: ConstantValue + Clone,
+    ProgramChecker<M, Declarations<D>, L, C>: SectionChecker,
+{
+    fn checker(&mut self) -> &mut dyn SectionChecker {
+        &mut self.checker
+    }
+
+    fn format_section(
+        &mut self,
+        source: &SourceFile,
+        section: &check::Section<'_>,
+        options: &FormatOptions,
+        out: &mut Diagnostics<'_>,
+    ) -> Option<FormattedSection> {
+        let blocks = read_blocks::<M::Syntax, D>(source, section, out)?;
+        Some(self.write_blocks(source, section.name(), &blocks, options, out))
+    }
+
+    fn snapshot_section(
+        &self,
+        source: &SourceFile,
+        section: &check::Section<'_>,
+        out: &mut Diagnostics<'_>,
+    ) -> Option<SectionSnapshot> {
+        let blocks = read_blocks::<M::Syntax, D>(source, section, out)?;
+        Some(snapshot_blocks(&blocks))
+    }
+}
+
+impl<M, D, L, C> Formatter<M, D, L, C>
+where
+    M: HasInstructionSet,
+    for<'src> M::Syntax: Parse<'src>,
+    M::Syntax: Print + 'static,
+{
+    /// Write `blocks`, the body of section `name`, with this formatter's
+    /// annotators, and snapshot them. Problems are reported to `out`.
+    pub(crate) fn write_blocks(
+        &mut self,
+        source: &SourceFile,
+        name: &str,
+        blocks: &[Block<M::Syntax, D>],
+        options: &FormatOptions,
+        out: &mut Diagnostics<'_>,
+    ) -> FormattedSection
+    where
+        for<'src> D: Parse<'src>,
+        D: Print + StandardDirective + 'static,
+        D::Type: Print + Clone,
+        D::Value: ConstantValue + Clone,
+    {
+        let mut writer = Writer {
+            source,
+            options,
+            annotators: &mut self.annotators,
+            out,
+        };
+        FormattedSection {
+            text: writer.section(name, blocks),
+            snapshot: snapshot_blocks(blocks),
+        }
+    }
+}
+
+/// A section written in the canonical layout: everything after its
+/// `.section` line and loose comments.
+#[doc(hidden)]
+pub struct FormattedSection {
+    pub(crate) text: String,
+    pub(crate) snapshot: SectionSnapshot,
+}
+
+/// Whether a block is a header, and its printed items.
+type BlockSnapshot = (bool, Vec<String>);
+
+/// What formatting must preserve of one section: per block, whether it is a
+/// header and its printed items; and the section's user comments.
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SectionSnapshot {
+    blocks: Vec<BlockSnapshot>,
+    comments: Vec<String>,
+}
+
+/// How a file is checked and its sections formatted.
+pub(crate) trait FileRoutes {
+    /// Check the whole file.
+    fn check(&mut self, source: &SourceFile) -> Report;
+    /// The formatter for section `name`.
+    fn route(&mut self, name: &str) -> Option<&mut dyn SectionFormat>;
+}
+
+/// One formatter for every section.
+struct Single<'f, F>(&'f mut F);
+
+impl<M, D, L, C> FileRoutes for Single<'_, Formatter<M, D, L, C>>
+where
+    M: HasInstructionSet,
+    Formatter<M, D, L, C>: SectionFormat,
+{
+    fn check(&mut self, source: &SourceFile) -> Report {
+        check::check_file(source, self.0.checker())
+    }
+
+    fn route(&mut self, _: &str) -> Option<&mut dyn SectionFormat> {
+        Some(self.0)
+    }
+}
+
+impl<C: SSTGlobalContext> FileRoutes for FileFormatter<C> {
+    fn check(&mut self, source: &SourceFile) -> Report {
+        check::check_file(
+            source,
+            &mut Routed::<_, C> {
+                routes: &mut self.routes,
+                global: PhantomData,
+            },
+        )
+    }
+
+    fn route(&mut self, name: &str) -> Option<&mut dyn SectionFormat> {
+        let formatter: &mut dyn SectionFormat = self.routes.get_mut(name)?;
+        Some(formatter)
+    }
+}
+
+impl AsSectionChecker for dyn SectionFormat {
+    fn as_checker(&mut self) -> &mut dyn SectionChecker {
+        self.checker()
+    }
+}
+
+/// Check `source`, format every section with its routed formatter, and
+/// verify that the output means the same as the input.
+fn format_file(
+    routes: &mut dyn FileRoutes,
+    source: &SourceFile,
+    options: &FormatOptions,
+) -> Result<String, Report> {
+    let report = routes.check(source);
+    if report.has_errors() {
+        return Err(report);
+    }
+    let mut out = Diagnostics::new(source);
+    let framing = check::scan(source, &mut out);
+    if out.error_count() > 0 {
+        return Err(out.finish());
+    }
+    let frame = read_frame(source, &framing);
+    let mut bodies = Vec::new();
+    let mut sections = Vec::new();
+    for section in &framing.sections {
+        let Some(formatter) = routes.route(section.name()) else {
+            out.error(
+                section.name_span(),
+                format!("no machine is registered for section `{}`", section.name()),
+                "unknown section",
+            );
+            continue;
+        };
+        if let Some(formatted) = formatter.format_section(source, section, options, &mut out) {
+            bodies.push(formatted.text);
+            sections.push(formatted.snapshot);
+        }
+    }
+    if out.error_count() > 0 {
+        return Err(out.finish());
+    }
+    let formatted = write_file(&frame, &bodies);
+
+    // The formatter must never change meaning: read the output back and
+    // compare it with the input.
+    let expected = snapshot(&frame, sections);
+    let output = SourceFile::new(source.name(), formatted.as_str());
+    if !reads_back_as(routes, &output, &expected) {
+        let mut out = Diagnostics::new(source);
+        let diagnostic = out
+            .build_error(
+                Span::point(0),
+                "formatting would change the meaning of this file",
+            )
+            .with_label("in this file")
+            .with_note("this is a formatter bug; the file was left unchanged");
+        out.push(diagnostic);
+        return Err(out.finish());
+    }
+    Ok(formatted)
+}
+
+/// Whether `output` checks clean and reads back to `expected`.
+pub(crate) fn reads_back_as(
+    routes: &mut dyn FileRoutes,
+    output: &SourceFile,
+    expected: &Snapshot,
+) -> bool {
+    if !routes.check(output).is_ok() {
+        return false;
+    }
+    let mut out = Diagnostics::new(output);
+    let framing = check::scan(output, &mut out);
+    let frame = read_frame(output, &framing);
+    let mut sections = Vec::new();
+    for section in &framing.sections {
+        let Some(formatter) = routes.route(section.name()) else {
+            return false;
+        };
+        match formatter.snapshot_section(output, section, &mut out) {
+            Some(snapshot) => sections.push(snapshot),
+            None => return false,
+        }
+    }
+    out.error_count() == 0 && snapshot(&frame, sections) == *expected
+}
+
 // ---------------------------------------------------------------------------
 // Reading: framing, parsed items, and the comments attached to them.
 
 /// A parsed item of a block with the comments that belong to it.
-struct Entry<T> {
-    value: T,
-    span: Span,
-    leading: Vec<Comment>,
-    trailing: Vec<String>,
-    blank_before: bool,
+pub(crate) struct Entry<T> {
+    pub value: T,
+    pub span: Span,
+    pub leading: Vec<Comment>,
+    pub trailing: Vec<String>,
+    pub blank_before: bool,
+}
+
+impl<T> Entry<T> {
+    /// An item with no source position and no comments, as a disassembler
+    /// produces it.
+    pub(crate) fn bare(value: T) -> Self {
+        Self {
+            value,
+            span: Span::point(0),
+            leading: Vec::new(),
+            trailing: Vec::new(),
+            blank_before: false,
+        }
+    }
 }
 
 /// A header declaration and the comments inside it.
-struct Declaration<D> {
-    value: D,
+pub(crate) struct Declaration<D> {
+    pub value: D,
     /// Comments inside the declaration, at file offsets.
-    inner: Vec<Comment>,
+    pub inner: Vec<Comment>,
     /// Every comment inside the declaration (including generated ones), as
     /// ranges relative to the declaration.
-    raw: Vec<std::ops::Range<usize>>,
+    pub raw: Vec<std::ops::Range<usize>>,
 }
 
-enum TextItem<I> {
+impl<D> Declaration<D> {
+    /// A declaration without comments.
+    pub(crate) fn new(value: D) -> Self {
+        Self {
+            value,
+            inner: Vec::new(),
+            raw: Vec::new(),
+        }
+    }
+}
+
+pub(crate) enum TextItem<I> {
     Symbol(Symbol),
     Instruction(I),
 }
 
-struct BlockModel<T> {
-    comment: Option<String>,
-    entries: Vec<Entry<T>>,
+pub(crate) struct BlockModel<T> {
+    pub comment: Option<String>,
+    pub entries: Vec<Entry<T>>,
     /// Own-line comments after the last entry.
-    tail: Vec<Comment>,
+    pub tail: Vec<Comment>,
 }
 
-enum Block<I, D> {
+impl<T> BlockModel<T> {
+    /// A block of items with no comments.
+    pub(crate) fn bare(items: impl IntoIterator<Item = T>) -> Self {
+        Self {
+            comment: None,
+            entries: items.into_iter().map(Entry::bare).collect(),
+            tail: Vec::new(),
+        }
+    }
+}
+
+/// One block of a section's formatting model. A model read from source
+/// carries its comments; one built by a disassembler has none.
+pub(crate) enum Block<I, D> {
     Header(BlockModel<Declaration<D>>),
     Text(BlockModel<TextItem<I>>),
-}
-
-struct SectionModel<I, D> {
-    name: String,
-    comment: Option<String>,
-    /// Own-line comments between `.section` and its first block.
-    loose: Vec<String>,
-    blocks: Vec<Block<I, D>>,
-}
-
-struct FileModel<I, D> {
-    /// Own-line comments before `sst v2`.
-    preamble: Vec<String>,
-    version_comment: Option<String>,
-    /// Own-line comments between `sst v2` and the first `.global` or
-    /// `.section`.
-    loose: Vec<String>,
-    /// The `.global` directive comment and normalized body, if declared.
-    global: Option<(Option<String>, Vec<String>)>,
-    sections: Vec<SectionModel<I, D>>,
 }
 
 /// The comment after a directive on its line, if any.
@@ -472,27 +823,47 @@ fn collect<T>(
     (entries, pending)
 }
 
-/// Read a checked file into its formatting model. `None` (with diagnostics in
-/// `out`) if the file cannot be parsed.
-fn read<I, D>(source: &SourceFile, out: &mut Diagnostics<'_>) -> Option<FileModel<I, D>>
-where
-    for<'src> I: Parse<'src>,
-    I: 'static,
-    for<'src> D: Parse<'src>,
-    D: 'static,
-{
-    let text = source.text();
-    let framing = check::scan(source, out);
-    if out.error_count() > 0 {
-        return None;
+/// The comments and structure of a file outside its sections' blocks.
+pub(crate) struct FileFrame {
+    /// Own-line comments before `sst v2`.
+    pub preamble: Vec<String>,
+    pub version_comment: Option<String>,
+    /// Own-line comments between `sst v2` and the first `.global` or
+    /// `.section`.
+    pub loose: Vec<String>,
+    /// The `.global` directive comment and normalized body, if declared.
+    pub global: Option<(Option<String>, Vec<String>)>,
+    pub sections: Vec<SectionFrame>,
+}
+
+/// A section's directive comment and the comments before its first block.
+pub(crate) struct SectionFrame {
+    pub name: String,
+    pub comment: Option<String>,
+    /// Own-line comments between `.section` and its first block.
+    pub loose: Vec<String>,
+}
+
+impl SectionFrame {
+    /// A section with no comments.
+    pub(crate) fn named(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            comment: None,
+            loose: Vec::new(),
+        }
     }
+}
+
+/// Read the comments outside every block of a file whose framing is valid.
+fn read_frame(source: &SourceFile, framing: &check::Framing<'_>) -> FileFrame {
+    let text = source.text();
     let global = framing.global.directive().map(|directive| {
         (
             directive_comment(text, directive),
             global_lines(framing.global.text()),
         )
     });
-    let mut sections = Vec::new();
     let first_after_version = framing
         .global
         .directive()
@@ -503,182 +874,193 @@ where
         line_end(text, framing.version.end),
         first_after_version,
     );
-    for (index, section) in framing.sections.iter().enumerate() {
-        let first_block = [section.header().directive(), section.text().directive()]
-            .into_iter()
-            .flatten()
-            .map(|span| span.start)
-            .min()
-            .or_else(|| {
-                framing
-                    .sections
-                    .get(index + 1)
-                    .map(|next| next.directive().start)
-            })
-            .unwrap_or(text.len());
-        let section_loose =
-            loose_comments(text, line_end(text, section.directive().end), first_block);
-        let mut blocks = Vec::new();
-        if let Some(directive) = section.header().directive() {
-            let block = section.header();
-            let declarations = check::parse_declarations::<D>(block, out)?;
-            let items = declarations
+    let sections = framing
+        .sections
+        .iter()
+        .enumerate()
+        .map(|(index, section)| {
+            let first_block = [section.header().directive(), section.text().directive()]
                 .into_iter()
-                .map(|spanned| (Span::from(spanned.span), spanned.value))
-                .map(|(span, value)| {
-                    let declaration = Declaration {
-                        value,
-                        inner: Vec::new(),
-                        raw: Vec::new(),
-                    };
-                    (span, declaration)
+                .flatten()
+                .map(|span| span.start)
+                .min()
+                .or_else(|| {
+                    framing
+                        .sections
+                        .get(index + 1)
+                        .map(|next| next.directive().start)
                 })
-                .collect();
-            let (entries, tail) = collect(
-                source,
-                block.span(),
-                items,
-                &[],
-                out,
-                |entry, found, raw| {
-                    entry.value.inner = found;
-                    entry.value.raw = raw;
-                },
-            );
-            blocks.push((
-                directive.start,
-                Block::Header(BlockModel {
-                    comment: directive_comment(text, directive),
-                    entries,
-                    tail,
-                }),
-            ));
-        }
-        if let Some(directive) = section.text().directive() {
-            let block = section.text();
-            let before = out.error_count();
-            let parsed = check::parse_instructions::<I>(block, out);
-            if out.error_count() > before {
-                return None;
+                .unwrap_or(text.len());
+            SectionFrame {
+                name: section.name().to_owned(),
+                comment: directive_comment(text, section.directive()),
+                loose: loose_comments(text, line_end(text, section.directive().end), first_block),
             }
-            let mut items: Vec<(Span, TextItem<I>)> = parsed
-                .code
-                .into_iter()
-                .map(|item| (Span::from(item.span), TextItem::Instruction(item.value)))
-                .chain(
-                    parsed
-                        .symbols
-                        .into_iter()
-                        .map(|item| (Span::from(item.span), TextItem::Symbol(item.value))),
-                )
-                .collect();
-            items.sort_by_key(|(span, _)| span.start);
-            let (entries, tail) =
-                collect(source, block.span(), items, &[], out, |entry, found, _| {
-                    entry
-                        .trailing
-                        .extend(found.into_iter().map(|comment| comment.text));
-                });
-            blocks.push((
-                directive.start,
-                Block::Text(BlockModel {
-                    comment: directive_comment(text, directive),
-                    entries,
-                    tail,
-                }),
-            ));
-        }
-        blocks.sort_by_key(|(start, _)| *start);
-        sections.push(SectionModel {
-            name: section.name().to_owned(),
-            comment: directive_comment(text, section.directive()),
-            loose: section_loose,
-            blocks: blocks.into_iter().map(|(_, block)| block).collect(),
-        });
-    }
-    if out.error_count() > 0 {
-        return None;
-    }
-    Some(FileModel {
+        })
+        .collect();
+    FileFrame {
         preamble: loose_comments(text, 0, framing.version.start),
         version_comment: directive_comment(text, framing.version),
         loose,
         global,
         sections,
-    })
+    }
 }
 
-/// A section's name and, per block, whether it is a header and its printed
-/// items.
-type SectionSnapshot = (String, Vec<(bool, Vec<String>)>);
+/// Read a checked section's blocks into their formatting model, in file
+/// order. `None` (with diagnostics in `out`) if a block cannot be parsed.
+fn read_blocks<I, D>(
+    source: &SourceFile,
+    section: &check::Section<'_>,
+    out: &mut Diagnostics<'_>,
+) -> Option<Vec<Block<I, D>>>
+where
+    for<'src> I: Parse<'src>,
+    I: 'static,
+    for<'src> D: Parse<'src>,
+    D: 'static,
+{
+    let text = source.text();
+    let before = out.error_count();
+    let mut blocks = Vec::new();
+    if let Some(directive) = section.header().directive() {
+        let block = section.header();
+        let declarations = check::parse_declarations::<D>(block, out)?;
+        let items = declarations
+            .into_iter()
+            .map(|spanned| (Span::from(spanned.span), Declaration::new(spanned.value)))
+            .collect();
+        let (entries, tail) = collect(
+            source,
+            block.span(),
+            items,
+            &[],
+            out,
+            |entry, found, raw| {
+                entry.value.inner = found;
+                entry.value.raw = raw;
+            },
+        );
+        blocks.push((
+            directive.start,
+            Block::Header(BlockModel {
+                comment: directive_comment(text, directive),
+                entries,
+                tail,
+            }),
+        ));
+    }
+    if let Some(directive) = section.text().directive() {
+        let block = section.text();
+        let parsed = check::parse_instructions::<I>(block, out);
+        if out.error_count() > before {
+            return None;
+        }
+        let mut items: Vec<(Span, TextItem<I>)> = parsed
+            .code
+            .into_iter()
+            .map(|item| (Span::from(item.span), TextItem::Instruction(item.value)))
+            .chain(
+                parsed
+                    .symbols
+                    .into_iter()
+                    .map(|item| (Span::from(item.span), TextItem::Symbol(item.value))),
+            )
+            .collect();
+        items.sort_by_key(|(span, _)| span.start);
+        let (entries, tail) = collect(source, block.span(), items, &[], out, |entry, found, _| {
+            entry
+                .trailing
+                .extend(found.into_iter().map(|comment| comment.text));
+        });
+        blocks.push((
+            directive.start,
+            Block::Text(BlockModel {
+                comment: directive_comment(text, directive),
+                entries,
+                tail,
+            }),
+        ));
+    }
+    if out.error_count() > before {
+        return None;
+    }
+    blocks.sort_by_key(|(start, _)| *start);
+    Some(blocks.into_iter().map(|(_, block)| block).collect())
+}
 
 /// What formatting must preserve: structure, printed values, and the
 /// multiset of user comments.
 #[derive(Debug, PartialEq, Eq)]
-struct Snapshot {
+pub(crate) struct Snapshot {
     global: Option<Vec<String>>,
-    sections: Vec<SectionSnapshot>,
+    sections: Vec<(String, Vec<BlockSnapshot>)>,
     comments: Vec<String>,
 }
 
-fn snapshot<I: Print, D: Print>(model: &FileModel<I, D>) -> Snapshot {
+/// The snapshot of a file from its frame and its sections' snapshots.
+pub(crate) fn snapshot(frame: &FileFrame, sections: Vec<SectionSnapshot>) -> Snapshot {
     let mut comments: Vec<String> = Vec::new();
-    let mut keep = |comment: &Option<String>| comments.extend(comment.iter().cloned());
-    keep(&model.version_comment);
-    if let Some((comment, _)) = &model.global {
-        keep(comment);
+    comments.extend(frame.version_comment.iter().cloned());
+    if let Some((comment, _)) = &frame.global {
+        comments.extend(comment.iter().cloned());
     }
-    comments.extend(model.preamble.iter().filter(|c| !c.is_empty()).cloned());
-    comments.extend(model.loose.iter().filter(|c| !c.is_empty()).cloned());
+    comments.extend(frame.preamble.iter().filter(|c| !c.is_empty()).cloned());
+    comments.extend(frame.loose.iter().filter(|c| !c.is_empty()).cloned());
+    let mut blocks = Vec::new();
+    for (section, snapshot) in frame.sections.iter().zip(sections) {
+        comments.extend(section.comment.iter().cloned());
+        comments.extend(section.loose.iter().filter(|c| !c.is_empty()).cloned());
+        comments.extend(snapshot.comments);
+        blocks.push((section.name.clone(), snapshot.blocks));
+    }
+    comments.sort();
+    Snapshot {
+        global: frame.global.as_ref().map(|(_, lines)| lines.clone()),
+        sections: blocks,
+        comments,
+    }
+}
+
+/// A section's printed blocks and user comments.
+fn snapshot_blocks<I: Print, D: Print>(section: &[Block<I, D>]) -> SectionSnapshot {
+    let mut comments: Vec<String> = Vec::new();
     let print = |value: &dyn Fn(&mut String) -> std::fmt::Result| {
         let mut text = String::new();
         value(&mut text).map_or_else(|_| "<unprintable>".to_owned(), |()| text)
     };
-    let mut sections = Vec::new();
-    for section in &model.sections {
-        comments.extend(section.comment.iter().cloned());
-        comments.extend(section.loose.iter().filter(|c| !c.is_empty()).cloned());
-        let mut blocks = Vec::new();
-        for block in &section.blocks {
-            match block {
-                Block::Header(block) => {
-                    comments.extend(block.comment.iter().cloned());
-                    let mut values = Vec::new();
-                    for entry in &block.entries {
-                        comments.extend(entry.leading.iter().map(|c| c.text.clone()));
-                        comments.extend(entry.trailing.iter().cloned());
-                        comments.extend(entry.value.inner.iter().map(|c| c.text.clone()));
-                        values.push(print(&|out| entry.value.value.print(out)));
-                    }
-                    comments.extend(block.tail.iter().map(|c| c.text.clone()));
-                    blocks.push((true, values));
+    let mut blocks = Vec::new();
+    for block in section {
+        match block {
+            Block::Header(block) => {
+                comments.extend(block.comment.iter().cloned());
+                let mut values = Vec::new();
+                for entry in &block.entries {
+                    comments.extend(entry.leading.iter().map(|c| c.text.clone()));
+                    comments.extend(entry.trailing.iter().cloned());
+                    comments.extend(entry.value.inner.iter().map(|c| c.text.clone()));
+                    values.push(print(&|out| entry.value.value.print(out)));
                 }
-                Block::Text(block) => {
-                    comments.extend(block.comment.iter().cloned());
-                    let mut values = Vec::new();
-                    for entry in &block.entries {
-                        comments.extend(entry.leading.iter().map(|c| c.text.clone()));
-                        comments.extend(entry.trailing.iter().cloned());
-                        values.push(match &entry.value {
-                            TextItem::Symbol(symbol) => format!("@{}:", symbol.name),
-                            TextItem::Instruction(instruction) => {
-                                print(&|out| instruction.print(out))
-                            }
-                        });
-                    }
-                    comments.extend(block.tail.iter().map(|c| c.text.clone()));
-                    blocks.push((false, values));
+                comments.extend(block.tail.iter().map(|c| c.text.clone()));
+                blocks.push((true, values));
+            }
+            Block::Text(block) => {
+                comments.extend(block.comment.iter().cloned());
+                let mut values = Vec::new();
+                for entry in &block.entries {
+                    comments.extend(entry.leading.iter().map(|c| c.text.clone()));
+                    comments.extend(entry.trailing.iter().cloned());
+                    values.push(match &entry.value {
+                        TextItem::Symbol(symbol) => format!("@{}:", symbol.name),
+                        TextItem::Instruction(instruction) => print(&|out| instruction.print(out)),
+                    });
                 }
+                comments.extend(block.tail.iter().map(|c| c.text.clone()));
+                blocks.push((false, values));
             }
         }
-        sections.push((section.name.clone(), blocks));
     }
-    comments.sort();
-    Snapshot {
-        global: model.global.as_ref().map(|(_, lines)| lines.clone()),
-        sections,
-        comments,
-    }
+    SectionSnapshot { blocks, comments }
 }
 
 // ---------------------------------------------------------------------------
@@ -688,7 +1070,7 @@ fn snapshot<I: Print, D: Print>(model: &FileModel<I, D>) -> Snapshot {
 const COMMENT_GAP: usize = 2;
 
 struct Writer<'w, 'src, I> {
-    source: &'src SourceFile,
+    source: &'w SourceFile,
     options: &'w FormatOptions,
     annotators: &'w mut [Box<dyn Annotate<I>>],
     out: &'w mut Diagnostics<'src>,
@@ -757,12 +1139,51 @@ fn push_comments(lines: &mut Vec<Line>, comments: &[Comment], indent: usize) {
     }
 }
 
+/// Write a file from its frame and its sections' written bodies, in order.
+pub(crate) fn write_file(frame: &FileFrame, bodies: &[String]) -> String {
+    let mut output = String::new();
+    let push_lines = |lines: &[String], output: &mut String| {
+        for line in lines {
+            output.push_str(line);
+            output.push('\n');
+        }
+    };
+    push_lines(&frame.preamble, &mut output);
+    directive_line("sst v2", &frame.version_comment, &mut output);
+    // Loose comments after `sst v2` sit directly above the directive that
+    // follows them.
+    let mut loose = frame.loose.as_slice();
+    if let Some((comment, lines)) = &frame.global {
+        output.push('\n');
+        push_lines(std::mem::take(&mut loose), &mut output);
+        directive_line(".global", comment, &mut output);
+        push_lines(lines, &mut output);
+    }
+    if frame.sections.is_empty() && !loose.is_empty() {
+        output.push('\n');
+        push_lines(std::mem::take(&mut loose), &mut output);
+    }
+    for (section, body) in frame.sections.iter().zip(bodies) {
+        output.push('\n');
+        push_lines(std::mem::take(&mut loose), &mut output);
+        directive_line(
+            &format!(".section {}", section.name),
+            &section.comment,
+            &mut output,
+        );
+        push_lines(&section.loose, &mut output);
+        output.push_str(body);
+    }
+    output
+}
+
 impl<I> Writer<'_, '_, I>
 where
     for<'src> I: Parse<'src>,
     I: Print + 'static,
 {
-    fn file<D>(&mut self, model: &FileModel<I, D>) -> String
+    /// Write the blocks of section `name`, each with its directive line.
+    fn section<D>(&mut self, name: &str, blocks: &[Block<I, D>]) -> String
     where
         for<'src> D: Parse<'src>,
         D: Print + StandardDirective + 'static,
@@ -770,107 +1191,71 @@ where
         D::Value: ConstantValue + Clone,
     {
         let mut output = String::new();
-        let push_lines = |lines: &[String], output: &mut String| {
-            for line in lines {
-                output.push_str(line);
-                output.push('\n');
+        let standard: Vec<&ProgramDirective<D::Value, D::Type>> = blocks
+            .iter()
+            .filter_map(|block| match block {
+                Block::Header(block) => Some(block),
+                Block::Text(_) => None,
+            })
+            .flat_map(|block| &block.entries)
+            .filter_map(|entry| entry.value.value.as_standard())
+            .collect();
+        let text_items: Vec<&TextItem<I>> = blocks
+            .iter()
+            .filter_map(|block| match block {
+                Block::Text(block) => Some(block),
+                Block::Header(_) => None,
+            })
+            .flat_map(|block| &block.entries)
+            .map(|entry| &entry.value)
+            .collect();
+        let symbols: Vec<Symbol> = text_items
+            .iter()
+            .filter_map(|item| match item {
+                TextItem::Symbol(symbol) => Some(symbol.clone()),
+                TextItem::Instruction(_) => None,
+            })
+            .collect();
+        let printed: Vec<String> = text_items
+            .iter()
+            .filter_map(|item| match item {
+                TextItem::Instruction(instruction) => instruction.to_source().ok(),
+                TextItem::Symbol(_) => None,
+            })
+            .collect();
+        let metadata = standard
+            .iter()
+            .map(|directive| (*directive).clone())
+            .collect::<ProgramHeader<_, _>>()
+            .assemble(NoInfo)
+            .ok();
+        let header_notes = match &metadata {
+            Some(metadata) if self.options.generated_comments => {
+                notes::header_notes(&standard, metadata, &symbols, printed.len())
             }
+            _ => vec![Vec::new(); standard.len()],
         };
-        push_lines(&model.preamble, &mut output);
-        directive_line("sst v2", &model.version_comment, &mut output);
-        // Loose comments after `sst v2` sit directly above the directive
-        // that follows them.
-        let mut loose = model.loose.as_slice();
-        if let Some((comment, lines)) = &model.global {
-            output.push('\n');
-            push_lines(std::mem::take(&mut loose), &mut output);
-            directive_line(".global", comment, &mut output);
-            for line in lines {
-                output.push_str(line);
-                output.push('\n');
-            }
-        }
-        if model.sections.is_empty() && !loose.is_empty() {
-            output.push('\n');
-            push_lines(std::mem::take(&mut loose), &mut output);
-        }
-        for section in &model.sections {
-            output.push('\n');
-            push_lines(std::mem::take(&mut loose), &mut output);
-            directive_line(
-                &format!(".section {}", section.name),
-                &section.comment,
-                &mut output,
-            );
-            push_lines(&section.loose, &mut output);
-            let standard: Vec<&ProgramDirective<D::Value, D::Type>> = section
-                .blocks
-                .iter()
-                .filter_map(|block| match block {
-                    Block::Header(block) => Some(block),
-                    Block::Text(_) => None,
-                })
-                .flat_map(|block| &block.entries)
-                .filter_map(|entry| entry.value.value.as_standard())
-                .collect();
-            let text_items: Vec<&TextItem<I>> = section
-                .blocks
-                .iter()
-                .filter_map(|block| match block {
-                    Block::Text(block) => Some(block),
-                    Block::Header(_) => None,
-                })
-                .flat_map(|block| &block.entries)
-                .map(|entry| &entry.value)
-                .collect();
-            let symbols: Vec<Symbol> = text_items
-                .iter()
-                .filter_map(|item| match item {
-                    TextItem::Symbol(symbol) => Some(symbol.clone()),
-                    TextItem::Instruction(_) => None,
-                })
-                .collect();
-            let printed: Vec<String> = text_items
-                .iter()
-                .filter_map(|item| match item {
-                    TextItem::Instruction(instruction) => instruction.to_source().ok(),
-                    TextItem::Symbol(_) => None,
-                })
-                .collect();
-            let metadata = standard
-                .iter()
-                .map(|directive| (*directive).clone())
-                .collect::<ProgramHeader<_, _>>()
-                .assemble(NoInfo)
-                .ok();
-            let header_notes = match &metadata {
-                Some(metadata) if self.options.generated_comments => {
-                    notes::header_notes(&standard, metadata, &symbols, printed.len())
+        let strings = notes::lowered_strings(
+            metadata.as_ref().map_or(&[][..], |m| m.strings.as_slice()),
+            printed.iter().map(String::as_str),
+        );
+        let info = SectionInfo::new(&symbols, metadata.as_ref(), &strings);
+        for block in blocks {
+            // Comments after the last item stay in their block.
+            let (directive, comment, lines) = match block {
+                Block::Header(block) => {
+                    let mut lines = self.header(block, &header_notes);
+                    push_comments(&mut lines, &block.tail, HEADER_INDENT);
+                    (".header", &block.comment, lines)
                 }
-                _ => vec![Vec::new(); standard.len()],
+                Block::Text(block) => {
+                    let mut lines = self.text(name, block, &info);
+                    push_comments(&mut lines, &block.tail, INDENT);
+                    (".text", &block.comment, lines)
+                }
             };
-            let strings = notes::lowered_strings(
-                metadata.as_ref().map_or(&[][..], |m| m.strings.as_slice()),
-                printed.iter().map(String::as_str),
-            );
-            let info = SectionInfo::new(&symbols, metadata.as_ref(), &strings);
-            for block in &section.blocks {
-                // Comments after the last item stay in their block.
-                let (directive, comment, lines) = match block {
-                    Block::Header(block) => {
-                        let mut lines = self.header(block, &header_notes);
-                        push_comments(&mut lines, &block.tail, HEADER_INDENT);
-                        (".header", &block.comment, lines)
-                    }
-                    Block::Text(block) => {
-                        let mut lines = self.text(&section.name, block, &info);
-                        push_comments(&mut lines, &block.tail, INDENT);
-                        (".text", &block.comment, lines)
-                    }
-                };
-                directive_line(directive, comment, &mut output);
-                emit_block(&lines, self.options, &mut output);
-            }
+            directive_line(directive, comment, &mut output);
+            emit_block(&lines, self.options, &mut output);
         }
         output
     }
@@ -944,7 +1329,13 @@ where
             lines: vec![Line::new(HEADER_INDENT, printed.clone())],
         };
 
-        let source_text = self.source.slice(entry.span);
+        // A declaration without comments (such as a disassembled one) has no
+        // source text to attach them from; its printed form stands in.
+        let source_text = if entry.value.raw.is_empty() {
+            printed.as_str()
+        } else {
+            self.source.slice(entry.span)
+        };
         let relative: Vec<Comment> = entry
             .value
             .inner
@@ -1059,7 +1450,7 @@ const UNPRINTABLE: &str =
     "cannot format: this value has no source spelling that parses back to itself";
 
 /// The printed declaration, checked to parse back to itself.
-fn faithful_declaration<D>(value: &D) -> Result<String, String>
+pub(crate) fn faithful_declaration<D>(value: &D) -> Result<String, String>
 where
     for<'src> D: Parse<'src>,
     D: Print + 'static,
@@ -1080,7 +1471,7 @@ where
 }
 
 /// The printed instruction, checked to parse back to itself.
-fn faithful_instruction<I>(value: &I) -> Result<String, String>
+pub(crate) fn faithful_instruction<I>(value: &I) -> Result<String, String>
 where
     for<'src> I: Parse<'src>,
     I: Print + 'static,

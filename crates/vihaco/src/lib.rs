@@ -7,7 +7,7 @@ use vihaco_bytecode as binary;
 // Extracted crates re-exported at their original module paths so the public
 // API is unchanged (see design/crate-split.md §7).
 pub use vihaco_abi::{effect, frame, instruction_syntax, metadata, program, word};
-pub use vihaco_module::{color, module, show, show_instruction};
+pub use vihaco_module::{color, module, raising, show, show_instruction};
 
 /// Program loading interfaces and the standard program image.
 pub mod loader {
@@ -61,7 +61,7 @@ pub use runtime::{
 };
 
 pub use traits::{FromBytes, FromText, GetProgramInfo, Reset};
-pub use vihaco_abi::{Lower, Runtime, Syntax};
+pub use vihaco_abi::{Lower, Raise, Runtime, Syntax};
 pub use vihaco_parser::Parse;
 pub use vihaco_parser::Print;
 pub use vihaco_parser::SurfaceInstruction;
