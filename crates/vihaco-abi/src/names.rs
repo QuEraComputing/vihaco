@@ -173,7 +173,8 @@ impl<T: SymbolNames + ?Sized> SymbolNames for &T {
 /// `Runtime` the instruction field it lowers to. For example the CPU's
 /// `FieldOperand` writes a runtime `FieldSlot` as `@Point.y`, or `0, 1` when
 /// the struct has no name. Operands whose syntax type has no impl fall back
-/// to the runtime value's `Display`, then its `Debug`.
+/// to the runtime value's `Display`; an operand with neither is a compile
+/// error at the instruction's derive.
 pub trait OperandText<Runtime: ?Sized> {
     /// Write `value` as this operand type's source syntax.
     fn write_operand(
@@ -255,7 +256,8 @@ impl<T: InstructionText + ?Sized> InstructionText for &T {
 
 /// Support for generated [`InstructionText`] impls: picks [`OperandText`] for
 /// an operand when its syntax type has one, else the runtime value's
-/// `Display`, else its `Debug`, by autoref-based method selection.
+/// `Display`, by autoref-based method selection. An operand with neither does
+/// not compile: its text could not be parsed back.
 #[doc(hidden)]
 pub mod operand_text {
     use super::*;
@@ -302,24 +304,6 @@ pub mod operand_text {
             f: &mut fmt::Formatter<'_>,
         ) -> fmt::Result {
             fmt::Display::fmt(self.0, f)
-        }
-    }
-
-    pub trait ViaDebug {
-        fn write_operand_text(
-            &self,
-            names: &dyn SymbolNames,
-            f: &mut fmt::Formatter<'_>,
-        ) -> fmt::Result;
-    }
-
-    impl<S: ?Sized, R: fmt::Debug + ?Sized> ViaDebug for OperandRef<'_, S, R> {
-        fn write_operand_text(
-            &self,
-            _: &dyn SymbolNames,
-            f: &mut fmt::Formatter<'_>,
-        ) -> fmt::Result {
-            fmt::Debug::fmt(self.0, f)
         }
     }
 }

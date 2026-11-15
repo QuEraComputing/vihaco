@@ -1,0 +1,24 @@
+error[E0599]: the method `write_operand_text` exists for reference `&&&vihaco::vihaco_runtime::__private::operand_text::OperandRef<'_, Gain, Gain>`, but its trait bounds were not satisfied
+  --> tests/compile_fail/instruction_text/operand-without-text.rs:26:28
+   |
+ 6 | pub struct Gain(pub u32);
+   | --------------- doesn't satisfy `Gain: OperandText<Gain>` or `Gain: std::fmt::Display`
+...
+26 |     pub struct SetGain(pub Gain);
+   |                            ^^^^ method cannot be called due to unsatisfied trait bounds
+   |
+   = note: the following trait bounds were not satisfied:
+           `Gain: OperandText<Gain>`
+           which is required by `&&vihaco::vihaco_runtime::__private::operand_text::OperandRef<'_, Gain, Gain>: vihaco::vihaco_runtime::__private::operand_text::ViaOperandText`
+           `Gain: std::fmt::Display`
+           which is required by `&vihaco::vihaco_runtime::__private::operand_text::OperandRef<'_, Gain, Gain>: vihaco::vihaco_runtime::__private::operand_text::ViaDisplay`
+note: the traits `OperandText` and `std::fmt::Display` must be implemented
+  --> $RUST/core/src/fmt/mod.rs
+   |
+   | pub trait Display: PointeeSized {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+  ::: $WORKSPACE/crates/vihaco-abi/src/names.rs
+   |
+   | pub trait OperandText<Runtime: ?Sized> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -18,7 +18,7 @@ use chumsky::{
 };
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
-use quote::{format_ident, quote};
+use quote::{format_ident, quote, quote_spanned};
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     fmt::{self, Display},
@@ -1588,7 +1588,10 @@ fn dialect_instruction_text(
                     let runtime_ty = &binding.ty;
                     let syntax_ty = binding.parser_ty.as_ref().unwrap_or(&binding.ty);
                     let field = syn::Index::from(binding.constructor_position);
-                    statements.push(quote! {
+                    // Spanned at the operand's type, so an operand whose syntax type
+                    // has no `OperandText` and whose runtime type no `Display` is
+                    // reported there.
+                    statements.push(quote_spanned! {syntax_ty.span()=>
                         (&&&#root::__private::operand_text::OperandRef::<#syntax_ty, #runtime_ty>::new(&self.#field))
                             .write_operand_text(names, f)?;
                     });
@@ -1605,7 +1608,7 @@ fn dialect_instruction_text(
             ) -> ::core::fmt::Result {
                 #[allow(unused_imports)]
                 use #root::__private::operand_text::{
-                    ViaDebug as _, ViaDisplay as _, ViaOperandText as _,
+                    ViaDisplay as _, ViaOperandText as _,
                 };
                 let _ = names;
                 #(#statements)*
