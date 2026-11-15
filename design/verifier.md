@@ -2,8 +2,8 @@
 
 Status: implemented through step 6 of the
 [Implementation order](#implementation-order) by the stacked PRs into
-`feature/typed-heap-verifier`; step 7 lists follow-ups. Sections end with what
-was settled in implementation where it refines the design.
+`feature/typed-heap-verifier`; step 7 lists follow-ups. Where a section ends
+with details, they describe the implementation as it is.
 
 ## Purpose
 
@@ -140,12 +140,11 @@ impl<C: OperandStack + ?Sized> Verify<C> for program::Branch {
 A rule that fails ends the analysis of its basic block; see
 [Diagnostics](#diagnostics).
 
-Settled in implementation (review round): `TypedStack` names
+Rule authors get two shorthands: `TypedStack` names
 `OperandStack<Slot: TypedSlot>`, the bound almost every rule needs, and the
 exported `stack_rules!` macro implements `Verify` for fixed stack effects.
-The CPU and program-device rules use both. `TypedSlot::check` (formerly
-`expect`, which read like a panicking call) and `OperandStack::pop_typed`
-(formerly `pop_expect`) check a slot against a type. `Verify` carries
+The CPU and program-device rules use both. `TypedSlot::check` and
+`OperandStack::pop_typed` check a slot against a type. `Verify` carries
 `#[diagnostic::on_unimplemented]`, as do the standard capability traits, so a
 missing rule or capability is a compile error that names it; trybuild fixtures
 in vihaco-verifier go through `verify_module`, `Verified::new` and
@@ -228,7 +227,7 @@ metadata {
 - Function signatures, locals, struct fields, and array elements may all use
   named types (`array location` for a group of addresses).
 
-Settled in implementation:
+Encoding, syntax and assembly:
 
 - `type N` is encoded as byte `0x0D` followed by `N` as a little-endian
   `u32`, like `struct N`.
@@ -261,7 +260,7 @@ external crates need nothing hidden, #169).
 Pops are bounded: `pop_n(n)` costs at most `O(depth)` and yields one underflow,
 so a huge count in a crafted program cannot blow up verification.
 
-Settled in implementation:
+Details of the standard capabilities:
 
 - `Locals` extends `OperandStack`, so locals and operands share one `Slot`
   type and a rule bounding `C: Locals` names `C::Slot` unambiguously.
@@ -305,8 +304,7 @@ and `FunctionSpan::map_entry`, then produce a `Verified` module with
 like the operand stack, so a channel opened on only one branch is not open
 after the join (the join intersects the open sets).
 
-Settled in implementation (review round): components from different crates
-compose. A component crate implements its capability for every context whose
+Components from different crates compose. A component crate implements its capability for every context whose
 state contains its own, `impl<S: ComponentStateOf<Open>> Channels for
 WithState<'_, S>`, reaching it with `WithState::component::<Open>()`. Every
 state contains itself, and a machine combines several components' states with
@@ -315,7 +313,7 @@ which joins field by field and implements `ComponentStateOf` for each field.
 Implementing the capability for one concrete state instead
 (`WithState<'_, Open>`) would leave a machine needing both crates'
 capabilities on `WithState<'_, (Open, Elapsed)>` with no crate allowed to
-write the impl (the orphan rule), so tuples no longer implement
+write the impl (the orphan rule), so tuples do not implement
 `ComponentState`. An index-typed projection over tuples was rejected: the
 index parameter would be unconstrained in the capability impl (E0207).
 
@@ -582,13 +580,12 @@ and an editor can show types next to errors. They are off by default
 some block transfer reached it without a rule error, so leaders reachable only
 through failing blocks, and functions with an invalid span, have none.
 
-Settled in implementation (step 6): `Rejection` is generic over the snapshot
+`Rejection` is generic over the snapshot
 type, like `Verification`, and converts into an `eyre::Report` when the
 snapshot is `Send + Sync + 'static`; `Rejection::without_type_maps` drops the
 maps otherwise.
 
-Settled in implementation (review round): type maps record each function's
-span, and `TypeMaps::state_at(code, cx, function, address)` replays the block
+Type maps record each function's span, and `TypeMaps::state_at(code, cx, function, address)` replays the block
 from its leader's converged state to give the state before any instruction.
 
 ## Required metadata changes
@@ -615,7 +612,7 @@ from its leader's converged state to give the state before any instruction.
 - **Array types.** Arrays are first-class and typed by element; see
   [Arrays](#arrays).
 
-Settled in implementation (review round):
+How metadata is checked and reported:
 
 - `FunctionInfo::check_frame` returns a structured `FrameError`; metadata
   validation reports it at its path and the verifier as
@@ -626,13 +623,16 @@ Settled in implementation (review round):
 - Headers written for the old format fail with a specific message rather
   than the parser's (`explain_metadata`, used by the `ProgramMetadata`
   `FromText` impl and `HeaderDeclarations`): a function's `local_count`, or a
-  missing table. General parse errors keep the parser's output, a separate
-  follow-up.
-- Every type position accepts names (`struct @Point`, `type @location`):
-  headers and `fn` lines parse with `SourceType`,
-  `ProgramMetadata::resolve_types` resolves a header against its own tables,
-  and function headers resolve through `ResolveType` when checked against the
-  metadata.
+  missing table, or a type written by name for a loader that parses numeric
+  types only. Other parse errors keep the parser's output.
+- Every type position accepts names (`struct @Point`, `type @location`) on
+  the standard loading path: `ProgramMetadata`'s type parameter defaults to
+  `SourceType`, `fn` lines parse with `SourceType`,
+  `ProgramMetadata::resolve_types` resolves a header against its own tables
+  (and `ParsedModule::lower_with_metadata` does so itself), and function
+  headers resolve through `ResolveType` when checked against the metadata.
+  The name lookup is built from the same checked name tables, so a duplicate
+  name is an error rather than resolving to its first entry.
 
 ```text
 metadata.functions[0].locals[1]: local 1 is declared f64, but parameter 1 (p1) is i64 (locals start with the parameter types)
@@ -747,7 +747,7 @@ object payload (kind, capacity, element storage) stays vihaco's own.
 | Host-supplied values (messages, completions of pending instructions) | Outside the instruction stream. The component's rule declares the type it pushes and the component guarantees it at runtime. |
 | Operand counts from runtime values | Not verifiable. Instructions carry counts as immediates; otherwise the rule reports `Unverifiable` ([Diagnostics](#diagnostics)). |
 
-Settled in implementation (step 5):
+Details:
 
 - The `call_indirect` operand is a `vihaco_abi::FunctionType`, written like a
   function header's types: `(u64, f64) -> u64`, `() -> ()`, or
@@ -763,11 +763,11 @@ Settled in implementation (step 5):
   mechanism as `array_new struct @Point, 4`, checking every reference against
   the tables. Unknown names are load-time errors. The runtime instruction and
   the binary encoding keep the resolved `FunctionType`, so bytecode carries
-  indices only. (Step 6.)
-- Decided: the legacy enum build keeps an operand-free, unsigned
+  indices only.
+- The legacy enum build keeps an operand-free, unsigned
   `call_indirect` with no check. It has no verifier and no lowering phase, and
   the typed builds are where checked indirect calls live.
-- Decided: the `typed-declarations` CPU's `print` pops a `str` (a string-table
+- The `typed-declarations` CPU's `print` pops a `str` (a string-table
   reference), `[str] -> []`; printing other values is a host or observer concern.
 - Untyped locals are `load i` and `store i`. A typed `load_<t>` / `store_<t>`
   requires the local to be declared exactly `<t>`. Every store checks the
@@ -793,9 +793,9 @@ dialect has rules but programs still run through the legacy `ProgramImage`,
 whose module is public and unverified; there verification happens only if the
 embedder calls `verify_module` before loading.
 
-Settled in implementation (step 6):
+Details:
 
-- `Verified<M>` lives in vihaco-verifier, as placed. vihaco-stdlib already
+- `Verified<M>` lives in vihaco-verifier. vihaco-stdlib already
   depends on it (for the program-instruction rules) under
   `program-image-execution`, and vihaco-verifier depends only on vihaco-abi and
   vihaco-module, so there is no cycle. vihaco-stdlib re-exports `Verified`.
@@ -804,7 +804,7 @@ Settled in implementation (step 6):
   returns the `Verification`), `Verified::verify_with_state(module, entry,
   options)` (a `WithState` context), and `Verified::assume_verified(module)`.
   The first three exist for `LocalModule<I, Value, Type, Info>` with
-  `I: for<'m> Verify<…>`. (Review round:) other module models and
+  `I: for<'m> Verify<…>`. Other module models and
   hand-written contexts use `Verified::verify_with(module, |module| ...)`,
   whose closure builds and runs the context; the standard constructors are
   built on it. A rejection returns `VerifyFailed { module, rejection }`, so
@@ -825,13 +825,16 @@ Settled in implementation (step 6):
   through them. The `vihaco` facade does not re-export them at its root; they
   stay reachable as `vihaco::execution_state::{execute, resume}`, documented
   as the unverified runner, so the verified path is the obvious one.
-- (Review round:) a failing step is reported as a `StepError` located at
-  its instruction, `at @main+3 (address 3) `cpu::cpu::array_get u64`: type
+- A failing step is reported as a `StepError` located at its instruction
+  (text from `Dispatch::instruction_text`), `at @main+3 (address 3)
+  `cpu::cpu::array_get u64`: type
   error: heap object (slot 2, generation 1) is array struct Point, expected
   array u64`. CPU heap failures are structured `vihaco_abi::heap::HeapError`s
   (references shown as slot and generation, types as `Type`), which the loop
   renders with the module's struct names; `call_indirect` mismatches name
-  the callee and print both signatures as `FunctionType` does.
+  the callee and print both signatures as `FunctionType` does. The step's
+  error is the `StepError`'s `source()`, so `Report::chain()` reaches the
+  `HeapError`.
 
 ## Placement
 
@@ -846,8 +849,9 @@ Settled in implementation (step 6):
 - CPU rules in **vihaco-cpu**; program-instruction rules in **vihaco-stdlib**.
 - The `vihaco` facade re-exports the crate as `vihaco::verifier` (plus
   `Verified` and `verify_module` at the root) behind a `verifier` feature,
-  which implies `typed-declarations` and forwards vihaco-verifier's own
-  `typed-declarations`; `program-image-execution` implies `verifier`.
+  which implies `typed-declarations`; `program-image-execution` implies
+  `verifier`. vihaco-verifier's own `typed-declarations` feature is test-only
+  (it runs the composite integration test) and is not forwarded.
 - Typed builds only. The legacy enum build has no lowering phase to hook into.
 
 ## Implementation order
@@ -873,13 +877,11 @@ Settled in implementation (step 6):
 6. `Verified<M>` enforcement in stdlib images, type maps (also with
    rejections), the `Unverifiable` diagnostic, names in `call_indirect`
    signatures, the facade `verifier` feature, docs and guide examples
-   (including a verification guide). Closes #120. **Done.** A review round
-   then made diagnostics structured and module-rendered, located lowering and
-   runtime errors, unified metadata validation messages, accepted names in
-   every type position, and added rule-author helpers (`stack_rules!`,
-   `TypedStack`), cross-crate component state, `VerifyFailed`,
-   `Verified::verify_with`, and `TypeMaps::state_at` (the "review round"
-   notes above).
+   (including a verification guide). Closes #120. **Done**, together with
+   structured, module-rendered diagnostics, located lowering and runtime
+   errors, one metadata validation path, names in every type position,
+   rule-author helpers (`stack_rules!`, `TypedStack`), cross-crate component
+   state, `VerifyFailed`, `Verified::verify_with`, and `TypeMaps::state_at`.
 7. Follow-ups: rendering general metadata parse errors with line and column;
    array constants; `future T` with #173 and context handles with #174;
    deriving rules from stack messages.
