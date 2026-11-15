@@ -11,10 +11,10 @@ use vihaco_module::module::{
     ProgramMetadata, Signature, StructInfo,
 };
 use vihaco_verifier::{
-    AbstractState, ComponentState, Constants, DiagnosticKind, Flow, Frame, FunctionType, JoinPoint,
-    Locals, ModuleVerifier, NamedTypes, OperandStack, Predecessor, Role, Signatures, StructTypes,
-    Table, Type, TypeSlot, TypedSlot, Value, Verify, VerifyError, VerifyOptions, WithState,
-    call_effect, indirect_call_effect, return_effect, verify_module,
+    AbstractState, ComponentState, ComponentStateOf, Constants, DiagnosticKind, Flow, Frame,
+    FunctionType, JoinPoint, Locals, ModuleVerifier, NamedTypes, OperandStack, Predecessor, Role,
+    Signatures, StructTypes, Table, Type, TypeSlot, TypedSlot, Value, Verify, VerifyError,
+    VerifyOptions, WithState, call_effect, indirect_call_effect, return_effect, verify_module,
 };
 
 /// A fixture dialect written only against the standard capabilities.
@@ -965,7 +965,7 @@ fn component_state_established_before_a_call_does_not_survive_it() {
 }
 
 #[test]
-fn component_states_combine_as_tuples_and_fail_atomically() {
+fn combined_component_states_join_each_field_and_fail_atomically() {
     #[derive(Clone, Debug, PartialEq)]
     struct Fails;
     impl ComponentState for Fails {
@@ -974,20 +974,71 @@ fn component_states_combine_as_tuples_and_fail_atomically() {
         }
         fn after_call(&mut self, _: Option<u32>, _: &Self) {}
     }
-    let mut saved = (Open(BTreeSet::from([1, 2])), Open(BTreeSet::from([3])));
-    let incoming = (Open(BTreeSet::from([1])), Open(BTreeSet::from([3])));
+    #[derive(Clone, Debug, PartialEq, Default)]
+    struct Bits(u8);
+    impl ComponentState for Bits {
+        fn join(&mut self, incoming: &Self) -> Result<bool, VerifyError> {
+            let before = self.0;
+            self.0 &= incoming.0;
+            Ok(self.0 != before)
+        }
+        fn after_call(&mut self, _: Option<u32>, entry: &Self) {
+            self.clone_from(entry);
+        }
+    }
+    vihaco_verifier::component_state! {
+        #[derive(Clone, Debug, PartialEq)]
+        struct Both {
+            open: Open,
+            bits: Bits,
+        }
+    }
+    vihaco_verifier::component_state! {
+        #[derive(Clone, Debug, PartialEq)]
+        struct Failing {
+            open: Open,
+            fails: Fails,
+        }
+    }
+    let mut saved = Both {
+        open: Open(BTreeSet::from([1, 2])),
+        bits: Bits(0b11),
+    };
+    let incoming = Both {
+        open: Open(BTreeSet::from([1])),
+        bits: Bits(0b11),
+    };
     assert!(saved.join(&incoming).unwrap());
-    assert_eq!(saved.0, Open(BTreeSet::from([1])));
+    assert_eq!(saved.open, Open(BTreeSet::from([1])));
     assert!(!saved.join(&incoming).unwrap());
+    // Each field is reachable through `ComponentStateOf`.
+    assert_eq!(ComponentStateOf::<Bits>::component(&saved), &Bits(0b11));
+    ComponentStateOf::<Open>::component_mut(&mut saved)
+        .0
+        .insert(7);
+    assert!(saved.open.0.contains(&7));
 
-    let mut saved = (Open(BTreeSet::from([1, 2])), Fails);
+    let mut saved = Failing {
+        open: Open(BTreeSet::from([1, 2])),
+        fails: Fails,
+    };
     let before = saved.clone();
-    assert!(saved.join(&(Open(BTreeSet::from([1])), Fails)).is_err());
+    let incoming = Failing {
+        open: Open(BTreeSet::from([1])),
+        fails: Fails,
+    };
+    assert!(saved.join(&incoming).is_err());
     assert_eq!(saved, before, "a failed join leaves the saved state");
 
-    // After a call, each element applies its own `after_call`.
-    let mut state = (Open(BTreeSet::from([1, 2])), Open(BTreeSet::from([3])));
-    let entry = (Open(BTreeSet::new()), Open(BTreeSet::from([9])));
+    // After a call, each field applies its own `after_call`.
+    let mut state = Both {
+        open: Open(BTreeSet::from([1, 2])),
+        bits: Bits(0b01),
+    };
+    let entry = Both {
+        open: Open(BTreeSet::new()),
+        bits: Bits(0b10),
+    };
     state.after_call(Some(0), &entry);
     assert_eq!(state, entry);
 

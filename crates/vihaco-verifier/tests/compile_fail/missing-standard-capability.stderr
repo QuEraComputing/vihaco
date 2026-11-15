@@ -13,8 +13,8 @@ help: the following other types implement trait `Signatures<Ty>`
    | impl Signatures<Type> for ModuleVerifier<'_> {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `ModuleVerifier<'_>`
 ...
-   | impl<S> Signatures<Type> for WithState<'_, S> {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `WithState<'_, S>`
+   | impl<S: ComponentState> Signatures<Type> for WithState<'_, S> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `WithState<'_, S>`
 note: required for `Ret` to implement `Verify<FrameState<TypeSlot>>`
   --> tests/compile_fail/missing-standard-capability.rs:8:49
    |

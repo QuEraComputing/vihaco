@@ -424,7 +424,8 @@ impl AbstractState for ModuleVerifier<'_> {
 /// Implement this for a component's state (for example a set of open
 /// channels, joined by intersection) and verify with
 /// [`WithState<'_, YourState>`](WithState). Several components' states
-/// combine as a tuple.
+/// combine into one struct with [`component_state!`](crate::component_state),
+/// which joins each field.
 ///
 /// # Calls
 ///
@@ -475,30 +476,116 @@ impl ComponentState for () {
     fn after_call(&mut self, _: Option<u32>, _: &()) {}
 }
 
-macro_rules! tuple_component_state {
-    ($($name:ident $index:tt),+) => {
-        /// Joins each element; on error no element changes.
-        impl<$($name: ComponentState),+> ComponentState for ($($name,)+) {
-            fn join(&mut self, incoming: &Self) -> Result<bool, VerifyError> {
-                let mut joined = self.clone();
+/// Where one component's state lives inside a context's combined state.
+///
+/// A component crate implements its capability for every context whose state
+/// contains its own, rather than for one concrete state:
+///
+/// ```ignore
+/// impl<S: ComponentStateOf<Open>> Channels for WithState<'_, S> { ... }
+/// ```
+///
+/// so the capability works in a machine that combines it with other
+/// components' states. Every state contains itself, and
+/// [`component_state!`](crate::component_state) implements this for each
+/// field of a combined state, so no crate writes delegation by hand (and the
+/// orphan rule never gets in the way: the machine crate owns its combined
+/// state).
+pub trait ComponentStateOf<T> {
+    /// The component's state.
+    fn component(&self) -> &T;
+
+    /// The component's state, mutably.
+    fn component_mut(&mut self) -> &mut T;
+}
+
+impl<T> ComponentStateOf<T> for T {
+    fn component(&self) -> &T {
+        self
+    }
+
+    fn component_mut(&mut self) -> &mut T {
+        self
+    }
+}
+
+/// Declare a machine's combined component state: a struct with one field per
+/// component's [`ComponentState`].
+///
+/// The struct joins field by field (atomically: on error no field changes),
+/// applies each field's [`ComponentState::after_call`] after a call, and
+/// implements [`ComponentStateOf`] for each field's type, so every
+/// component's capability, written against `ComponentStateOf<TheirState>`,
+/// works in the machine's [`WithState`] context. Derive `Clone` (required)
+/// and usually `Default` (a convenient entry state). Field types must be
+/// distinct.
+///
+/// ```
+/// use vihaco_verifier::{ComponentState, VerifyError, component_state};
+/// # #[derive(Clone, Debug, Default)]
+/// # pub struct Open;
+/// # impl ComponentState for Open {
+/// #     fn join(&mut self, _: &Self) -> Result<bool, VerifyError> { Ok(false) }
+/// #     fn after_call(&mut self, _: Option<u32>, entry: &Self) { self.clone_from(entry) }
+/// # }
+/// # #[derive(Clone, Debug, Default)]
+/// # pub struct Elapsed;
+/// # impl ComponentState for Elapsed {
+/// #     fn join(&mut self, _: &Self) -> Result<bool, VerifyError> { Ok(false) }
+/// #     fn after_call(&mut self, _: Option<u32>, entry: &Self) { self.clone_from(entry) }
+/// # }
+///
+/// // `Open` from a sequencer crate, `Elapsed` from a timing crate.
+/// component_state! {
+///     #[derive(Clone, Debug, Default)]
+///     pub struct MachineState {
+///         pub open: Open,
+///         pub elapsed: Elapsed,
+///     }
+/// }
+/// ```
+#[macro_export]
+macro_rules! component_state {
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $name:ident {
+            $($(#[$field_meta:meta])* $field_vis:vis $field:ident: $ty:ty),* $(,)?
+        }
+    ) => {
+        $(#[$meta])*
+        $vis struct $name {
+            $($(#[$field_meta])* $field_vis $field: $ty),*
+        }
+
+        impl $crate::ComponentState for $name {
+            fn join(&mut self, incoming: &Self) -> ::core::result::Result<bool, $crate::VerifyError> {
+                // Join a copy, so an error in any field leaves `self` whole.
+                let mut joined = ::core::clone::Clone::clone(self);
                 let mut changed = false;
-                $(changed |= joined.$index.join(&incoming.$index)?;)+
+                $(changed |= $crate::ComponentState::join(&mut joined.$field, &incoming.$field)?;)*
                 *self = joined;
                 Ok(changed)
             }
 
-            /// Applies each element's own `after_call`.
-            fn after_call(&mut self, callee: Option<u32>, entry: &Self) {
-                $(self.$index.after_call(callee, &entry.$index);)+
+            /// Applies each field's own `after_call`.
+            fn after_call(&mut self, callee: ::core::option::Option<u32>, entry: &Self) {
+                $($crate::ComponentState::after_call(&mut self.$field, callee, &entry.$field);)*
             }
         }
+
+        $(
+            impl $crate::ComponentStateOf<$ty> for $name {
+                fn component(&self) -> &$ty {
+                    &self.$field
+                }
+
+                fn component_mut(&mut self) -> &mut $ty {
+                    &mut self.$field
+                }
+            }
+        )*
     };
 }
-
-tuple_component_state!(A 0);
-tuple_component_state!(A 0, B 1);
-tuple_component_state!(A 0, B 1, C 2);
-tuple_component_state!(A 0, B 1, C 2, D 3);
 
 /// A [`ModuleVerifier`] extended with component state `S`: the context for a
 /// machine whose components need more than the standard capabilities.
@@ -507,12 +594,13 @@ tuple_component_state!(A 0, B 1, C 2, D 3);
 /// and joins `S` alongside the frame (snapshots are `(Frame<TypeSlot>, S)`),
 /// and starts every function from the entry state given at construction.
 /// A component crate defines its capability trait and implements it for
-/// `WithState<'_, TheirState>` (allowed because the trait is theirs), using
-/// [`state`](WithState::state) and [`state_mut`](WithState::state_mut):
+/// `WithState<'_, S>` wherever `S` contains its state ([`ComponentStateOf`]),
+/// reaching that state with [`component`](WithState::component) and
+/// [`component_mut`](WithState::component_mut):
 ///
 /// ```
 /// use std::collections::BTreeSet;
-/// use vihaco_verifier::{ComponentState, VerifyError, WithState};
+/// use vihaco_verifier::{ComponentState, ComponentStateOf, VerifyError, WithState};
 ///
 /// /// The sequencer's capability: channels must be opened before use.
 /// pub trait Channels {
@@ -537,12 +625,14 @@ tuple_component_state!(A 0, B 1, C 2, D 3);
 ///     }
 /// }
 ///
-/// impl Channels for WithState<'_, Open> {
+/// // Any machine state that contains `Open`: `Open` itself, or a
+/// // `component_state!` struct with an `Open` field.
+/// impl<S: ComponentStateOf<Open>> Channels for WithState<'_, S> {
 ///     fn open(&mut self, channel: u32) {
-///         self.state_mut().0.insert(channel);
+///         self.component_mut::<Open>().0.insert(channel);
 ///     }
 ///     fn require_open(&self, channel: u32) -> Result<(), VerifyError> {
-///         if self.state().0.contains(&channel) {
+///         if self.component::<Open>().0.contains(&channel) {
 ///             Ok(())
 ///         } else {
 ///             Err(VerifyError::rule(format!("channel {channel} is not open")))
@@ -555,6 +645,25 @@ pub struct WithState<'m, S> {
     verifier: ModuleVerifier<'m>,
     entry: S,
     state: S,
+}
+
+impl<S> WithState<'_, S> {
+    /// The current state of the component whose state is `T`, inside the
+    /// combined state `S` (see [`ComponentStateOf`]).
+    pub fn component<T>(&self) -> &T
+    where
+        S: ComponentStateOf<T>,
+    {
+        self.state.component()
+    }
+
+    /// The current state of the component whose state is `T`, mutably.
+    pub fn component_mut<T>(&mut self) -> &mut T
+    where
+        S: ComponentStateOf<T>,
+    {
+        self.state.component_mut()
+    }
 }
 
 impl<'m, S: ComponentState> WithState<'m, S> {

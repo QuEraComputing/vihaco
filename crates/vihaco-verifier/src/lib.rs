@@ -156,7 +156,7 @@ pub use diagnostic::{
 pub use engine::{
     FunctionSpan, Rejection, TypeMaps, Verification, VerifyOptions, verify_functions,
 };
-pub use module::{ComponentState, ModuleVerifier, WithState, verify_module};
+pub use module::{ComponentState, ComponentStateOf, ModuleVerifier, WithState, verify_module};
 pub use rules::{
     direct_call_effect, function_constant, indirect_call_effect, load_local, pop_array,
     set_field_effect, store_local, string_constant, struct_new_effect,
