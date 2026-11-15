@@ -29,9 +29,10 @@ them in file order. Each section is an independently loaded program. Section
 names are only for selecting a section; execution uses instruction addresses,
 and any mapping from addresses to names belongs in the header metadata.</p>
 <p>A section view gives you the header and source body. Pass it to
-<code>ParsedModule::&#x3C;SourceInstruction, Type, Header>::parse_section(section)</code>, using
-your composite’s syntax instruction type as <code>SourceInstruction</code>. You’ll get
-header declarations and functions with typed instruction bodies.</p>
+<code>ParsedModule::&#x3C;SourceInstruction, Header>::parse_section(section)</code>, using
+your composite’s syntax instruction type as <code>SourceInstruction</code>. You’ll get the
+header declarations, the section’s flat code stream, and its symbol table: one
+<code>Symbol { name, address }</code> for each <code>@name:</code> definition in <code>.text</code>.</p>
 <h2 id="collect-declarations-before-lowering">Collect declarations before lowering</h2>
 <p>Use <code>HeaderDeclarations&#x3C;Declaration></code> to parse the declarations individually.
 Your metadata-class enum can include <code>ProgramMetadata</code> alongside your own
@@ -41,26 +42,28 @@ You can prepare the declarations in a different order from how they appear in
 the file.</p>
 <p><code>ProgramMetadata</code> supplies every non-code field:</p>
 <ul>
-<li>Functions, with their signatures, reserved local counts, and instruction ranges.</li>
-<li>Labels, strings, constants, and source symbols.</li>
+<li>Function declarations, with their signatures and reserved local counts.</li>
+<li>Strings, constants, and source symbols.</li>
 <li>The entry function, if there is one.</li>
 <li>Your application’s <code>extra</code> metadata.</li>
 </ul>
 <p>The order of each table determines its indices. Function names, parameter names,
 and filenames refer into the string table. <code>main_function</code> selects an entry in
 the function table; it isn’t an instruction address.</p>
-<p>Function ranges count decoded instructions and use an exclusive end address.
-A function’s local count includes its parameters. The producer supplies any
+<p>A declaration doesn’t say where its function is. Loading binds it to the
+<code>@name:</code> symbol with the same name and derives the range from there to the next
+function symbol, so there are no addresses to keep in sync. A function’s local
+count includes its parameters. The producer supplies any
 extra locals; the loader doesn’t infer them from instructions.</p>
 <h2 id="prepare-capabilities-and-lower">Prepare capabilities and lower</h2>
-<p><code>MetadataLoweringContext::new(&#x26;metadata)</code> prepares the standard function, label,
-and string capabilities. If custom instructions need more lookup services, you
+<p><code>MetadataLoweringContext::new(&#x26;metadata, &#x26;symbols)</code> prepares the standard symbol,
+function, and string capabilities. If custom instructions need more lookup services, you
 can extend it or use your own context.</p>
-<p>Call <code>lower_functions_with_metadata(functions, &#x26;metadata, &#x26;mut context)</code> to check
-the declarations and tables, then lower the bodies. Before lowering each
-function, the driver prepares its full local label scope. That’s how a branch
-can refer to a label farther down the function.</p>
-<p>Assemble the result with <code>metadata.into_module(code)</code>. It keeps your table order
+<p>Call <code>lower_code_with_metadata(code, &#x26;symbols, &#x26;metadata, &#x26;mut context)</code> to check
+the declarations, symbols, and tables, then lower the code. The context knows the
+whole symbol table before the first instruction is lowered. That’s how a branch
+or call can refer to a symbol farther down the section.</p>
+<p>Assemble the result with <code>metadata.into_module(code, symbols)</code>. It keeps your table order
 and checks standard value references. If your declarations need a different
 runtime metadata type, use <code>map_extra</code>. You can then wrap the module in an Image
 and pair it with a machine in a Loadable.</p>
@@ -71,8 +74,8 @@ made to the context remain, though; the pipeline doesn’t roll them back.</p>
 <a href="https://github.com/QuEraComputing/vihaco/blob/main/crates/vihaco-stdlib/examples/loadable.rs">Loadable example</a>
 and its
 <a href="https://github.com/QuEraComputing/vihaco/blob/main/crates/vihaco-stdlib/examples/loadable.sst">SST file</a>
-put the whole sequence together. They include an application header, tables in a
-different order from the function bodies, a helper call, and a forward branch.</p>
+put the whole sequence together. They include an application header, a function
+table in a different order from the code, a helper call, and a forward branch.</p>
 <p>Run it from a checkout:</p>
 <pre><code class="language-sh">cargo run -p vihaco-stdlib --features program-image-execution --example loadable
 </code></pre>
@@ -231,7 +234,7 @@ owns the runtime instructions and metadata it needs.</p>
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-11-14</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-11-15</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

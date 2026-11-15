@@ -36,24 +36,20 @@ and its tables so the loader can check the program before running it.</p>
                 name: 0,
                 signature: { params: [], ret: [u64] },
                 local_count: 0,
-                start_address: 0,
-                end_address: 4,
                 file: 1,
             },
         ],
-        labels: [],
         constants: [],
         main_function: 0,
         source_symbols: [],
         extra: {},
     };
 .text
-    fn @main() -> u64 {
-        execution::program::const_u64 20
-        execution::program::const_u64 22
-        calculator::arithmetic::add
-        execution::program::ret 1
-    }
+@main:
+    execution::program::const_u64 20
+    execution::program::const_u64 22
+    calculator::arithmetic::add
+    execution::program::ret 1
 </code></pre>
 <h2 id="the-complete-machine">The complete machine</h2>
 <p>Put this in <code>src/main.rs</code>, next to the SST file. <code>include_str!</code> reads that file
@@ -67,7 +63,7 @@ use vihaco::{
     PopFromStack, PushToStack, SSTFile, Step, Type, Value, component, composite, dialect, field,
     loader::MetadataLoweringContext,
     module::{LocalModule, ProgramMetadata},
-    syntax::{HeaderDeclarations, ParsedModule, lower_functions_with_metadata},
+    syntax::{HeaderDeclarations, ParsedModule, lower_code_with_metadata},
 };
 
 #[dialect]
@@ -157,9 +153,12 @@ pub fn main() -> eyre::Result&#x3C;()> {
     let section = file
         .section("main")
         .ok_or_else(|| eyre::eyre!("missing main section"))?;
-    let ParsedModule { header, functions } = ParsedModule::&#x3C;
+    let ParsedModule {
+        header,
+        code,
+        symbols,
+    } = ParsedModule::&#x3C;
         SourceInstruction,
-        Type,
         HeaderDeclarations&#x3C;ProgramMetadata>,
     >::parse_section(section)?;
 
@@ -171,9 +170,9 @@ pub fn main() -> eyre::Result&#x3C;()> {
         declarations.next().is_none(),
         "expected one metadata declaration"
     );
-    let mut context = MetadataLoweringContext::new(&#x26;metadata)?;
-    let code = lower_functions_with_metadata(functions, &#x26;metadata, &#x26;mut context)?;
-    let module = metadata.into_module(code)?;
+    let mut context = MetadataLoweringContext::new(&#x26;metadata, &#x26;symbols)?;
+    let code = lower_code_with_metadata(code, &#x26;symbols, &#x26;metadata, &#x26;mut context)?;
+    let module = metadata.into_module(code, symbols)?;
     let machine = Machine {
         execution: ExecutionState::new(),
         calculator: Calculator::default(),
@@ -205,12 +204,12 @@ combined instruction set. Standard builders move operands into <code>PopFromStac
 and <code>Apply</code> inserts the <code>PushToStack</code> result. The runner fetches instructions and
 moves to the next one; program instructions handle calls, branches, and returns.</p>
 <p><code>SSTFile</code> reads the file’s flat list of sections, and <code>section("main")</code> picks
-ours. <code>ParsedModule</code> then parses that section’s metadata declarations and
-function bodies, using the machine’s public syntax instruction type. That avoids
-relying on generated enum variant names.</p>
+ours. <code>ParsedModule</code> then parses that section’s metadata declarations, its
+instructions, and its <code>@main:</code> symbol, using the machine’s public syntax
+instruction type. That avoids relying on generated enum variant names.</p>
 <p>This example expects exactly one metadata declaration. Once it has that,
 <code>MetadataLoweringContext</code> prepares symbol lookup and
-<code>lower_functions_with_metadata</code> checks the function declarations against the
+<code>lower_code_with_metadata</code> checks the function declarations against the
 metadata and turns syntax instructions into executable ones.
 <a href="/vihaco/pr-preview/pr-177/guide/parser-advanced">Loading SST programs</a> builds on this with custom
 headers and multiple sections.</p>
@@ -376,7 +375,7 @@ instructions, implement components, and wire a VM before you explore each topic.
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-11-14</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-11-15</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

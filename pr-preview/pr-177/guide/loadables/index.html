@@ -37,7 +37,7 @@ metadata stay stable.</p>
 
 
 
-<table><thead><tr><th>Type</th><th>What it holds</th></tr></thead><tbody><tr><td><code>LocalModule&#x3C;I, V, Ty, Info></code></td><td>Runtime code, functions, labels, constants, strings, entry selection, source symbols, and application metadata</td></tr><tr><td><code>Image&#x3C;I, V, Ty, Info></code></td><td>The module as owned program data</td></tr><tr><td><code>Loadable&#x3C;Image&#x3C;I, V, Ty, Info>, M></code></td><td>The image paired with composite <code>M</code>, with methods to run and manage it</td></tr></tbody></table>
+<table><thead><tr><th>Type</th><th>What it holds</th></tr></thead><tbody><tr><td><code>LocalModule&#x3C;I, V, Ty, Info></code></td><td>Runtime code, functions, symbols, constants, strings, entry selection, source symbols, and application metadata</td></tr><tr><td><code>Image&#x3C;I, V, Ty, Info></code></td><td>The module as owned program data</td></tr><tr><td><code>Loadable&#x3C;Image&#x3C;I, V, Ty, Info>, M></code></td><td>The image paired with composite <code>M</code>, with methods to run and manage it</td></tr></tbody></table>
 <p>First build a valid module by parsing and lowering source or decoding a binary
 program. Then wrap it in <code>Image::new(module)</code> and pair it with a machine using
 <code>Loadable::new(image, machine)</code>. These constructors don’t parse or validate the
@@ -229,7 +229,7 @@ forward effects between them.</p>
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-11-14</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-11-15</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

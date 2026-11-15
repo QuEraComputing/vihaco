@@ -31,24 +31,20 @@ explains each part.
                 name: 0,
                 signature: { params: [], ret: [u64] },
                 local_count: 0,
-                start_address: 0,
-                end_address: 4,
                 file: 1,
             },
         ],
-        labels: [],
         constants: [],
         main_function: 0,
         source_symbols: [],
         extra: {},
     };
 .text
-    fn @main() -&gt; u64 {
-        execution::program::const_u64 20
-        execution::program::const_u64 22
-        calculator::arithmetic::add
-        execution::program::ret 1
-    }
+@main:
+    execution::program::const_u64 20
+    execution::program::const_u64 22
+    calculator::arithmetic::add
+    execution::program::ret 1
 </code></pre> <h2>The Rust machine</h2> <pre><code class="language-rust">// SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
@@ -57,7 +53,7 @@ use vihaco::{
     PopFromStack, PushToStack, SSTFile, Step, Type, Value, component, composite, dialect, field,
     loader::MetadataLoweringContext,
     module::{LocalModule, ProgramMetadata},
-    syntax::{HeaderDeclarations, ParsedModule, lower_functions_with_metadata},
+    syntax::{HeaderDeclarations, ParsedModule, lower_code_with_metadata},
 };
 
 #[dialect]
@@ -147,9 +143,12 @@ pub fn main() -&gt; eyre::Result&lt;()&gt; {
     let section = file
         .section(&quot;main&quot;)
         .ok_or_else(|| eyre::eyre!(&quot;missing main section&quot;))?;
-    let ParsedModule { header, functions } = ParsedModule::&lt;
+    let ParsedModule {
+        header,
+        code,
+        symbols,
+    } = ParsedModule::&lt;
         SourceInstruction,
-        Type,
         HeaderDeclarations&lt;ProgramMetadata&gt;,
     &gt;::parse_section(section)?;
 
@@ -161,9 +160,9 @@ pub fn main() -&gt; eyre::Result&lt;()&gt; {
         declarations.next().is_none(),
         &quot;expected one metadata declaration&quot;
     );
-    let mut context = MetadataLoweringContext::new(&amp;metadata)?;
-    let code = lower_functions_with_metadata(functions, &amp;metadata, &amp;mut context)?;
-    let module = metadata.into_module(code)?;
+    let mut context = MetadataLoweringContext::new(&amp;metadata, &amp;symbols)?;
+    let code = lower_code_with_metadata(code, &amp;symbols, &amp;metadata, &amp;mut context)?;
+    let module = metadata.into_module(code, symbols)?;
     let machine = Machine {
         execution: ExecutionState::new(),
         calculator: Calculator::default(),
@@ -300,7 +299,7 @@ and <a href="/vihaco/pr-preview/pr-177/guide">author’s guide</a>, or look up i
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-11-14</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-11-15</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

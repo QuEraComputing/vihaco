@@ -39,22 +39,18 @@ with an <code>execution</code> device using the standard program dialect:</p>
                 name: 0,
                 signature: { params: [], ret: [u64] },
                 local_count: 0,
-                start_address: 0,
-                end_address: 2,
                 file: 1,
             },
         ],
-        labels: [],
         constants: [],
         main_function: 0,
         source_symbols: [],
         extra: {},
     };
 .text
-    fn @main() -> u64 {
-        execution::program::const_u64 42
-        execution::program::ret 1
-    }
+@main:
+    execution::program::const_u64 42
+    execution::program::ret 1
 </code></pre>
 <p>The directives are:</p>
 
@@ -86,7 +82,7 @@ with an <code>execution</code> device using the standard program dialect:</p>
 
 
 
-<table><thead><tr><th>Directive</th><th>Meaning</th></tr></thead><tbody><tr><td><code>sst v2</code></td><td>Format version. Must be the first non-blank line.</td></tr><tr><td><code>.global</code></td><td>Optional global context in a consumer-defined grammar. Must come before any <code>.section</code>; omit it for loaders using <code>NoContext</code>.</td></tr><tr><td><code>.section &#x3C;name></code></td><td>Starts a new section. Names are required, unique within the file, and contain no whitespace.</td></tr><tr><td><code>.header</code></td><td>The current section’s header: declarations such as <code>metadata { ... };</code>.</td></tr><tr><td><code>.text</code></td><td>The current section’s code: function bodies.</td></tr></tbody></table>
+<table><thead><tr><th>Directive</th><th>Meaning</th></tr></thead><tbody><tr><td><code>sst v2</code></td><td>Format version. Must be the first non-blank line.</td></tr><tr><td><code>.global</code></td><td>Optional global context in a consumer-defined grammar. Must come before any <code>.section</code>; omit it for loaders using <code>NoContext</code>.</td></tr><tr><td><code>.section &#x3C;name></code></td><td>Starts a new section. Names are required, unique within the file, and contain no whitespace.</td></tr><tr><td><code>.header</code></td><td>The current section’s header: declarations such as <code>metadata { ... };</code>.</td></tr><tr><td><code>.text</code></td><td>The current section’s code: a flat instruction stream with <code>@name:</code> symbol definitions.</td></tr></tbody></table>
 <p>Sections are a flat list; there is no nesting and no implicit root. Each may
 contain at most one <code>.header</code> and one <code>.text</code>, in either order. An omitted block
 yields empty text to the consumer; a runnable program still needs the content
@@ -95,9 +91,8 @@ a <code>//</code> comment. Every other line belongs to the enclosing block and i
 the target’s grammar unchanged.</p>
 <p>A section is an independently loadable unit. Its name exists only so a loader
 can select it with <code>file.section(name)</code>. Execution relies on instruction
-addresses, which are local to the section. Anything that ties an address to a
-name, such as functions and labels, belongs in the header metadata described
-below.</p>
+addresses, which are local to the section. Names for addresses within a
+section come from its symbol definitions, described below.</p>
 <h2 id="target-instruction-and-function-syntax">Target instruction and function syntax</h2>
 <p>The target composite’s <code>&#x3C;Machine as HasInstructionSet>::Syntax</code> determines which
 instructions the loader accepts. Emit the device route, dialect, and mnemonic,
@@ -105,17 +100,43 @@ followed by the operands specified by that instruction’s pattern. For example,
 <code>calculator::arithmetic::add</code> routes to the <code>calculator</code> device. A nested device
 adds route segments; device aliases may provide additional accepted spellings.
 Numeric <code>#[device(code)]</code> values are not the source spelling.</p>
-<p>Emit functions as <code>fn @name(param: type, ...) -> type { ... }</code>. Omit <code>-></code> for no
-returns, or use <code>-> (type, type)</code> for multiple returns. The target type parser
-defines accepted type names. Function parameters and return types must agree
-with the header metadata.</p>
-<p>Inside a function, <code>label @name</code> declares a local branch target. It occupies no
-instruction slot. Instructions such as <code>execution::program::br @done</code> can refer
-forward to a label. Symbolic operands and their punctuation are dialect-specific;
-see the <a href="/vihaco/pr-preview/pr-177/guide/parser-patterns">parser pattern reference</a>.</p>
+<h2 id="symbols">Symbols</h2>
+<p><code>.text</code> is not structured code. It is one flat instruction stream, written in
+address order, plus symbol definitions:</p>
+<pre><code class="language-text">.text
+@main:
+    execution::program::call 0, @helper
+    execution::program::br @done
+    execution::program::const_u64 999
+@done:
+    execution::program::ret 1
+@helper:
+    execution::program::const_u64 21
+    execution::program::ret 1
+</code></pre>
+<ul>
+<li><code>@name:</code> defines a symbol: it binds <code>name</code> to the address of the next
+instruction and occupies no instruction slot. Several symbols may share an
+address, and a symbol may follow the last instruction.</li>
+<li><code>@name</code> in an operand refers to a symbol. Lowering looks it up in the
+section’s symbol table, so forward references work. Each instruction decides
+what it needs from the entry: <code>br</code> and <code>call</code> take the symbol’s address,
+while a function-reference constant takes the function’s metadata index.</li>
+<li>Symbol names are unique within a section. There is no per-function scope; a
+compiler that reuses local label names should qualify them, for example
+<code>@main.done</code>.</li>
+<li>Layout and indentation carry no meaning. Instructions and symbol definitions
+are separated by whitespace or <code>//</code> comments, and may share a line.</li>
+</ul>
+<p>A function is a symbol that has a declaration in the header’s <code>functions</code> table
+with the same name. Its signature and locals come only from that declaration.
+Its executable range runs from its symbol to the next function symbol, or to the
+end of the section; other symbols inside it, such as <code>@done</code>, do not end it.
+Nothing stops execution from running past the end of one function into the next.</p>
 <p>Each parsed instruction lowers to exactly one runtime instruction. Expand any
-compiler pseudo-instructions before calculating ranges and emitting SST.
-Concatenating function bodies in source order defines the section’s code vector.</p>
+compiler pseudo-instructions before emitting SST. Symbolic operands and their
+punctuation are dialect-specific; see the
+<a href="/vihaco/pr-preview/pr-177/guide/parser-patterns">parser pattern reference</a>.</p>
 <h2 id="the-metadata-header">The metadata header</h2>
 <p>The standard loading path uses <code>HeaderDeclarations&#x3C;ProgramMetadata></code> or an
 application declaration enum containing <code>ProgramMetadata</code>. Declarations end in
@@ -157,11 +178,7 @@ comma-separated lists; trailing commas are accepted. The standard schema is
 
 
 
-
-
-
-
-<table><thead><tr><th>Field</th><th>What the compiler supplies</th></tr></thead><tbody><tr><td><code>strings</code></td><td>An ordered array of quoted strings, including function names, parameter names, filenames, label names, and literals needed by lowering. String indices are zero-based.</td></tr><tr><td><code>functions</code></td><td>An ordered array of function records, described below. Array position is the function index; this order may differ from function-body order.</td></tr><tr><td><code>labels</code></td><td>Records <code>{ name: string_index, address: instruction_address }</code>. Every source label needs a matching name and absolute section-local address.</td></tr><tr><td><code>constants</code></td><td>An ordered array of values parsed by the target’s value parser. Constant indices are array positions.</td></tr><tr><td><code>main_function</code></td><td>The entry function’s table index, or <code>null</code> when no entry is selected. It is not an instruction address.</td></tr><tr><td><code>source_symbols</code></td><td>Records <code>{ index: number, name: "symbol" }</code>. Indices must be unique; names are inline strings. Agree with the consumer on their meaning.</td></tr><tr><td><code>extra</code></td><td>Application metadata in the target’s chosen schema. With the default <code>NoInfo</code>, emit <code>{}</code>.</td></tr></tbody></table>
+<table><thead><tr><th>Field</th><th>What the compiler supplies</th></tr></thead><tbody><tr><td><code>strings</code></td><td>An ordered array of quoted strings, including function names, parameter names, filenames, and literals needed by lowering. String indices are zero-based. Plain symbols such as branch targets need no entry.</td></tr><tr><td><code>functions</code></td><td>An ordered array of function declarations, described below. Array position is the function index; this order may differ from address order.</td></tr><tr><td><code>constants</code></td><td>An ordered array of values parsed by the target’s value parser. Constant indices are array positions.</td></tr><tr><td><code>main_function</code></td><td>The entry function’s table index, or <code>null</code> when no entry is selected. It is not an instruction address.</td></tr><tr><td><code>source_symbols</code></td><td>Records <code>{ index: number, name: "symbol" }</code>. Indices must be unique; names are inline strings. Agree with the consumer on their meaning.</td></tr><tr><td><code>extra</code></td><td>Application metadata in the target’s chosen schema. With the default <code>NoInfo</code>, emit <code>{}</code>.</td></tr></tbody></table>
 <p>Each function record contains:</p>
 
 
@@ -188,20 +205,12 @@ comma-separated lists; trailing commas are accepted. The standard schema is
 
 
 
-
-
-
-
-
-
-
-
-<table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>name</code></td><td>Index of the function name in <code>strings</code>, without the source <code>@</code> prefix. Function names must be unique for standard metadata-backed lookup.</td></tr><tr><td><code>signature</code></td><td><code>{ params: [{ name: string_index, ty: type }, ...], ret: [type, ...] }</code>. Parameter names, order, and types and return types must match the source declaration.</td></tr><tr><td><code>local_count</code></td><td>Total reserved local slots, including parameters. Must be at least the parameter count; the loader does not infer extra locals.</td></tr><tr><td><code>start_address</code></td><td>Index of the first instruction in this function’s body in the concatenated code vector.</td></tr><tr><td><code>end_address</code></td><td>Exclusive end of that body’s instruction range.</td></tr><tr><td><code>file</code></td><td>Index of the source filename in <code>strings</code>.</td></tr></tbody></table>
-<p>Addresses and table references use <code>u32</code>. Count decoded instructions, not bytes,
-source lines, or labels. In the example, <code>main</code> covers <code>0..2</code>. In a two-function
-program whose bodies have six and two instructions, their ranges are <code>0..6</code> and
-<code>6..8</code>, even if their metadata records appear in reverse order. Calls that lower
-to function indices follow metadata table order.</p>
+<table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>name</code></td><td>Index of the function name in <code>strings</code>, without the <code>@</code> prefix. It must match a <code>@name:</code> symbol in <code>.text</code>, and names must be unique.</td></tr><tr><td><code>signature</code></td><td><code>{ params: [{ name: string_index, ty: type }, ...], ret: [type, ...] }</code>. This is the only place a function’s signature is stated.</td></tr><tr><td><code>local_count</code></td><td>Total reserved local slots, including parameters. Must be at least the parameter count; the loader does not infer extra locals.</td></tr><tr><td><code>file</code></td><td>Index of the source filename in <code>strings</code>.</td></tr></tbody></table>
+<p>A declaration says <em>what</em> a function is; its symbol says <em>where</em> it is. There
+are no address fields to keep in sync. Addresses and table references use <code>u32</code>
+and count decoded instructions, not bytes, source lines, or symbol definitions.
+In the example, <code>main</code> covers <code>0..2</code>. Function-reference constants lower to
+metadata table indices, independently of address order.</p>
 <h2 id="constants-strings-and-symbol-resolution">Constants, strings, and symbol resolution</h2>
 <p>With standard <code>Value</code>, constants use typed literals such as <code>u64 42</code>, <code>i64 -1</code>,
 <code>bool true</code>, <code>string 0</code>, and <code>fn 0</code>. String values reference <code>strings</code>;
@@ -212,9 +221,8 @@ Custom value types can define a different grammar.</p>
 <p>Populate strings before lowering. <code>MetadataLoweringContext</code> looks up strings
 without appending or reordering them; a missing literal is an error. Equal
 strings resolve to the first matching table entry. Function lookup preserves
-the supplied function indices. Label lookup is scoped to the current function,
-so different functions can reuse a label name. Its resolved address is still
-absolute within the section.</p>
+the supplied function indices. Symbol lookup uses the whole section’s table and
+returns absolute, section-local addresses.</p>
 <p>Application header directives can describe device configuration or add lowering
 capabilities. These require an explicit agreement with the consuming loader;
 the standard metadata record does not define their schema. See
@@ -223,16 +231,16 @@ custom contexts.</p>
 <h2 id="validate-compiler-output">Validate compiler output</h2>
 <p>Load emitted files through the same path as the target application:
 <code>SSTFile::from_text</code>, <code>ParsedModule::parse_section</code>, declaration preparation,
-<code>MetadataLoweringContext::new</code>, <code>lower_functions_with_metadata</code>, then
-<code>metadata.into_module(code)</code>. This checks function declarations against the
-supplied tables, verifies source labels and instruction ranges, resolves symbols,
-and checks standard constant references. Loading preserves table order and does
+<code>MetadataLoweringContext::new</code>, <code>lower_code_with_metadata</code>, then
+<code>metadata.into_module(code, symbols)</code>. This binds each function declaration to
+its symbol, rejects duplicate or missing symbols, derives instruction ranges,
+resolves symbolic operands, and checks standard constant references. Loading preserves table order and does
 not invent missing metadata or select an entry function for you.</p>
 <p>For the minimal file above, this loader validates and assembles the program:</p>
-<pre><code class="language-rust">use vihaco::{HasInstructionSet, NoContext, SSTFile, Type, composite};
+<pre><code class="language-rust">use vihaco::{HasInstructionSet, NoContext, SSTFile, composite};
 use vihaco::loader::MetadataLoweringContext;
 use vihaco::module::ProgramMetadata;
-use vihaco::syntax::{HeaderDeclarations, ParsedModule, lower_functions_with_metadata};
+use vihaco::syntax::{HeaderDeclarations, ParsedModule, lower_code_with_metadata};
 
 #[composite]
 struct Machine {
@@ -246,15 +254,19 @@ fn validate(source: &#x26;str) -> eyre::Result&#x3C;()> {
     let section = file
         .section("main")
         .ok_or_else(|| eyre::eyre!("missing main section"))?;
-    let ParsedModule { header, functions } = ParsedModule::&#x3C;
-        SourceInstruction, Type, HeaderDeclarations&#x3C;ProgramMetadata>
+    let ParsedModule {
+        header,
+        code,
+        symbols,
+    } = ParsedModule::&#x3C;
+        SourceInstruction, HeaderDeclarations&#x3C;ProgramMetadata>
     >::parse_section(section)?;
     let mut declarations = header.into_iter();
     let metadata = declarations.next().ok_or_else(|| eyre::eyre!("missing metadata"))?;
     eyre::ensure!(declarations.next().is_none(), "duplicate metadata");
-    let mut context = MetadataLoweringContext::new(&#x26;metadata)?;
-    let code = lower_functions_with_metadata(functions, &#x26;metadata, &#x26;mut context)?;
-    let module = metadata.into_module(code)?;
+    let mut context = MetadataLoweringContext::new(&#x26;metadata, &#x26;symbols)?;
+    let code = lower_code_with_metadata(code, &#x26;symbols, &#x26;metadata, &#x26;mut context)?;
+    let module = metadata.into_module(code, symbols)?;
     assert_eq!(module.code.len(), 2);
     assert_eq!(module.main_function, Some(0));
     Ok(())
@@ -263,11 +275,12 @@ fn validate(source: &#x26;str) -> eyre::Result&#x3C;()> {
 <p>Use <a href="/vihaco/pr-preview/pr-177/guide/first-machine">your first machine</a> as a minimal consumer and the
 <a href="/vihaco/pr-preview/pr-177/guide/parser-advanced#run-the-complete-example">Loadable example</a> for multiple
 sections, reordered function metadata, a helper call, and a forward branch.
-Test both accepted programs and malformed output: missing strings, mismatched
-signatures or ranges, insufficient locals, unresolved labels, and invalid table
-references. Execute accepted programs to check behavior as well as syntax.</p>
+Test both accepted programs and malformed output: missing strings, missing
+or duplicate symbols, functions without a symbol, insufficient locals,
+unresolved symbolic operands, and invalid table references. Execute accepted
+programs to check behavior as well as syntax.</p>
 <p>Continue with <a href="/vihaco/pr-preview/pr-177/guide/instructions-advanced">binary formats</a> for encoded programs
-and compatibility planning.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/pr-preview/pr-177/guide/parser-advanced" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Loading SST programs</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/pr-preview/pr-177/guide/instructions-advanced" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Binary formats</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#file-and-section-structure" data-toc-link="#file-and-section-structure">File and section structure</a></li><li><a href="#target-instruction-and-function-syntax" data-toc-link="#target-instruction-and-function-syntax">Target instruction and function syntax</a></li><li><a href="#the-metadata-header" data-toc-link="#the-metadata-header">The metadata header</a></li><li><a href="#constants-strings-and-symbol-resolution" data-toc-link="#constants-strings-and-symbol-resolution">Constants, strings, and symbol resolution</a></li><li><a href="#validate-compiler-output" data-toc-link="#validate-compiler-output">Validate compiler output</a></li> </ol> </details> </div> </main> <script>
+and compatibility planning.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/pr-preview/pr-177/guide/parser-advanced" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Loading SST programs</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/pr-preview/pr-177/guide/instructions-advanced" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Binary formats</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#file-and-section-structure" data-toc-link="#file-and-section-structure">File and section structure</a></li><li><a href="#target-instruction-and-function-syntax" data-toc-link="#target-instruction-and-function-syntax">Target instruction and function syntax</a></li><li><a href="#symbols" data-toc-link="#symbols">Symbols</a></li><li><a href="#the-metadata-header" data-toc-link="#the-metadata-header">The metadata header</a></li><li><a href="#constants-strings-and-symbol-resolution" data-toc-link="#constants-strings-and-symbol-resolution">Constants, strings, and symbol resolution</a></li><li><a href="#validate-compiler-output" data-toc-link="#validate-compiler-output">Validate compiler output</a></li> </ol> </details> </div> </main> <script>
         // Scroll-spy: mark the TOC link for the section currently in view.
         (() => {
           const links = Array.from(document.querySelectorAll(".page-toc [data-toc-link]"));
@@ -419,7 +432,7 @@ and compatibility planning.</p> </article>  <nav class="section-pager" aria-labe
         sync();
       })();
     </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-11-14</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+          documentation generated <time>2026-11-15</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {
