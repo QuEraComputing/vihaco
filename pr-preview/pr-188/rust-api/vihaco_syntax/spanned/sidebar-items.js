@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["line_column","parse_declarations","parse_text"],"struct":["ParsedDeclarations","ParsedText","Spanned","SyntaxError"]};
