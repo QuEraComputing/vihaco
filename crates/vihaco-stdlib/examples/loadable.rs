@@ -6,6 +6,12 @@
 //!
 //! Pass an SST file path as the final argument to load another source file.
 //! Without a path, this runs the adjacent `loadable.sst`, which computes 21 * 2.
+//!
+//! Instead of running, the file can be checked or formatted for this machine:
+//!
+//! - `--check`: report every problem, with line and column, and run nothing.
+//! - `--fmt`: print the canonical layout with generated `;;` notes.
+//! - `--fmt-plain`: the same, without generated notes.
 
 use vihaco_abi::{Type, Value};
 use vihaco_bytecode::{NoContext, SSTFile};
@@ -195,11 +201,68 @@ impl Runtime {
     }
 }
 
+/// What `main` does with the source file.
+enum Mode {
+    Run,
+    Check,
+    Format(vihaco_sst::FormatOptions),
+}
+
+fn checker() -> vihaco_sst::ProgramChecker<Machine, vihaco_sst::Declarations<HeaderDeclaration>> {
+    vihaco_sst::ProgramChecker::<Machine>::new()
+        .with_header::<vihaco_sst::Declarations<HeaderDeclaration>>()
+        .require_sections(["controller"])
+}
+
 fn main() -> eyre::Result<()> {
-    let source = match std::env::args_os().nth(1) {
-        Some(path) => std::fs::read_to_string(path)?,
-        None => include_str!("loadable.sst").to_owned(),
+    let mut mode = Mode::Run;
+    let mut path = None;
+    for arg in std::env::args().skip(1) {
+        match arg.as_str() {
+            "--check" => mode = Mode::Check,
+            "--fmt" => mode = Mode::Format(vihaco_sst::FormatOptions::default()),
+            "--fmt-plain" => {
+                mode = Mode::Format(vihaco_sst::FormatOptions::without_generated_comments())
+            }
+            flag if flag.starts_with("--") => return Err(eyre::eyre!("unknown flag `{flag}`")),
+            _ => path = Some(arg),
+        }
+    }
+    let (name, source) = match &path {
+        Some(path) => (path.clone(), std::fs::read_to_string(path)?),
+        None => (
+            "loadable.sst".to_owned(),
+            include_str!("loadable.sst").to_owned(),
+        ),
     };
+
+    match mode {
+        Mode::Run => {}
+        Mode::Check => {
+            let file = vihaco_sst::SourceFile::new(name, source);
+            let report = checker().check(&file);
+            if report.is_ok() {
+                eprintln!("no problems found");
+            }
+            return report.into_result(&file);
+        }
+        Mode::Format(options) => {
+            let file = vihaco_sst::SourceFile::new(name, source);
+            return match vihaco_sst::Formatter::with_checker(checker())
+                .options(options)
+                .format(&file)
+            {
+                Ok(formatted) => {
+                    print!("{formatted}");
+                    Ok(())
+                }
+                Err(report) => {
+                    eprint!("{}", report.render(&file));
+                    Err(eyre::eyre!("{} error(s)", report.error_count()))
+                }
+            };
+        }
+    }
     let mut runtime = Runtime::from_sst(&source)?;
     drop(source);
 
