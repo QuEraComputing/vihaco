@@ -23,6 +23,9 @@ pub struct FunctionInfo {
 pub struct IndirectCallee {
     pub info: FunctionInfo,
     pub signature: FunctionType,
+    /// The callee's name, without the leading `@`, so a signature mismatch
+    /// can name the function it reached.
+    pub name: String,
 }
 
 /// Text prepared by the composite for a print instruction.

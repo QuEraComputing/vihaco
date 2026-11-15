@@ -309,6 +309,20 @@ pub trait StructTypeRef {
     fn is_named_type_repr(&self) -> bool {
         false
     }
+
+    /// Write this type for a message, with struct and named types shown by
+    /// the names in `names`. The default writes its `Display` form.
+    fn write_named(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+        names: &dyn vihaco_abi::names::TypeNames,
+    ) -> std::fmt::Result
+    where
+        Self: std::fmt::Display,
+    {
+        let _ = names;
+        write!(f, "{self}")
+    }
 }
 
 impl StructTypeRef for vihaco_abi::Type {
@@ -322,6 +336,56 @@ impl StructTypeRef for vihaco_abi::Type {
 
     fn is_named_type_repr(&self) -> bool {
         self.is_scalar_word()
+    }
+
+    fn write_named(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+        names: &dyn vihaco_abi::names::TypeNames,
+    ) -> std::fmt::Result {
+        write!(f, "{}", self.display_with(names))
+    }
+}
+
+impl<Ty: StructTypeRef + std::fmt::Display> Signature<Ty> {
+    /// The parameter and result types, written as a
+    /// [`FunctionType`](vihaco_abi::FunctionType) displays them
+    /// (`(u64, struct Point) -> f64`), with types shown by the names in
+    /// `names`.
+    pub fn display_type<'a>(
+        &'a self,
+        names: &'a dyn vihaco_abi::names::TypeNames,
+    ) -> impl std::fmt::Display + 'a {
+        SignatureType {
+            signature: self,
+            names,
+        }
+    }
+}
+
+struct SignatureType<'a, Ty> {
+    signature: &'a Signature<Ty>,
+    names: &'a dyn vihaco_abi::names::TypeNames,
+}
+
+impl<Ty: StructTypeRef + std::fmt::Display> std::fmt::Display for SignatureType<'_, Ty> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let list = |f: &mut std::fmt::Formatter<'_>, types: &mut dyn Iterator<Item = &Ty>| {
+            f.write_str("(")?;
+            for (index, ty) in types.enumerate() {
+                if index > 0 {
+                    f.write_str(", ")?;
+                }
+                ty.write_named(f, self.names)?;
+            }
+            f.write_str(")")
+        };
+        list(f, &mut self.signature.params.iter().map(|param| &param.ty))?;
+        f.write_str(" -> ")?;
+        match self.signature.ret.as_slice() {
+            [single] => single.write_named(f, self.names),
+            results => list(f, &mut results.iter()),
+        }
     }
 }
 

@@ -871,7 +871,7 @@ fn indirect_call_signatures_may_name_structs_and_named_types() {
         format!("{:?}", load(&numeric).unwrap().code)
     );
     let code = format!("{:?}", load(&named).unwrap().code);
-    assert!(code.contains("params: [Named(0)]"), "{code}");
+    assert!(code.contains("IndirectCall((type 0) -> u64)"), "{code}");
 
     // A name the signature passes to the verifier is checked against the
     // tables: `lane` is a different named type, so the argument mismatches.
@@ -1021,12 +1021,11 @@ fn a_host_function_reference_of_the_wrong_type_fails_at_runtime() {
     };
     assert_eq!(run(1).unwrap(), [21]);
     let error = run(2).unwrap_err();
-    assert!(
-        format!("{error:#}").contains(
-            "call_indirect expects a function of type (u64) -> u64, but the referenced \
-             function has type (f64) -> (f64)"
-        ),
-        "{error:#}"
+    // Located at the call, naming the callee, both types written alike.
+    assert_eq!(
+        error.to_string(),
+        "at @main+2 (address 2) `execution::program::call_indirect (u64) -> u64`: \
+         call_indirect expects a function of type (u64) -> u64, but @negate has type (f64) -> f64"
     );
 }
 

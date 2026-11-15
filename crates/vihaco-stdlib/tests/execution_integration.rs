@@ -399,10 +399,12 @@ fn indirect_calls_check_the_target_signature_before_entering() {
         let (module, mut vm) = program(signature);
         let error = execute(&module, &mut vm, &[]).unwrap_err();
         assert!(
-            error.to_string().contains(&format!(
-                "call_indirect expects a function of type {found}, but the referenced function \
-                 has type (u64) -> (u64)"
-            )),
+            error.to_string()
+                == format!(
+                    "at function 0+2 (address 2) `program::program::call_indirect {found}`: \
+                     call_indirect expects a function of type {found}, but function 1 has type \
+                     (u64) -> u64"
+                ),
             "{error:#}"
         );
         // Nothing was consumed and no frame was entered.

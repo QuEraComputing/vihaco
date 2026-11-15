@@ -133,6 +133,7 @@ macro_rules! steps {
                 self.$($device).+.execute(instruction, message::IndirectCallee {
                     info: message::FunctionInfo { arity: 0, start_address: 0, local_count: 0 },
                     signature: instruction.0.clone(),
+                    name: "target".into(),
                 })?;
                 Ok(())
             }
@@ -404,6 +405,7 @@ fn typed_messages_preserve_direct_indirect_calls_and_returns() {
             local_count: 2,
         },
         signature: unary.clone(),
+        name: "unary".into(),
     };
     // The referenced function must have exactly the instruction's signature.
     let error = cpu
@@ -415,7 +417,7 @@ fn typed_messages_preserve_direct_indirect_calls_and_returns() {
     assert!(
         error
             .to_string()
-            .contains("expects a function of type (i64) -> (), but the referenced function has type (u64) -> ()"),
+            .contains("expects a function of type (i64) -> (), but @unary has type (u64) -> ()"),
         "{error}"
     );
     assert_eq!(cpu.stack(), &[10, 20, 0, 0, 99, 44, encode_function_ref(2)]);

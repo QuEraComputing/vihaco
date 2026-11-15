@@ -376,7 +376,7 @@ execution::program::ret 1";
     assert_eq!(
         rendered,
         "error: operand 0 of `cpu::cpu::array_get`: expected array u64, found array struct \
-         Point\n  --> @main+3 (address 3): cpu::cpu::array_get U64"
+         Point\n  --> @main+3 (address 3): cpu::cpu::array_get u64"
     );
     // Constructing the image verifies it, so only the escape hatch runs it.
     let error = load_struct_program(ill_typed).unwrap_err();
@@ -384,10 +384,21 @@ execution::program::ret 1";
         format!("{error:#}").contains("verification failed"),
         "{error:#}"
     );
+    // At runtime the heap check fails, located and with types by name.
     let error = run_image(Image::new(Verified::assume_verified(module))).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "at @main+3 (address 3) `cpu::cpu::array_get u64`: type error: heap object (slot 2, \
+         generation 1) is array struct Point, expected array u64"
+    );
+    let step = error
+        .downcast_ref::<vihaco_stdlib::execution_state::StepError>()
+        .unwrap();
+    assert_eq!(step.address(), 3);
     assert!(
-        format!("{error:#}").contains("is array struct 0, expected array u64"),
-        "{error:#}"
+        step.error()
+            .downcast_ref::<vihaco_abi::heap::HeapError>()
+            .is_some()
     );
 
     // An element type naming an undeclared struct fails at load time.
@@ -419,7 +430,7 @@ execution::program::ret 1";
     let image = load_struct_program(source).unwrap();
     assert_eq!(image.module().types.len(), 1);
     let code = format!("{:?}", image.module().code);
-    assert!(code.contains("ArrayNew(Named(0), 1)"), "{code}");
+    assert!(code.contains("ArrayNew(type 0, 1)"), "{code}");
     assert!(code.contains("Wrap(0)"), "{code}");
     assert_eq!(run_struct_program(source).unwrap(), [7]);
 
@@ -562,6 +573,12 @@ fn failed_image_construction_leaves_installed_program_unchanged() {
 #[test]
 fn execution_borrows_non_clone_instructions_from_the_paired_image() {
     struct Instruction(Box<u64>);
+    // Execution errors name the failing instruction.
+    impl std::fmt::Display for Instruction {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "instruction {}", self.0)
+        }
+    }
     type Program = LocalModule<Instruction, Value, Type>;
     struct Machine {
         execution: ExecutionState,

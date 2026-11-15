@@ -3,7 +3,10 @@
 
 use super::{ExecutionState, function_entry, program};
 use vihaco_abi::word::{Word, decode_function_ref};
-use vihaco_module::{PopStack, module::LocalModule};
+use vihaco_module::{
+    PopStack,
+    module::{LocalModule, StructTypeRef},
+};
 use vihaco_runtime::{HasProgram, PrepareMessage};
 
 #[derive(Debug)]
@@ -112,7 +115,7 @@ impl<P, F, Code, V, Ty, Info>
     PrepareMessage<P, F, program::IndirectCall, LocalModule<Code, V, Ty, Info>> for CallMessage
 where
     P: HasProgram<Program = ExecutionState>,
-    Ty: PartialEq<vihaco_abi::Type> + std::fmt::Display,
+    Ty: PartialEq<vihaco_abi::Type> + StructTypeRef + std::fmt::Display,
 {
     #[inline]
     fn prepare(
@@ -127,7 +130,11 @@ where
         // A function reference is only callable at its declared signature.
         let signature = &module.functions[function].signature;
         if !signature.matches(&instruction.0) {
-            return Err(indirect_signature_mismatch(&instruction.0, signature));
+            return Err(indirect_signature_mismatch(
+                module,
+                function,
+                &instruction.0,
+            ));
         }
         Ok(Self {
             function,
@@ -147,21 +154,22 @@ fn unknown_call_target(target: u32) -> eyre::Report {
 
 #[cold]
 #[inline(never)]
-fn indirect_signature_mismatch<Ty: std::fmt::Display>(
+fn indirect_signature_mismatch<Code, V, Ty, Info>(
+    module: &LocalModule<Code, V, Ty, Info>,
+    function: usize,
     expected: &vihaco_abi::FunctionType,
-    found: &vihaco_module::module::Signature<Ty>,
-) -> eyre::Report {
-    let list = |types: &mut dyn Iterator<Item = &Ty>| {
-        types
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    let params = list(&mut found.params.iter().map(|param| &param.ty));
-    let results = list(&mut found.ret.iter());
+) -> eyre::Report
+where
+    Ty: StructTypeRef + std::fmt::Display,
+{
+    let names = module.names();
+    let name = names
+        .function_name(function as u32)
+        .map_or_else(|| format!("function {function}"), |name| format!("@{name}"));
+    let found = module.functions[function].signature.display_type(&names);
     eyre::eyre!(
-        "call_indirect expects a function of type {expected}, but the referenced function has \
-         type ({params}) -> ({results})"
+        "call_indirect expects a function of type {}, but {name} has type {found}",
+        expected.display_with(&names)
     )
 }
 
