@@ -298,7 +298,8 @@ where
     }
 
     // Phase 1: converge, discarding errors.
-    let full = walk.fixpoint(entry, &vec![false; walk.len()], id, cx);
+    let mut emitted = vec![false; walk.len()];
+    let full = walk.fixpoint(entry, &vec![false; walk.len()], id, cx, Some(&mut emitted));
 
     // A block that fails at its converged state passes nothing on, but in
     // early rounds it may have passed on states its converged run would not.
@@ -308,7 +309,7 @@ where
         cut,
         states,
         replay,
-    } = walk.settle(entry, full, id, cx);
+    } = walk.settle(entry, full, &emitted, id, cx);
 
     // Phase 2: replay each reached block once, in address order, reporting.
     // A failing (cut) block is replayed from the state it fails at, and
@@ -480,13 +481,15 @@ impl<'a, I> Walk<'a, I> {
 
     /// Converge the saved state of every leader reachable from the entry,
     /// discarding rule errors. A block whose rule fails, or whose leader is
-    /// `cut`, passes nothing to its successors.
+    /// `cut`, passes nothing to its successors. If given, `emitted[leader]`
+    /// is set for every block that passed a state on in some round.
     fn fixpoint<C>(
         &self,
         entry: &C::Snapshot,
         cut: &[bool],
         function: u32,
         cx: &mut C,
+        mut emitted: Option<&mut [bool]>,
     ) -> Vec<Option<C::Snapshot>>
     where
         I: Verify<C>,
@@ -505,6 +508,9 @@ impl<'a, I> Walk<'a, I> {
             let Ok(exit) = self.run_block(leader, saved, function, cx) else {
                 continue;
             };
+            if let Some(emitted) = emitted.as_deref_mut() {
+                emitted[leader] = true;
+            }
             let incoming = cx.snapshot();
             for succ in self.successors(exit) {
                 match &mut states[succ] {
@@ -523,7 +529,8 @@ impl<'a, I> Walk<'a, I> {
         states
     }
 
-    /// Settle which blocks fail, given `full`, the fixpoint with no block cut.
+    /// Settle which blocks fail, given `full`, the fixpoint with no block cut,
+    /// and `emitted`, which blocks passed a state on in some round of it.
     ///
     /// A block that fails at its converged state passes nothing on, but in
     /// early rounds it may have passed on states its converged run would
@@ -546,14 +553,19 @@ impl<'a, I> Walk<'a, I> {
     /// after its restore keeps the state it was cut at, as a fallback. These
     /// reruns happen only when some block fails.
     ///
-    /// A cut leader that no other cut block can reach has the same replay
-    /// state as in `full`: cutting the other blocks changes nothing upstream
-    /// of it. Only leaders that another cut block reaches need a fixpoint, so
-    /// a function with many independent errors settles in a few fixpoints.
+    /// A cut leader that no other *emitting* cut block can reach has the same
+    /// replay state as in `full`. Cutting a block that never passed a state
+    /// on in `full` changes nothing in it, not even the worklist order, and
+    /// cutting a block that cannot reach the leader changes nothing upstream
+    /// of it. Only leaders that another emitting cut block reaches need a
+    /// fixpoint. Typically a failing block fails in every round and never
+    /// emits, so a function with many independent errors settles in a few
+    /// fixpoints, even when each failing block rejoins the code after it.
     fn settle<C>(
         &self,
         entry: &C::Snapshot,
         full: Vec<Option<C::Snapshot>>,
+        emitted: &[bool],
         function: u32,
         cx: &mut C,
     ) -> Settled<C::Snapshot>
@@ -578,14 +590,14 @@ impl<'a, I> Walk<'a, I> {
         let mut restored = vec![false; self.len()];
         let mut changed = true;
         while std::mem::take(&mut changed) {
-            let mut reached_by_cut = self.reached_from_other_cut(&cut);
+            let mut reached_by_cut = self.reached_from_other_cut(&cut, emitted);
             for leader in 0..self.len() {
                 if !cut[leader] {
                     continue;
                 }
                 let state = if reached_by_cut[leader] {
                     cut[leader] = false;
-                    let mut candidate = self.fixpoint(entry, &cut, function, cx);
+                    let mut candidate = self.fixpoint(entry, &cut, function, cx, None);
                     cut[leader] = true;
                     candidate.swap_remove(leader)
                 } else {
@@ -601,7 +613,7 @@ impl<'a, I> Walk<'a, I> {
                     cut[leader] = false;
                     replay[leader] = None;
                     states = self.cut_failing(entry, &mut cut, &mut replay, function, cx);
-                    reached_by_cut = self.reached_from_other_cut(&cut);
+                    reached_by_cut = self.reached_from_other_cut(&cut, emitted);
                     changed = true;
                 }
             }
@@ -629,7 +641,7 @@ impl<'a, I> Walk<'a, I> {
         C: AbstractState + ?Sized,
     {
         loop {
-            let states = self.fixpoint(entry, cut, function, cx);
+            let states = self.fixpoint(entry, cut, function, cx, None);
             let failing = self.failing(&states, function, cx);
             let mut grew = false;
             for (leader, fails) in failing.into_iter().enumerate() {
@@ -645,15 +657,15 @@ impl<'a, I> Walk<'a, I> {
         }
     }
 
-    /// Which cut leaders some *other* cut block reaches in the control-flow
-    /// graph, through its successors.
-    fn reached_from_other_cut(&self, cut: &[bool]) -> Vec<bool> {
+    /// Which cut leaders some *other* cut block that `emitted` in the uncut
+    /// fixpoint reaches in the control-flow graph, through its successors.
+    fn reached_from_other_cut(&self, cut: &[bool], emitted: &[bool]) -> Vec<bool> {
         // Propagate the identity of up to two cut blocks reaching each
         // address: if one of them is not the leader itself, another cut block
         // reaches it. Each address is visited at most twice.
         let mut reached_by: Vec<SmallVec<[usize; 2]>> = vec![SmallVec::new(); self.len()];
         let mut pending: Vec<(usize, usize)> = Vec::new();
-        for source in (0..self.len()).filter(|&leader| cut[leader]) {
+        for source in (0..self.len()).filter(|&leader| cut[leader] && emitted[leader]) {
             let exit = self.block_exit(source);
             pending.extend(self.successors(exit).into_iter().map(|succ| (succ, source)));
         }

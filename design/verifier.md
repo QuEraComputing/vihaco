@@ -391,8 +391,11 @@ pub enum DiagnosticKind {
   restoring cut blocks whose failure was a follow-on effect (they pass once
   the other cut blocks pass nothing on). Each block is restored at most once,
   so this terminates, and the cut set never empties while a block fails. Only
-  a cut block that another cut block reaches needs a fixpoint of its own, so
-  independent errors cost a few fixpoints, not one each.
+  a cut block that another cut block reaches needs a fixpoint of its own, and
+  only if that other block passed a state on in some round of the uncut
+  fixpoint (cutting a block that never did changes nothing). A failing block
+  usually fails in every round, so independent errors cost a few fixpoints,
+  not one each, even when each failing branch rejoins the code after it.
 - A failing block `L` is replayed, and mapped, from its state in
   `fixpoint(C \ {L})`: fed by analysed blocks and by `L`'s own loops (which is
   what makes a loop header fail), but not by another failing block. Joins are

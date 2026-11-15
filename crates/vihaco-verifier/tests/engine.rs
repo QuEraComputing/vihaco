@@ -15,6 +15,8 @@ use vihaco_verifier::{
 thread_local! {
     /// How many times a `Fail` rule has run, to observe convergence.
     static FAIL_RUNS: Cell<usize> = const { Cell::new(0) };
+    /// How many times any rule has run, to bound the engine's total work.
+    static RULE_RUNS: Cell<usize> = const { Cell::new(0) };
 }
 
 /// A fixture stack dialect.
@@ -61,6 +63,7 @@ where
     }
 
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
+        RULE_RUNS.with(|runs| runs.set(runs.get() + 1));
         match self {
             Op::Const(ty) => cx.push(C::Slot::of_type(ty.clone())),
             Op::Pop => {
@@ -590,11 +593,25 @@ fn a_join_into_a_failing_block_is_checked_only_between_analysed_edges() {
     );
 }
 
+/// Verify `code`, which must be rejected with `errors` errors, and assert
+/// that the engine ran at most `per_instruction` rules per instruction.
+fn assert_rejected_in_linear_time(code: &[Op], errors: usize, per_instruction: usize) {
+    RULE_RUNS.with(|runs| runs.set(0));
+    let rejection = verify(code).unwrap_err();
+    assert_eq!(rejection.errors().count(), errors);
+    let runs = RULE_RUNS.with(Cell::get);
+    assert!(
+        runs <= per_instruction * code.len(),
+        "rules ran {runs} times for {} instructions and {errors} failing blocks",
+        code.len()
+    );
+}
+
 #[test]
 fn many_independent_failing_blocks_settle_in_linear_time() {
-    // Each copy of `if cond { fail }` fails on its own, and no failing block
-    // can reach another, so no restore can succeed: settling must not rerun
-    // the whole-function fixpoint once per failing block.
+    // Each copy of `if cond { fail; return }` fails on its own, and no failing
+    // block can reach another, so no restore can succeed: settling must not
+    // rerun the whole-function fixpoint once per failing block.
     let copies = 2_000u32;
     let mut code = Vec::new();
     for copy in 0..copies {
@@ -607,14 +624,29 @@ fn many_independent_failing_blocks_settle_in_linear_time() {
         ]);
     }
     code.push(Ret);
-    FAIL_RUNS.with(|runs| runs.set(0));
-    let rejection = verify(&code).unwrap_err();
-    assert_eq!(rejection.errors().count(), copies as usize);
-    let runs = FAIL_RUNS.with(Cell::get);
-    assert!(
-        runs <= 8 * copies as usize,
-        "the failing rules ran {runs} times for {copies} failing blocks"
-    );
+    assert_rejected_in_linear_time(&code, copies as usize, 8);
+}
+
+#[test]
+fn many_failing_arms_that_rejoin_settle_in_linear_time() {
+    // `if cond { fail }; if cond { fail }; ...`: every failing arm rejoins the
+    // code after it, so each reaches every later arm in the control-flow
+    // graph. But no arm ever passes a state on, so cutting one changes
+    // nothing downstream, and settling must still not rerun the
+    // whole-function fixpoint once per failing arm.
+    let copies = 2_000u32;
+    let mut code = Vec::new();
+    for copy in 0..copies {
+        let base = 4 * copy;
+        code.extend([
+            Const(Type::Bool),
+            CondBr(base + 2, base + 4),
+            Fail("rejoining"),
+            Br(base + 4),
+        ]);
+    }
+    code.push(Ret);
+    assert_rejected_in_linear_time(&code, copies as usize, 8);
 }
 
 #[test]
