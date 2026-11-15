@@ -19,7 +19,7 @@
 //! section's symbol table during lowering. Each statement (a symbol definition,
 //! an instruction, or `@name:` followed by an instruction) ends at the end of
 //! its line and continues onto the next line only inside an open bracket; see
-//! [`statements`]. Indentation carries no meaning and `;` starts a comment.
+//! [`statements()`]. Indentation carries no meaning and `;` starts a comment.
 //! What a symbol *is* lives in the header: a function is a symbol with a
 //! matching `.func @name(...)` directive, which supplies its signature and
 //! locals. Its executable range runs from its symbol to the next function

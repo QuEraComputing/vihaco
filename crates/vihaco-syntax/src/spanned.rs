@@ -12,7 +12,7 @@
 //! [`SyntaxError`].
 //!
 //! Both split their block into statements first (see
-//! [`statements`](crate::statements)): one statement per line, continued onto
+//! [`statements`](crate::statements())): one statement per line, continued onto
 //! following lines only inside an open bracket. Each statement is parsed on
 //! its own, so recovery is per line and every bad line is reported once.
 //! Spans are byte ranges relative to the parsed block.

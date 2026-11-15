@@ -16,32 +16,7 @@
 //!     .source_symbol 12 "user"
 //! ```
 //!
-//! No table index is written by hand. [`ProgramHeader`] collects directives
-//! in header order and derives every table:
-//!
-//! - **functions**: one per `.func`, in `.func` order. A `.func` belongs to
-//!   the file named by the closest `.file` before it, or to the empty file
-//!   `""` if there is none.
-//! - **entry**: `.entry @name` selects the function declared by
-//!   `.func @name`. It is optional and may appear at most once.
-//! - **constants**: one per `.const`, in `.const` order. `.const str "text"`
-//!   is a string constant and `.const fn @name` a function reference; other
-//!   values use the value type's own syntax, such as `u64 42`.
-//! - **source symbols**: one per `.source_symbol <index> "<name>"`; indices
-//!   are unique.
-//! - **strings**: each distinct string once, at its first occurrence, in this
-//!   order: function names in `.func` order, then parameter names (by
-//!   function, then by position), then file names in `.func` order, then
-//!   `.const str` literals in `.const` order. Lowering then appends the
-//!   string literals of `.text` in address order
-//!   (`MetadataLoweringContext` interns them), so the same file always
-//!   produces the same table.
-//!
-//! Application directives compose with these in one header: an application
-//! declaration enum has a variant holding a [`ProgramDirective`] (usually
-//! with `#[pattern = "$0"]`) and implements [`StandardDirective`]; a loader
-//! pushes the standard directives into a [`ProgramHeader`] and handles the
-//! others itself.
+//! [`ProgramHeader`] documents how the directives become tables.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -420,8 +395,34 @@ impl fmt::Display for HeaderError {
 impl std::error::Error for HeaderError {}
 
 /// Standard header directives in header order, assembled into
-/// [`ProgramMetadata`]. See the [module documentation](self) for the
-/// derivation rules.
+/// [`ProgramMetadata`].
+///
+/// No table index is written by hand. This collects directives
+/// in header order and derives every table:
+///
+/// - **functions**: one per `.func`, in `.func` order. A `.func` belongs to
+///   the file named by the closest `.file` before it, or to the empty file
+///   `""` if there is none.
+/// - **entry**: `.entry @name` selects the function declared by
+///   `.func @name`. It is optional and may appear at most once.
+/// - **constants**: one per `.const`, in `.const` order. `.const str "text"`
+///   is a string constant and `.const fn @name` a function reference; other
+///   values use the value type's own syntax, such as `u64 42`.
+/// - **source symbols**: one per `.source_symbol <index> "<name>"`; indices
+///   are unique.
+/// - **strings**: each distinct string once, at its first occurrence, in this
+///   order: function names in `.func` order, then parameter names (by
+///   function, then by position), then file names in `.func` order, then
+///   `.const str` literals in `.const` order. Lowering then appends the
+///   string literals of `.text` in address order
+///   (`MetadataLoweringContext` interns them), so the same file always
+///   produces the same table.
+///
+/// Application directives compose with these in one header: an application
+/// declaration enum has a variant holding a [`ProgramDirective`] (usually
+/// with `#[pattern = "$0"]`) and implements [`StandardDirective`]; a loader
+/// pushes the standard directives into a [`ProgramHeader`] and handles the
+/// others itself.
 ///
 /// ```
 /// use vihaco_module::module::{NoInfo, ProgramHeader};
