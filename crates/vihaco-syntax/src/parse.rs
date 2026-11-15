@@ -21,7 +21,7 @@ type E<'src> = extra::Err<Simple<'src, char>>;
 /// Whitespace and `;`-to-end-of-line comments. Zero-or-more.
 ///
 /// This skips newlines too; SST statements are split at line ends before the
-/// combinators run (see [`crate::statements`]).
+/// combinators run (see [`crate::statements()`]).
 pub fn skip<'src>() -> impl Parser<'src, &'src str, (), E<'src>> + Clone {
     vihaco_parser::trivia()
 }
