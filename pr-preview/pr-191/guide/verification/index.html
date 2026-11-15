@@ -26,7 +26,10 @@ crate). The <code>program-image-execution</code> feature includes it; enable the
 <code>verifier</code> feature to use it on its own.</p>
 <h2 id="verifying-a-program">Verifying a program</h2>
 <p>An <a href="/vihaco/pr-preview/pr-191/guide/loadables">image</a> only accepts a <code>Verified</code> module, so verification
-is part of loading:</p>
+is part of loading. (With <code>typed-declarations</code> alone, without
+<code>program-image-execution</code>, programs run through the legacy <code>ProgramImage</code>,
+which does not require <code>Verified</code>: there, verification happens only if you call
+<code>verify_module</code> before loading.)</p>
 <pre><code class="language-rust,ignore">let module = metadata.into_module(code)?;   // parse and lower as usual
 let image = Image::new(Verified::new(module)?);
 let mut loaded = Loadable::new(image, machine);
@@ -169,7 +172,8 @@ tables.</p>
 tests that exercise runtime checks with deliberately ill-typed programs, for
 modules a trusted toolchain has already verified, and for module models the
 standard verifier doesn’t cover. Keep it easy to find: it is the one place an
-unverified program can reach an image. (The low-level runner,
+unverified program can reach an image, outside the <code>typed-declarations</code>-only
+build described above. (The low-level runner,
 <code>vihaco::execution_state::{execute, resume}</code>, runs a plain module without an
 image and without verification; reach for it only for trusted code.)</p>
 <h2 id="writing-typing-rules">Writing typing rules</h2>
@@ -227,7 +231,10 @@ operands, because the verifier uses it to find blocks before any state exists.</
 instruction. For instructions several dialects share there are helpers that
 keep rules identical: <code>call_effect</code> and <code>return_effect</code>, <code>direct_call_effect</code>
 and <code>indirect_call_effect</code>, <code>load_local</code> and <code>store_local</code>, <code>string_constant</code>,
-<code>function_constant</code>, and <code>pop_array</code>.</p>
+<code>function_constant</code>, and <code>pop_array</code>. A call-like instruction must use <code>call_effect</code>,
+<code>direct_call_effect</code> or <code>indirect_call_effect</code>, or call <code>Signatures::after_call</code>
+after its operand effect, so component state is reset after the call (see
+<a href="#component-state">Component state</a>).</p>
 <p>A conflicting slot, left where two paths disagreed about a type, never
 satisfies a typed pop. Named types are nominal: <code>type 0</code> satisfies only itself.</p>
 <h3 id="counts-must-be-immediates">Counts must be immediates</h3>
@@ -285,6 +292,11 @@ impl ComponentState for Open {
         self.0.retain(|channel| incoming.0.contains(channel));
         Ok(self.0.len() != before)
     }
+
+    /// Nothing is assumed open after a call, the same as at a function entry.
+    fn after_call(&#x26;mut self, _callee: Option&#x3C;u32>, entry: &#x26;Self) {
+        self.clone_from(entry);
+    }
 }
 
 impl Channels for WithState&#x3C;'_, Open> {
@@ -314,17 +326,26 @@ machine whose components each add state combines them as a tuple.</p>
 <p>Component state does not flow through calls. Each function is verified
 separately from the entry state, so the entry state must assume nothing a
 caller might not have set up (here: no channels open). After a call, the
-caller’s state is reset to the entry state (<code>ComponentState::after_call</code>’s
-default), because the callee may have changed anything:</p>
+caller’s state becomes <code>ComponentState::after_call</code>, which every state must
+define: the callee may have changed anything, so the result must assume no
+more than any callee could leave behind. <code>Open</code> resets to the entry state:</p>
 <pre><code class="language-text">open 1
 call 0, @helper   // the caller's state is reset: channel 1 is no longer open
 play 1            // rejected: channel 1 is not open
 </code></pre>
 <p>A helper therefore cannot rely on a channel its caller opened; open channels
-in the function that plays on them, or after the call. A component can
-override <code>after_call</code> with a different approximation, as long as it assumes
-no more than any callee could leave behind. Per-callee summaries are a
-possible future extension.</p>
+in the function that plays on them, or after the call.</p>
+<p>Resetting to the entry state is right for <code>Open</code> because “no channels open”
+is safe whatever the callee did. It is wrong for a state that accumulates,
+such as the time elapsed against a deadline: its entry state is “0 elapsed”,
+but a callee may wait any amount, so resetting would accept
+<code>wait 2; call 0, @helper; deadline 10</code> even when the helper waits 50. Such a
+state must become “unknown” after a call. That is why <code>after_call</code> has no
+default: there is no answer that is sound for every state.</p>
+<p>The call helpers, <code>call_effect</code> and <code>indirect_call_effect</code>, apply
+<code>after_call</code> for you. A custom call-like rule must use them, or call
+<code>Signatures::after_call</code> itself after its operand effect. Per-callee
+summaries are a possible future extension.</p>
 <p>Next, <a href="/vihaco/pr-preview/pr-191/guide/parser">give your instructions a source spelling</a>.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/pr-preview/pr-191/guide/loadables" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Images and Loadables</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/pr-preview/pr-191/guide/parser" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Parsing source</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#verifying-a-program" data-toc-link="#verifying-a-program">Verifying a program</a></li><li><a href="#writing-typing-rules" data-toc-link="#writing-typing-rules">Writing typing rules</a></li> </ol> </details> </div> </main> <script>
         // Scroll-spy: mark the TOC link for the section currently in view.
         (() => {
