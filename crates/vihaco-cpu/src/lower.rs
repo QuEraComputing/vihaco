@@ -144,7 +144,7 @@ mod metadata_context_tests {
 
     #[test]
     fn metadata_context_supplies_cpu_capabilities_without_extending_strings() -> eyre::Result<()> {
-        let metadata: ProgramMetadata = ProgramMetadata {
+        let metadata: ProgramMetadata<vihaco_abi::Value, vihaco_abi::Type> = ProgramMetadata {
             structs: vec![],
             types: vec![],
             strings: vec!["helper".into(), "main".into(), "hello".into()],

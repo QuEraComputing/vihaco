@@ -16,7 +16,7 @@ use vihaco_abi::{Type, Value, traits::FromText};
 use vihaco_bytecode::{NoContext, SstFile, SstHeader};
 use vihaco_module::{
     loader::MetadataLoweringContext,
-    module::{LocalModule, ProgramMetadata},
+    module::{LocalModule, ProgramMetadata, SourceType},
 };
 use vihaco_runtime::HasInstructionSet;
 use vihaco_verifier::{
@@ -96,8 +96,10 @@ use machine::Machine;
 
 type Module = LocalModule<<Machine as HasInstructionSet>::Runtime, Value, Type>;
 
-/// A header holding only program metadata, with types written as `Ty`.
-struct Header<Ty = Type>(ProgramMetadata<Value, Ty>);
+/// A header holding only program metadata, with types written as `Ty`: by
+/// default `SourceType`, as on the standard loading path, so types may name
+/// structs and named types.
+struct Header<Ty = SourceType>(ProgramMetadata<Value, Ty>);
 
 impl<Ty> FromText for Header<Ty>
 where
@@ -211,13 +213,16 @@ metadata {{
     )
 }
 
-/// Parse, lower, and assemble a program through the metadata pipeline.
+/// Parse, lower, and assemble a program through the standard metadata
+/// pipeline: every type position may name structs and named types
+/// (`struct @Pair`), resolved against the header's own tables by
+/// `lower_with_metadata`.
 fn load(functions: &[Function]) -> eyre::Result<Module> {
     let source = sst(functions);
     let file = SstFile::<NoContext>::from_text(&source)?;
     let vihaco_syntax::ParsedModule { header, functions } = vihaco_syntax::ParsedModule::<
         <Machine as HasInstructionSet>::Syntax,
-        Type,
+        SourceType,
         Header,
     >::parse_section(file.root())?;
     let metadata = header.0;
@@ -229,20 +234,17 @@ fn load(functions: &[Function]) -> eyre::Result<Module> {
     .lower_with_metadata(metadata, &mut context)
 }
 
-/// [`load`], with every type position parsed as a `SourceType`, so structs
-/// and named types may be written by name (`struct @Pair`) in function
-/// headers, `locals`, and struct fields; names resolve against the header's
-/// own tables.
-fn load_named(functions: &[Function]) -> eyre::Result<Module> {
-    use vihaco_module::module::SourceType;
+/// [`load`] for a numeric-only loader: types are parsed as `Type`, so names
+/// in the header or `fn` lines are rejected.
+fn load_numeric(functions: &[Function]) -> eyre::Result<Module> {
     let source = sst(functions);
     let file = SstFile::<NoContext>::from_text(&source)?;
     let vihaco_syntax::ParsedModule { header, functions } = vihaco_syntax::ParsedModule::<
         <Machine as HasInstructionSet>::Syntax,
-        SourceType,
-        Header<SourceType>,
+        Type,
+        Header<Type>,
     >::parse_section(file.root())?;
-    let metadata = header.0.resolve_types::<Type>()?;
+    let metadata = header.0;
     let mut context = MetadataLoweringContext::new(&metadata)?;
     vihaco_syntax::ParsedModule {
         header: (),
@@ -1301,7 +1303,7 @@ fn function_headers_and_locals_may_name_struct_types() {
             "P::ret 1",
         ],
     )];
-    let module = load_named(&program).unwrap();
+    let module = load(&program).unwrap();
     assert_eq!(module.functions[0].signature.params[0].ty, Type::Struct(0));
     assert_eq!(
         module.functions[0].locals,
@@ -1311,9 +1313,19 @@ fn function_headers_and_locals_may_name_struct_types() {
 
     // An unknown name is reported at its metadata path.
     let typo = [main_fn(&["struct @Pointt"], &[], &[], &["P::halt"])];
-    let error = load_named(&typo).unwrap_err();
+    let error = load(&typo).unwrap_err();
     assert_eq!(
         error.to_string(),
         "metadata.functions[0].signature.params[0].ty: undefined struct `@Pointt`"
+    );
+
+    // A numeric-only loader says how to accept names.
+    let error = load_numeric(&program).unwrap_err();
+    assert_eq!(
+        format!("{error:#}"),
+        "invalid metadata: metadata: a type names a struct or named type (`struct @Point`, \
+         `type @location`), but this loader parses numeric types only \
+         (`ProgramMetadata<Value, Type>`); parse the header as `ProgramMetadata` (its types \
+         default to `SourceType`) and resolve it with `resolve_types`"
     );
 }

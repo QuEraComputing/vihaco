@@ -170,21 +170,26 @@ example a linked node with a `next: struct 0` field.
 
 Every type position also accepts a struct by name, `struct @Point`, and a named
 type as `type @location`: `fn` headers, `signature`, `locals`, struct fields,
-and instruction operands. Instruction operands are resolved during lowering. To
-use names in the header and `fn` lines too, parse them with
-`vihaco::module::SourceType` in place of `Type` (for both the `ParsedModule`
-and `ProgramMetadata` type parameters), then resolve the header against its own
-tables with `ProgramMetadata::resolve_types` before lowering:
+and instruction operands. This is the default on the standard loading path:
+`ProgramMetadata`'s type parameter defaults to `vihaco::module::SourceType`,
+and the loader parses `fn` lines with `SourceType` too. Instruction operands
+are resolved during lowering; the header is resolved against its own tables
+with `ProgramMetadata::resolve_types` (which `ParsedModule::lower_with_metadata`
+does itself):
 
 ```rust,ignore
 let ParsedModule { header, functions } =
-    ParsedModule::<Syntax, SourceType, HeaderDeclarations<ProgramMetadata<Value, SourceType>>>
+    ParsedModule::<Syntax, SourceType, HeaderDeclarations<ProgramMetadata>>
         ::parse_section(file.root())?;
 let metadata = header.into_iter().next().unwrap().resolve_types::<Type>()?;
 let mut context = MetadataLoweringContext::new(&metadata)?;
 let code = lower_functions_with_metadata(functions, &metadata, &mut context)?;
 let module = metadata.into_module(code)?;
 ```
+
+A loader that parses `ProgramMetadata<Value, Type>` (or `fn` lines with
+`Type`) accepts only the numeric forms (`struct 0`, `type 0`); a name there is
+a parse error whose message says to parse with `SourceType`.
 
 An unknown name is reported at its metadata path, for example
 ``metadata.functions[0].locals[1]: undefined struct `@Pointt` ``. Binary bytecode
@@ -316,7 +321,7 @@ For the minimal file above, this loader validates and assembles the program:
 ```rust
 use vihaco::{HasInstructionSet, NoContext, SstFile, Type, composite};
 use vihaco::loader::MetadataLoweringContext;
-use vihaco::module::ProgramMetadata;
+use vihaco::module::{ProgramMetadata, SourceType};
 use vihaco::syntax::{HeaderDeclarations, ParsedModule, lower_functions_with_metadata};
 
 #[composite]
@@ -329,10 +334,13 @@ fn validate(source: &str) -> eyre::Result<()> {
     type SourceInstruction = <Machine as HasInstructionSet>::Syntax;
     let file = SstFile::<NoContext>::from_text(source)?;
     let ParsedModule { header, functions } = ParsedModule::<
-        SourceInstruction, Type, HeaderDeclarations<ProgramMetadata>
+        SourceInstruction, SourceType, HeaderDeclarations<ProgramMetadata>
     >::parse_section(file.root())?;
     let mut declarations = header.into_iter();
-    let metadata = declarations.next().ok_or_else(|| eyre::eyre!("missing metadata"))?;
+    let metadata = declarations
+        .next()
+        .ok_or_else(|| eyre::eyre!("missing metadata"))?
+        .resolve_types::<Type>()?;
     eyre::ensure!(declarations.next().is_none(), "duplicate metadata");
     let mut context = MetadataLoweringContext::new(&metadata)?;
     let code = lower_functions_with_metadata(functions, &metadata, &mut context)?;

@@ -19,7 +19,7 @@ impl Lower<MetadataLoweringContext> for Literal {
     }
 }
 
-fn one_function_metadata() -> ProgramMetadata {
+fn one_function_metadata() -> ProgramMetadata<Value, Type> {
     ProgramMetadata {
         structs: vec![],
         types: vec![],
@@ -250,7 +250,7 @@ mod typed {
         }
     }
 
-    fn metadata() -> ProgramMetadata {
+    fn metadata() -> ProgramMetadata<Value, Type> {
         ProgramMetadata {
             structs: vec![],
             types: vec![],
@@ -309,7 +309,7 @@ mod typed {
         }
     }
 
-    fn context(metadata: &ProgramMetadata) -> eyre::Result<CustomContext> {
+    fn context(metadata: &ProgramMetadata<Value, Type>) -> eyre::Result<CustomContext> {
         Ok(CustomContext {
             symbols: MetadataLoweringContext::new(metadata)?,
             multiplier: 3,

@@ -324,6 +324,34 @@ pub mod operand_text {
     }
 }
 
+/// A type that can show itself with the module's names, for messages in code
+/// generic over the type model: [`Type`] and [`FunctionType`] show struct and
+/// named types by name (as [`Type::display_with`] does).
+pub trait DisplayNamed {
+    /// Write this type, by name where `names` has one.
+    fn fmt_named(&self, names: &dyn TypeNames, f: &mut fmt::Formatter<'_>) -> fmt::Result;
+
+    /// This type with names, as a `Display` value.
+    fn named<'a>(&'a self, names: &'a dyn TypeNames) -> impl fmt::Display + 'a
+    where
+        Self: Sized,
+    {
+        Named(move |f: &mut fmt::Formatter<'_>| self.fmt_named(names, f))
+    }
+}
+
+impl DisplayNamed for Type {
+    fn fmt_named(&self, names: &dyn TypeNames, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write_type(f, self, Some(names))
+    }
+}
+
+impl DisplayNamed for FunctionType {
+    fn fmt_named(&self, names: &dyn TypeNames, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write_function_type(f, self, Some(names))
+    }
+}
+
 /// A `Display` adapter over a formatting closure.
 struct Named<F>(F);
 

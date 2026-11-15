@@ -5,9 +5,10 @@
 
 use crate::{ParsedFunction, ParsedModule};
 use eyre::WrapErr;
-use vihaco_abi::{Lower, Value};
+use vihaco_abi::names::DisplayNamed;
+use vihaco_abi::{Lower, Type, Value};
 use vihaco_module::loader::FunctionScope;
-use vihaco_module::module::{LocalModule, ProgramMetadata, ResolveType, StructTypeRef};
+use vihaco_module::module::{LocalModule, ProgramMetadata, ResolveType};
 
 /// Lower functions in source order, preparing each function's complete label
 /// scope before lowering its first instruction.
@@ -53,7 +54,7 @@ fn validate_program_functions<I, S, Ty, V, Info>(
 ) -> eyre::Result<()>
 where
     S: ResolveType<Ty>,
-    Ty: PartialEq + Clone + std::fmt::Display,
+    Ty: PartialEq + Clone + std::fmt::Display + DisplayNamed,
 {
     crate::types::validate_functions(functions, metadata)?;
     metadata.validate(functions.iter().map(|function| function.body.len()).sum())
@@ -87,7 +88,7 @@ pub fn lower_functions_with_metadata<I, S, Ty, V, Info, C>(
 ) -> eyre::Result<Vec<I::Runtime>>
 where
     S: ResolveType<Ty>,
-    Ty: PartialEq + Clone + std::fmt::Display,
+    Ty: PartialEq + Clone + std::fmt::Display + DisplayNamed,
     I: Lower<C>,
     C: FunctionScope,
 {
@@ -106,26 +107,28 @@ impl<I, S, H> ParsedModule<I, S, H> {
     /// Additional capabilities can be supplied by a consumer-owned context.
     /// The header itself is not interpreted by this method.
     ///
-    /// Function headers may use a source type such as
-    /// [`SourceType`](vihaco_module::module::SourceType) that names structs and
-    /// named types; they are resolved against the metadata (see
-    /// [`ResolveType`]). Resolve a header parsed the same way with
-    /// [`ProgramMetadata::resolve_types`] first.
+    /// Function headers and the metadata may use a source type such as
+    /// [`SourceType`](vihaco_module::module::SourceType) (the default for
+    /// `ProgramMetadata`) that names structs and named types; both are
+    /// resolved against the metadata's own tables (see [`ResolveType`] and
+    /// [`ProgramMetadata::resolve_types`]) before validation, and the module
+    /// holds resolved [`Type`]s.
     ///
     /// # Errors
     /// Returns declaration, table, or lowering errors. Context mutations before
     /// an error are retained; no partial module is returned.
-    pub fn lower_with_metadata<C, Ty, Info>(
+    pub fn lower_with_metadata<C, M, Info>(
         self,
-        metadata: ProgramMetadata<Value, Ty, Info>,
+        metadata: ProgramMetadata<Value, M, Info>,
         context: &mut C,
-    ) -> eyre::Result<LocalModule<I::Runtime, Value, Ty, Info>>
+    ) -> eyre::Result<LocalModule<I::Runtime, Value, Type, Info>>
     where
         I: Lower<C>,
         C: FunctionScope,
-        S: ResolveType<Ty>,
-        Ty: PartialEq + Clone + std::fmt::Display + StructTypeRef,
+        S: ResolveType<Type>,
+        M: ResolveType<Type>,
     {
+        let metadata = metadata.resolve_types::<Type>()?;
         validate_program_functions(&self.functions, &metadata)?;
         let code = lower_functions(self.functions, context)?;
         metadata.into_module(code)

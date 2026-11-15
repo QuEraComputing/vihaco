@@ -17,9 +17,8 @@ use chumsky::{error::Simple, extra, prelude::*};
 use vihaco_abi::Type;
 use vihaco_parser::{Ident, Parse};
 
-#[cfg(doc)]
 use crate::module::ProgramMetadata;
-use crate::module::{NamedTypeInfo, StructInfo};
+use vihaco_abi::names::{DisplayNamed, TypeNames};
 
 /// A type as written in source: any [`Type`], where struct and named types may
 /// also be named (`struct @Point`, `type @location`), at any nesting depth
@@ -107,34 +106,31 @@ impl fmt::Display for SourceType {
     }
 }
 
-/// Struct and named-type names of a section, for resolving [`SourceType`]s.
-#[derive(Debug, Default)]
-pub struct TypeLookup<'a> {
-    structs: HashMap<&'a str, u32>,
-    types: HashMap<&'a str, u32>,
+/// A source type already names what it refers to.
+impl DisplayNamed for SourceType {
+    fn fmt_named(&self, _: &dyn TypeNames, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
 }
 
-impl<'a> TypeLookup<'a> {
-    /// The names of a section's struct and named-type tables. Entries whose
-    /// name is not a string-table entry are skipped, and the first of
-    /// duplicate names wins; metadata validation reports both.
-    pub fn new<Ty>(
-        structs: &[StructInfo<Ty>],
-        types: &[NamedTypeInfo<Ty>],
-        strings: &'a [String],
-    ) -> Self {
-        let mut lookup = Self::default();
-        for (index, info) in structs.iter().enumerate() {
-            if let Some(name) = strings.get(info.name as usize) {
-                lookup.structs.entry(name.as_str()).or_insert(index as u32);
-            }
-        }
-        for (index, info) in types.iter().enumerate() {
-            if let Some(name) = strings.get(info.name as usize) {
-                lookup.types.entry(name.as_str()).or_insert(index as u32);
-            }
-        }
-        lookup
+/// Struct and named-type names of a section, for resolving [`SourceType`]s.
+#[derive(Debug, Default)]
+pub struct TypeLookup {
+    structs: HashMap<String, u32>,
+    types: HashMap<String, u32>,
+}
+
+impl TypeLookup {
+    /// The struct and named-type names of `metadata`, checked as
+    /// [`ProgramMetadata::validate`] checks them (it builds the same name
+    /// tables): a name outside the string table, or a duplicate, is an error
+    /// at its metadata path rather than silently resolving to one entry.
+    pub fn new<V, Ty, Info>(metadata: &ProgramMetadata<V, Ty, Info>) -> eyre::Result<Self> {
+        let tables = metadata.name_tables()?;
+        Ok(Self {
+            structs: tables.struct_names,
+            types: tables.type_names,
+        })
     }
 
     /// The struct-table index of the struct named `name`.
@@ -158,17 +154,17 @@ pub trait ResolveType<T> {
     ///
     /// # Errors
     /// A name with no table entry: `undefined struct `@Pointt``.
-    fn resolve_type(&self, lookup: &TypeLookup<'_>) -> eyre::Result<T>;
+    fn resolve_type(&self, lookup: &TypeLookup) -> eyre::Result<T>;
 }
 
 impl<T: Clone> ResolveType<T> for T {
-    fn resolve_type(&self, _: &TypeLookup<'_>) -> eyre::Result<T> {
+    fn resolve_type(&self, _: &TypeLookup) -> eyre::Result<T> {
         Ok(self.clone())
     }
 }
 
 impl ResolveType<Type> for SourceType {
-    fn resolve_type(&self, lookup: &TypeLookup<'_>) -> eyre::Result<Type> {
+    fn resolve_type(&self, lookup: &TypeLookup) -> eyre::Result<Type> {
         Ok(match self {
             SourceType::Resolved(ty) => ty.clone(),
             SourceType::Array(elem) => {

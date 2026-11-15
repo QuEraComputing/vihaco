@@ -3,6 +3,7 @@
 
 //! Parsed-syntax data shapes. See module docs in [`super`].
 
+use vihaco_abi::names::DisplayNamed;
 use vihaco_module::module::{ResolveType, TypeLookup};
 use vihaco_parser::Ident;
 
@@ -59,15 +60,15 @@ impl<I, S, H> ParsedModule<I, S, H> {
     ) -> eyre::Result<()>
     where
         S: ResolveType<Ty>,
-        Ty: PartialEq + std::fmt::Display,
+        Ty: PartialEq + DisplayNamed,
     {
         validate_functions(&self.functions, metadata)
     }
 }
 
-/// `(a, b)`, for messages about a list of types.
-fn type_list<Ty: std::fmt::Display>(types: &[Ty]) -> String {
-    let types: Vec<String> = types.iter().map(ToString::to_string).collect();
+/// `(a, b)`, for messages about a list of types, by name.
+fn type_list<Ty: DisplayNamed>(types: &[Ty], names: &dyn vihaco_abi::names::TypeNames) -> String {
+    let types: Vec<String> = types.iter().map(|ty| ty.named(names).to_string()).collect();
     format!("({})", types.join(", "))
 }
 
@@ -78,7 +79,7 @@ pub(crate) fn validate_functions<I, S, Ty, V, Info>(
 ) -> eyre::Result<()>
 where
     S: ResolveType<Ty>,
-    Ty: PartialEq + std::fmt::Display,
+    Ty: PartialEq + DisplayNamed,
 {
     eyre::ensure!(
         functions.len() == metadata.functions.len(),
@@ -86,7 +87,10 @@ where
         functions.len(),
         metadata.functions.len()
     );
-    let lookup = TypeLookup::new(&metadata.structs, &metadata.types, &metadata.strings);
+    // Building the lookup checks every name, so duplicate functions, structs
+    // or named types are reported once, at their metadata path.
+    let lookup = TypeLookup::new(metadata)?;
+    let names = metadata.names();
     let mut seen = std::collections::BTreeSet::new();
     let mut address = 0usize;
     for function in functions {
@@ -104,10 +108,6 @@ where
         let info = matches
             .next()
             .ok_or_else(|| eyre::eyre!("function `@{name}` has no metadata"))?;
-        eyre::ensure!(
-            matches.next().is_none(),
-            "function `@{name}` has duplicate metadata"
-        );
         let end = address
             .checked_add(function.body.len())
             .ok_or_else(|| eyre::eyre!("instruction count overflow"))?;
@@ -140,10 +140,11 @@ where
                 .map_or("<invalid name>", String::as_str);
             eyre::ensure!(
                 declared_name == parameter.name.as_str() && ty == declared.ty,
-                "function `@{name}`: parameter {index} is `{}: {ty}`, but its metadata declares \
+                "function `@{name}`: parameter {index} is `{}: {}`, but its metadata declares \
                  `{declared_name}: {}`",
                 parameter.name,
-                declared.ty
+                ty.named(&names),
+                declared.ty.named(&names)
             );
         }
         let returns = function
@@ -155,8 +156,8 @@ where
         eyre::ensure!(
             returns == info.signature.ret,
             "function `@{name}` returns {}, but its metadata declares {}",
-            type_list(&returns),
-            type_list(&info.signature.ret)
+            type_list(&returns, &names),
+            type_list(&info.signature.ret, &names)
         );
         #[cfg(feature = "typed-declarations")]
         {

@@ -153,10 +153,10 @@ type Program = LocalModule<<Machine as HasInstructionSet>::Runtime, Value, Type>
 #     let file = SstFile::<NoContext>::from_text(&source)?;
 #     let ParsedModule { header, functions } = ParsedModule::<
 #         <Machine as HasInstructionSet>::Syntax,
-#         Type,
+#         vihaco::module::SourceType,
 #         HeaderDeclarations<ProgramMetadata>,
 #     >::parse_section(file.root())?;
-#     let metadata = header.into_iter().next().unwrap();
+#     let metadata = header.into_iter().next().unwrap().resolve_types::<Type>()?;
 #     let mut context = MetadataLoweringContext::new(&metadata)?;
 #     let code = lower_functions_with_metadata(functions, &metadata, &mut context)?;
 #     metadata.into_module(code)

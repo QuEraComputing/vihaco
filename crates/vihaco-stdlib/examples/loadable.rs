@@ -77,6 +77,8 @@ struct ExperimentInfo {
     description: String,
 }
 
+// Header types may name structs and named types; `finish_program` resolves
+// them against the header's own tables.
 type Metadata = ProgramMetadata<Value, Type>;
 
 // A header is a collection of declarations. Each entry is collected separately;
@@ -85,14 +87,14 @@ type Metadata = ProgramMetadata<Value, Type>;
 #[syntax_class(metadata)]
 enum HeaderDeclaration {
     #[pattern = "$0"]
-    Metadata(Metadata),
+    Metadata(ProgramMetadata),
     #[pattern = "experiment.description $0"]
     Description(String),
 }
 
 #[derive(Default)]
 struct HeaderDeclarationsState {
-    metadata: Option<Metadata>,
+    metadata: Option<ProgramMetadata>,
     description: Option<String>,
 }
 
@@ -126,7 +128,8 @@ impl HeaderDeclarationsState {
     fn finish_program(self) -> eyre::Result<(Metadata, ExperimentInfo)> {
         let metadata = self
             .metadata
-            .ok_or_else(|| eyre::eyre!("missing program metadata"))?;
+            .ok_or_else(|| eyre::eyre!("missing program metadata"))?
+            .resolve_types::<Type>()?;
         let description = self
             .description
             .ok_or_else(|| eyre::eyre!("missing experiment.description"))?;
@@ -152,7 +155,7 @@ impl Runtime {
         // 2. Parse header declarations and the composite's syntax instructions.
         let ParsedModule { header, functions } = ParsedModule::<
             SourceInstruction,
-            Type,
+            vihaco_module::module::SourceType,
             HeaderDeclarations<HeaderDeclaration>,
         >::parse_section(section)?;
 

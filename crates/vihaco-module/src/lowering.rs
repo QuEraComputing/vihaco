@@ -186,7 +186,7 @@ mod tests {
     };
     use vihaco_abi::Type;
 
-    fn metadata() -> ProgramMetadata {
+    fn metadata() -> ProgramMetadata<vihaco_abi::Value, Type> {
         ProgramMetadata {
             strings: vec![
                 "later".into(),
@@ -308,7 +308,8 @@ mod tests {
 
     #[test]
     fn struct_tables_are_validated_at_module_assembly() {
-        let into_module = |metadata: ProgramMetadata| metadata.into_module(vec![(); 9]);
+        let into_module =
+            |metadata: ProgramMetadata<vihaco_abi::Value, Type>| metadata.into_module(vec![(); 9]);
         assert!(into_module(metadata()).is_ok());
 
         // Struct types in signatures and fields must name a struct-table entry.
@@ -395,7 +396,8 @@ mod tests {
 
     #[test]
     fn named_type_tables_are_validated_at_module_assembly() {
-        let into_module = |metadata: ProgramMetadata| metadata.into_module(vec![(); 9]);
+        let into_module =
+            |metadata: ProgramMetadata<vihaco_abi::Value, Type>| metadata.into_module(vec![(); 9]);
 
         // Every scalar word type may represent a named type.
         for repr in [
@@ -477,7 +479,8 @@ mod tests {
 
     #[test]
     fn declared_locals_are_validated() {
-        let into_module = |metadata: ProgramMetadata| metadata.into_module(vec![(); 9]);
+        let into_module =
+            |metadata: ProgramMetadata<vihaco_abi::Value, Type>| metadata.into_module(vec![(); 9]);
 
         // At most `MAX_LOCALS` locals.
         let mut bad = metadata();
@@ -552,7 +555,7 @@ mod tests {
     #[test]
     fn validation_and_lowering_report_names_with_one_message_each() {
         // Both entry points build the same name tables, so they agree.
-        let both = |metadata: &ProgramMetadata| {
+        let both = |metadata: &ProgramMetadata<vihaco_abi::Value, Type>| {
             let validated = metadata.validate(9).unwrap_err().to_string();
             let lowered = MetadataLoweringContext::new(metadata)
                 .unwrap_err()

@@ -27,14 +27,22 @@ use crate::module::{
     FunctionInfo, LabelInfo, LocalModule, NamedTypeInfo, NoInfo, SourceSymbolInfo, StructInfo,
     StructTypeRef,
 };
-use crate::source_type::{ResolveType, TypeLookup};
-use vihaco_abi::{Type, Value};
+use crate::source_type::{ResolveType, SourceType, TypeLookup};
+use vihaco_abi::Value;
 
 /// All non-code fields of a `LocalModule`, supplied explicitly by a section header.
 /// The ordinary metadata derive owns object parsing, including nested records.
+///
+/// The default type parameter is [`SourceType`]: a header as written, where
+/// every type position may name a struct or named type (`struct @Point`,
+/// `type @location`), so `HeaderDeclarations<ProgramMetadata>` accepts names
+/// on the standard loading path. [`resolve_types`](Self::resolve_types)
+/// turns it into `ProgramMetadata<Value, Type>`, the resolved tables a module
+/// holds, and `ParsedModule::lower_with_metadata` does that itself. Parse
+/// `ProgramMetadata<Value, Type>` directly only for numeric-only headers.
 #[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
 #[syntax_class(metadata, head = "metadata", open = "{", close = "}")]
-pub struct ProgramMetadata<V = Value, Ty = Type, Info = NoInfo> {
+pub struct ProgramMetadata<V = Value, Ty = SourceType, Info = NoInfo> {
     pub functions: Vec<FunctionInfo<Ty>>,
     pub structs: Vec<StructInfo<Ty>>,
     /// The named-type table: `type N` refers to entry `N`.
@@ -231,7 +239,7 @@ impl<V, Ty, Info> ProgramMetadata<V, Ty, Info> {
     where
         Ty: ResolveType<T>,
     {
-        let lookup = TypeLookup::new(&self.structs, &self.types, &self.strings);
+        let lookup = TypeLookup::new(&self)?;
         let resolve = |ty: &Ty, path: &dyn Fn() -> String| {
             ty.resolve_type(&lookup)
                 .map_err(|error| eyre::eyre!("{}: {error}", path()))
@@ -524,7 +532,8 @@ const REQUIRED: [(&str, &str); 9] = [
 /// Explain why `text`, a header containing `metadata { ... }` that failed to
 /// parse, does not match the current format, when the cause is a known
 /// change: a function's `local_count` (replaced by `locals: [..]`, one type
-/// per local) or a missing table (every table is required, even when empty).
+/// per local), a missing table (every table is required, even when empty),
+/// or a type written by name for a numeric-only loader.
 ///
 /// Returns `None` when neither applies, or when `text` has no metadata
 /// object; the parser's own error is then the best description.
@@ -555,6 +564,13 @@ pub fn explain_metadata(text: &str) -> Option<String> {
         .filter(|(key, _)| !keys.top_level.iter().any(|found| found == key))
         .collect();
     match missing.as_slice() {
+        [] if text.contains("struct @") || text.contains("type @") => Some(
+            "metadata: a type names a struct or named type (`struct @Point`, `type @location`), \
+             but this loader parses numeric types only (`ProgramMetadata<Value, Type>`); parse \
+             the header as `ProgramMetadata` (its types default to `SourceType`) and resolve \
+             it with `resolve_types`"
+                .to_owned(),
+        ),
         [] => None,
         [(key, empty)] => Some(format!(
             "metadata: missing required table `{key}` (write `{key}: {empty}` if it is empty)"
@@ -678,6 +694,7 @@ fn scan_metadata(text: &str) -> Option<MetadataKeys> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vihaco_abi::Type;
     use vihaco_abi::traits::FromText;
 
     const CURRENT: &str = "metadata {
@@ -708,6 +725,63 @@ mod tests {
             explain_metadata(&second)
                 .unwrap()
                 .starts_with("metadata.functions[1]:")
+        );
+    }
+
+    /// The default `ProgramMetadata` accepts names in every type position and
+    /// resolves them against its own tables; a numeric-only loader explains
+    /// what to change instead of reporting a bare parse error.
+    #[test]
+    fn names_in_headers_parse_by_default() {
+        let named = "metadata {
+            functions: [{ name: 0, signature: { params: [{ name: 1, ty: struct @Point }],
+                          ret: [type @location] },
+                          locals: [struct @Point, array type @location],
+                          start_address: 0, end_address: 1, file: 0 }],
+            structs: [{ name: 2, fields: [{ name: 3, ty: array struct @Point }] }],
+            types: [{ name: 4, repr: u64 }],
+            labels: [], constants: [], strings: [\"main\", \"p0\", \"Point\", \"x\", \"location\"],
+            main_function: 0, source_symbols: [], extra: {},
+        }";
+        let metadata = ProgramMetadata::<Value>::from_text(named)
+            .unwrap()
+            .resolve_types::<Type>()
+            .unwrap();
+        assert_eq!(
+            metadata.functions[0].signature.params[0].ty,
+            Type::Struct(0)
+        );
+        assert_eq!(metadata.functions[0].signature.ret, [Type::Named(0)]);
+        assert_eq!(
+            metadata.functions[0].locals,
+            [Type::Struct(0), Type::array(Type::Named(0))]
+        );
+        assert_eq!(
+            metadata.structs[0].fields[0].ty,
+            Type::array(Type::Struct(0))
+        );
+
+        let err = ProgramMetadata::<Value, Type>::from_text(named).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("parse the header as `ProgramMetadata`"),
+            "{err}"
+        );
+        // Duplicate names are an error, not resolved to the first entry.
+        let duplicate = named
+            .replace("\"x\"", "\"Point\"")
+            .replace("name: 3", "name: 2");
+        let duplicate = duplicate.replace(
+            "structs: [{ name: 2, fields: [{ name: 2, ty: array struct @Point }] }]",
+            "structs: [{ name: 2, fields: [] }, { name: 2, fields: [] }]",
+        );
+        let err = ProgramMetadata::<Value>::from_text(&duplicate)
+            .unwrap()
+            .resolve_types::<Type>()
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("duplicate struct `Point`"),
+            "{err}"
         );
     }
 
