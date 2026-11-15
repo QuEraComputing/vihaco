@@ -47,6 +47,9 @@ pub enum Flow {
     Next,
     /// Continue at each listed address, with no fallthrough; for example an
     /// unconditional branch has one target and a conditional branch two.
+    ///
+    /// The list must not be empty: a verifier rejects an empty jump as a
+    /// structural error rather than treating it as a terminator.
     Jump(SmallVec<[u32; 2]>),
     /// Leave the current function.
     Return,
@@ -61,6 +64,10 @@ impl Flow {
     }
 
     /// Continue at any of the given addresses.
+    ///
+    /// `targets` must yield at least one address. An empty list is accepted
+    /// here (a rule may build it from operands), but verification reports it
+    /// as an error: use [`Flow::Return`] or [`Flow::Halt`] to end a path.
     pub fn jump_to(targets: impl IntoIterator<Item = u32>) -> Self {
         Flow::Jump(targets.into_iter().collect())
     }

@@ -92,6 +92,8 @@ pub enum Flow {
     /// verified separately).
     Next,
     /// Continue at each listed address, with no fallthrough (`br`, `cond_br`).
+    /// At least one address: an empty jump is a structural error (`EmptyJump`),
+    /// not a terminator.
     Jump(SmallVec<[u32; 2]>),
     /// Leave the function (`ret`).
     Return,
@@ -362,7 +364,10 @@ pub enum DiagnosticKind {
     CallArityMismatch { callee: u32, declared: usize, found: usize },
     ReturnCountMismatch { declared: usize, found: usize },
     LocalIndexOutOfRange { index: u32, count: u32 },
+    LocalCountMismatch { expected: usize, found: usize },
     InvalidControlFlowTarget { target: u32 },
+    /// A `Flow::Jump` with no targets: a jump must name an address.
+    EmptyJump,
     /// A function's `start..end` is reversed or extends past the code.
     InvalidFunctionSpan { start: u32, end: u32, code_len: usize },
     MissingTerminator,

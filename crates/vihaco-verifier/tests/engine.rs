@@ -40,6 +40,8 @@ enum Op {
     Halt,
     /// A rule that always fails with a component-defined message.
     Fail(&'static str),
+    /// A jump table: continue at any listed address (possibly none).
+    Table(Vec<u32>),
 }
 
 impl<C> Verify<C> for Op
@@ -51,6 +53,7 @@ where
         match self {
             Op::Br(target) => Flow::jump(*target),
             Op::CondBr(then, otherwise) => Flow::jump_to([*then, *otherwise]),
+            Op::Table(targets) => Flow::jump_to(targets.iter().copied()),
             Op::Ret => Flow::Return,
             Op::Halt => Flow::Halt,
             _ => Flow::Next,
@@ -73,7 +76,7 @@ where
             Op::CondBr(..) => {
                 cx.pop_expect(&Type::Bool)?;
             }
-            Op::Br(_) | Op::Ret | Op::Halt => {}
+            Op::Br(_) | Op::Ret | Op::Halt | Op::Table(_) => {}
             Op::Fail(message) => {
                 FAIL_RUNS.with(|runs| runs.set(runs.get() + 1));
                 eyre::bail!("{message}");
@@ -271,6 +274,81 @@ fn invalid_function_spans_are_reported() {
                 code_len: 1
             }
         )]
+    );
+}
+
+#[test]
+fn empty_and_reversed_function_spans_are_reported() {
+    // An empty span has nothing to run: control falls off its end at once.
+    assert_eq!(
+        rejected(verify_spans(&[Ret, Ret], &[span(0, 1, 1)], false)),
+        [(0, 1, DiagnosticKind::MissingTerminator)]
+    );
+    // A reversed span is invalid even when both ends are inside the code.
+    assert_eq!(
+        rejected(verify_spans(&[Ret, Ret, Ret], &[span(0, 2, 1)], false)),
+        [(
+            0,
+            2,
+            DiagnosticKind::InvalidFunctionSpan {
+                start: 2,
+                end: 1,
+                code_len: 3
+            }
+        )]
+    );
+}
+
+#[test]
+fn a_jump_with_no_targets_is_a_structural_error() {
+    // Without the check, an empty jump would end the path like a terminator.
+    assert_eq!(
+        rejected(verify(&[Const(Type::I64), Table(vec![])])),
+        [(0, 1, DiagnosticKind::EmptyJump)]
+    );
+    assert_eq!(
+        DiagnosticKind::EmptyJump.to_string(),
+        "the instruction jumps, but names no target address"
+    );
+    // A non-empty table is an ordinary jump.
+    accepted(verify(&[Table(vec![1, 2]), Ret, Ret]));
+}
+
+#[test]
+fn duplicate_jump_targets_are_one_edge() {
+    let code = [
+        Const(Type::Bool), // 0
+        CondBr(2, 2),      // 1
+        Const(Type::I64),  // 2
+        Use(Type::I64),    // 3
+        Ret,               // 4
+    ];
+    let verification = accepted(verify_spans(&code, &[span(0, 0, 5)], true));
+    let maps = verification.type_maps.unwrap();
+    assert_eq!(
+        maps.function(0).unwrap().keys().collect::<Vec<_>>(),
+        [&0, &2]
+    );
+    // The type error after the duplicated edge is reported once.
+    let mut bad = code.to_vec();
+    bad[3] = Use(Type::F64);
+    assert_eq!(rejected(verify(&bad)), [(0, 3, mismatch("f64", "i64"))]);
+}
+
+#[test]
+fn a_local_count_mismatch_at_a_join_is_structured() {
+    let mut saved = Frame::new(vec![TypeSlot::Known(Type::I64)]);
+    let err = saved.join(&Frame::new(vec![])).unwrap_err();
+    assert_eq!(
+        err.kind(),
+        &DiagnosticKind::LocalCountMismatch {
+            expected: 1,
+            found: 0
+        }
+    );
+    assert_eq!(
+        err.to_string(),
+        "local count mismatch at join: expected 1, found 0"
     );
 }
 

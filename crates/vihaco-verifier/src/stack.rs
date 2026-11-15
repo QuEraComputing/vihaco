@@ -139,7 +139,9 @@ impl<S: Lattice> Frame<S> {
     /// Join `incoming` into `self`, the frame saved at a join point.
     ///
     /// Operand depths must agree ([`DiagnosticKind::StackDepthMismatch`]
-    /// otherwise); then locals and operands are joined slot-wise. Returns
+    /// otherwise), and so must local counts
+    /// ([`DiagnosticKind::LocalCountMismatch`]); then locals and operands are
+    /// joined slot-wise. Returns
     /// whether `self` strictly changed. On error `self` is left unchanged.
     pub fn join(&mut self, incoming: &Self) -> Result<bool, VerifyError> {
         if self.operands.len() != incoming.operands.len() {
@@ -149,11 +151,10 @@ impl<S: Lattice> Frame<S> {
             ));
         }
         if self.locals.len() != incoming.locals.len() {
-            return Err(VerifyError::rule(format!(
-                "local count mismatch at join: expected {}, found {}",
-                self.locals.len(),
-                incoming.locals.len()
-            )));
+            return Err(VerifyError::new(DiagnosticKind::LocalCountMismatch {
+                expected: self.locals.len(),
+                found: incoming.locals.len(),
+            }));
         }
         let mut changed = false;
         let saved = self.locals.iter_mut().chain(self.operands.iter_mut());

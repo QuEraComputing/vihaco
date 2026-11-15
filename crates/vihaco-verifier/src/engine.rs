@@ -143,8 +143,8 @@ impl std::error::Error for Rejection {}
 ///    target inside the function, and every address after a jump;
 /// 2. marks **reachable** addresses by walking `flow` alone, reporting
 ///    [`Unreachable`] runs (a warning), jumps leaving the function
-///    ([`InvalidControlFlowTarget`]), and paths falling off its end
-///    ([`MissingTerminator`]);
+///    ([`InvalidControlFlowTarget`]) or naming no target ([`EmptyJump`]), and
+///    paths falling off its end ([`MissingTerminator`]);
 /// 3. runs a worklist **fixpoint** over leaders, transferring each block with
 ///    [`Verify::verify`] and joining its post-state into its successors'
 ///    saved states with [`AbstractState::join`], requeueing a leader only when
@@ -163,6 +163,7 @@ impl std::error::Error for Rejection {}
 ///
 /// [`Unreachable`]: DiagnosticKind::Unreachable
 /// [`InvalidControlFlowTarget`]: DiagnosticKind::InvalidControlFlowTarget
+/// [`EmptyJump`]: DiagnosticKind::EmptyJump
 /// [`MissingTerminator`]: DiagnosticKind::MissingTerminator
 pub fn verify_functions<I, C>(
     code: &[I],
@@ -270,6 +271,9 @@ where
             continue;
         }
         if let Flow::Jump(targets) = flow {
+            if targets.is_empty() {
+                report(address, Order::Target, DiagnosticKind::EmptyJump);
+            }
             for &target in targets.iter().filter(|&&t| !walk.contains(t)) {
                 let kind = DiagnosticKind::InvalidControlFlowTarget { target };
                 report(address, Order::Target, kind);

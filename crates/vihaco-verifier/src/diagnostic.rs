@@ -68,11 +68,24 @@ pub enum DiagnosticKind {
         /// The number of declared locals.
         count: u32,
     },
+    /// Two paths reach a join point with different numbers of locals. A
+    /// context that keeps the function's declared locals never produces this;
+    /// it guards custom [`Frame`](crate::Frame) users.
+    LocalCountMismatch {
+        /// Local count saved at the join point.
+        expected: usize,
+        /// Local count arriving along another edge.
+        found: usize,
+    },
     /// A jump target outside the function containing the jump.
     InvalidControlFlowTarget {
         /// The offending target address.
         target: u32,
     },
+    /// A [`Flow::Jump`](vihaco_abi::verify::Flow::Jump) with no targets. A
+    /// jump must name at least one address; leaving the function is
+    /// `Flow::Return`, stopping the machine `Flow::Halt`.
+    EmptyJump,
     /// Some path runs off the end of the function without returning or
     /// halting.
     MissingTerminator,
@@ -131,8 +144,15 @@ impl fmt::Display for DiagnosticKind {
                 f,
                 "local index {index} out of range: the function declares {count} locals"
             ),
+            DiagnosticKind::LocalCountMismatch { expected, found } => write!(
+                f,
+                "local count mismatch at join: expected {expected}, found {found}"
+            ),
             DiagnosticKind::InvalidControlFlowTarget { target } => {
                 write!(f, "control-flow target {target} is outside the function")
+            }
+            DiagnosticKind::EmptyJump => {
+                write!(f, "the instruction jumps, but names no target address")
             }
             DiagnosticKind::MissingTerminator => {
                 write!(f, "control falls off the end of the function")
