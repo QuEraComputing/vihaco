@@ -382,7 +382,13 @@ pub enum DiagnosticKind {
 - A rule error ends its block, so a block reports at most one rule error, and
   the block passes no state to its successors. Blocks with states from other
   paths still report; code reachable only through the failed block is not
-  analysed, which is safe because verification has already failed.
+  analysed and has no type-map entry, which is safe because verification has
+  already failed. Because a block may pass states on in early fixpoint rounds
+  and fail only at convergence, the engine then reruns the fixpoint with the
+  out-edges of failing blocks cut, restoring one at a time each cut block
+  whose failure was a follow-on effect (restoring it makes no uncut block
+  fail). The cut set only shrinks, so this terminates, and it never empties
+  while a block fails. A failing block is replayed from the state it fails at.
 - Consecutive underflows at one address collapse into one: a rule returns one
   result per address, and the replay visits each address once.
 - `Unreachable` is a **warning**: unreachable code never runs, and code

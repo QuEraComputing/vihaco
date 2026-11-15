@@ -458,6 +458,65 @@ fn a_defect_inside_a_loop_is_reported_once() {
     );
 }
 
+/// A loop whose header fails once the back edge brings an `f64` in. Its exit
+/// at 8 is reachable only through the header, so it is not analysed: in the
+/// first round the header passed on an `i64`, but at convergence it passes
+/// nothing on, and an error at 8 from that early state would be a follow-on.
+fn a_loop_that_fails_at_its_header() -> Vec<Op> {
+    vec![
+        Const(Type::I64),  // 0
+        Const(Type::I64),  // 1: loop header
+        Add,               // 2: fails once the back edge brings an f64
+        Const(Type::Bool), // 3
+        CondBr(5, 8),      // 4
+        Pop,               // 5
+        Const(Type::F64),  // 6
+        Br(1),             // 7
+        Use(Type::F64),    // 8: reachable only through the header
+        Ret,               // 9
+    ]
+}
+
+#[test]
+fn code_reachable_only_through_a_failing_block_is_not_analysed() {
+    let mut cx = FrameState::new(Frame::new(vec![]));
+    let options = VerifyOptions::default().with_type_maps(true);
+    let code = a_loop_that_fails_at_its_header();
+    let rejection = verify_functions(&code, &[span(0, 0, 10)], &mut cx, options).unwrap_err();
+    assert_eq!(
+        found(&rejection.diagnostics),
+        [(0, 2, mismatch("i64", "i64 | f64"))]
+    );
+}
+
+#[test]
+fn a_block_failing_only_on_a_follow_on_state_is_analysed_from_its_other_paths() {
+    // The loop above, moved to 2..=11, with its exit at 10 also reached from
+    // 12 with an f64. In the first round the header passed an i64 to 10, so
+    // 10's full fixpoint state is a conflict and it fails; from the path
+    // through 12 alone, the one left at convergence, it passes.
+    let code = [
+        Const(Type::Bool), // 0
+        CondBr(2, 12),     // 1
+        Const(Type::I64),  // 2
+        Const(Type::I64),  // 3: loop header
+        Add,               // 4: fails once the back edge brings an f64
+        Const(Type::Bool), // 5
+        CondBr(7, 10),     // 6
+        Pop,               // 7
+        Const(Type::F64),  // 8
+        Br(3),             // 9
+        Use(Type::F64),    // 10
+        Ret,               // 11
+        Const(Type::F64),  // 12
+        Br(10),            // 13
+    ];
+    assert_eq!(
+        rejected(verify(&code)),
+        [(0, 4, mismatch("i64", "i64 | f64"))]
+    );
+}
+
 #[test]
 fn a_rule_error_ends_its_block_but_later_blocks_still_report() {
     let code = [

@@ -149,14 +149,22 @@ impl std::error::Error for Rejection {}
 ///    [`Verify::verify`] and joining its post-state into its successors'
 ///    saved states with [`AbstractState::join`], requeueing a leader only when
 ///    its saved state strictly changes. Errors in this phase are discarded,
-///    since blocks see unconverged states;
+///    since blocks see unconverged states. If some block fails at its
+///    converged state, the fixpoint is rerun with the out-edges of failing
+///    blocks cut, so states a failing block passed on in early rounds are
+///    retracted; a cut block is restored if its failure was only a follow-on
+///    effect, that is, if restoring it makes no uncut block fail. These reruns
+///    happen only when verification fails;
 /// 4. **replays** each reached block once, in address order, from its
 ///    converged state, reporting the first rule error in the block (which
 ///    ends that block) and any join mismatch on its outgoing edges (at the
 ///    join point, once per leader).
 ///
-/// A block whose rule fails contributes nothing to its successors. Every
-/// diagnostic of every function is returned, sorted by function then address.
+/// A block whose rule fails contributes nothing to its successors: code
+/// reachable only through failing blocks is not analysed, reports nothing, and
+/// has no type-map entry. A failing block itself is replayed (and mapped) from
+/// the state it fails at. Every diagnostic of every function is returned,
+/// sorted by function then address.
 ///
 /// The fixpoint terminates provided the context's joins have finite height
 /// (see [`Lattice`](crate::Lattice)).
@@ -286,28 +294,38 @@ where
     }
 
     // Phase 1: converge, discarding errors.
-    let mut states: Vec<Option<C::Snapshot>> = vec![None; walk.len()];
-    states[0] = Some(entry.clone());
-    let mut work = BTreeSet::from([0usize]);
-    while let Some(leader) = work.pop_first() {
-        let saved = states[leader]
-            .as_ref()
-            .expect("queued leaders have a state");
-        let Ok(exit) = walk.run_block(leader, saved, id, cx) else {
-            continue;
-        };
-        let incoming = cx.snapshot();
-        for succ in walk.successors(exit) {
-            match &mut states[succ] {
-                slot @ None => {
-                    *slot = Some(incoming.clone());
-                    work.insert(succ);
-                }
-                Some(saved) => {
-                    if let Ok(true) = C::join(saved, &incoming) {
-                        work.insert(succ);
-                    }
-                }
+    let full = walk.fixpoint(entry, &vec![false; walk.len()], id, cx);
+
+    // A block that fails at its converged state passes nothing on, but in
+    // early rounds it may have passed on states its converged run would not.
+    // Cut the out-edges of every failing block and converge again, so code
+    // reachable only through failing blocks has no state. Then restore, one
+    // at a time, each cut block whose failure turns out to be a follow-on
+    // effect: one that can be restored without any uncut block failing.
+    // The set of cut blocks only shrinks, and never to empty while some
+    // block fails, since nothing can be restored then.
+    let mut cut = walk.failing(&full, id, cx);
+    let mut states = full.clone();
+    if cut.contains(&true) {
+        states = walk.fixpoint(entry, &cut, id, cx);
+        for leader in 0..walk.len() {
+            if !cut[leader] {
+                continue;
+            }
+            cut[leader] = false;
+            let candidate = walk.fixpoint(entry, &cut, id, cx);
+            let failing = walk.failing(&candidate, id, cx);
+            if failing.iter().zip(&cut).all(|(&fails, &cut)| !fails || cut) {
+                states = candidate;
+            } else {
+                cut[leader] = true;
+            }
+        }
+        // A failing block is analysed from the full fixpoint's state, the
+        // one it fails at.
+        for (leader, state) in states.iter_mut().enumerate() {
+            if cut[leader] && state.is_some() {
+                state.clone_from(&full[leader]);
             }
         }
     }
@@ -320,6 +338,9 @@ where
         };
         match walk.run_block(leader, saved, id, cx) {
             Err((at, error)) => report(start + at as u32, Order::Rule, classify(&error)),
+            // A cut block failed at this state in the full fixpoint, so it
+            // fails again here; it passes nothing on regardless.
+            Ok(_) if cut[leader] => {}
             Ok(exit) => {
                 let incoming = cx.snapshot();
                 for succ in walk.successors(exit) {
@@ -445,5 +466,67 @@ impl<'a, I> Walk<'a, I> {
                 _ => return Ok(i),
             }
         }
+    }
+
+    /// Converge the saved state of every leader reachable from the entry,
+    /// discarding rule errors. A block whose rule fails, or whose leader is
+    /// `cut`, passes nothing to its successors.
+    fn fixpoint<C>(
+        &self,
+        entry: &C::Snapshot,
+        cut: &[bool],
+        function: u32,
+        cx: &mut C,
+    ) -> Vec<Option<C::Snapshot>>
+    where
+        I: Verify<C>,
+        C: AbstractState + ?Sized,
+    {
+        let mut states: Vec<Option<C::Snapshot>> = vec![None; self.len()];
+        states[0] = Some(entry.clone());
+        let mut work = BTreeSet::from([0usize]);
+        while let Some(leader) = work.pop_first() {
+            if cut[leader] {
+                continue;
+            }
+            let saved = states[leader]
+                .as_ref()
+                .expect("queued leaders have a state");
+            let Ok(exit) = self.run_block(leader, saved, function, cx) else {
+                continue;
+            };
+            let incoming = cx.snapshot();
+            for succ in self.successors(exit) {
+                match &mut states[succ] {
+                    slot @ None => {
+                        *slot = Some(incoming.clone());
+                        work.insert(succ);
+                    }
+                    Some(saved) => {
+                        if let Ok(true) = C::join(saved, &incoming) {
+                            work.insert(succ);
+                        }
+                    }
+                }
+            }
+        }
+        states
+    }
+
+    /// Which leaders fail when run from their state in `states`.
+    fn failing<C>(&self, states: &[Option<C::Snapshot>], function: u32, cx: &mut C) -> Vec<bool>
+    where
+        I: Verify<C>,
+        C: AbstractState + ?Sized,
+    {
+        states
+            .iter()
+            .enumerate()
+            .map(|(leader, state)| {
+                state
+                    .as_ref()
+                    .is_some_and(|state| self.run_block(leader, state, function, cx).is_err())
+            })
+            .collect()
     }
 }
