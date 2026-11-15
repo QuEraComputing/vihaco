@@ -1608,7 +1608,7 @@ fn dialect_instruction_text(
             ) -> ::core::fmt::Result {
                 #[allow(unused_imports)]
                 use #root::__private::operand_text::{
-                    ViaDisplay as _, ViaOperandText as _,
+                    ViaDisplay as _, ViaMissing as _, ViaOperandText as _,
                 };
                 let _ = names;
                 #(#statements)*

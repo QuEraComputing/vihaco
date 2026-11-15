@@ -417,6 +417,37 @@ pub mod operand_text {
             fmt::Display::fmt(self.0, f)
         }
     }
+
+    /// Never implemented: the last tier requires it, so an operand with
+    /// neither `OperandText` nor `Display` is a type error that says so.
+    #[diagnostic::on_unimplemented(
+        message = "operand type `{Self}` has no source text",
+        label = "instruction text cannot write this operand",
+        note = "implement `OperandText<{R}>` for `{Self}`, or `Display` for `{R}`, so that \
+                instruction text can write the operand back as source"
+    )]
+    pub trait HasOperandText<R: ?Sized> {}
+
+    /// The last tier: always selected when the others are not, and then
+    /// fails to compile through its `HasOperandText` bound.
+    pub trait ViaMissing<S: ?Sized, R: ?Sized> {
+        fn write_operand_text(
+            &self,
+            names: &dyn SymbolNames,
+            f: &mut fmt::Formatter<'_>,
+        ) -> fmt::Result
+        where
+            S: HasOperandText<R>;
+    }
+
+    impl<S: ?Sized, R: ?Sized> ViaMissing<S, R> for OperandRef<'_, S, R> {
+        fn write_operand_text(&self, _: &dyn SymbolNames, _: &mut fmt::Formatter<'_>) -> fmt::Result
+        where
+            S: HasOperandText<R>,
+        {
+            unreachable!("`HasOperandText` has no impls")
+        }
+    }
 }
 
 /// A type that can show itself with the module's names, for messages in code
