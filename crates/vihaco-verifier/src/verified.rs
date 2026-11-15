@@ -176,7 +176,10 @@ impl<M> Verified<M> {
     ) -> Result<(Self, Verification<S>), VerifyFailed<M, S>> {
         match verify(&module) {
             Ok(verification) => Ok((Self { module }, verification)),
-            Err(rejection) => Err(VerifyFailed { module, rejection }),
+            Err(rejection) => Err(VerifyFailed {
+                module: Box::new(module),
+                rejection,
+            }),
         }
     }
 
@@ -282,8 +285,8 @@ impl<I, Info> Verified<LocalModule<I, Value, Type, Info>> {
 /// [`LocalModule`] whose instructions implement `Display` does, and then
 /// converts into an [`eyre::Report`] with `?`.
 pub struct VerifyFailed<M, S = Frame<TypeSlot>> {
-    /// The module, unchanged.
-    pub module: M,
+    /// The module, unchanged (boxed, so the error stays small).
+    pub module: Box<M>,
     /// Why it was rejected.
     pub rejection: Rejection<S>,
 }
@@ -291,12 +294,12 @@ pub struct VerifyFailed<M, S = Frame<TypeSlot>> {
 impl<M, S> VerifyFailed<M, S> {
     /// Give the module back, dropping the rejection.
     pub fn into_module(self) -> M {
-        self.module
+        *self.module
     }
 
     /// The module and the rejection.
     pub fn into_parts(self) -> (M, Rejection<S>) {
-        (self.module, self.rejection)
+        (*self.module, self.rejection)
     }
 }
 
@@ -311,7 +314,7 @@ impl<M, S: fmt::Debug> fmt::Debug for VerifyFailed<M, S> {
 
 impl<M: DiagnosticNames, S> fmt::Display for VerifyFailed<M, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.rejection.display_with(&self.module).fmt(f)
+        self.rejection.display_with(&*self.module).fmt(f)
     }
 }
 
