@@ -371,6 +371,25 @@ fn rejects_binary_overlapping_sections() {
 }
 
 #[test]
+fn accepts_empty_ranges_that_point_inside_other_sections() {
+    // An empty range occupies no bytes, so it cannot overlap anything.
+    let context = context_with_strings(&["cpu", "gpu"]);
+    let data_start = binary_file(&context, &[(0, b"", b""), (1, b"", b"")]).len();
+    let mut bytes = raw_binary_file(
+        &context,
+        &[
+            (0, 0, 0, data_start, 4),
+            (1, data_start + 2, 0, data_start + 1, 0),
+        ],
+    );
+    bytes.extend_from_slice(&[0; 4]);
+    let file = parse_binary(bytes).unwrap();
+    let gpu = file.section("gpu").unwrap();
+    assert!(gpu.header_bytes().is_empty() && gpu.bytecode().is_empty());
+    assert_eq!(file.section("cpu").unwrap().bytecode().len(), 4);
+}
+
+#[test]
 fn rejects_binary_instruction_stream_with_non_multiple_width() {
     let err = decode_instruction_stream::<TestInst>(&[0, 1, 2]).unwrap_err();
     assert!(err.to_string().contains("not a multiple"));
