@@ -7,16 +7,14 @@
 use std::collections::HashMap;
 
 use vihaco_abi::{Type, Value, Verify};
-use vihaco_module::module::{
-    FunctionInfo, LocalModule, MAX_LOCALS, NamedTypeInfo, Signature, StructInfo,
-};
+use vihaco_module::module::{FunctionInfo, LocalModule, NamedTypeInfo, Signature, StructInfo};
 
 use crate::capability::{Constants, Locals, NamedTypes, Signatures, StructTypes};
-use crate::diagnostic::{Diagnostic, DiagnosticKind, VerifyError};
+use crate::diagnostic::{Diagnostic, DiagnosticKind, Table, VerifyError};
 use crate::engine::{FunctionSpan, Rejection, Verification, VerifyOptions, verify_functions};
 use crate::slot::TypeSlot;
 use crate::stack::{Frame, FrameState, OperandStack};
-use crate::state::AbstractState;
+use crate::state::{AbstractState, JoinPoint};
 
 /// The standard verifier context for a module using vihaco's standard model:
 /// [`Type`] for types, [`Value`] for constants, and [`TypeSlot`] slots.
@@ -161,11 +159,13 @@ impl<'m> ModuleVerifier<'m> {
 
     /// Check each function's frame metadata: at most [`MAX_LOCALS`] locals,
     /// at least as many locals as parameters, and leading locals equal to the
-    /// parameter types. [`ProgramMetadata::validate`] guarantees all three;
-    /// this repeats them for modules built directly. Each failure is a
-    /// [`DiagnosticKind::Rule`] error at the function's start address.
+    /// parameter types (see [`FunctionInfo::check_frame`]).
+    /// [`ProgramMetadata::validate`] guarantees all three; this repeats them
+    /// for modules built directly. Each failure is a
+    /// [`DiagnosticKind::InvalidFrame`] error at the function's start address.
     ///
     /// [`ProgramMetadata::validate`]: vihaco_module::module::ProgramMetadata::validate
+    /// [`MAX_LOCALS`]: vihaco_module::module::MAX_LOCALS
     pub fn check_frames(&self) -> Vec<Diagnostic> {
         (0..self.functions.len() as u32)
             .filter_map(|function| {
@@ -178,30 +178,7 @@ impl<'m> ModuleVerifier<'m> {
 
     fn frame_error(&self, function: u32) -> Option<DiagnosticKind> {
         let info = &self.functions[function as usize];
-        let (locals, params) = (&info.locals, &info.signature.params);
-        let message = if locals.len() > MAX_LOCALS {
-            format!(
-                "function declares {} locals, more than the maximum of {MAX_LOCALS}",
-                locals.len()
-            )
-        } else if locals.len() < params.len() {
-            format!(
-                "function declares {} locals but {} parameters",
-                locals.len(),
-                params.len()
-            )
-        } else {
-            let (index, (local, param)) = locals
-                .iter()
-                .zip(params)
-                .enumerate()
-                .find(|(_, (local, param))| **local != param.ty)?;
-            format!(
-                "local {index} is declared {local}, but parameter {index} is {}",
-                param.ty
-            )
-        };
-        Some(DiagnosticKind::Rule(message))
+        info.check_frame().err().map(DiagnosticKind::InvalidFrame)
     }
 
     /// Verify every function of the module against `code`, the module's
@@ -229,19 +206,13 @@ impl<'m> ModuleVerifier<'m> {
 
     fn function_info(&self, function: u32) -> Result<&'m FunctionInfo<Type>, VerifyError> {
         self.functions.get(function as usize).ok_or_else(|| {
-            VerifyError::rule(format!(
-                "function {function} is outside the function table of length {}",
-                self.functions.len()
-            ))
+            VerifyError::unknown_entry(Table::Functions, function, self.functions.len())
         })
     }
 
     fn struct_info(&self, struct_id: u32) -> Result<&'m StructInfo<Type>, VerifyError> {
         self.structs.get(struct_id as usize).ok_or_else(|| {
-            VerifyError::rule(format!(
-                "struct {struct_id} is outside the struct table of length {}",
-                self.structs.len()
-            ))
+            VerifyError::unknown_entry(Table::Structs, struct_id, self.structs.len())
         })
     }
 }
@@ -343,7 +314,7 @@ impl Signatures<Type> for ModuleVerifier<'_> {
         self.by_address
             .get(&address)
             .copied()
-            .ok_or_else(|| VerifyError::rule(format!("no function starts at address {address}")))
+            .ok_or_else(|| VerifyError::new(DiagnosticKind::NoFunctionAt { address }))
     }
 
     fn current_function(&self) -> u32 {
@@ -371,10 +342,11 @@ impl StructTypes<Type> for ModuleVerifier<'_> {
             .get(slot as usize)
             .map(|field| &field.ty)
             .ok_or_else(|| {
-                VerifyError::rule(format!(
-                    "field slot {slot} is outside struct {struct_id}, which has {} fields",
-                    info.fields.len()
-                ))
+                VerifyError::new(DiagnosticKind::UnknownField {
+                    struct_id,
+                    field: slot,
+                    field_count: info.fields.len(),
+                })
             })
     }
 }
@@ -385,22 +357,18 @@ impl NamedTypes<Type> for ModuleVerifier<'_> {
     }
 
     fn named_type_index(&self, name: &str) -> Result<u32, VerifyError> {
-        self.type_names
-            .get(name)
-            .copied()
-            .ok_or_else(|| VerifyError::rule(format!("undefined named type `{name}`")))
+        self.type_names.get(name).copied().ok_or_else(|| {
+            VerifyError::new(DiagnosticKind::UndefinedNamedType {
+                name: name.to_owned(),
+            })
+        })
     }
 
     fn named_type_repr(&self, index: u32) -> Result<&Type, VerifyError> {
         self.types
             .get(index as usize)
             .map(|info| &info.repr)
-            .ok_or_else(|| {
-                VerifyError::rule(format!(
-                    "named type {index} is outside the named-type table of length {}",
-                    self.types.len()
-                ))
-            })
+            .ok_or_else(|| VerifyError::unknown_entry(Table::NamedTypes, index, self.types.len()))
     }
 }
 
@@ -411,10 +379,7 @@ impl Constants<Value, Type> for ModuleVerifier<'_> {
 
     fn constant(&self, index: u32) -> Result<&Value, VerifyError> {
         self.constants.get(index as usize).ok_or_else(|| {
-            VerifyError::rule(format!(
-                "constant {index} is outside the constant table of length {}",
-                self.constants.len()
-            ))
+            VerifyError::unknown_entry(Table::Constants, index, self.constants.len())
         })
     }
 
@@ -438,8 +403,12 @@ impl AbstractState for ModuleVerifier<'_> {
         self.frame.restore(snapshot);
     }
 
-    fn join(saved: &mut Frame<TypeSlot>, incoming: &Frame<TypeSlot>) -> Result<bool, VerifyError> {
-        saved.join(incoming)
+    fn join(
+        saved: &mut Frame<TypeSlot>,
+        incoming: &Frame<TypeSlot>,
+        at: &JoinPoint,
+    ) -> Result<bool, VerifyError> {
+        saved.join(incoming, at)
     }
 
     /// Records the current function, which [`Signatures::current_function`]
@@ -773,12 +742,13 @@ impl<S: ComponentState> AbstractState for WithState<'_, S> {
     fn join(
         (frame, state): &mut Self::Snapshot,
         (in_frame, in_state): &Self::Snapshot,
+        at: &JoinPoint,
     ) -> Result<bool, VerifyError> {
         // Join the component state on a copy first, so an error in either
         // join leaves the saved snapshot unchanged.
         let mut joined = state.clone();
         let state_changed = joined.join(in_state)?;
-        let frame_changed = frame.join(in_frame)?;
+        let frame_changed = frame.join(in_frame, at)?;
         *state = joined;
         Ok(frame_changed || state_changed)
     }

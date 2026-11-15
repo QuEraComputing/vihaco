@@ -667,7 +667,7 @@ where
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
         use vihaco_verifier::TypedSlot as _;
         for value in cx.pop_n(self.0 as usize)? {
-            value.expect(&vihaco_abi::Type::U64)?;
+            value.check(&vihaco_abi::Type::U64)?;
         }
         Ok(())
     }

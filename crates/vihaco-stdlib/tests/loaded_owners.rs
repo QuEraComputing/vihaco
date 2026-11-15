@@ -371,12 +371,11 @@ execution::program::ret 1";
     let rejection =
         vihaco_verifier::verify_module(&module, vihaco_verifier::VerifyOptions::default())
             .unwrap_err();
+    let rendered = rejection.diagnostics[0].display_with(&module).to_string();
     assert_eq!(
-        rejection.diagnostics[0].kind,
-        vihaco_verifier::DiagnosticKind::TypeMismatch {
-            expected: "array u64".into(),
-            found: "array struct 0".into()
-        }
+        rendered,
+        "error: operand 0 of `cpu::cpu::array_get`: expected array u64, found array struct \
+         Point\n  --> @main+3 (address 3): cpu::cpu::array_get U64"
     );
     // Constructing the image verifies it, so only the escape hatch runs it.
     let error = load_struct_program(ill_typed).unwrap_err();
@@ -401,7 +400,7 @@ execution::program::ret 1",
     )
     .unwrap_err();
     assert!(
-        format!("{error:#}").contains("undefined struct `Line`"),
+        format!("{error:#}").contains("lowering @main+1 (address 1): undefined struct `@Line`"),
         "{error:#}"
     );
 }
@@ -433,11 +432,11 @@ execution::program::ret 1",
     .unwrap();
     assert_eq!(stack, [7]);
     for (body, message) in [
-        ("cpu::cpu::wrap @lane", "undefined named type `lane`"),
+        ("cpu::cpu::wrap @lane", "undefined named type `@lane`"),
         ("cpu::cpu::wrap 1", "outside the named-type table"),
         (
             "cpu::cpu::array_new type @lane, 1",
-            "undefined named type `lane`",
+            "undefined named type `@lane`",
         ),
         (
             "cpu::cpu::array_get array type 3",

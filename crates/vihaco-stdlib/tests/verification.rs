@@ -18,8 +18,10 @@ use vihaco_module::{
     loader::MetadataLoweringContext,
     module::{LocalModule, ProgramMetadata},
 };
-use vihaco_runtime::{HasInstructionSet, Parse, chumsky::prelude::*};
-use vihaco_verifier::{DiagnosticKind, VerifyOptions, verify_module};
+use vihaco_runtime::HasInstructionSet;
+use vihaco_verifier::{
+    Diagnostic, DiagnosticKind, Expected, TypeSlot, VerifyError, VerifyOptions, verify_module,
+};
 
 #[cfg(feature = "program-image-execution")]
 mod machine {
@@ -94,21 +96,19 @@ use machine::Machine;
 
 type Module = LocalModule<<Machine as HasInstructionSet>::Runtime, Value, Type>;
 
-struct Header(ProgramMetadata);
+/// A header holding only program metadata, with types written as `Ty`.
+struct Header<Ty = Type>(ProgramMetadata<Value, Ty>);
 
-impl FromText for Header {
+impl<Ty> FromText for Header<Ty>
+where
+    ProgramMetadata<Value, Ty>: FromText,
+{
     fn from_text(text: &str) -> eyre::Result<Self> {
-        ProgramMetadata::parser()
-            .padded_by(vihaco_syntax::skip())
-            .then_ignore(end())
-            .parse(text)
-            .into_result()
-            .map(Self)
-            .map_err(|errors| eyre::eyre!("invalid metadata: {errors:?}"))
+        ProgramMetadata::from_text(text).map(Self)
     }
 }
 
-impl SstHeader for Header {}
+impl<Ty> SstHeader for Header<Ty> where ProgramMetadata<Value, Ty>: FromText {}
 
 /// One function of a test program. Parameters are named `p0`, `p1`, …;
 /// `locals` lists the locals declared after the parameters.
@@ -229,22 +229,70 @@ fn load(functions: &[Function]) -> eyre::Result<Module> {
     .lower_with_metadata(metadata, &mut context)
 }
 
-/// Verify a program, returning its diagnostics as `(function, address, kind)`;
-/// empty when it verifies without warnings.
+/// [`load`], with every type position parsed as a `SourceType`, so structs
+/// and named types may be written by name (`struct @Pair`) in function
+/// headers, `locals`, and struct fields; names resolve against the header's
+/// own tables.
+#[cfg(feature = "program-image-execution")]
+fn load_named(functions: &[Function]) -> eyre::Result<Module> {
+    use vihaco_module::module::SourceType;
+    let source = sst(functions);
+    let file = SstFile::<NoContext>::from_text(&source)?;
+    let vihaco_syntax::ParsedModule { header, functions } = vihaco_syntax::ParsedModule::<
+        <Machine as HasInstructionSet>::Syntax,
+        SourceType,
+        Header<SourceType>,
+    >::parse_section(file.root())?;
+    let metadata = header.0.resolve_types::<Type>()?;
+    let mut context = MetadataLoweringContext::new(&metadata)?;
+    let code = vihaco_syntax::lower_functions_with_metadata(functions, &metadata, &mut context)?;
+    metadata.into_module(code)
+}
+
+/// Every diagnostic of a program, errors and warnings.
+fn diagnostics(module: &Module) -> Vec<Diagnostic> {
+    match verify_module(module, VerifyOptions::default()) {
+        Ok(verification) => verification.warnings,
+        Err(rejection) => rejection.diagnostics,
+    }
+}
+
+/// Verify a program, returning its diagnostics as `(function, address, kind)`,
+/// with a type mismatch's role dropped (see [`rendered`] for roles); empty
+/// when it verifies without warnings.
 fn verify(functions: &[Function]) -> Vec<(u32, u32, DiagnosticKind)> {
     let module = load(functions).unwrap_or_else(|error| panic!("{error:#}"));
-    match verify_module(&module, VerifyOptions::default()) {
-        Ok(verification) => verification
-            .warnings
-            .into_iter()
-            .map(|d| (d.function, d.address, d.kind))
-            .collect(),
-        Err(rejection) => rejection
-            .diagnostics
-            .into_iter()
-            .map(|d| (d.function, d.address, d.kind))
-            .collect(),
-    }
+    diagnostics(&module)
+        .into_iter()
+        .map(|d| {
+            let kind = match d.kind {
+                DiagnosticKind::TypeMismatch {
+                    expected, found, ..
+                } => DiagnosticKind::TypeMismatch {
+                    role: None,
+                    expected,
+                    found,
+                },
+                kind => kind,
+            };
+            (d.function, d.address, kind)
+        })
+        .collect()
+}
+
+/// Verify a program, returning each diagnostic as rendered with the module's
+/// names, with the build's device routes written back as `P::` and `C::`.
+fn rendered(functions: &[Function]) -> Vec<String> {
+    let module = load(functions).unwrap_or_else(|error| panic!("{error:#}"));
+    diagnostics(&module)
+        .iter()
+        .map(|d| {
+            d.display_with(&module)
+                .to_string()
+                .replace(machine::P, "P::")
+                .replace(machine::C, "C::")
+        })
+        .collect()
 }
 
 /// A one-function program.
@@ -263,11 +311,18 @@ fn main_fn<'a>(
     }
 }
 
+/// A type mismatch, from types as written (`an array` for any array).
 fn mismatch(expected: &str, found: &str) -> DiagnosticKind {
-    DiagnosticKind::TypeMismatch {
-        expected: expected.into(),
-        found: found.into(),
-    }
+    let expected = match expected {
+        "an array" => Expected::AnyArray,
+        ty => Type::from_text(ty).unwrap().into(),
+    };
+    VerifyError::type_mismatch(expected, TypeSlot::Known(Type::from_text(found).unwrap()))
+        .into_kind()
+}
+
+fn underflow(needed: usize, depth: usize) -> DiagnosticKind {
+    DiagnosticKind::StackUnderflow { needed, depth }
 }
 
 // ------------------------------------------------------------------ passing
@@ -462,7 +517,19 @@ fn conflicting_branch_types_are_reported_where_used() {
     ];
     assert_eq!(
         verify(&[main_fn(&["bool"], &["u64"], &[], &body)]),
-        [(0, 6, mismatch("u64", "u64 | f64"))]
+        [(
+            0,
+            6,
+            VerifyError::type_mismatch(
+                Type::U64,
+                TypeSlot::Conflict {
+                    first: Type::U64,
+                    second: Type::F64,
+                    join: Some(5)
+                }
+            )
+            .into_kind()
+        )]
     );
     // A conflict that is never used is harmless.
     let body = [
@@ -489,7 +556,16 @@ fn an_unbalanced_stack_at_a_join_is_reported() {
         "P::ret 1",        // 6: join, depth 1 or 2
     ];
     let errors = verify(&[main_fn(&["bool"], &["u64"], &[], &body)]);
-    let [(0, 6, DiagnosticKind::StackDepthMismatch { expected, found })] = errors[..] else {
+    let [
+        (
+            0,
+            6,
+            DiagnosticKind::StackDepthMismatch {
+                expected, found, ..
+            },
+        ),
+    ] = errors[..]
+    else {
         panic!("{errors:?}");
     };
     assert_eq!([expected.min(found), expected.max(found)], [1, 2]);
@@ -631,7 +707,7 @@ fn array_elements_are_typed() {
     let body = ["P::const_u64 1", "C::array_len", "P::ret 1"];
     assert_eq!(
         verify(&[main_fn(&[], &["u64"], &[], &body)]),
-        [(0, 1, mismatch("array _", "u64"))]
+        [(0, 1, mismatch("an array", "u64"))]
     );
     // A plain `heap` reference (here an argument) is never a typed array.
     let body = [
@@ -694,7 +770,7 @@ fn named_types_must_be_wrapped_and_unwrapped_explicitly() {
     );
     assert_eq!(
         errors(&["type 0"], &["P::load 0", "C::add_u64", "P::ret 0"]),
-        [(0, 1, DiagnosticKind::StackUnderflow)]
+        [(0, 1, underflow(2, 1))]
     );
     assert_eq!(
         errors(
@@ -755,7 +831,7 @@ fn indirect_calls_are_typed_by_their_signature_operand() {
             "P::call_indirect (u64) -> u64",
             "P::ret 1"
         ]),
-        [(0, 1, DiagnosticKind::StackUnderflow)]
+        [(0, 1, underflow(2, 1))]
     );
 }
 
@@ -824,8 +900,11 @@ fn indirect_call_signatures_may_name_structs_and_named_types() {
 
     // Unknown names are load-time errors.
     for (signature, message) in [
-        ("(struct @Line) -> u64", "undefined struct `Line`"),
-        ("(type @zone) -> u64", "undefined named type `zone`"),
+        (
+            "(struct @Line) -> u64",
+            "lowering @main+3 (address 3): undefined struct `@Line`",
+        ),
+        ("(type @zone) -> u64", "undefined named type `@zone`"),
     ] {
         let body = format!("P::call_indirect {signature}");
         let main = [
@@ -887,10 +966,7 @@ fn every_error_in_a_module_is_reported_in_address_order() {
     ]);
     assert_eq!(
         errors,
-        [
-            (0, 1, DiagnosticKind::StackUnderflow),
-            (1, 4, mismatch("f64", "u64")),
-        ]
+        [(0, 1, underflow(2, 1)), (1, 4, mismatch("f64", "u64")),]
     );
 }
 
@@ -951,5 +1027,196 @@ fn a_host_function_reference_of_the_wrong_type_fails_at_runtime() {
              function has type (f64) -> (f64)"
         ),
         "{error:#}"
+    );
+}
+
+// ------------------------------------------------------------------ messages
+
+/// Expected text with `C::` routes, as [`rendered`] writes them in this build:
+/// with `typed-declarations` alone the CPU owns both kinds of instruction,
+/// so every route reads `P::`.
+fn routes(text: &str) -> String {
+    if machine::P == machine::C {
+        text.replace("C::", "P::")
+    } else {
+        text.to_owned()
+    }
+}
+
+/// The one diagnostic of a one-function program, rendered with names.
+fn rendered_main(params: &[&str], ret: &[&str], locals: &[&str], body: &[&str]) -> String {
+    let [message] = rendered(&[main_fn(params, ret, locals, body)])
+        .try_into()
+        .unwrap_or_else(|all: Vec<String>| panic!("{all:#?}"));
+    message
+}
+
+#[test]
+fn diagnostics_name_types_roles_and_locations() {
+    // Point is struct 0, Pair struct 1.
+    assert_eq!(
+        rendered_main(
+            &["struct 1"],
+            &["i64"],
+            &[],
+            &["P::load 0", "C::get_field @Point.x", "P::ret 1"]
+        ),
+        routes(
+            "error: operand 0 of `C::get_field`: expected struct Point, found struct Pair\n  \
+         --> @main+1 (address 1): C::get_field FieldSlot { struct_id: 0, slot: 0 }"
+        )
+    );
+    assert_eq!(
+        rendered_main(
+            &[],
+            &[],
+            &[],
+            &[
+                "P::const_u64 1",
+                "P::const_f64 2.0",
+                "C::struct_new @Point",
+                "P::halt"
+            ]
+        ),
+        routes(
+            "error: field Point.x: expected i64, found u64\n  \
+         --> @main+2 (address 2): C::struct_new StructLayout { struct_id: 0, field_count: 2 }"
+        )
+    );
+    assert_eq!(
+        rendered_main(&["f64"], &["u64"], &[], &["P::load_u64 0", "P::ret 1"]),
+        "error: local 0 is declared f64, but `P::load_u64` accesses it as u64 (use the access \
+         for f64, or the untyped one)\n  --> @main+0 (address 0): P::load_u64 0"
+    );
+    assert_eq!(
+        rendered_main(&[], &["u64"], &[], &["P::const_f64 1.0", "P::ret 1"]),
+        "error: return value 0 of @main: expected u64, found f64\n  \
+         --> @main+1 (address 1): P::ret 1"
+    );
+    assert_eq!(
+        rendered_main(&[], &[], &[], &["P::const_u64 1", "C::add_u64", "P::halt"]),
+        routes(
+            "error: stack underflow: `C::add_u64` needs 2 operands, but the stack has 1\n  \
+         --> @main+1 (address 1): C::add_u64"
+        )
+    );
+    let helper = ["P::load_u64 0", "P::ret 1"];
+    let calls = rendered(&[
+        main_fn(
+            &[],
+            &["u64"],
+            &[],
+            &["P::const_f64 1.0", "P::call 1, @helper", "P::ret 1"],
+        ),
+        Function {
+            name: "helper",
+            params: &["u64"],
+            ret: &["u64"],
+            locals: &[],
+            body: &helper,
+        },
+    ]);
+    assert_eq!(
+        calls,
+        [
+            "error: argument 0 (p0) of @helper: expected u64, found f64\n  \
+          --> @main+1 (address 1): P::call 1, 3"
+        ]
+    );
+}
+
+#[test]
+fn diagnostics_at_joins_name_both_paths() {
+    let unbalanced = [
+        "P::load_bool 0",  // 0
+        "P::cond_br 2, 4", // 1
+        "P::const_u64 1",  // 2
+        "P::br 6",         // 3
+        "P::const_u64 1",  // 4
+        "P::const_u64 2",  // 5
+        "P::ret 1",        // 6: join, depth 1 or 2
+    ];
+    assert_eq!(
+        rendered_main(&["bool"], &["u64"], &[], &unbalanced),
+        "error: operand stack depth differs where paths join: 1 from @main+3 (P::br 6), 2 from \
+         @main+5 (falling through)\n  --> @main+6 (address 6): P::ret 1"
+    );
+    let conflicting = [
+        "P::load_bool 0",   // 0
+        "P::cond_br 2, 4",  // 1
+        "P::const_u64 1",   // 2
+        "P::br 5",          // 3
+        "P::const_f64 1.0", // 4
+        "P::const_u64 1",   // 5: join, top below is u64 or f64
+        "C::add_u64",       // 6
+        "P::ret 1",         // 7
+    ];
+    assert_eq!(
+        rendered_main(&["bool"], &["u64"], &[], &conflicting),
+        routes(
+            "error: operand 0 of `C::add_u64`: expected u64, found u64 or f64 (paths disagree at \
+         join @main+5)\n  --> @main+6 (address 6): C::add_u64"
+        )
+    );
+}
+
+#[test]
+fn structural_diagnostics_name_the_function_and_its_range() {
+    let rendered = rendered(&[main_fn(&[], &[], &[], &["P::br 99", "P::halt"])]);
+    assert_eq!(
+        rendered,
+        [
+            "error: jump target 99 is outside @main (addresses 0..2)\n  \
+             --> @main+0 (address 0): P::br 99",
+            "warning: unreachable code\n  --> @main+1 (address 1): P::halt",
+        ]
+    );
+    // The rejection lists them all, with names.
+    let module = load(&[main_fn(&[], &[], &[], &["P::br 99", "P::halt"])]).unwrap();
+    let rejection = verify_module(&module, VerifyOptions::default()).unwrap_err();
+    let shown = rejection
+        .display_with(&module)
+        .to_string()
+        .replace(machine::P, "P::");
+    assert!(
+        shown.starts_with(
+            "verification failed with 1 error\nerror: jump target 99 is outside @main \
+             (addresses 0..2)\n"
+        ),
+        "{shown}"
+    );
+}
+
+/// Names are accepted in every type position: function headers, `locals`
+/// and signatures in the metadata, resolved against the header's tables.
+#[cfg(feature = "program-image-execution")]
+#[test]
+fn function_headers_and_locals_may_name_struct_types() {
+    let program = [main_fn(
+        &["struct @Point"],
+        &["f64"],
+        &["struct @Point"],
+        &[
+            "P::load 0",
+            "P::store 1",
+            "P::load 1",
+            "C::get_field @Point.y",
+            "P::ret 1",
+        ],
+    )];
+    let module = load_named(&program).unwrap();
+    assert_eq!(module.functions[0].signature.params[0].ty, Type::Struct(0));
+    assert_eq!(
+        module.functions[0].locals,
+        [Type::Struct(0), Type::Struct(0)]
+    );
+    verify_module(&module, VerifyOptions::default()).unwrap();
+
+    // An unknown name is reported at its metadata path.
+    let typo = [main_fn(&["struct @Pointt"], &[], &[], &["P::halt"])];
+    let error = load_named(&typo).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "metadata.functions[0].signature.params[0].ty: undefined struct `@Pointt`"
     );
 }

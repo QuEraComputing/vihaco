@@ -7,14 +7,14 @@
 use std::collections::BTreeSet;
 
 use vihaco_module::module::{
-    FieldInfo, FunctionInfo, LocalModule, NamedTypeInfo, NoInfo, Parameter, ProgramMetadata,
-    Signature, StructInfo,
+    FieldInfo, FrameError, FunctionInfo, LocalModule, NamedTypeInfo, NoInfo, Parameter,
+    ProgramMetadata, Signature, StructInfo,
 };
 use vihaco_verifier::{
-    AbstractState, ComponentState, Constants, DiagnosticKind, Flow, Frame, FunctionType, Locals,
-    ModuleVerifier, NamedTypes, OperandStack, Signatures, StructTypes, Type, TypeSlot, TypedSlot,
-    Value, Verify, VerifyError, VerifyOptions, WithState, call_effect, indirect_call_effect,
-    return_effect, verify_module,
+    AbstractState, ComponentState, Constants, DiagnosticKind, Flow, Frame, FunctionType, JoinPoint,
+    Locals, ModuleVerifier, NamedTypes, OperandStack, Predecessor, Role, Signatures, StructTypes,
+    Table, Type, TypeSlot, TypedSlot, Value, Verify, VerifyError, VerifyOptions, WithState,
+    call_effect, indirect_call_effect, return_effect, verify_module,
 };
 
 /// A fixture dialect written only against the standard capabilities.
@@ -67,11 +67,11 @@ where
             }
             Load(index, ty) => {
                 let slot = cx.local(*index)?.clone();
-                slot.expect(ty)?;
+                slot.check(ty)?;
                 cx.push(slot);
             }
             Store(index, ty) => {
-                let slot = cx.pop_expect(ty)?;
+                let slot = cx.pop_typed(ty)?;
                 cx.set_local(*index, slot)?;
             }
             Call { arity, address } => {
@@ -81,12 +81,12 @@ where
             CallIndirect(ty) => indirect_call_effect(cx, ty)?,
             Ret(count) => return_effect(cx, *count as usize)?,
             GetField(struct_id, slot) => {
-                cx.pop_expect(&Type::Struct(*struct_id))?;
+                cx.pop_typed(&Type::Struct(*struct_id))?;
                 let ty = cx.field_type(*struct_id, *slot)?.clone();
                 cx.push(C::Slot::of_type(ty));
             }
             CondBr(..) => {
-                cx.pop_expect(&Type::Bool)?;
+                cx.pop_typed(&Type::Bool)?;
             }
             Br(_) => {}
         }
@@ -112,11 +112,12 @@ fn decl(params: &[Type], ret: &[Type], extra: &[Type], span: (u32, u32)) -> Decl
     }
 }
 
-fn function(decl: Decl) -> FunctionInfo<Type> {
+/// Function `index` of a module: named `main`, `f1`, `f2`, … (strings 0, 7, 8).
+fn function((index, decl): (usize, Decl)) -> FunctionInfo<Type> {
     let mut locals = decl.params.clone();
     locals.extend(decl.extra);
     FunctionInfo {
-        name: 0,
+        name: if index == 0 { 0 } else { 6 + index as u32 },
         signature: Signature {
             params: decl
                 .params
@@ -136,7 +137,7 @@ fn function(decl: Decl) -> FunctionInfo<Type> {
 /// a `Point { x: f64, y: i64 }` struct and three constants.
 fn module<I>(code: Vec<I>, functions: Vec<Decl>) -> LocalModule<I, Value, Type> {
     ProgramMetadata {
-        functions: functions.into_iter().map(function).collect(),
+        functions: functions.into_iter().enumerate().map(function).collect(),
         structs: vec![StructInfo {
             name: 1,
             fields: vec![
@@ -170,6 +171,8 @@ fn module<I>(code: Vec<I>, functions: Vec<Decl>) -> LocalModule<I, Value, Type> 
             "hello".into(),
             "location".into(),
             "flag".into(),
+            "f1".into(),
+            "f2".into(),
         ],
         main_function: Some(0),
         source_symbols: vec![],
@@ -204,11 +207,37 @@ fn single(
     errors(&module(code, vec![decl(params, ret, extra, (0, len))]))
 }
 
-fn mismatch(expected: &str, found: &str) -> DiagnosticKind {
-    DiagnosticKind::TypeMismatch {
-        expected: expected.into(),
-        found: found.into(),
+/// A type mismatch with no role, as the fixture's typed pops report it.
+fn mismatch(expected: Type, found: Type) -> DiagnosticKind {
+    VerifyError::type_mismatch(expected, TypeSlot::Known(found)).into_kind()
+}
+
+/// A type mismatch with a role, as the standard helpers report it.
+fn typed(role: Role, expected: Type, found: Type) -> DiagnosticKind {
+    VerifyError::type_mismatch(expected, TypeSlot::Known(found))
+        .with_role(role)
+        .into_kind()
+}
+
+fn argument(callee: u32, index: u32) -> Role {
+    Role::Argument {
+        callee: Some(callee),
+        index,
     }
+}
+
+/// A mismatch whose value is a conflict between `a` and `b` at join `join`.
+fn conflict(expected: Type, a: Type, b: Type, join: u32) -> DiagnosticKind {
+    let found = TypeSlot::Conflict {
+        first: a,
+        second: b,
+        join: Some(join),
+    };
+    VerifyError::type_mismatch(expected, found).into_kind()
+}
+
+fn underflow(needed: usize, depth: usize) -> DiagnosticKind {
+    DiagnosticKind::StackUnderflow { needed, depth }
 }
 
 fn rule(message: &str) -> DiagnosticKind {
@@ -238,7 +267,7 @@ fn locals_enter_typed_from_their_declarations() {
     );
     assert_eq!(
         single(vec![Load(1, Type::I64), Ret(1)], params, ret, extra),
-        [(0, 0, mismatch("i64", "f64"))]
+        [(0, 0, mismatch(Type::I64, Type::F64))]
     );
     assert_eq!(
         single(vec![Load(2, Type::I64), Ret(1)], params, ret, extra),
@@ -283,7 +312,7 @@ fn stores_retype_locals_and_joins_merge_them() {
             &[Type::I64],
             &[],
         ),
-        [(0, 2, mismatch("i64", "f64"))]
+        [(0, 2, mismatch(Type::I64, Type::F64))]
     );
     // Retyped on one arm only: the join holds a conflict.
     assert_eq!(
@@ -300,7 +329,7 @@ fn stores_retype_locals_and_joins_merge_them() {
             &[Type::I64],
             &[],
         ),
-        [(0, 4, mismatch("i64", "i64 | f64"))]
+        [(0, 4, conflict(Type::I64, Type::I64, Type::F64, 4))]
     );
 }
 
@@ -369,7 +398,10 @@ fn calls_are_checked_against_the_callee_signature() {
         Load(0, Type::U64),
         Ret(1),
     ]);
-    assert_eq!(errors(&swapped), [(0, 2, mismatch("i64", "f64"))]);
+    assert_eq!(
+        errors(&swapped),
+        [(0, 2, typed(argument(1, 0), Type::I64, Type::F64))]
+    );
 
     // Too few operands is an underflow, not a reach into the locals.
     let short = callee(vec![
@@ -380,7 +412,7 @@ fn calls_are_checked_against_the_callee_signature() {
         Load(0, Type::U64),
         Ret(1),
     ]);
-    assert_eq!(errors(&short), [(0, 2, mismatch("u64", "i64"))]);
+    assert_eq!(errors(&short), [(0, 2, mismatch(Type::U64, Type::I64))]);
     let short = callee(vec![
         Const(Type::I64),
         call(2),
@@ -389,7 +421,7 @@ fn calls_are_checked_against_the_callee_signature() {
         Load(0, Type::U64),
         Ret(1),
     ]);
-    assert_eq!(errors(&short), [(0, 1, DiagnosticKind::StackUnderflow)]);
+    assert_eq!(errors(&short), [(0, 1, underflow(2, 1))]);
 
     // A call by address must name a function's first instruction.
     let nowhere = callee(vec![
@@ -406,7 +438,7 @@ fn calls_are_checked_against_the_callee_signature() {
     assert_eq!(
         errors(&nowhere),
         [
-            (0, 0, rule("no function starts at address 7")),
+            (0, 0, DiagnosticKind::NoFunctionAt { address: 7 }),
             (0, 3, DiagnosticKind::Unreachable),
         ]
     );
@@ -455,11 +487,11 @@ fn returns_are_checked_against_the_current_signature() {
     );
     assert_eq!(
         single(vec![Const(Type::I64), Ret(1)], &[], ret, &[]),
-        [(0, 1, mismatch("u64", "i64"))]
+        [(0, 1, typed(Role::Return(0), Type::U64, Type::I64))]
     );
     assert_eq!(
         single(vec![Ret(1)], &[], ret, &[]),
-        [(0, 0, DiagnosticKind::StackUnderflow)]
+        [(0, 0, underflow(1, 0))]
     );
 }
 
@@ -482,7 +514,7 @@ fn struct_fields_are_typed_from_the_struct_table() {
             &[Type::I64],
             &[]
         ),
-        [(0, 2, mismatch("i64", "f64"))]
+        [(0, 2, typed(Role::Return(0), Type::I64, Type::F64))]
     );
     assert_eq!(
         single(
@@ -494,7 +526,11 @@ fn struct_fields_are_typed_from_the_struct_table() {
         [(
             0,
             1,
-            rule("field slot 2 is outside struct 0, which has 2 fields")
+            DiagnosticKind::UnknownField {
+                struct_id: 0,
+                field: 2,
+                field_count: 2
+            }
         )]
     );
     assert_eq!(
@@ -504,7 +540,7 @@ fn struct_fields_are_typed_from_the_struct_table() {
             &[Type::I64],
             &[]
         ),
-        [(0, 1, mismatch("struct 0", "i64"))]
+        [(0, 1, mismatch(Type::Struct(0), Type::I64))]
     );
 }
 
@@ -520,14 +556,18 @@ fn constants_are_typed_from_the_constant_table() {
     );
     assert_eq!(
         single(vec![Constant(0), Ret(1)], &[], &[Type::F64], &[]),
-        [(0, 1, mismatch("f64", "u64"))]
+        [(0, 1, typed(Role::Return(0), Type::F64, Type::U64))]
     );
     assert_eq!(
         single(vec![Constant(3), Ret(1)], &[], &[Type::F64], &[]),
         [(
             0,
             0,
-            rule("constant 3 is outside the constant table of length 3")
+            DiagnosticKind::UnknownEntry {
+                table: Table::Constants,
+                index: 3,
+                len: 3
+            }
         )]
     );
 }
@@ -565,8 +605,8 @@ fn every_function_is_verified_from_its_own_entry_state() {
         errors(&unfixed),
         [
             (0, 6, DiagnosticKind::Unreachable),
-            (1, 2, DiagnosticKind::StackUnderflow),
-            (2, 8, mismatch("u64", "i64")),
+            (1, 2, underflow(1, 0)),
+            (2, 8, typed(Role::Return(0), Type::U64, Type::I64)),
         ]
     );
 
@@ -633,7 +673,7 @@ fn signatures_resolve_addresses_and_the_current_function() {
     assert!(cx.field_count(1).is_err());
     assert_eq!(cx.constant_count(), 3);
     assert_eq!(cx.constant(0).unwrap(), &Value::U64(7));
-    assert_eq!(cx.string_count(), 7);
+    assert_eq!(cx.string_count(), 9);
     assert_eq!(cx.function_spans().len(), 3);
     assert_eq!(
         cx.entry_frame(1),
@@ -660,15 +700,31 @@ fn unvalidated_frame_metadata_is_rejected_per_function() {
             (
                 1,
                 2,
-                rule("local 0 is declared f64, but parameter 0 is i64")
+                DiagnosticKind::InvalidFrame(FrameError::LocalDisagreesWithParameter {
+                    index: 0,
+                    local: Type::F64,
+                    parameter: Type::I64
+                })
             ),
-            (2, 4, rule("function declares 0 locals but 1 parameters")),
+            (
+                2,
+                4,
+                DiagnosticKind::InvalidFrame(FrameError::FewerLocalsThanParameters {
+                    locals: 0,
+                    parameters: 1
+                })
+            ),
         ]
     );
     module.functions[2].locals = vec![Type::U64; vihaco_module::module::MAX_LOCALS + 1];
     let errors = errors(&module);
     assert_eq!(errors.len(), 2);
-    assert!(matches!(&errors[1].2, DiagnosticKind::Rule(m) if m.contains("more than the maximum")));
+    assert_eq!(
+        errors[1].2,
+        DiagnosticKind::InvalidFrame(FrameError::TooManyLocals {
+            count: vihaco_module::module::MAX_LOCALS + 1
+        })
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -815,7 +871,7 @@ fn a_machine_context_wraps_the_module_verifier_with_component_state() {
     );
     assert_eq!(
         verify(vec![O(Const(Type::F64)), O(Ret(1))]).unwrap_err(),
-        [(1, mismatch("i64", "f64"))]
+        [(1, typed(Role::Return(0), Type::I64, Type::F64))]
     );
 }
 
@@ -943,7 +999,13 @@ fn component_states_combine_as_tuples_and_fail_atomically() {
         Open(BTreeSet::new()),
     );
     let before = saved.clone();
-    assert!(<WithState<'_, Open> as AbstractState>::join(&mut saved, &incoming).is_err());
+    let at = JoinPoint {
+        function: 0,
+        address: 0,
+        saved_from: Predecessor::Entry,
+        incoming_from: Predecessor::Jump(3),
+    };
+    assert!(<WithState<'_, Open> as AbstractState>::join(&mut saved, &incoming, &at).is_err());
     assert_eq!(saved, before);
 }
 
@@ -962,7 +1024,7 @@ fn a_wrapper_can_reach_the_inner_verifier() {
     assert_eq!(cx.function_spans()[0].entry, (Frame::new(vec![]), ()));
     assert!(cx.verify(&module.code, VerifyOptions::default()).is_ok());
     let inner = cx.into_verifier();
-    assert_eq!(inner.strings().len(), 7);
+    assert_eq!(inner.strings().len(), 9);
 }
 
 #[test]
@@ -980,11 +1042,17 @@ fn named_types_resolve_names_and_representations() {
     assert_eq!(cx.named_type_repr(1).unwrap(), &Type::Bool);
     assert_eq!(
         cx.named_type_index("Point").unwrap_err().kind(),
-        &rule("undefined named type `Point`")
+        &DiagnosticKind::UndefinedNamedType {
+            name: "Point".into()
+        }
     );
     assert_eq!(
         cx.named_type_repr(2).unwrap_err().kind(),
-        &rule("named type 2 is outside the named-type table of length 2")
+        &DiagnosticKind::UnknownEntry {
+            table: Table::NamedTypes,
+            index: 2,
+            len: 2
+        }
     );
 
     // A wrapping context delegates the capability.

@@ -18,7 +18,8 @@
 use crate::cpu;
 use vihaco_abi::{Type, Verify};
 use vihaco_verifier::{
-    NamedTypes, OperandStack, StructTypes, TypedSlot, VerifyError, pop_array, stack_effect,
+    NamedTypes, OperandStack, Role, StructTypes, TypedSlot, VerifyError, pop_array,
+    set_field_effect, stack_effect, struct_new_effect,
 };
 
 /// Fixed-signature rules: `Instruction: [inputs] -> [outputs]`, inputs bottom
@@ -112,8 +113,10 @@ where
         let cpu::ArrayNew(elem, count) = self;
         let array = array_of(elem)?;
         // Bounded: one underflow, however large the count.
-        for value in cx.pop_n(*count as usize)? {
-            value.expect(elem)?;
+        for (index, value) in cx.pop_n(*count as usize)?.iter().enumerate() {
+            value
+                .check(elem)
+                .map_err(|error| error.with_role(Role::Operand(index as u32)))?;
         }
         cx.push(C::Slot::of_type(array));
         Ok(())
@@ -190,25 +193,9 @@ where
     C::Slot: TypedSlot,
 {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
-        let struct_id = self.0.struct_id;
-        let count = cx.field_count(struct_id)?;
         // The CPU pops the layout's count; lowering takes it from the table,
-        // but a module built directly could disagree.
-        if self.0.field_count as usize != count {
-            return Err(vihaco_verifier::VerifyError::rule(format!(
-                "struct_new pops {} fields, but struct {struct_id} declares {count}",
-                self.0.field_count
-            ))
-            .into());
-        }
-        let fields = (0..count as u32)
-            .map(|slot| cx.field_type(struct_id, slot).cloned())
-            .collect::<Result<Vec<_>, _>>()?;
-        for (value, ty) in cx.pop_n(count)?.iter().zip(&fields) {
-            value.expect(ty)?;
-        }
-        cx.push(C::Slot::of_type(Type::Struct(struct_id)));
-        Ok(())
+        // but a module built directly could disagree, which the helper reports.
+        struct_new_effect(cx, self.0.struct_id, self.0.field_count)
     }
 }
 
@@ -233,8 +220,7 @@ where
 {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
         let crate::FieldSlot { struct_id, slot } = self.0;
-        let field = cx.field_type(struct_id, slot)?.clone();
-        stack_effect(cx, [Type::Struct(struct_id), field], [])
+        set_field_effect(cx, struct_id, slot)
     }
 }
 
@@ -278,7 +264,7 @@ mod tests {
         FieldInfo, FunctionInfo, LocalModule, NamedTypeInfo, Parameter, Signature, StructInfo,
     };
     use vihaco_verifier::{
-        AbstractState, DiagnosticKind, Frame, ModuleVerifier, TypeSlot, VerifyError,
+        AbstractState, DiagnosticKind, Frame, ModuleVerifier, Table, TypeSlot, VerifyError,
     };
 
     pub(super) fn module() -> LocalModule<(), Value, Type> {
@@ -340,7 +326,7 @@ mod tests {
 
     /// Verify `instruction` in `main` with `stack` as its operands (bottom
     /// first), returning the resulting operands or the diagnostic.
-    pub(super) fn check<I>(instruction: &I, stack: &[Type]) -> Result<Vec<String>, DiagnosticKind>
+    pub(super) fn verify<I>(instruction: &I, stack: &[Type]) -> Result<Vec<String>, VerifyError>
     where
         I: for<'m> Verify<ModuleVerifier<'m>>,
     {
@@ -358,21 +344,58 @@ mod tests {
                 .map(ToString::to_string)
                 .collect()),
             Err(report) => Err(match report.downcast::<VerifyError>() {
-                Ok(error) => error.kind().clone(),
-                Err(report) => DiagnosticKind::Rule(report.to_string()),
+                Ok(error) => error,
+                Err(report) => VerifyError::rule(report),
             }),
         }
+    }
+
+    /// [`verify`], with a type mismatch's role dropped so [`mismatch`] can
+    /// compare it; [`message`] shows the role.
+    pub(super) fn check<I>(instruction: &I, stack: &[Type]) -> Result<Vec<String>, DiagnosticKind>
+    where
+        I: for<'m> Verify<ModuleVerifier<'m>>,
+    {
+        verify(instruction, stack).map_err(|error| match error.into_kind() {
+            DiagnosticKind::TypeMismatch {
+                expected, found, ..
+            } => DiagnosticKind::TypeMismatch {
+                role: None,
+                expected,
+                found,
+            },
+            kind => kind,
+        })
+    }
+
+    /// The message `instruction` is rejected with.
+    pub(super) fn message<I>(instruction: &I, stack: &[Type]) -> String
+    where
+        I: for<'m> Verify<ModuleVerifier<'m>>,
+    {
+        verify(instruction, stack).unwrap_err().to_string()
     }
 
     pub(super) fn ok(types: &[&str]) -> Result<Vec<String>, DiagnosticKind> {
         Ok(types.iter().map(|ty| ty.to_string()).collect())
     }
 
+    /// A type mismatch, from types as written (`an array` for any array).
     pub(super) fn mismatch(expected: &str, found: &str) -> Result<Vec<String>, DiagnosticKind> {
+        use vihaco_abi::traits::FromText;
+        let expected = match expected {
+            "an array" => vihaco_verifier::Expected::AnyArray,
+            ty => Type::from_text(ty).unwrap().into(),
+        };
         Err(DiagnosticKind::TypeMismatch {
-            expected: expected.into(),
-            found: found.into(),
+            role: None,
+            expected,
+            found: TypeSlot::Known(Type::from_text(found).unwrap()),
         })
+    }
+
+    pub(super) fn underflow(needed: usize, depth: usize) -> Result<Vec<String>, DiagnosticKind> {
+        Err(DiagnosticKind::StackUnderflow { needed, depth })
     }
 
     pub(super) fn flow<I: for<'m> Verify<ModuleVerifier<'m>>>(instruction: &I) -> Flow {
@@ -401,10 +424,7 @@ mod tests {
         assert_eq!(check(&cpu::And, &[Bool, Bool]), ok(&["bool"]));
         assert_eq!(check(&cpu::Not, &[U64]), mismatch("bool", "u64"));
         // Underflow is reported once, before anything is popped.
-        assert_eq!(
-            check(&cpu::AddU64, &[U64]),
-            Err(DiagnosticKind::StackUnderflow)
-        );
+        assert_eq!(check(&cpu::AddU64, &[U64]), underflow(2, 1));
     }
 
     #[test]
@@ -421,7 +441,7 @@ mod tests {
         );
         assert_eq!(
             check(&cpu::ArrayNew(F64, u32::MAX), &[F64]),
-            Err(DiagnosticKind::StackUnderflow)
+            underflow(u32::MAX as usize, 1)
         );
         assert_eq!(
             check(&cpu::ArrayReserve(Type::Struct(0)), &[U64]),
@@ -453,7 +473,7 @@ mod tests {
         );
         assert_eq!(
             check(&cpu::ArrayLen, &[HeapRef]),
-            mismatch("array _", "heap")
+            mismatch("an array", "heap")
         );
         // `heap_dealloc` takes any heap object.
         for object in [HeapRef, Type::Struct(0), array_f64] {
@@ -502,7 +522,11 @@ mod tests {
         };
         assert!(matches!(
             check(&cpu::StructNew(short), &[I64]),
-            Err(DiagnosticKind::Rule(message)) if message.contains("declares 2")
+            Err(DiagnosticKind::FieldCountMismatch {
+                struct_id: 0,
+                declared: 2,
+                found: 1
+            })
         ));
         assert_eq!(
             check(&cpu::GetField(field(1)), std::slice::from_ref(&point_ty)),
@@ -528,7 +552,11 @@ mod tests {
                 }),
                 &[]
             ),
-            Err(DiagnosticKind::Rule(_))
+            Err(DiagnosticKind::UnknownEntry {
+                table: Table::Structs,
+                index: 3,
+                len: 1
+            })
         ));
     }
 
@@ -544,8 +572,57 @@ mod tests {
         assert_eq!(check(&cpu::Unwrap(0), &[U64]), mismatch("type 0", "u64"));
         assert!(matches!(
             check(&cpu::Wrap(2), &[U64]),
-            Err(DiagnosticKind::Rule(_))
+            Err(DiagnosticKind::UnknownEntry {
+                table: Table::NamedTypes,
+                index: 2,
+                len: 2
+            })
         ));
+    }
+
+    #[test]
+    fn rejections_say_what_the_mistyped_value_is() {
+        // Operands are numbered bottom first, as the stack effect lists them.
+        assert_eq!(
+            message(&cpu::AddU64, &[U64, F64]),
+            "operand 1 of the instruction: expected u64, found f64"
+        );
+        assert_eq!(
+            message(&cpu::AddU64, &[U64]),
+            "stack underflow: the instruction needs 2 operands, but the stack has 1"
+        );
+        let point = StructLayout {
+            struct_id: 0,
+            field_count: 2,
+        };
+        assert_eq!(
+            message(&cpu::StructNew(point), &[U64, F64]),
+            "field 0 of struct 0: expected i64, found u64"
+        );
+        let x = FieldSlot {
+            struct_id: 0,
+            slot: 0,
+        };
+        assert_eq!(
+            message(&cpu::SetField(x), &[Type::Struct(0), F64]),
+            "field 0 of struct 0: expected i64, found f64"
+        );
+        assert_eq!(
+            message(&cpu::SetField(x), &[U64, I64]),
+            "operand 0 of the instruction: expected struct 0, found u64"
+        );
+        assert_eq!(
+            message(&cpu::ArrayLen, &[U64]),
+            "operand 0 of the instruction: expected an array, found u64"
+        );
+        let short = StructLayout {
+            struct_id: 0,
+            field_count: 1,
+        };
+        assert_eq!(
+            message(&cpu::StructNew(short), &[I64]),
+            "the instruction pops 1 field, but struct 0 declares 2"
+        );
     }
 
     #[test]
@@ -762,11 +839,11 @@ mod program {
 
     #[cfg(test)]
     mod tests {
-        use super::super::tests::{check, flow, mismatch, ok};
+        use super::super::tests::{check, flow, message, mismatch, ok, underflow};
         use crate::cpu;
         use crate::word::{encode_function_ref, encode_string_id};
         use vihaco_abi::{Flow, FunctionType, Type};
-        use vihaco_verifier::DiagnosticKind;
+        use vihaco_verifier::{DiagnosticKind, Table};
 
         use Type::{Bool, F64, I64, U64};
 
@@ -818,7 +895,7 @@ mod program {
             );
             assert!(matches!(
                 check(&cpu::Call(0, 5), &[]),
-                Err(DiagnosticKind::Rule(message)) if message.contains("address 5")
+                Err(DiagnosticKind::NoFunctionAt { address: 5 })
             ));
             // An indirect call is typed by its operand.
             let unary = cpu::IndirectCall(FunctionType::new([U64], [Bool, F64]));
@@ -834,10 +911,7 @@ mod program {
                 check(&unary, &[I64, Type::FunctionRef]),
                 mismatch("u64", "i64")
             );
-            assert_eq!(
-                check(&unary, &[Type::FunctionRef]),
-                Err(DiagnosticKind::StackUnderflow)
-            );
+            assert_eq!(check(&unary, &[Type::FunctionRef]), underflow(2, 1));
         }
 
         #[test]
@@ -863,7 +937,39 @@ mod program {
                 Err(DiagnosticKind::LocalIndexOutOfRange { index: 9, count: 2 })
             );
             assert_eq!(check(&cpu::Dup, &[I64, F64]), ok(&["i64", "f64", "f64"]));
-            assert_eq!(check(&cpu::Dup, &[]), Err(DiagnosticKind::StackUnderflow));
+            assert_eq!(check(&cpu::Dup, &[]), underflow(1, 0));
+        }
+
+        #[test]
+        fn rejections_name_locals_arguments_and_returns() {
+            // `main` declares locals [u64, struct 0] and returns one u64;
+            // `helper` (address 1) takes one f64.
+            assert_eq!(
+                message(&cpu::LoadF64(0), &[]),
+                "local 0 is declared u64, but the instruction accesses it as f64 (use the \
+                 access for u64, or the untyped one)"
+            );
+            assert_eq!(
+                message(&cpu::Store(0), &[I64]),
+                "value stored to local 0: expected u64, found i64"
+            );
+            assert_eq!(
+                message(&cpu::Call(1, 1), &[U64]),
+                "argument 0 of function 1: expected f64, found u64"
+            );
+            assert_eq!(
+                message(&cpu::Return(1), &[F64]),
+                "return value 0 of function 0: expected u64, found f64"
+            );
+            let call = cpu::IndirectCall(FunctionType::new([U64], []));
+            assert_eq!(
+                message(&call, &[F64, Type::FunctionRef]),
+                "argument 0 of the indirect call: expected u64, found f64"
+            );
+            assert_eq!(
+                message(&call, &[U64, U64]),
+                "operand 1 of the instruction: expected fn, found u64"
+            );
         }
 
         #[test]
@@ -876,7 +982,11 @@ mod program {
             );
             assert!(matches!(
                 check(&cpu::ConstString(encode_string_id(7)), &[]),
-                Err(DiagnosticKind::Rule(message)) if message.contains("string 7")
+                Err(DiagnosticKind::UnknownEntry {
+                    table: Table::Strings,
+                    index: 7,
+                    len: 7
+                })
             ));
             assert_eq!(
                 check(&cpu::ConstFunctionRef(encode_function_ref(1)), &[]),
@@ -884,7 +994,11 @@ mod program {
             );
             assert!(matches!(
                 check(&cpu::ConstFunctionRef(encode_function_ref(2)), &[]),
-                Err(DiagnosticKind::Rule(_))
+                Err(DiagnosticKind::UnknownEntry {
+                    table: Table::Functions,
+                    index: 2,
+                    len: 2
+                })
             ));
         }
     }

@@ -11,7 +11,7 @@
 use vihaco_abi::Type;
 use vihaco_module::module::Signature;
 
-use crate::diagnostic::VerifyError;
+use crate::diagnostic::{Role, VerifyError};
 use crate::slot::TypedSlot;
 use crate::stack::OperandStack;
 
@@ -37,9 +37,11 @@ pub trait Locals: OperandStack {
 /// references.
 ///
 /// Function indices are positions in the module's function table. Lookups of
-/// an unknown function or address report a [`DiagnosticKind::Rule`] error.
+/// an unknown function report [`DiagnosticKind::UnknownEntry`], and of an
+/// address where no function starts [`DiagnosticKind::NoFunctionAt`].
 ///
-/// [`DiagnosticKind::Rule`]: crate::DiagnosticKind::Rule
+/// [`DiagnosticKind::UnknownEntry`]: crate::DiagnosticKind::UnknownEntry
+/// [`DiagnosticKind::NoFunctionAt`]: crate::DiagnosticKind::NoFunctionAt
 pub trait Signatures<Ty> {
     /// The number of functions in the function table.
     fn function_count(&self) -> usize;
@@ -78,10 +80,12 @@ pub trait Signatures<Ty> {
 /// `set_field`.
 ///
 /// Struct indices are positions in the struct table (`struct N`); field slots
-/// are positions in a struct's field list. Unknown indices report a
-/// [`DiagnosticKind::Rule`] error.
+/// are positions in a struct's field list. An unknown struct reports
+/// [`DiagnosticKind::UnknownEntry`], an unknown field
+/// [`DiagnosticKind::UnknownField`].
 ///
-/// [`DiagnosticKind::Rule`]: crate::DiagnosticKind::Rule
+/// [`DiagnosticKind::UnknownEntry`]: crate::DiagnosticKind::UnknownEntry
+/// [`DiagnosticKind::UnknownField`]: crate::DiagnosticKind::UnknownField
 pub trait StructTypes<Ty> {
     /// The number of structs in the struct table.
     fn struct_count(&self) -> usize;
@@ -98,10 +102,12 @@ pub trait StructTypes<Ty> {
 ///
 /// Named-type indices are positions in the table (`type N`). A device rule
 /// names its operand types by name (`named_type_index("location")`), so it
-/// works in any module that declares them. Unknown names and indices report a
-/// [`DiagnosticKind::Rule`] error.
+/// works in any module that declares them. An unknown name reports
+/// [`DiagnosticKind::UndefinedNamedType`], an unknown index
+/// [`DiagnosticKind::UnknownEntry`].
 ///
-/// [`DiagnosticKind::Rule`]: crate::DiagnosticKind::Rule
+/// [`DiagnosticKind::UnknownEntry`]: crate::DiagnosticKind::UnknownEntry
+/// [`DiagnosticKind::UndefinedNamedType`]: crate::DiagnosticKind::UndefinedNamedType
 pub trait NamedTypes<Ty> {
     /// The number of entries in the named-type table.
     fn named_type_count(&self) -> usize;
@@ -117,10 +123,10 @@ pub trait NamedTypes<Ty> {
 /// `const_string`.
 ///
 /// Constant indices are positions in the constant table, string indices
-/// positions in the string table. Unknown constants report a
-/// [`DiagnosticKind::Rule`] error.
+/// positions in the string table. Unknown constants report
+/// [`DiagnosticKind::UnknownEntry`].
 ///
-/// [`DiagnosticKind::Rule`]: crate::DiagnosticKind::Rule
+/// [`DiagnosticKind::UnknownEntry`]: crate::DiagnosticKind::UnknownEntry
 pub trait Constants<V, Ty> {
     /// The number of constants in the constant table.
     fn constant_count(&self) -> usize;
@@ -138,8 +144,8 @@ pub trait Constants<V, Ty> {
 /// Apply the stack effect of a direct call to function `callee` passing
 /// `arguments` operands: check the count against the callee's declared
 /// parameters ([`DiagnosticKind::CallArityMismatch`]), pop the arguments and
-/// check each against its parameter type, then push the declared results,
-/// and finally apply [`Signatures::after_call`].
+/// check each against its parameter type ([`Role::Argument`]), then push the
+/// declared results, and finally apply [`Signatures::after_call`].
 ///
 /// [`DiagnosticKind::CallArityMismatch`]: crate::DiagnosticKind::CallArityMismatch
 pub fn call_effect<C>(cx: &mut C, callee: u32, arguments: usize) -> eyre::Result<()>
@@ -153,8 +159,13 @@ where
         return Err(VerifyError::call_arity_mismatch(callee, declared, arguments).into());
     }
     let popped = cx.pop_n(declared)?;
-    for (argument, parameter) in popped.iter().zip(&signature.params) {
-        argument.expect(&parameter.ty)?;
+    for (index, (argument, parameter)) in popped.iter().zip(&signature.params).enumerate() {
+        argument.check(&parameter.ty).map_err(|error| {
+            error.with_role(Role::Argument {
+                callee: Some(callee),
+                index: index as u32,
+            })
+        })?;
     }
     for ty in signature.ret {
         cx.push(C::Slot::of_type(ty));
@@ -180,8 +191,10 @@ where
         return Err(VerifyError::return_count_mismatch(results.len(), count).into());
     }
     let kept = cx.pop_n(count)?;
-    for (value, ty) in kept.iter().zip(&results) {
-        value.expect(ty)?;
+    for (index, (value, ty)) in kept.iter().zip(&results).enumerate() {
+        value
+            .check(ty)
+            .map_err(|error| error.with_role(Role::Return(index as u32)))?;
     }
     Ok(())
 }

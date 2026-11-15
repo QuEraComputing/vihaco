@@ -53,7 +53,9 @@ source, and execution, which this page doesn't need) is folded away.
 use vihaco::{
     Execute, HasInstructionSet, Type, Value, Verified, Verify, component, composite, dialect,
     module::{LocalModule, ProgramMetadata},
-    verifier::{DiagnosticKind, OperandStack, TypeSlot, TypedSlot, VerifyOptions, stack_effect},
+    verifier::{
+        DiagnosticKind, OperandStack, Role, TypeSlot, TypedSlot, VerifyOptions, stack_effect,
+    },
 };
 # use vihaco::{
 #     NoContext, SstFile,
@@ -104,7 +106,7 @@ where
 {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
         for sample in cx.pop_n(self.0 as usize)? {
-            sample.expect(&Type::F64)?;
+            sample.check(&Type::F64)?;
         }
         cx.push(C::Slot::of_type(Type::F64));
         Ok(())
@@ -188,11 +190,16 @@ fn main() -> eyre::Result<()> {
     assert_eq!((error.function, error.address), (0, 2));
     assert_eq!(
         error.kind,
-        DiagnosticKind::TypeMismatch { expected: "f64".into(), found: "u64".into() }
+        DiagnosticKind::TypeMismatch {
+            role: Some(Role::Operand(0)),
+            expected: Type::F64.into(),
+            found: TypeSlot::Known(Type::U64),
+        }
     );
     assert_eq!(
         error.to_string(),
-        "error: function 0 at 2: type mismatch: expected f64, found u64"
+        "error: operand 0 of the instruction: expected f64, found u64\n  \
+         --> function 0, address 2"
     );
     // Rejections carry type maps too, so a tool can show types next to errors.
     assert!(rejection.type_maps.is_some());
@@ -310,7 +317,7 @@ where
     C::Slot: TypedSlot,
 {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
-        cx.pop_expect(&Type::U64)?;
+        cx.pop_typed(&Type::U64)?;
         Err(VerifyError::unverifiable("`sum_dynamic` pops its sample count from the stack").into())
     }
 }

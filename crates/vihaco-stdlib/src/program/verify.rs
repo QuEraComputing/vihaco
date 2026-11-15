@@ -241,7 +241,17 @@ mod tests {
                 .map(ToString::to_string)
                 .collect()),
             Err(report) => Err(match report.downcast::<VerifyError>() {
-                Ok(error) => error.kind().clone(),
+                Ok(error) => match error.into_kind() {
+                    // Roles are checked with the messages below.
+                    DiagnosticKind::TypeMismatch {
+                        expected, found, ..
+                    } => DiagnosticKind::TypeMismatch {
+                        role: None,
+                        expected,
+                        found,
+                    },
+                    kind => kind,
+                },
                 Err(report) => DiagnosticKind::Rule(report.to_string()),
             }),
         }
@@ -256,10 +266,41 @@ mod tests {
     }
 
     fn mismatch(expected: &str, found: &str) -> Result<Vec<String>, DiagnosticKind> {
+        use vihaco_abi::traits::FromText;
         Err(DiagnosticKind::TypeMismatch {
-            expected: expected.into(),
-            found: found.into(),
+            role: None,
+            expected: Type::from_text(expected).unwrap().into(),
+            found: TypeSlot::Known(Type::from_text(found).unwrap()),
         })
+    }
+
+    #[test]
+    fn rejections_name_the_local_or_argument() {
+        let message = |instruction: &dyn Fn(&mut ModuleVerifier<'_>) -> eyre::Result<()>| {
+            let module = module();
+            let mut cx = ModuleVerifier::new(&module);
+            let locals = cx.entry_frame(0).unwrap().locals().to_vec();
+            cx.restore(&Frame::with_operands(locals, vec![TypeSlot::Known(I64)]));
+            cx.set_address(0, 0);
+            instruction(&mut cx).unwrap_err().to_string()
+        };
+        assert_eq!(
+            message(&|cx| program::LoadF64(0).verify(cx)),
+            "local 0 is declared u64, but the instruction accesses it as f64 (use the access \
+             for u64, or the untyped one)"
+        );
+        assert_eq!(
+            message(&|cx| program::Store(0).verify(cx)),
+            "value stored to local 0: expected u64, found i64"
+        );
+        assert_eq!(
+            message(&|cx| program::Call(1, 1).verify(cx)),
+            "argument 0 of function 1: expected f64, found i64"
+        );
+        assert_eq!(
+            message(&|cx| program::ConstString(encode_string_id(2)).verify(cx)),
+            "string 2 is outside the string table (length 2)"
+        );
     }
 
     #[test]

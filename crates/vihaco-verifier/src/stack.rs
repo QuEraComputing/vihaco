@@ -8,9 +8,9 @@ use std::fmt;
 use vihaco_abi::Type;
 
 use crate::capability::Locals;
-use crate::diagnostic::VerifyError;
+use crate::diagnostic::{DiagnosticKind, Role, VerifyError};
 use crate::slot::{Lattice, TypedSlot};
-use crate::state::AbstractState;
+use crate::state::{AbstractState, JoinPoint};
 
 /// Capability: the abstract operand stack of the function being verified.
 ///
@@ -26,13 +26,14 @@ pub trait OperandStack {
     /// Pop the top operand.
     fn pop(&mut self) -> Result<Self::Slot, VerifyError>;
 
-    /// Pop the top operand, requiring it to satisfy `expected`.
-    fn pop_expect(&mut self, expected: &Type) -> Result<Self::Slot, VerifyError>
+    /// Pop the top operand, requiring it to satisfy `expected` (see
+    /// [`TypedSlot::check`]).
+    fn pop_typed(&mut self, expected: &Type) -> Result<Self::Slot, VerifyError>
     where
         Self::Slot: TypedSlot,
     {
         let slot = self.pop()?;
-        slot.expect(expected)?;
+        slot.check(expected)?;
         Ok(slot)
     }
 
@@ -45,7 +46,7 @@ pub trait OperandStack {
     /// [`StackUnderflow`]: crate::DiagnosticKind::StackUnderflow
     fn pop_n(&mut self, n: usize) -> Result<Vec<Self::Slot>, VerifyError> {
         if n > self.depth() {
-            return Err(VerifyError::stack_underflow());
+            return Err(VerifyError::stack_underflow(n, self.depth()));
         }
         let mut popped = Vec::with_capacity(n);
         for _ in 0..n {
@@ -70,7 +71,8 @@ pub trait OperandStack {
 /// `outputs` in order.
 ///
 /// Underflow is detected before anything is popped, so it is reported once
-/// regardless of how many inputs are missing.
+/// regardless of how many inputs are missing. A mistyped input is reported
+/// with its position, [`Role::Operand`], counted bottom first like `inputs`.
 ///
 /// ```
 /// # use vihaco_verifier::{Frame, FrameState, OperandStack, TypeSlot, stack_effect};
@@ -92,10 +94,11 @@ where
     C::Slot: TypedSlot,
 {
     if cx.depth() < N {
-        return Err(VerifyError::stack_underflow().into());
+        return Err(VerifyError::stack_underflow(N, cx.depth()).into());
     }
-    for expected in inputs.iter().rev() {
-        cx.pop_expect(expected)?;
+    for (index, expected) in inputs.iter().enumerate().rev() {
+        cx.pop_typed(expected)
+            .map_err(|error| error.with_role(Role::Operand(index as u32)))?;
     }
     for ty in outputs {
         cx.push(C::Slot::of_type(ty));
@@ -143,19 +146,22 @@ impl<S: Lattice> Frame<S> {
 
     /// Join `incoming` into `self`, the frame saved at a join point.
     ///
-    /// Operand depths must agree ([`StackDepthMismatch`] otherwise), and so
-    /// must local counts ([`LocalCountMismatch`]); then locals and operands
-    /// are joined slot-wise. Returns whether `self` strictly changed. On error
-    /// `self` is left unchanged.
+    /// Operand depths must agree ([`StackDepthMismatch`] otherwise, naming
+    /// both of `at`'s edges), and so must local counts ([`LocalCountMismatch`]);
+    /// then locals and operands are joined slot-wise, and every slot that
+    /// changes is located at `at` (see [`Lattice::at_join`]). Returns whether
+    /// `self` strictly changed. On error `self` is left unchanged.
     ///
     /// [`StackDepthMismatch`]: crate::DiagnosticKind::StackDepthMismatch
     /// [`LocalCountMismatch`]: crate::DiagnosticKind::LocalCountMismatch
-    pub fn join(&mut self, incoming: &Self) -> Result<bool, VerifyError> {
+    pub fn join(&mut self, incoming: &Self, at: &JoinPoint) -> Result<bool, VerifyError> {
         if self.operands.len() != incoming.operands.len() {
-            return Err(VerifyError::stack_depth_mismatch(
-                self.operands.len(),
-                incoming.operands.len(),
-            ));
+            return Err(VerifyError::new(DiagnosticKind::StackDepthMismatch {
+                expected: self.operands.len(),
+                found: incoming.operands.len(),
+                expected_from: at.saved_from,
+                found_from: at.incoming_from,
+            }));
         }
         if self.locals.len() != incoming.locals.len() {
             return Err(VerifyError::new(
@@ -171,7 +177,7 @@ impl<S: Lattice> Frame<S> {
         for (saved, arriving) in saved.zip(arriving) {
             let joined = saved.join(arriving);
             if joined != *saved {
-                *saved = joined;
+                *saved = joined.at_join(at.address);
                 changed = true;
             }
         }
@@ -271,14 +277,14 @@ impl<S: Lattice> OperandStack for FrameState<S> {
         self.frame
             .operands
             .pop()
-            .ok_or_else(VerifyError::stack_underflow)
+            .ok_or_else(|| VerifyError::stack_underflow(1, 0))
     }
 
     fn pop_n(&mut self, n: usize) -> Result<Vec<S>, VerifyError> {
         let depth = self.frame.operands.len();
         let base = depth
             .checked_sub(n)
-            .ok_or_else(VerifyError::stack_underflow)?;
+            .ok_or_else(|| VerifyError::stack_underflow(n, depth))?;
         Ok(self.frame.operands.split_off(base))
     }
 
@@ -290,7 +296,7 @@ impl<S: Lattice> OperandStack for FrameState<S> {
         self.frame
             .operands
             .last()
-            .ok_or_else(VerifyError::stack_underflow)
+            .ok_or_else(|| VerifyError::stack_underflow(1, 0))
     }
 
     fn depth(&self) -> usize {
@@ -309,8 +315,12 @@ impl<S: Lattice> AbstractState for FrameState<S> {
         self.frame.clone_from(snapshot);
     }
 
-    fn join(saved: &mut Frame<S>, incoming: &Frame<S>) -> Result<bool, VerifyError> {
-        saved.join(incoming)
+    fn join(
+        saved: &mut Frame<S>,
+        incoming: &Frame<S>,
+        at: &JoinPoint,
+    ) -> Result<bool, VerifyError> {
+        saved.join(incoming, at)
     }
 
     fn set_address(&mut self, function: u32, address: u32) {
@@ -322,7 +332,7 @@ impl<S: Lattice> AbstractState for FrameState<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DiagnosticKind, TypeSlot};
+    use crate::{Predecessor, TypeSlot};
 
     fn slot(ty: Type) -> TypeSlot {
         TypeSlot::Known(ty)
@@ -335,7 +345,13 @@ mod tests {
             vec![slot(Type::I64), slot(Type::F64)],
         ));
         let err = cx.pop_n(usize::MAX).unwrap_err();
-        assert_eq!(err.kind(), &DiagnosticKind::StackUnderflow);
+        assert_eq!(
+            err.kind(),
+            &DiagnosticKind::StackUnderflow {
+                needed: usize::MAX,
+                depth: 2
+            }
+        );
         assert_eq!(cx.depth(), 2, "an underflowing pop_n leaves the stack");
         assert_eq!(cx.pop_n(2).unwrap(), vec![slot(Type::I64), slot(Type::F64)]);
         assert_eq!(cx.depth(), 0);
@@ -348,13 +364,17 @@ mod tests {
         impl OperandStack for Depth {
             type Slot = TypeSlot;
             fn pop(&mut self) -> Result<TypeSlot, VerifyError> {
-                self.0.pop().ok_or_else(VerifyError::stack_underflow)
+                self.0
+                    .pop()
+                    .ok_or_else(|| VerifyError::stack_underflow(1, 0))
             }
             fn push(&mut self, slot: TypeSlot) {
                 self.0.push(slot);
             }
             fn peek(&self) -> Result<&TypeSlot, VerifyError> {
-                self.0.last().ok_or_else(VerifyError::stack_underflow)
+                self.0
+                    .last()
+                    .ok_or_else(|| VerifyError::stack_underflow(1, 0))
             }
             fn depth(&self) -> usize {
                 self.0.len()
@@ -375,25 +395,47 @@ mod tests {
             .unwrap_err()
             .downcast::<VerifyError>()
             .unwrap();
-        assert_eq!(err, VerifyError::type_mismatch("i64", "f64"));
+        // The top operand is the last input: operand 1.
+        assert_eq!(
+            err,
+            VerifyError::type_mismatch(Type::I64, slot(Type::F64)).with_role(Role::Operand(1))
+        );
     }
 
     #[test]
     fn frames_join_slot_wise_and_reject_depth_changes() {
+        let at = JoinPoint {
+            function: 0,
+            address: 6,
+            saved_from: Predecessor::Jump(3),
+            incoming_from: Predecessor::Fallthrough(5),
+        };
         let mut saved = Frame::with_operands(vec![slot(Type::I64)], vec![slot(Type::U64)]);
         let same = saved.clone();
-        assert!(!saved.join(&same).unwrap());
+        assert!(!saved.join(&same, &at).unwrap());
         let other = Frame::with_operands(vec![slot(Type::F64)], vec![slot(Type::U64)]);
-        assert!(saved.join(&other).unwrap());
-        assert_eq!(saved.locals()[0], TypeSlot::Conflict(Type::I64, Type::F64));
+        assert!(saved.join(&other, &at).unwrap());
+        assert_eq!(
+            saved.locals()[0],
+            TypeSlot::Conflict {
+                first: Type::I64,
+                second: Type::F64,
+                join: Some(6)
+            }
+        );
         let deeper = Frame::with_operands(vec![slot(Type::I64)], vec![slot(Type::U64); 2]);
         let before = saved.clone();
         assert_eq!(
-            saved.join(&deeper).unwrap_err(),
-            VerifyError::stack_depth_mismatch(1, 2)
+            saved.join(&deeper, &at).unwrap_err().into_kind(),
+            DiagnosticKind::StackDepthMismatch {
+                expected: 1,
+                found: 2,
+                expected_from: Predecessor::Jump(3),
+                found_from: Predecessor::Fallthrough(5),
+            }
         );
         assert_eq!(saved, before);
-        assert_eq!(saved.to_string(), "locals [i64 | f64] operands [u64]");
+        assert_eq!(saved.to_string(), "locals [i64 or f64] operands [u64]");
     }
 
     #[test]

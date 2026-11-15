@@ -9,8 +9,8 @@ use std::fmt;
 use smallvec::SmallVec;
 use vihaco_abi::{Flow, Verify};
 
-use crate::diagnostic::{Diagnostic, DiagnosticKind, classify};
-use crate::state::AbstractState;
+use crate::diagnostic::{Diagnostic, DiagnosticKind, DiagnosticNames, Predecessor, classify};
+use crate::state::{AbstractState, JoinPoint};
 
 /// One function to verify: a span of section-local addresses and the state
 /// at its entry.
@@ -144,18 +144,46 @@ impl<S> Rejection<S> {
             type_maps: None,
         }
     }
+
+    /// Render every diagnostic with the names in `names`, usually the
+    /// verified module (see [`Diagnostic::display_with`]).
+    pub fn display_with<'a>(&'a self, names: &'a dyn DiagnosticNames) -> impl fmt::Display + 'a {
+        RenderedRejection {
+            diagnostics: &self.diagnostics,
+            names: Some(names),
+        }
+    }
 }
 
+/// A count line, then each diagnostic.
 impl<S> fmt::Display for Rejection<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let count = self.errors().count();
+        RenderedRejection {
+            diagnostics: &self.diagnostics,
+            names: None,
+        }
+        .fmt(f)
+    }
+}
+
+pub(crate) struct RenderedRejection<'a> {
+    pub(crate) diagnostics: &'a [Diagnostic],
+    pub(crate) names: Option<&'a dyn DiagnosticNames>,
+}
+
+impl fmt::Display for RenderedRejection<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let count = self.diagnostics.iter().filter(|d| d.is_error()).count();
         write!(
             f,
             "verification failed with {count} error{}",
             if count == 1 { "" } else { "s" }
         )?;
-        for diagnostic in &self.diagnostics {
-            write!(f, "\n  {diagnostic}")?;
+        for diagnostic in self.diagnostics {
+            match self.names {
+                Some(names) => write!(f, "\n{}", diagnostic.display_with(names))?,
+                None => write!(f, "\n{diagnostic}")?,
+            }
         }
         Ok(())
     }
@@ -264,6 +292,14 @@ enum Order {
     FallOff,
 }
 
+/// The converged saved state of each leader, and the edge it first arrived
+/// along.
+#[derive(Clone)]
+struct Fixpoint<S> {
+    states: Vec<Option<S>>,
+    origins: Vec<Predecessor>,
+}
+
 struct Found {
     diagnostic: Diagnostic,
     order: Order,
@@ -326,7 +362,7 @@ where
                 report(address, Order::Target, DiagnosticKind::EmptyJump);
             }
             for &target in targets.iter().filter(|&&t| !walk.contains(t)) {
-                let kind = DiagnosticKind::InvalidControlFlowTarget { target };
+                let kind = DiagnosticKind::InvalidControlFlowTarget { target, start, end };
                 report(address, Order::Target, kind);
             }
         }
@@ -346,7 +382,7 @@ where
     // only through failing blocks has no state.
     let Settled {
         cut,
-        states,
+        converged: Fixpoint { states, origins },
         replay,
     } = walk.settle(entry, full, &emitted, id, cx);
 
@@ -370,10 +406,12 @@ where
             Err((at, error)) => report(start + at as u32, Order::Rule, classify(&error)),
             Ok(exit) => {
                 let incoming = cx.snapshot();
+                let edge = walk.edge(exit);
                 for succ in walk.successors(exit) {
                     let Some(saved) = &states[succ] else { continue };
                     let mut probe = saved.clone();
-                    if let Err(error) = C::join(&mut probe, &incoming)
+                    let at = walk.join_point(id, succ, origins[succ], edge);
+                    if let Err(error) = C::join(&mut probe, &incoming, &at)
                         && !std::mem::replace(&mut mismatch_reported[succ], true)
                     {
                         report(start + succ as u32, Order::Join, error.into_kind());
@@ -420,7 +458,7 @@ struct Settled<S> {
     /// The fixpoint with `cut` blocks passing nothing on. Only analysed
     /// blocks (not cut, and reached without going through a cut block) feed
     /// it.
-    states: Vec<Option<S>>,
+    converged: Fixpoint<S>,
     /// For each cut leader, the state it fails at.
     replay: Vec<Option<S>>,
 }
@@ -484,6 +522,15 @@ impl<'a, I> Walk<'a, I> {
         (offset < self.len()).then_some(offset)
     }
 
+    /// The edge leaving the instruction at `i`: a jump, or falling through.
+    fn edge(&self, i: usize) -> Predecessor {
+        let address = self.start + i as u32;
+        match self.flows[i] {
+            Flow::Jump(_) => Predecessor::Jump(address),
+            _ => Predecessor::Fallthrough(address),
+        }
+    }
+
     /// Successors of the instruction at `i` inside this function. Targets
     /// outside it are not followed; the target check reports them.
     fn successors(&self, i: usize) -> SmallVec<[usize; 2]> {
@@ -528,6 +575,23 @@ impl<'a, I> Walk<'a, I> {
         }
     }
 
+    /// The join of an edge from `incoming_from` into the leader at `succ`,
+    /// whose saved state first arrived from `saved_from`.
+    fn join_point(
+        &self,
+        function: u32,
+        succ: usize,
+        saved_from: Predecessor,
+        incoming_from: Predecessor,
+    ) -> JoinPoint {
+        JoinPoint {
+            function,
+            address: self.start + succ as u32,
+            saved_from,
+            incoming_from,
+        }
+    }
+
     /// Converge the saved state of every leader reachable from the entry,
     /// discarding rule errors. A block whose rule fails, or whose leader is
     /// `cut`, passes nothing to its successors. If given, `emitted[leader]`
@@ -539,12 +603,15 @@ impl<'a, I> Walk<'a, I> {
         function: u32,
         cx: &mut C,
         mut emitted: Option<&mut [bool]>,
-    ) -> Vec<Option<C::Snapshot>>
+    ) -> Fixpoint<C::Snapshot>
     where
         I: Verify<C>,
         C: AbstractState + ?Sized,
     {
         let mut states: Vec<Option<C::Snapshot>> = vec![None; self.len()];
+        // The edge each leader's saved state first arrived along. Depths never
+        // change after that, so a depth mismatch names this edge and the new one.
+        let mut origins: Vec<Predecessor> = vec![Predecessor::Entry; self.len()];
         states[0] = Some(entry.clone());
         let mut work = BTreeSet::from([0usize]);
         while let Some(leader) = work.pop_first() {
@@ -561,21 +628,24 @@ impl<'a, I> Walk<'a, I> {
                 emitted[leader] = true;
             }
             let incoming = cx.snapshot();
+            let edge = self.edge(exit);
             for succ in self.successors(exit) {
                 match &mut states[succ] {
                     slot @ None => {
                         *slot = Some(incoming.clone());
+                        origins[succ] = edge;
                         work.insert(succ);
                     }
                     Some(saved) => {
-                        if let Ok(true) = C::join(saved, &incoming) {
+                        let at = self.join_point(function, succ, origins[succ], edge);
+                        if let Ok(true) = C::join(saved, &incoming, &at) {
                             work.insert(succ);
                         }
                     }
                 }
             }
         }
-        states
+        Fixpoint { states, origins }
     }
 
     /// Settle which blocks fail, given `full`, the fixpoint with no block cut,
@@ -625,7 +695,7 @@ impl<'a, I> Walk<'a, I> {
     fn settle<C>(
         &self,
         entry: &C::Snapshot,
-        full: Vec<Option<C::Snapshot>>,
+        full: Fixpoint<C::Snapshot>,
         emitted: &[bool],
         function: u32,
         cx: &mut C,
@@ -634,21 +704,22 @@ impl<'a, I> Walk<'a, I> {
         I: Verify<C>,
         C: AbstractState + ?Sized,
     {
-        let mut cut = self.failing(&full, function, cx);
+        let mut cut = self.failing(&full.states, function, cx);
         if !cut.contains(&true) {
             return Settled {
                 cut,
-                states: full,
+                converged: full,
                 replay: vec![None; self.len()],
             };
         }
         let mut replay: Vec<Option<C::Snapshot>> = cut
             .iter()
-            .zip(&full)
+            .zip(&full.states)
             .map(|(&cut, state)| if cut { state.clone() } else { None })
             .collect();
         let mut budget = SETTLE_FIXPOINTS;
-        let mut states = self.cut_failing(entry, &mut cut, &mut replay, &mut budget, function, cx);
+        let mut converged =
+            self.cut_failing(entry, &mut cut, &mut replay, &mut budget, function, cx);
         let mut restored = vec![false; self.len()];
         let mut exhausted = false;
         let mut changed = true;
@@ -657,7 +728,7 @@ impl<'a, I> Walk<'a, I> {
             for leader in 0..self.len() {
                 // A cut leader that only other cut blocks reach has no state
                 // in `fixpoint(C \ {leader})` either.
-                if !cut[leader] || states[leader].is_none() {
+                if !cut[leader] || converged.states[leader].is_none() {
                     continue;
                 }
                 let state = if reached_by_cut[leader] {
@@ -669,9 +740,9 @@ impl<'a, I> Walk<'a, I> {
                     cut[leader] = false;
                     let mut candidate = self.fixpoint(entry, &cut, function, cx, None);
                     cut[leader] = true;
-                    candidate.swap_remove(leader)
+                    candidate.states.swap_remove(leader)
                 } else {
-                    full[leader].clone()
+                    full.states[leader].clone()
                 };
                 // A cut block reached by no path keeps no state.
                 let Some(state) = state else { continue };
@@ -687,7 +758,7 @@ impl<'a, I> Walk<'a, I> {
                     restored[leader] = true;
                     cut[leader] = false;
                     replay[leader] = None;
-                    states =
+                    converged =
                         self.cut_failing(entry, &mut cut, &mut replay, &mut budget, function, cx);
                     reached_by_cut = self.reached_from_other_cut(&cut, emitted);
                     changed = true;
@@ -700,7 +771,7 @@ impl<'a, I> Walk<'a, I> {
             // fails there. A replay state always fails, so every cut block
             // with a state still reports.
             for leader in (0..self.len()).filter(|&leader| cut[leader]) {
-                if let Some(state) = &states[leader]
+                if let Some(state) = &converged.states[leader]
                     && self.run_block(leader, state, function, cx).is_err()
                 {
                     replay[leader] = Some(state.clone());
@@ -709,7 +780,7 @@ impl<'a, I> Walk<'a, I> {
         }
         Settled {
             cut,
-            states,
+            converged,
             replay,
         }
     }
@@ -729,28 +800,28 @@ impl<'a, I> Walk<'a, I> {
         budget: &mut usize,
         function: u32,
         cx: &mut C,
-    ) -> Vec<Option<C::Snapshot>>
+    ) -> Fixpoint<C::Snapshot>
     where
         I: Verify<C>,
         C: AbstractState + ?Sized,
     {
         loop {
-            let states = self.fixpoint(entry, cut, function, cx, None);
+            let converged = self.fixpoint(entry, cut, function, cx, None);
             if *budget == 0 {
-                return states;
+                return converged;
             }
             *budget -= 1;
-            let failing = self.failing(&states, function, cx);
+            let failing = self.failing(&converged.states, function, cx);
             let mut grew = false;
             for (leader, fails) in failing.into_iter().enumerate() {
                 if fails && !cut[leader] {
                     cut[leader] = true;
-                    replay[leader].clone_from(&states[leader]);
+                    replay[leader].clone_from(&converged.states[leader]);
                     grew = true;
                 }
             }
             if !grew {
-                return states;
+                return converged;
             }
         }
     }

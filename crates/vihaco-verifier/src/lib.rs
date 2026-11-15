@@ -74,7 +74,8 @@
 //! control-flow instructions also override [`Verify::flow`].
 //!
 //! Facade users reach this crate as `vihaco::verifier` (the `verifier`
-//! feature, implied by `program-image-execution`).//!
+//! feature, implied by `program-image-execution`).
+//!
 //! # Example
 //!
 //! A tiny instruction set with typed rules, verified with the bare engine and
@@ -83,7 +84,7 @@
 //!
 //! ```
 //! use vihaco_verifier::{
-//!     DiagnosticKind, Flow, Frame, FrameState, FunctionSpan, OperandStack, Type, TypeSlot,
+//!     DiagnosticKind, Flow, Frame, FrameState, FunctionSpan, OperandStack, Role, Type, TypeSlot,
 //!     TypedSlot, Verify, VerifyOptions, stack_effect, verify_functions,
 //! };
 //!
@@ -127,7 +128,11 @@
 //! assert_eq!(diagnostic.address, 2);
 //! assert_eq!(
 //!     diagnostic.kind,
-//!     DiagnosticKind::TypeMismatch { expected: "i64".into(), found: "f64".into() }
+//!     DiagnosticKind::TypeMismatch {
+//!         role: Some(Role::Operand(1)),
+//!         expected: Type::I64.into(),
+//!         found: TypeSlot::Known(Type::F64),
+//!     }
 //! );
 //! ```
 
@@ -144,18 +149,21 @@ mod verified;
 pub use capability::{
     Constants, Locals, NamedTypes, Signatures, StructTypes, call_effect, return_effect,
 };
-pub use diagnostic::{Diagnostic, DiagnosticKind, Severity, VerifyError};
+pub use diagnostic::{
+    Diagnostic, DiagnosticKind, DiagnosticNames, Expected, Predecessor, Role, Severity, Table,
+    VerifyError,
+};
 pub use engine::{
     FunctionSpan, Rejection, TypeMaps, Verification, VerifyOptions, verify_functions,
 };
 pub use module::{ComponentState, ModuleVerifier, WithState, verify_module};
 pub use rules::{
     direct_call_effect, function_constant, indirect_call_effect, load_local, pop_array,
-    store_local, string_constant,
+    set_field_effect, store_local, string_constant, struct_new_effect,
 };
 pub use slot::{Lattice, TypeSlot, TypedSlot, type_satisfies};
 pub use stack::{Frame, FrameState, OperandStack, stack_effect};
-pub use state::AbstractState;
+pub use state::{AbstractState, JoinPoint};
 pub use verified::Verified;
 
 pub use vihaco_abi::{Flow, FunctionType, Type, Value, Verify};

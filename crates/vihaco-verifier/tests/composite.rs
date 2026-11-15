@@ -12,8 +12,8 @@ use vihaco_module::module::{FunctionInfo, LocalModule, Signature};
 use vihaco_runtime::{HasInstructionSet, Lower as _, component, composite, dialect};
 use vihaco_verifier::{
     AbstractState, ComponentState, DiagnosticKind, Flow, Frame, FrameState, FunctionSpan,
-    ModuleVerifier, OperandStack, Type, TypeSlot, TypedSlot, Value, Verify, VerifyError,
-    VerifyOptions, WithState, stack_effect, verify_functions,
+    JoinPoint, ModuleVerifier, OperandStack, Role, Type, TypeSlot, TypedSlot, Value, Verify,
+    VerifyError, VerifyOptions, WithState, stack_effect, verify_functions,
 };
 
 /// A component-specific capability: which channels are open.
@@ -102,7 +102,7 @@ impl<C: OperandStack<Slot: TypedSlot> + ?Sized> Verify<C> for compute::BranchIf 
         Flow::jump_to([self.0, self.1])
     }
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
-        cx.pop_expect(&Type::Bool)?;
+        cx.pop_typed(&Type::Bool)?;
         Ok(())
     }
 }
@@ -225,8 +225,9 @@ impl AbstractState for MachineVerifier {
     fn join(
         (frame, open): &mut Self::Snapshot,
         (in_frame, in_open): &Self::Snapshot,
+        at: &JoinPoint,
     ) -> Result<bool, VerifyError> {
-        let frame_changed = frame.join(in_frame)?;
+        let frame_changed = frame.join(in_frame, at)?;
         let before = open.len();
         open.retain(|channel| in_open.contains(channel));
         Ok(frame_changed || open.len() != before)
@@ -326,8 +327,14 @@ fn the_generated_aggregate_reports_each_components_errors() {
         [(
             6,
             DiagnosticKind::TypeMismatch {
-                expected: "i64".into(),
-                found: "i64 | f64".into()
+                // The bottom operand, where the paths disagree.
+                role: Some(Role::Operand(0)),
+                expected: Type::I64.into(),
+                found: TypeSlot::Conflict {
+                    first: Type::I64,
+                    second: Type::F64,
+                    join: Some(5)
+                }
             }
         )]
     );
