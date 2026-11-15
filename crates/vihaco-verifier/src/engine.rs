@@ -123,9 +123,9 @@ pub struct Rejection<S> {
     /// Each reached leader's converged state, when requested through
     /// [`VerifyOptions::type_maps`], so tools can show types next to errors.
     ///
-    /// A leader has an entry only if some block transfer reached it without
-    /// a rule error, so leaders reached only through failing blocks, and
-    /// functions whose span is invalid, have none.
+    /// Leaders reachable only through failing blocks have no entry, and
+    /// neither do functions whose span is invalid. A failing block's entry
+    /// is the state it fails at.
     pub type_maps: Option<TypeMaps<S>>,
 }
 

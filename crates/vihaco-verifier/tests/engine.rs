@@ -506,6 +506,17 @@ fn code_reachable_only_through_a_failing_block_is_not_analysed() {
         found(&rejection.diagnostics),
         [(0, 2, mismatch("i64", "i64 | f64"))]
     );
+    let maps = rejection.type_maps.expect("type maps were requested");
+    let operands = |address| maps.get(0, address).map(|f| f.operands().to_vec());
+    // The header is mapped at the state it fails at: the join of the entry
+    // path and the back edge.
+    assert_eq!(
+        operands(1),
+        Some(vec![TypeSlot::Conflict(Type::I64, Type::F64)])
+    );
+    // The loop body and the exit are reached only through the header.
+    assert_eq!(operands(5), None);
+    assert_eq!(operands(8), None);
 }
 
 #[test]
