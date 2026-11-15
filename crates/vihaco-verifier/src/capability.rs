@@ -13,7 +13,7 @@ use vihaco_module::module::Signature;
 
 use crate::diagnostic::{Role, VerifyError};
 use crate::slot::TypedSlot;
-use crate::stack::OperandStack;
+use crate::stack::{OperandStack, TypedStack};
 
 /// Capability: the abstract locals of the function being verified.
 ///
@@ -150,8 +150,7 @@ pub trait Constants<V, Ty> {
 /// [`DiagnosticKind::CallArityMismatch`]: crate::DiagnosticKind::CallArityMismatch
 pub fn call_effect<C>(cx: &mut C, callee: u32, arguments: usize) -> eyre::Result<()>
 where
-    C: OperandStack + Signatures<Type> + ?Sized,
-    C::Slot: TypedSlot,
+    C: TypedStack + Signatures<Type> + ?Sized,
 {
     let signature = cx.signature(callee)?.clone();
     let declared = signature.params.len();
@@ -183,8 +182,7 @@ where
 /// [`DiagnosticKind::ReturnCountMismatch`]: crate::DiagnosticKind::ReturnCountMismatch
 pub fn return_effect<C>(cx: &mut C, count: usize) -> eyre::Result<()>
 where
-    C: OperandStack + Signatures<Type> + ?Sized,
-    C::Slot: TypedSlot,
+    C: TypedStack + Signatures<Type> + ?Sized,
 {
     let results = cx.current_signature()?.ret.clone();
     if count != results.len() {

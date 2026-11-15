@@ -18,44 +18,28 @@
 use crate::cpu;
 use vihaco_abi::{Type, Verify};
 use vihaco_verifier::{
-    NamedTypes, OperandStack, Role, StructTypes, TypedSlot, VerifyError, pop_array,
-    set_field_effect, stack_effect, struct_new_effect,
+    NamedTypes, Role, StructTypes, TypedSlot, TypedStack, VerifyError, pop_array, set_field_effect,
+    stack_effect, stack_rules, struct_new_effect,
 };
-
-/// Fixed-signature rules: `Instruction: [inputs] -> [outputs]`, inputs bottom
-/// first.
-macro_rules! fixed {
-    ($($instruction:ident: [$($input:expr),*] -> [$($output:expr),*];)*) => {$(
-        impl<C> Verify<C> for cpu::$instruction
-        where
-            C: OperandStack + ?Sized,
-            C::Slot: TypedSlot,
-        {
-            fn verify(&self, cx: &mut C) -> eyre::Result<()> {
-                stack_effect(cx, [$($input),*], [$($output),*])
-            }
-        }
-    )*};
-}
 
 /// `[T, T] -> [T]` for each listed instruction.
 macro_rules! binary {
     ($ty:ident: $($instruction:ident),* $(,)?) => {
-        fixed! { $($instruction: [Type::$ty, Type::$ty] -> [Type::$ty];)* }
+        stack_rules! { $(cpu::$instruction: [Type::$ty, Type::$ty] -> [Type::$ty];)* }
     };
 }
 
 /// `[T, T] -> [bool]` for each listed instruction.
 macro_rules! compare {
     ($ty:ident: $($instruction:ident),* $(,)?) => {
-        fixed! { $($instruction: [Type::$ty, Type::$ty] -> [Type::Bool];)* }
+        stack_rules! { $(cpu::$instruction: [Type::$ty, Type::$ty] -> [Type::Bool];)* }
     };
 }
 
 /// `[T, u32] -> [T]`: shifts and rotates take a `u32` amount.
 macro_rules! shift {
     ($ty:ident: $($instruction:ident),* $(,)?) => {
-        fixed! { $($instruction: [Type::$ty, Type::U32] -> [Type::$ty];)* }
+        stack_rules! { $(cpu::$instruction: [Type::$ty, Type::U32] -> [Type::$ty];)* }
     };
 }
 
@@ -66,17 +50,17 @@ binary!(U64: AddU64, SubU64, MulU64, DivU64, RemU64, BitAndU64, BitOrU64, BitXor
 binary!(F32: AddF32, SubF32, MulF32, DivF32, RemF32);
 binary!(F64: AddF64, SubF64, MulF64, DivF64, RemF64);
 
-fixed! {
-    NegI32: [Type::I32] -> [Type::I32];
-    NegI64: [Type::I64] -> [Type::I64];
-    NegF32: [Type::F32] -> [Type::F32];
-    NegF64: [Type::F64] -> [Type::F64];
-    Not: [Type::Bool] -> [Type::Bool];
-    And: [Type::Bool, Type::Bool] -> [Type::Bool];
-    Or: [Type::Bool, Type::Bool] -> [Type::Bool];
-    Xor: [Type::Bool, Type::Bool] -> [Type::Bool];
+stack_rules! {
+    cpu::NegI32: [Type::I32] -> [Type::I32];
+    cpu::NegI64: [Type::I64] -> [Type::I64];
+    cpu::NegF32: [Type::F32] -> [Type::F32];
+    cpu::NegF64: [Type::F64] -> [Type::F64];
+    cpu::Not: [Type::Bool] -> [Type::Bool];
+    cpu::And: [Type::Bool, Type::Bool] -> [Type::Bool];
+    cpu::Or: [Type::Bool, Type::Bool] -> [Type::Bool];
+    cpu::Xor: [Type::Bool, Type::Bool] -> [Type::Bool];
     // Any heap object: `struct N` and `array T` satisfy `heap`.
-    HeapDealloc: [Type::HeapRef] -> [];
+    cpu::HeapDealloc: [Type::HeapRef] -> [];
 }
 
 shift!(I32: ShlI32, ShrI32, RolI32, RorI32);
@@ -104,11 +88,7 @@ fn array_of(elem: &Type) -> Result<Type, VerifyError> {
 }
 
 /// `[T × N] -> [array T]`.
-impl<C> Verify<C> for cpu::ArrayNew
-where
-    C: OperandStack + ?Sized,
-    C::Slot: TypedSlot,
-{
+impl<C: TypedStack + ?Sized> Verify<C> for cpu::ArrayNew {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
         let cpu::ArrayNew(elem, count) = self;
         let array = array_of(elem)?;
@@ -124,59 +104,26 @@ where
 }
 
 /// `[u64] -> [array T]` (the capacity).
-impl<C> Verify<C> for cpu::ArrayReserve
-where
-    C: OperandStack + ?Sized,
-    C::Slot: TypedSlot,
-{
+impl<C: TypedStack + ?Sized> Verify<C> for cpu::ArrayReserve {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
         let array = array_of(&self.0)?;
         stack_effect(cx, [Type::U64], [array])
     }
 }
 
-/// `[array T, T] -> [array T]`.
-impl<C> Verify<C> for cpu::ArrayPush
-where
-    C: OperandStack + ?Sized,
-    C::Slot: TypedSlot,
-{
-    fn verify(&self, cx: &mut C) -> eyre::Result<()> {
-        let array = Type::array(self.0.clone());
-        stack_effect(cx, [array.clone(), self.0.clone()], [array])
-    }
-}
-
-/// `[array T, u64] -> [T]`.
-impl<C> Verify<C> for cpu::ArrayGet
-where
-    C: OperandStack + ?Sized,
-    C::Slot: TypedSlot,
-{
-    fn verify(&self, cx: &mut C) -> eyre::Result<()> {
-        let array = Type::array(self.0.clone());
-        stack_effect(cx, [array, Type::U64], [self.0.clone()])
-    }
-}
-
-/// `[array T, u64, T] -> []`.
-impl<C> Verify<C> for cpu::ArraySet
-where
-    C: OperandStack + ?Sized,
-    C::Slot: TypedSlot,
-{
-    fn verify(&self, cx: &mut C) -> eyre::Result<()> {
-        let array = Type::array(self.0.clone());
-        stack_effect(cx, [array, Type::U64, self.0.clone()], [])
-    }
+// The other array instructions carry their element type, `T` below.
+stack_rules! {
+    // `[array T, T] -> [array T]`.
+    cpu::ArrayPush as this:
+        [Type::array(this.0.clone()), this.0.clone()] -> [Type::array(this.0.clone())];
+    // `[array T, u64] -> [T]`.
+    cpu::ArrayGet as this: [Type::array(this.0.clone()), Type::U64] -> [this.0.clone()];
+    // `[array T, u64, T] -> []`.
+    cpu::ArraySet as this: [Type::array(this.0.clone()), Type::U64, this.0.clone()] -> [];
 }
 
 /// `[array _] -> [u64]`: any element type.
-impl<C> Verify<C> for cpu::ArrayLen
-where
-    C: OperandStack + ?Sized,
-    C::Slot: TypedSlot,
-{
+impl<C: TypedStack + ?Sized> Verify<C> for cpu::ArrayLen {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
         pop_array(cx)?;
         cx.push(C::Slot::of_type(Type::U64));
@@ -189,8 +136,7 @@ where
 /// `[field 0, …, field n-1] -> [struct N]`, fields typed from the struct table.
 impl<C> Verify<C> for cpu::StructNew
 where
-    C: OperandStack + StructTypes<Type> + ?Sized,
-    C::Slot: TypedSlot,
+    C: TypedStack + StructTypes<Type> + ?Sized,
 {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
         // The CPU pops the layout's count; lowering takes it from the table,
@@ -202,8 +148,7 @@ where
 /// `[struct N] -> [field type]`.
 impl<C> Verify<C> for cpu::GetField
 where
-    C: OperandStack + StructTypes<Type> + ?Sized,
-    C::Slot: TypedSlot,
+    C: TypedStack + StructTypes<Type> + ?Sized,
 {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
         let crate::FieldSlot { struct_id, slot } = self.0;
@@ -215,8 +160,7 @@ where
 /// `[struct N, field type] -> []`.
 impl<C> Verify<C> for cpu::SetField
 where
-    C: OperandStack + StructTypes<Type> + ?Sized,
-    C::Slot: TypedSlot,
+    C: TypedStack + StructTypes<Type> + ?Sized,
 {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
         let crate::FieldSlot { struct_id, slot } = self.0;
@@ -229,8 +173,7 @@ where
 /// `[repr] -> [type N]`.
 impl<C> Verify<C> for cpu::Wrap
 where
-    C: OperandStack + NamedTypes<Type> + ?Sized,
-    C::Slot: TypedSlot,
+    C: TypedStack + NamedTypes<Type> + ?Sized,
 {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
         let repr = cx.named_type_repr(self.0)?.clone();
@@ -241,8 +184,7 @@ where
 /// `[type N] -> [repr]`.
 impl<C> Verify<C> for cpu::Unwrap
 where
-    C: OperandStack + NamedTypes<Type> + ?Sized,
-    C::Slot: TypedSlot,
+    C: TypedStack + NamedTypes<Type> + ?Sized,
 {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
         let repr = cx.named_type_repr(self.0)?.clone();
@@ -642,9 +584,9 @@ mod program {
     use crate::word::{decode_function_ref, decode_string_id};
     use vihaco_abi::{Flow, Type, Verify};
     use vihaco_verifier::{
-        Constants, Locals, OperandStack, Signatures, TypedSlot, direct_call_effect,
+        Constants, Locals, OperandStack, Signatures, TypedStack, direct_call_effect,
         function_constant, indirect_call_effect, load_local, return_effect, stack_effect,
-        store_local, string_constant,
+        stack_rules, store_local, string_constant,
     };
 
     /// Instructions with no stack effect that continue to the next address.
@@ -671,11 +613,7 @@ mod program {
     }
 
     /// Pops the `bool` condition.
-    impl<C> Verify<C> for cpu::ConditionalBranch
-    where
-        C: OperandStack + ?Sized,
-        C::Slot: TypedSlot,
-    {
+    impl<C: TypedStack + ?Sized> Verify<C> for cpu::ConditionalBranch {
         fn flow(&self) -> Flow {
             Flow::jump_to([self.0, self.1])
         }
@@ -695,11 +633,7 @@ mod program {
         }
     }
 
-    impl<C> Verify<C> for cpu::Return
-    where
-        C: OperandStack + Signatures<Type> + ?Sized,
-        C::Slot: TypedSlot,
-    {
+    impl<C: TypedStack + Signatures<Type> + ?Sized> Verify<C> for cpu::Return {
         fn flow(&self) -> Flow {
             Flow::Return
         }
@@ -709,42 +643,20 @@ mod program {
         }
     }
 
-    impl<C> Verify<C> for cpu::Call
-    where
-        C: OperandStack + Signatures<Type> + ?Sized,
-        C::Slot: TypedSlot,
-    {
+    impl<C: TypedStack + Signatures<Type> + ?Sized> Verify<C> for cpu::Call {
         fn verify(&self, cx: &mut C) -> eyre::Result<()> {
             direct_call_effect(cx, self.0, self.1)
         }
     }
 
-    impl<C> Verify<C> for cpu::IndirectCall
-    where
-        C: OperandStack + Signatures<Type> + ?Sized,
-        C::Slot: TypedSlot,
-    {
+    impl<C: TypedStack + Signatures<Type> + ?Sized> Verify<C> for cpu::IndirectCall {
         fn verify(&self, cx: &mut C) -> eyre::Result<()> {
             indirect_call_effect(cx, &self.0)
         }
     }
 
-    /// `[str] -> []`: the composite resolves the string the CPU pops.
-    impl<C> Verify<C> for cpu::Print
-    where
-        C: OperandStack + ?Sized,
-        C::Slot: TypedSlot,
-    {
-        fn verify(&self, cx: &mut C) -> eyre::Result<()> {
-            stack_effect(cx, [Type::String], [])
-        }
-    }
-
     /// Pushes a copy of the top slot.
-    impl<C> Verify<C> for cpu::Dup
-    where
-        C: OperandStack + ?Sized,
-    {
+    impl<C: OperandStack + ?Sized> Verify<C> for cpu::Dup {
         fn verify(&self, cx: &mut C) -> eyre::Result<()> {
             let top = cx.peek()?.clone();
             cx.push(top);
@@ -756,21 +668,13 @@ mod program {
     /// mnemonic's type. `None` for the untyped `load` / `store`.
     macro_rules! locals {
         ($($load:ident, $store:ident => $ty:expr;)*) => {$(
-            impl<C> Verify<C> for cpu::$load
-            where
-                C: Locals + ?Sized,
-                C::Slot: TypedSlot,
-            {
+            impl<C: Locals + TypedStack + ?Sized> Verify<C> for cpu::$load {
                 fn verify(&self, cx: &mut C) -> eyre::Result<()> {
                     load_local(cx, self.0, $ty.as_ref())
                 }
             }
 
-            impl<C> Verify<C> for cpu::$store
-            where
-                C: Locals + ?Sized,
-                C::Slot: TypedSlot,
-            {
+            impl<C: Locals + TypedStack + ?Sized> Verify<C> for cpu::$store {
                 fn verify(&self, cx: &mut C) -> eyre::Result<()> {
                     store_local(cx, self.0, $ty.as_ref())
                 }
@@ -789,37 +693,24 @@ mod program {
         Load, Store => None::<Type>;
     }
 
-    /// Literal constants push their mnemonic's type. (There is no reference
-    /// literal: typed programs cannot write a heap reference.)
-    macro_rules! literals {
-        ($($instruction:ident => $ty:expr;)*) => {$(
-            impl<C> Verify<C> for cpu::$instruction
-            where
-                C: OperandStack + ?Sized,
-                C::Slot: TypedSlot,
-            {
-                fn verify(&self, cx: &mut C) -> eyre::Result<()> {
-                    stack_effect(cx, [], [$ty])
-                }
-            }
-        )*};
-    }
-
-    literals! {
-        ConstI32 => Type::I32;
-        ConstI64 => Type::I64;
-        ConstU32 => Type::U32;
-        ConstU64 => Type::U64;
-        ConstF32 => Type::F32;
-        ConstF64 => Type::F64;
-        ConstBool => Type::Bool;
+    // Literal constants push their mnemonic's type. (There is no
+    // reference literal: typed programs cannot write a heap reference.)
+    stack_rules! {
+        cpu::ConstI32: [] -> [Type::I32];
+        cpu::ConstI64: [] -> [Type::I64];
+        cpu::ConstU32: [] -> [Type::U32];
+        cpu::ConstU64: [] -> [Type::U64];
+        cpu::ConstF32: [] -> [Type::F32];
+        cpu::ConstF64: [] -> [Type::F64];
+        cpu::ConstBool: [] -> [Type::Bool];
+        // `[str] -> []`: the composite resolves the string the CPU pops.
+        cpu::Print: [Type::String] -> [];
     }
 
     /// Pushes `str`; the index must be in the string table.
     impl<C> Verify<C> for cpu::ConstString
     where
-        C: OperandStack + Constants<vihaco_abi::Value, Type> + ?Sized,
-        C::Slot: TypedSlot,
+        C: TypedStack + Constants<vihaco_abi::Value, Type> + ?Sized,
     {
         fn verify(&self, cx: &mut C) -> eyre::Result<()> {
             string_constant(cx, decode_string_id(self.0))
@@ -827,11 +718,7 @@ mod program {
     }
 
     /// Pushes `fn`; the index must be in the function table.
-    impl<C> Verify<C> for cpu::ConstFunctionRef
-    where
-        C: OperandStack + Signatures<Type> + ?Sized,
-        C::Slot: TypedSlot,
-    {
+    impl<C: TypedStack + Signatures<Type> + ?Sized> Verify<C> for cpu::ConstFunctionRef {
         fn verify(&self, cx: &mut C) -> eyre::Result<()> {
             function_constant(cx, decode_function_ref(self.0))
         }

@@ -13,15 +13,14 @@ use vihaco_abi::{FunctionType, Type};
 use crate::capability::{Constants, Locals, Signatures, StructTypes};
 use crate::diagnostic::{DiagnosticKind, Expected, Role, Table, VerifyError};
 use crate::slot::TypedSlot;
-use crate::stack::OperandStack;
+use crate::stack::TypedStack;
 
 /// Pop a reference to an array of any element type, returning the element
 /// type; for instructions such as `array_len` that accept every `array T`.
 /// The array is reported as operand 0 if it is not one.
 pub fn pop_array<C>(cx: &mut C) -> Result<Type, VerifyError>
 where
-    C: OperandStack + ?Sized,
-    C::Slot: TypedSlot,
+    C: TypedStack + ?Sized,
 {
     let slot = cx.pop()?;
     match slot.known_type() {
@@ -38,8 +37,7 @@ where
 /// then apply [`call_effect`](crate::call_effect).
 pub fn direct_call_effect<C>(cx: &mut C, arity: u32, address: u32) -> eyre::Result<()>
 where
-    C: OperandStack + Signatures<Type> + ?Sized,
-    C::Slot: TypedSlot,
+    C: TypedStack + Signatures<Type> + ?Sized,
 {
     let callee = cx.function_at(address)?;
     crate::call_effect(cx, callee, arity as usize)
@@ -53,8 +51,7 @@ where
 /// the referenced function has exactly this signature before entering it.
 pub fn indirect_call_effect<C>(cx: &mut C, ty: &FunctionType) -> eyre::Result<()>
 where
-    C: OperandStack + Signatures<Type> + ?Sized,
-    C::Slot: TypedSlot,
+    C: TypedStack + Signatures<Type> + ?Sized,
 {
     let needed = ty.params.len() + 1;
     if cx.depth() < needed {
@@ -84,8 +81,7 @@ where
 /// pushes the local's declared type.
 pub fn load_local<C>(cx: &mut C, index: u32, expected: Option<&Type>) -> eyre::Result<()>
 where
-    C: Locals + ?Sized,
-    C::Slot: TypedSlot,
+    C: Locals + TypedStack + ?Sized,
 {
     let local = cx.local(index)?.clone();
     if let Some(expected) = expected {
@@ -105,8 +101,7 @@ where
 /// never retypes a local.
 pub fn store_local<C>(cx: &mut C, index: u32, expected: Option<&Type>) -> eyre::Result<()>
 where
-    C: Locals + ?Sized,
-    C::Slot: TypedSlot,
+    C: Locals + TypedStack + ?Sized,
 {
     let local = cx.local(index)?;
     let declared = match (expected, local.known_type()) {
@@ -135,8 +130,7 @@ where
 /// [`DiagnosticKind::UnknownEntry`].
 pub fn string_constant<C, V>(cx: &mut C, index: u32) -> eyre::Result<()>
 where
-    C: OperandStack + Constants<V, Type> + ?Sized,
-    C::Slot: TypedSlot,
+    C: TypedStack + Constants<V, Type> + ?Sized,
 {
     let count = cx.string_count();
     if index as usize >= count {
@@ -151,8 +145,7 @@ where
 /// [`DiagnosticKind::UnknownEntry`].
 pub fn function_constant<C>(cx: &mut C, index: u32) -> eyre::Result<()>
 where
-    C: OperandStack + Signatures<Type> + ?Sized,
-    C::Slot: TypedSlot,
+    C: TypedStack + Signatures<Type> + ?Sized,
 {
     cx.signature(index)?;
     cx.push(C::Slot::of_type(Type::FunctionRef));
@@ -168,8 +161,7 @@ where
 /// [`DiagnosticKind::FieldCountMismatch`].
 pub fn struct_new_effect<C>(cx: &mut C, struct_id: u32, field_count: u32) -> eyre::Result<()>
 where
-    C: OperandStack + StructTypes<Type> + ?Sized,
-    C::Slot: TypedSlot,
+    C: TypedStack + StructTypes<Type> + ?Sized,
 {
     let declared = cx.field_count(struct_id)?;
     if field_count as usize != declared {
@@ -199,8 +191,7 @@ where
 /// type ([`Role::Field`]), and the `struct N` below it (operand 0).
 pub fn set_field_effect<C>(cx: &mut C, struct_id: u32, field: u32) -> eyre::Result<()>
 where
-    C: OperandStack + StructTypes<Type> + ?Sized,
-    C::Slot: TypedSlot,
+    C: TypedStack + StructTypes<Type> + ?Sized,
 {
     let ty = cx.field_type(struct_id, field)?.clone();
     if cx.depth() < 2 {

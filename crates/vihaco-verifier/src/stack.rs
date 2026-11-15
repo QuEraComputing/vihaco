@@ -66,6 +66,80 @@ pub trait OperandStack {
     fn depth(&self) -> usize;
 }
 
+/// An [`OperandStack`] whose slots can represent vihaco's types: the bound
+/// almost every rule needs, spelled once.
+///
+/// Implemented for every `C: OperandStack` with `C::Slot: TypedSlot`, so a
+/// rule bounding `C: TypedStack` can call [`stack_effect`],
+/// [`pop_typed`](OperandStack::pop_typed) and `C::Slot::of_type` directly.
+///
+/// ```
+/// use vihaco_verifier::{Type, TypedSlot, TypedStack, Verify, stack_effect};
+///
+/// /// `[f64] -> [f64, f64]`: duplicate a sample.
+/// pub struct Fan;
+///
+/// impl<C: TypedStack + ?Sized> Verify<C> for Fan {
+///     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
+///         let sample = cx.pop_typed(&Type::F64)?;
+///         cx.push(sample);
+///         cx.push(C::Slot::of_type(Type::F64));
+///         Ok(())
+///     }
+/// }
+/// ```
+pub trait TypedStack: OperandStack<Slot: TypedSlot> {}
+
+impl<C: OperandStack + ?Sized> TypedStack for C where C::Slot: TypedSlot {}
+
+/// Implement [`Verify`](crate::Verify) for instructions with a fixed stack
+/// effect, one line each: `Instruction: [inputs] -> [outputs];`, inputs
+/// listed bottom first, as [`stack_effect`] takes them.
+///
+/// Each rule bounds its context only on [`TypedStack`] and keeps the default
+/// [`Flow::Next`](crate::Flow::Next). When the types depend on the
+/// instruction's operands, name the instruction with `as`:
+/// `Instruction as this: [..] -> [..];`, then use `this` in the types.
+///
+/// ```
+/// use vihaco_verifier::{Type, stack_rules};
+///
+/// pub struct ScaleF64;
+/// pub struct SumF64x2;
+/// /// `[array T, u64] -> [T]`, with the element type as an operand.
+/// pub struct Get(pub Type);
+///
+/// stack_rules! {
+///     ScaleF64: [Type::F64, Type::F64] -> [Type::F64];
+///     SumF64x2: [Type::F64, Type::F64] -> [Type::F64];
+///     Get as this: [Type::array(this.0.clone()), Type::U64] -> [this.0.clone()];
+/// }
+/// ```
+#[macro_export]
+macro_rules! stack_rules {
+    () => {};
+    ($instruction:ty: [$($input:expr),* $(,)?] -> [$($output:expr),* $(,)?]; $($rest:tt)*) => {
+        impl<C: $crate::TypedStack + ?Sized> $crate::Verify<C> for $instruction {
+            fn verify(&self, cx: &mut C) -> $crate::__private::eyre::Result<()> {
+                $crate::stack_effect(cx, [$($input),*], [$($output),*])
+            }
+        }
+        $crate::stack_rules! { $($rest)* }
+    };
+    (
+        $instruction:ty as $this:ident: [$($input:expr),* $(,)?] -> [$($output:expr),* $(,)?];
+        $($rest:tt)*
+    ) => {
+        impl<C: $crate::TypedStack + ?Sized> $crate::Verify<C> for $instruction {
+            fn verify(&self, cx: &mut C) -> $crate::__private::eyre::Result<()> {
+                let $this = self;
+                $crate::stack_effect(cx, [$($input),*], [$($output),*])
+            }
+        }
+        $crate::stack_rules! { $($rest)* }
+    };
+}
+
 /// Apply a fixed stack effect: pop `inputs` (listed bottom first, so the last
 /// input is the top of the stack), checking each against its type, then push
 /// `outputs` in order.
@@ -90,8 +164,7 @@ pub fn stack_effect<C, const N: usize, const M: usize>(
     outputs: [Type; M],
 ) -> eyre::Result<()>
 where
-    C: OperandStack + ?Sized,
-    C::Slot: TypedSlot,
+    C: TypedStack + ?Sized,
 {
     if cx.depth() < N {
         return Err(VerifyError::stack_underflow(N, cx.depth()).into());
@@ -436,6 +509,36 @@ mod tests {
         );
         assert_eq!(saved, before);
         assert_eq!(saved.to_string(), "locals [i64 or f64] operands [u64]");
+    }
+
+    #[test]
+    fn stack_rules_implement_fixed_effects() {
+        use crate::{Flow, Verify};
+        struct Scale;
+        struct Get(Type);
+        crate::stack_rules! {
+            Scale: [Type::F64, Type::F64] -> [Type::F64];
+            Get as this: [Type::array(this.0.clone()), Type::U64] -> [this.0.clone()];
+        }
+        type Cx = FrameState<TypeSlot>;
+        let mut cx: Cx = FrameState::new(Frame::with_operands(
+            vec![],
+            vec![slot(Type::array(Type::I64)), slot(Type::U64)],
+        ));
+        Get(Type::I64).verify(&mut cx).unwrap();
+        assert_eq!(cx.frame().operands(), [slot(Type::I64)]);
+        assert_eq!(<Get as Verify<Cx>>::flow(&Get(Type::I64)), Flow::Next);
+        let error = Scale.verify(&mut cx).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "stack underflow: the instruction needs 2 operands, but the stack has 1"
+        );
+        cx.push(slot(Type::F64));
+        let error = Scale.verify(&mut cx).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "operand 0 of the instruction: expected f64, found i64"
+        );
     }
 
     #[test]

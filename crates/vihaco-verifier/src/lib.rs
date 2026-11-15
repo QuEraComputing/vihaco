@@ -162,7 +162,13 @@ pub use rules::{
     set_field_effect, store_local, string_constant, struct_new_effect,
 };
 pub use slot::{Lattice, TypeSlot, TypedSlot, type_satisfies};
-pub use stack::{Frame, FrameState, OperandStack, stack_effect};
+pub use stack::{Frame, FrameState, OperandStack, TypedStack, stack_effect};
+
+#[doc(hidden)]
+pub mod __private {
+    //! Paths for macro-generated code.
+    pub use eyre;
+}
 pub use state::{AbstractState, JoinPoint};
 pub use verified::Verified;
 

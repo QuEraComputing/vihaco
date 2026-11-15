@@ -11,8 +11,9 @@ use super::program;
 use vihaco_abi::word::{decode_function_ref, decode_string_id};
 use vihaco_abi::{Flow, Type, Value, Verify};
 use vihaco_verifier::{
-    Constants, Locals, OperandStack, Signatures, TypedSlot, direct_call_effect, function_constant,
-    indirect_call_effect, load_local, return_effect, stack_effect, store_local, string_constant,
+    Constants, Locals, OperandStack, Signatures, TypedStack, direct_call_effect, function_constant,
+    indirect_call_effect, load_local, return_effect, stack_effect, stack_rules, store_local,
+    string_constant,
 };
 
 impl<C: ?Sized> Verify<C> for program::Branch {
@@ -26,11 +27,7 @@ impl<C: ?Sized> Verify<C> for program::Branch {
 }
 
 /// Pops the `bool` condition.
-impl<C> Verify<C> for program::ConditionalBranch
-where
-    C: OperandStack + ?Sized,
-    C::Slot: TypedSlot,
-{
+impl<C: TypedStack + ?Sized> Verify<C> for program::ConditionalBranch {
     fn flow(&self) -> Flow {
         Flow::jump_to([self.0, self.1])
     }
@@ -50,11 +47,7 @@ impl<C: ?Sized> Verify<C> for program::Halt {
     }
 }
 
-impl<C> Verify<C> for program::Return
-where
-    C: OperandStack + Signatures<Type> + ?Sized,
-    C::Slot: TypedSlot,
-{
+impl<C: TypedStack + Signatures<Type> + ?Sized> Verify<C> for program::Return {
     fn flow(&self) -> Flow {
         Flow::Return
     }
@@ -64,31 +57,20 @@ where
     }
 }
 
-impl<C> Verify<C> for program::Call
-where
-    C: OperandStack + Signatures<Type> + ?Sized,
-    C::Slot: TypedSlot,
-{
+impl<C: TypedStack + Signatures<Type> + ?Sized> Verify<C> for program::Call {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
         direct_call_effect(cx, self.0, self.1)
     }
 }
 
-impl<C> Verify<C> for program::IndirectCall
-where
-    C: OperandStack + Signatures<Type> + ?Sized,
-    C::Slot: TypedSlot,
-{
+impl<C: TypedStack + Signatures<Type> + ?Sized> Verify<C> for program::IndirectCall {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
         indirect_call_effect(cx, &self.0)
     }
 }
 
 /// Pushes a copy of the top slot.
-impl<C> Verify<C> for program::Dup
-where
-    C: OperandStack + ?Sized,
-{
+impl<C: OperandStack + ?Sized> Verify<C> for program::Dup {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
         let top = cx.peek()?.clone();
         cx.push(top);
@@ -100,21 +82,13 @@ where
 /// mnemonic's type. `None` for the untyped `load` / `store`.
 macro_rules! locals {
     ($($load:ident, $store:ident => $ty:expr;)*) => {$(
-        impl<C> Verify<C> for program::$load
-        where
-            C: Locals + ?Sized,
-            C::Slot: TypedSlot,
-        {
+        impl<C: Locals + TypedStack + ?Sized> Verify<C> for program::$load {
             fn verify(&self, cx: &mut C) -> eyre::Result<()> {
                 load_local(cx, self.0, $ty.as_ref())
             }
         }
 
-        impl<C> Verify<C> for program::$store
-        where
-            C: Locals + ?Sized,
-            C::Slot: TypedSlot,
-        {
+        impl<C: Locals + TypedStack + ?Sized> Verify<C> for program::$store {
             fn verify(&self, cx: &mut C) -> eyre::Result<()> {
                 store_local(cx, self.0, $ty.as_ref())
             }
@@ -133,49 +107,27 @@ locals! {
     Load, Store => None::<Type>;
 }
 
-/// Literal constants push their mnemonic's type. (There is no reference
-/// literal: typed programs cannot write a heap reference.)
-macro_rules! literals {
-    ($($instruction:ident => $ty:expr;)*) => {$(
-        impl<C> Verify<C> for program::$instruction
-        where
-            C: OperandStack + ?Sized,
-            C::Slot: TypedSlot,
-        {
-            fn verify(&self, cx: &mut C) -> eyre::Result<()> {
-                stack_effect(cx, [], [$ty])
-            }
-        }
-    )*};
-}
-
-literals! {
-    ConstI32 => Type::I32;
-    ConstI64 => Type::I64;
-    ConstU32 => Type::U32;
-    ConstU64 => Type::U64;
-    ConstF32 => Type::F32;
-    ConstF64 => Type::F64;
-    ConstBool => Type::Bool;
+// Literal constants push their mnemonic's type. (There is no
+// reference literal: typed programs cannot write a heap reference.)
+stack_rules! {
+    program::ConstI32: [] -> [Type::I32];
+    program::ConstI64: [] -> [Type::I64];
+    program::ConstU32: [] -> [Type::U32];
+    program::ConstU64: [] -> [Type::U64];
+    program::ConstF32: [] -> [Type::F32];
+    program::ConstF64: [] -> [Type::F64];
+    program::ConstBool: [] -> [Type::Bool];
 }
 
 /// Pushes `str`; the index must be in the string table.
-impl<C> Verify<C> for program::ConstString
-where
-    C: OperandStack + Constants<Value, Type> + ?Sized,
-    C::Slot: TypedSlot,
-{
+impl<C: TypedStack + Constants<Value, Type> + ?Sized> Verify<C> for program::ConstString {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
         string_constant(cx, decode_string_id(self.0))
     }
 }
 
 /// Pushes `fn`; the index must be in the function table.
-impl<C> Verify<C> for program::ConstFunctionRef
-where
-    C: OperandStack + Signatures<Type> + ?Sized,
-    C::Slot: TypedSlot,
-{
+impl<C: TypedStack + Signatures<Type> + ?Sized> Verify<C> for program::ConstFunctionRef {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
         function_constant(cx, decode_function_ref(self.0))
     }
