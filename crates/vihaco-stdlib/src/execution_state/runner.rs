@@ -110,8 +110,13 @@ fn step_error<I, V, Ty, Info>(
     instruction: Option<String>,
 ) -> eyre::Report {
     let names = module.names();
+    // Only a bare heap error is shown by name: `downcast_ref` would also find
+    // one under a device's `wrap_err` context, which replacing the source
+    // would drop.
     let named = error
-        .downcast_ref::<HeapError>()
+        .chain()
+        .next()
+        .and_then(|outermost| outermost.downcast_ref::<HeapError>())
         .map(|heap| NamedHeapError::new(heap.clone(), &names));
     let location = match instruction {
         Some(text) => format!("{} `{text}`", names.location(position)),
@@ -137,9 +142,10 @@ fn step_error<I, V, Ty, Info>(
 /// generation 1) is struct Pair, expected struct Point`.
 ///
 /// The source is the step's own error (for example a device's error type),
-/// except that a [`HeapError`] appears as a [`NamedHeapError`], rendered with
-/// the module's names; its [`error`](NamedHeapError::error) is the
-/// structured `HeapError`. [`StepError::error`] returns the step's error
+/// except that a bare [`HeapError`] appears as a [`NamedHeapError`], rendered
+/// with the module's names; its [`error`](NamedHeapError::error) is the
+/// structured `HeapError`. A heap error under a device's `wrap_err` context
+/// is left as it is, so the context stays in the chain. [`StepError::error`] returns the step's error
 /// unchanged. `downcast_ref` on the returned report itself finds the
 /// `StepError`: search the chain for the cause.
 #[derive(Debug)]
@@ -179,5 +185,48 @@ impl std::error::Error for StepError {
             Some(named) => Some(named),
             None => Some(self.error.as_ref()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eyre::WrapErr as _;
+    use vihaco_abi::heap::HeapRef;
+    use vihaco_abi::{Type, Value};
+
+    fn step(error: eyre::Report) -> eyre::Report {
+        let module = LocalModule::<(), Value, Type>::default();
+        step_error(error, &module, 0, Some("dev::read 3".into()))
+    }
+
+    fn invalid_reference() -> HeapError {
+        HeapError::InvalidReference {
+            reference: HeapRef(1 << 32 | 1),
+        }
+    }
+
+    #[test]
+    fn a_bare_heap_error_is_shown_by_name() {
+        let error = step(invalid_reference().into());
+        assert_eq!(
+            format!("{error:#}"),
+            "at address 0 `dev::read 3`: heap reference (slot 1, generation 1) is invalid or \
+             has been deallocated"
+        );
+        assert!(error.chain().any(|cause| cause.is::<NamedHeapError>()));
+    }
+
+    #[test]
+    fn a_wrapped_heap_error_keeps_its_context() {
+        let wrapped = Err::<(), _>(invalid_reference())
+            .wrap_err("reading pulse table entry")
+            .unwrap_err();
+        let error = step(wrapped);
+        assert_eq!(
+            format!("{error:#}"),
+            "at address 0 `dev::read 3`: reading pulse table entry: heap reference (slot 1, \
+             generation 1) is invalid or has been deallocated"
+        );
     }
 }
