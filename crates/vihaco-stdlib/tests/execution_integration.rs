@@ -447,6 +447,24 @@ fn recursion_stops_at_the_call_depth_limit_naming_the_function() {
 }
 
 #[test]
+fn the_entry_frame_counts_against_the_call_depth_limit() {
+    let (mut module, mut vm) = machine(&["program::program::halt"]);
+    module.strings = vec!["main".into()];
+    vm.program.set_max_call_depth(0);
+    let error = execute(&module, &mut vm, &[]).unwrap_err();
+    assert!(
+        format!("{error:#}")
+            .contains("call to `@main` (function 0) exceeds the maximum call depth of 0 frames"),
+        "{error:#}"
+    );
+    assert!(vm.program.frames().is_empty());
+
+    // A limit of one frame runs the entry function alone.
+    vm.program.set_max_call_depth(1);
+    execute(&module, &mut vm, &[]).unwrap();
+}
+
+#[test]
 fn heap_transfers_use_program_operands_and_preserve_device_state() {
     let (mut module, mut vm) = machine(&[
         "program::program::const_u64 7",
