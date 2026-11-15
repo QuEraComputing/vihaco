@@ -25,7 +25,8 @@ There are three types involved in owning a program:
 First build a valid module by parsing and lowering source or decoding a binary
 program. Verify it with `Verified::new(module)`, which checks every function
 against the machine's typing rules and, if it fails, returns a `VerifyFailed`
-holding the module and every problem, shown with the module's names. Then wrap the verified module in `Image::new(verified)` and
+holding the module and every problem (`failed.display_named()` shows them
+with the module's names). Then wrap the verified module in `Image::new(verified)` and
 pair it with a machine using `Loadable::new(image, machine)`. These constructors
 don't parse or verify the program for you, but `Image::new` only accepts a
 `Verified` module, so nothing runs unverified by accident.

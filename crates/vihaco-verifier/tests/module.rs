@@ -1204,12 +1204,19 @@ fn only_verification_or_the_escape_hatch_builds_verified_modules() {
     let (module, rejection) = failed.into_parts();
     assert_eq!(module, bad);
     assert_eq!(rejection.diagnostics.len(), 1);
-    // Failures display with the module's names and convert into eyre reports.
-    let report: eyre::Report = Verified::new(bad.clone()).unwrap_err().into();
+    // A failure displays with the module's names on request, and converts
+    // into an eyre report (displayed without names) for any module.
+    let failed = Verified::new(bad.clone()).unwrap_err();
     assert_eq!(
-        report.to_string(),
+        failed.display_named().to_string(),
         "verification failed with 1 error\nerror: return value 0 of @main: expected u64, \
          found f64\n  --> @main+1 (address 1): Ret(1)"
+    );
+    let report: eyre::Report = failed.into();
+    assert_eq!(
+        report.to_string(),
+        "verification failed with 1 error\nerror: return value 0 of function 0: expected u64, \
+         found f64\n  --> function 0, address 1"
     );
 
     // The escape hatch skips verification entirely.

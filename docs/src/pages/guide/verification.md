@@ -40,8 +40,17 @@ let mut loaded = Loadable::new(image, machine);
 If the program has any error, `Verified::new` returns a `VerifyFailed`: it
 gives the module back (`failed.module`, or `into_parts()`) together with the
 `Rejection`, whose `diagnostics` list every finding, sorted by function and
-address. It displays them all with the module's names and converts into an
-`eyre::Report`, so `?` reports something like:
+address. It converts into an `eyre::Report` for any instruction set, so `?`
+works; that report shows indices (`function 0, address 2`). To show the module's
+names, which every `#[composite]` instruction set provides, render it with
+`failed.display_named()`:
+
+```rust,ignore
+let verified = Verified::new(module)
+    .map_err(|failed| eyre::eyre!("{}", failed.display_named()))?;
+```
+
+which reports something like:
 
 ```text
 verification failed with 1 error
@@ -187,9 +196,9 @@ fn main() -> eyre::Result<()> {
         "execution::program::ret 1",
     ])?;
     let failed = Verified::verify(bad, options).unwrap_err();
-    // The error displays every diagnostic with the module's names.
+    // `display_named` shows every diagnostic with the module's names.
     assert_eq!(
-        failed.to_string(),
+        failed.display_named().to_string(),
         "verification failed with 1 error\n\
          error: operand 0 of `mixer::mixer::scale_f64`: expected f64, found u64\n  \
          --> @main+2 (address 2): mixer::mixer::scale_f64"
@@ -251,8 +260,8 @@ error: operand 0 of `cpu::cpu::add_u64`: expected u64, found u64 or f64 (paths d
   --> @main+6 (address 6): cpu::cpu::add_u64
 ```
 
-`rejection.display_with(&module)` renders a whole rejection; `VerifyFailed`
-does this for you. A diagnostic's plain `Display` works without the module and
+`rejection.display_with(&module)` renders a whole rejection, and
+`failed.display_named()` does the same for a `VerifyFailed`. A diagnostic's plain `Display` works without the module and
 shows indices instead (`struct 0`, `function 0, address 2`).
 
 The instruction text comes from `InstructionText`, which every `#[composite]`

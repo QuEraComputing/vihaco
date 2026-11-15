@@ -98,7 +98,7 @@ use crate::stack::Frame;
 /// module.functions[0].end_address = 1;
 /// let failed = Verified::new(module).unwrap_err();
 /// assert_eq!(
-///     failed.to_string(),
+///     failed.display_named().to_string(),
 ///     "verification failed with 1 error\n\
 ///      error: control falls off the end of @main without a return or halt\n  \
 ///      --> @main+0 (address 0): const_i64"
@@ -163,11 +163,10 @@ impl<M> Verified<M> {
     ///     let span = FunctionSpan { function: 0, start: 0, end: bare.0.len() as u32, entry };
     ///     let mut cx = FrameState::new(Frame::new(vec![]));
     ///     verify_functions(&bare.0, &[span], &mut cx, VerifyOptions::default())
-    /// })
-    /// .map_err(|failed| failed.rejection)?;
+    /// })?; // `?` works for any module, whatever its instructions.
     /// assert!(verification.warnings.is_empty());
     /// assert_eq!(verified.0.len(), 1);
-    /// # Ok::<(), vihaco_verifier::Rejection<Frame<TypeSlot>>>(())
+    /// # Ok::<(), eyre::Report>(())
     /// ```
     ///
     /// # Errors
@@ -285,12 +284,15 @@ impl<I, Info> Verified<LocalModule<I, Value, Type, Info>> {
 
 /// A module that failed verification, given back with the [`Rejection`].
 ///
-/// Displays every diagnostic with the module's names (see
-/// [`Rejection::display_with`]) when the module provides them, which every
-/// [`LocalModule`] whose instructions implement
+/// It is an error for every module type, so `?` converts it into an
+/// [`eyre::Report`] whatever the instructions are. Its `Display` is the
+/// rejection's, without names (`function 0, address 2`). To show the
+/// module's names (`@main+2 (address 2)` and the instruction text), use
+/// [`display_named`](Self::display_named) when the module provides them, which
+/// every [`LocalModule`] whose instructions implement
 /// [`InstructionText`](vihaco_abi::names::InstructionText) does (every
-/// `#[composite]` instruction set), and then converts into an
-/// [`eyre::Report`] with `?`.
+/// `#[composite]` instruction set), or [`display_with`](Self::display_with)
+/// for names from elsewhere.
 pub struct VerifyFailed<M, S = Frame<TypeSlot>> {
     /// The module, unchanged (boxed, so the error stays small).
     pub module: Box<M>,
@@ -308,6 +310,19 @@ impl<M, S> VerifyFailed<M, S> {
     pub fn into_parts(self) -> (M, Rejection<S>) {
         (*self.module, self.rejection)
     }
+
+    /// Every diagnostic, rendered with the module's own names.
+    pub fn display_named(&self) -> impl fmt::Display + '_
+    where
+        M: DiagnosticNames,
+    {
+        self.rejection.display_with(&*self.module)
+    }
+
+    /// Every diagnostic, rendered with `names`.
+    pub fn display_with<'a>(&'a self, names: &'a dyn DiagnosticNames) -> impl fmt::Display + 'a {
+        self.rejection.display_with(names)
+    }
 }
 
 /// Shows the rejection; the module is omitted.
@@ -319,10 +334,11 @@ impl<M, S: fmt::Debug> fmt::Debug for VerifyFailed<M, S> {
     }
 }
 
-impl<M: DiagnosticNames, S> fmt::Display for VerifyFailed<M, S> {
+/// The rejection, without names (see [`VerifyFailed::display_named`]).
+impl<M, S> fmt::Display for VerifyFailed<M, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.rejection.display_with(&*self.module).fmt(f)
+        self.rejection.fmt(f)
     }
 }
 
-impl<M: DiagnosticNames, S: fmt::Debug> std::error::Error for VerifyFailed<M, S> {}
+impl<M, S: fmt::Debug> std::error::Error for VerifyFailed<M, S> {}
