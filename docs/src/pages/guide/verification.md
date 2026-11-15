@@ -299,7 +299,10 @@ context, and the rule names only the **capabilities** it needs as bounds, never
 a concrete verifier. That keeps rules usable in any machine. A missing rule or
 capability is a compile error that says so: "instruction `Pulse` has no
 verification rule for context `ModuleVerifier<'m>`", or "verifier context
-`FrameState<TypeSlot>` does not provide the `Signatures` capability".
+`FrameState<TypeSlot>` does not provide the `Signatures` capability". In a
+`#[composite]`, the headline names the leaf instruction, not the generated
+instruction set; rustc's "other types implement" list still shows the
+generated `__vihaco_…Instruction` aggregate, which you can ignore.
 
 ```rust,ignore
 pub trait Verify<C: ?Sized> {

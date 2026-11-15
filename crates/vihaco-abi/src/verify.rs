@@ -29,7 +29,8 @@ use smallvec::SmallVec;
     message = "instruction `{Self}` has no verification rule for context `{C}`",
     label = "`{Self}` cannot be verified with `{C}`",
     note = "implement `Verify<C>` for each instruction, bounding `C` only on the capabilities \
-            the rule uses; the notes below name the instruction or capability that is missing"
+            the rule uses; for a composite's instruction set, the headline names the leaf \
+            instruction that has no rule"
 )]
 pub trait Verify<C: ?Sized> {
     /// Where control goes after this instruction.

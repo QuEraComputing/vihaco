@@ -602,6 +602,11 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
         .collect();
     // Verification uses runtime instructions. Like lowering, the aggregate
     // implements `Verify<C>` exactly when every instruction it contains does.
+    // Not `#[diagnostic::do_not_recommend]`: that would stop rustc looking
+    // through this impl, so a missing rule would be reported against the
+    // aggregate instead of naming the leaf. The aggregate does appear in the
+    // "other types implement" list; the composite compile-fail fixture pins
+    // this.
     let verification = if entries.is_empty() {
         quote! {
             impl<#context_parameter: ?Sized> #root::Verify<#context_parameter> for #runtime {
