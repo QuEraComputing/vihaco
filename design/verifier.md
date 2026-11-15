@@ -420,6 +420,12 @@ array array u64        ; nested: one u64 array per channel
 - Structural, not nominal: two `array f64` types are the same type, so arrays
   need no table, unlike structs.
 - Encoded as byte `0x0C` followed by the element type's encoding (recursive).
+- Nesting is limited to `Type::MAX_ARRAY_DEPTH` (32) levels. Decoding counts
+  the `0x0C` prefixes and parsing counts the `array` prefixes, both without
+  recursion, so hostile input cannot overflow the stack; the parse error names
+  the depth. Lowering rejects an array instruction whose element type is
+  already at the limit, and so do the `array_new`/`array_reserve` rules, so no
+  runtime array type is deeper either.
 - `Type` loses `Copy`. Measured impact: one test site in the workspace.
 - Element types inside `struct N` are checked against the struct table at
   module assembly, like any other `struct N`.

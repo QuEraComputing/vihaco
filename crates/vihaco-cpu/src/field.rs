@@ -19,7 +19,8 @@ use vihaco_module::loader::MetadataLoweringContext;
 use vihaco_parser::{Ident, Parse};
 
 /// A type as written in source: any [`Type`], where struct types may also be
-/// named (`struct @Point`), at any nesting depth (`array array struct @Point`).
+/// named (`struct @Point`), nested up to [`Type::MAX_ARRAY_DEPTH`] levels deep
+/// (`array array struct @Point`).
 #[derive(Clone, Debug, PartialEq)]
 pub enum TypeOperand {
     /// A type with no names to resolve, such as `f64` or `array struct 0`.
@@ -189,10 +190,31 @@ fn resolve_type<C: StructLookup + ?Sized>(operand: TypeOperand, context: &C) -> 
     result.map(|()| ty)
 }
 
+/// Resolve an array element type. The array type itself (`array <elem>`) must
+/// stay within [`Type::MAX_ARRAY_DEPTH`] like every other type, so the element
+/// type may nest one level less.
+fn resolve_element_type<C: StructLookup + ?Sized>(
+    operand: TypeOperand,
+    context: &C,
+) -> eyre::Result<Type> {
+    let elem = resolve_type(operand, context)?;
+    let depth = elem.array_depth();
+    eyre::ensure!(
+        depth < Type::MAX_ARRAY_DEPTH,
+        "an array of this element type would be nested {} levels deep; at most {} are allowed",
+        depth + 1,
+        Type::MAX_ARRAY_DEPTH
+    );
+    Ok(elem)
+}
+
 impl<C: StructLookup + ?Sized> Lower<C> for cpu::ArrayNew<Syntax> {
     type Runtime = cpu::ArrayNew;
     fn lower(self, context: &mut C) -> eyre::Result<Self::Runtime> {
-        Ok(cpu::ArrayNew(resolve_type(self.0, context)?, self.1))
+        Ok(cpu::ArrayNew(
+            resolve_element_type(self.0, context)?,
+            self.1,
+        ))
     }
 }
 
@@ -201,7 +223,7 @@ macro_rules! lower_element_type {
         impl<C: StructLookup + ?Sized> Lower<C> for cpu::$instruction<Syntax> {
             type Runtime = cpu::$instruction;
             fn lower(self, context: &mut C) -> eyre::Result<Self::Runtime> {
-                Ok(cpu::$instruction(resolve_type(self.0, context)?))
+                Ok(cpu::$instruction(resolve_element_type(self.0, context)?))
             }
         }
     )*};
@@ -250,7 +272,13 @@ mod tests {
         I::parser()
             .parse(text)
             .into_result()
-            .map_err(|errors| eyre::eyre!("{errors:?}"))?
+            .map_err(|errors| {
+                // As `ParsedModule::parse_section` reports it.
+                let nesting = errors
+                    .iter()
+                    .find_map(|error| Type::nesting_error_at(text, error.span().start));
+                eyre::eyre!("{}", nesting.unwrap_or_else(|| format!("{errors:?}")))
+            })?
             .lower(&mut Points)
     }
 
@@ -339,15 +367,45 @@ mod tests {
     #[test]
     fn element_type_nesting_is_limited() {
         let max = Type::MAX_ARRAY_DEPTH;
-        let at_limit = format!("array_get {}struct @Point", "array ".repeat(max));
-        let lowered = lower::<cpu::ArrayGet<Syntax>>(&at_limit).unwrap();
-        assert_eq!(lowered.0.array_depth(), max);
+        // The deepest element type: its array type is at the limit.
+        let deepest = format!("array_get {}struct @Point", "array ".repeat(max - 1));
+        let lowered = lower::<cpu::ArrayGet<Syntax>>(&deepest).unwrap();
+        assert_eq!(lowered.0.array_depth(), max - 1);
+        // An element type at the limit parses, but no array of it can exist.
+        for instruction in ["array_new", "array_reserve", "array_get"] {
+            let at_limit = format!("{instruction} {}struct @Point", "array ".repeat(max));
+            let at_limit = if instruction == "array_new" {
+                format!("{at_limit}, 1")
+            } else {
+                at_limit
+            };
+            let err = match instruction {
+                "array_new" => lower::<cpu::ArrayNew<Syntax>>(&at_limit).map(drop),
+                "array_reserve" => lower::<cpu::ArrayReserve<Syntax>>(&at_limit).map(drop),
+                _ => lower::<cpu::ArrayGet<Syntax>>(&at_limit).map(drop),
+            }
+            .unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "an array of this element type would be nested 33 levels deep; at most 32 are allowed",
+                "{instruction}"
+            );
+        }
         for elem in ["struct @Point", "u64"] {
             let past = format!("array_get {}{elem}", "array ".repeat(max + 1));
-            assert!(lower::<cpu::ArrayGet<Syntax>>(&past).is_err(), "{elem}");
+            let err = lower::<cpu::ArrayGet<Syntax>>(&past).unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "array type nested 33 levels deep; at most 32 are allowed",
+                "{elem}"
+            );
         }
         let hostile = format!("array_get {}u64", "array ".repeat(200_000));
-        assert!(lower::<cpu::ArrayGet<Syntax>>(&hostile).is_err());
+        let err = lower::<cpu::ArrayGet<Syntax>>(&hostile).unwrap_err();
+        assert!(
+            err.to_string().contains("nested 200000 levels deep"),
+            "{err}"
+        );
     }
 
     #[test]

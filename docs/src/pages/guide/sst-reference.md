@@ -170,8 +170,12 @@ example a linked node with a `next: struct 0` field.
 
 Arrays are typed by their element: `array f64`, `array struct 0`, or nested,
 `array array u64`. The type can appear anywhere a type can, such as a function
-return type or a struct field. Elements are stored inline, one word each;
-struct and array elements are references to their own heap objects.
+return type or a struct field. Types nest at most 32 levels deep
+(`Type::MAX_ARRAY_DEPTH`): a deeper type is a parse or decode error that names
+its depth, and lowering rejects an array instruction whose element type is
+already 32 levels deep, because its array type would be 33. Elements are stored
+inline, one word each; struct and array elements are references to their own
+heap objects.
 
 | Instruction | Effect |
 |---|---|
