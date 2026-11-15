@@ -17,6 +17,9 @@ thread_local! {
     static FAIL_RUNS: Cell<usize> = const { Cell::new(0) };
     /// How many times any rule has run, to bound the engine's total work.
     static RULE_RUNS: Cell<usize> = const { Cell::new(0) };
+    /// How many times a `Mark` has run: placed at a function's entry, it
+    /// counts the whole-function fixpoints the engine runs.
+    static MARK_RUNS: Cell<usize> = const { Cell::new(0) };
 }
 
 /// A fixture stack dialect.
@@ -44,6 +47,8 @@ enum Op {
     Fail(&'static str),
     /// A jump table: continue at any listed address (possibly none).
     Table(Vec<u32>),
+    /// A no-op that counts its runs.
+    Mark,
 }
 
 impl<C> Verify<C> for Op
@@ -80,6 +85,7 @@ where
                 cx.pop_expect(&Type::Bool)?;
             }
             Op::Br(_) | Op::Ret | Op::Halt | Op::Table(_) => {}
+            Op::Mark => MARK_RUNS.with(|runs| runs.set(runs.get() + 1)),
             Op::Fail(message) => {
                 FAIL_RUNS.with(|runs| runs.set(runs.get() + 1));
                 eyre::bail!("{message}");
@@ -647,6 +653,141 @@ fn many_failing_arms_that_rejoin_settle_in_linear_time() {
     }
     code.push(Ret);
     assert_rejected_in_linear_time(&code, copies as usize, 8);
+}
+
+/// Verify `code`, whose entry block starts with a `Mark` and has no incoming
+/// edge, and return the rejection's diagnostics and how many times the entry
+/// block ran. It runs once per whole-function fixpoint, at most once more per
+/// fixpoint scanning for failing blocks, and once replaying, so a function
+/// that settles in `n` fixpoints besides the uncut one runs it at most
+/// `2 * n + 3` times.
+fn rejected_counting_fixpoints(code: &[Op]) -> (Vec<(u32, u32, DiagnosticKind)>, usize) {
+    MARK_RUNS.with(|runs| runs.set(0));
+    let found = rejected(verify(code));
+    (found, MARK_RUNS.with(Cell::get))
+}
+
+/// One copy of `if cond { x = 1; loop { x = x + 1; x = true } }`, at `base`:
+/// the loop header at `base + 3` passes on first entry and fails once the
+/// back edge brings a `bool`. The `if` skips to `skip`.
+fn failing_loop(base: u32, skip: u32) -> [Op; 10] {
+    [
+        Const(Type::Bool),          // base
+        CondBr(base + 2, skip),     // base + 1
+        Const(Type::I64),           // base + 2
+        Const(Type::I64),           // base + 3: loop header
+        Add,                        // base + 4: fails on `i64 | bool`
+        Pop,                        // base + 5
+        Const(Type::Bool),          // base + 6
+        Const(Type::Bool),          // base + 7
+        CondBr(base + 3, base + 9), // base + 8: back edge, or exit
+        Pop,                        // base + 9
+    ]
+}
+
+#[test]
+fn failing_loops_cut_off_by_an_earlier_one_cost_no_fixpoint_each() {
+    // Both arms of each `if` enter the loop, so the first loop header, once
+    // cut, cuts off every later copy: they have no state, and need no
+    // fixpoint of their own even though the first header reaches them.
+    let copies = 2_000u32;
+    let mut code = vec![Mark];
+    for copy in 0..copies {
+        let base = 1 + 10 * copy;
+        code.extend(failing_loop(base, base + 2));
+    }
+    code.push(Ret);
+    let (found, runs) = rejected_counting_fixpoints(&code);
+    assert_eq!(found, [(0, 5, mismatch("i64", "i64 | bool"))]);
+    assert!(runs <= 10, "the entry block ran {runs} times");
+}
+
+#[test]
+fn many_bypassed_failing_loops_settle_within_the_budget() {
+    // Each loop sits behind an `if`, so every header is reached and fails,
+    // and each one passed a state on in the uncut fixpoint, so each later
+    // header is reached by an emitting cut block: settling caps the
+    // fixpoints it spends on them, and still reports every header.
+    let copies = 2_000u32;
+    let mut code = vec![Mark];
+    for copy in 0..copies {
+        let base = 1 + 10 * copy;
+        code.extend(failing_loop(base, base + 10));
+    }
+    code.push(Ret);
+    RULE_RUNS.with(|runs| runs.set(0));
+    let (found, runs) = rejected_counting_fixpoints(&code);
+    let expected: Vec<_> = (0..copies)
+        .map(|copy| (0, 1 + 10 * copy + 4, mismatch("i64", "i64 | bool")))
+        .collect();
+    assert_eq!(found, expected);
+    assert!(runs <= 2 * 65 + 3, "the entry block ran {runs} times");
+    let rules = RULE_RUNS.with(Cell::get);
+    assert!(rules <= 100 * code.len(), "rules ran {rules} times");
+}
+
+/// One copy of `x = 1; if cond { loop { ... } }; use(x)`, at `base`: the loop
+/// exit and the bypass join at `base + 9`, which fails on `i64 | bool` only
+/// because the failing loop header at `base + 3` passed a `bool` on in an
+/// early round. It is a follow-on failure that settling restores.
+fn failing_loop_joining_a_bypass(base: u32) -> [Op; 10] {
+    [
+        Const(Type::I64),           // base
+        Const(Type::Bool),          // base + 1
+        CondBr(base + 3, base + 9), // base + 2
+        Const(Type::I64),           // base + 3: loop header
+        Add,                        // base + 4: fails on `i64 | bool`
+        Pop,                        // base + 5
+        Const(Type::Bool),          // base + 6
+        Const(Type::Bool),          // base + 7
+        CondBr(base + 3, base + 9), // base + 8: back edge, or exit
+        Use(Type::I64),             // base + 9: the join
+    ]
+}
+
+fn failing_loops_joining_bypasses(copies: u32) -> Vec<Op> {
+    let mut code = vec![Mark];
+    for copy in 0..copies {
+        code.extend(failing_loop_joining_a_bypass(1 + 10 * copy));
+    }
+    code.push(Ret);
+    code
+}
+
+#[test]
+fn follow_on_failures_are_restored_within_the_budget() {
+    let (found, _) = rejected_counting_fixpoints(&failing_loops_joining_bypasses(5));
+    let expected: Vec<_> = (0..5)
+        .map(|copy| (0, 1 + 10 * copy + 4, mismatch("i64", "i64 | bool")))
+        .collect();
+    assert_eq!(found, expected);
+}
+
+#[test]
+fn past_the_budget_the_real_defects_are_still_reported() {
+    // Each join is restored only after fixpoints for its loop header and for
+    // itself, so 2,000 copies exhaust the budget. Settling then stops: the
+    // join of the last copy it reached stays cut, reports a follow-on error,
+    // and cuts off the copies after it. The loop headers before it, the real
+    // defects, are still reported, and the work stays bounded.
+    let copies = 2_000u32;
+    let code = failing_loops_joining_bypasses(copies);
+    RULE_RUNS.with(|runs| runs.set(0));
+    let (found, runs) = rejected_counting_fixpoints(&code);
+    let headers = found.len() as u32 - 1;
+    assert!(
+        (1..copies).contains(&headers),
+        "the budget was not exhausted: {found:?}"
+    );
+    let mut expected: Vec<_> = (0..headers)
+        .map(|copy| (0, 1 + 10 * copy + 4, mismatch("i64", "i64 | bool")))
+        .collect();
+    let last_join = 1 + 10 * (headers - 1) + 9;
+    expected.push((0, last_join, mismatch("i64", "i64 | bool")));
+    assert_eq!(found, expected);
+    assert!(runs <= 2 * 65 + 3, "the entry block ran {runs} times");
+    let rules = RULE_RUNS.with(Cell::get);
+    assert!(rules <= 200 * code.len(), "rules ran {rules} times");
 }
 
 #[test]

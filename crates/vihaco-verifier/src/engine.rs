@@ -154,7 +154,10 @@ impl std::error::Error for Rejection {}
 ///    blocks cut, so states a failing block passed on in early rounds are
 ///    retracted. A cut block is restored if its failure was only a follow-on
 ///    effect: if it passes once the other failing blocks pass nothing on.
-///    These reruns happen only when verification fails;
+///    These reruns happen only when verification fails, and are capped at a
+///    fixed number of whole-function fixpoints per function (64); past the
+///    cap the function is still rejected, but follow-on diagnostics may
+///    appear;
 /// 4. **replays** each reached block once, in address order, from its
 ///    converged state, reporting the first rule error in the block (which
 ///    ends that block) and any join mismatch on its outgoing edges (at the
@@ -167,8 +170,8 @@ impl std::error::Error for Rejection {}
 /// state it fails at with every *other* failing block passing nothing on (its
 /// own loops still feed it, since they are what make, say, a loop header
 /// fail), so no diagnostic stems from a state another failing block passed
-/// on. Every diagnostic of every function is returned, sorted by function then
-/// address.
+/// on (within the cap on reruns). Every diagnostic of every function is
+/// returned, sorted by function then address.
 ///
 /// The fixpoint terminates provided the context's joins have finite height
 /// (see [`Lattice`](crate::Lattice)).
@@ -364,6 +367,16 @@ where
     )
 }
 
+/// The most whole-function fixpoints [`Walk::settle`] runs, on top of the
+/// uncut one, to settle which blocks of a rejected function fail.
+///
+/// Settling refines the set of failing blocks so that no diagnostic stems
+/// from a state another failing block passed on; untrusted input can make
+/// each refinement step cost a fixpoint. Past this budget the engine stops
+/// refining: the function is still rejected with every error it found, but
+/// follow-on diagnostics may appear.
+const SETTLE_FIXPOINTS: usize = 64;
+
 /// Which blocks fail, and the states to analyse each block from.
 struct Settled<S> {
     /// Leaders of failing blocks, whose out-edges are cut.
@@ -553,14 +566,26 @@ impl<'a, I> Walk<'a, I> {
     /// after its restore keeps the state it was cut at, as a fallback. These
     /// reruns happen only when some block fails.
     ///
-    /// A cut leader that no other *emitting* cut block can reach has the same
-    /// replay state as in `full`. Cutting a block that never passed a state
-    /// on in `full` changes nothing in it, not even the worklist order, and
-    /// cutting a block that cannot reach the leader changes nothing upstream
-    /// of it. Only leaders that another emitting cut block reaches need a
-    /// fixpoint. Typically a failing block fails in every round and never
-    /// emits, so a function with many independent errors settles in a few
-    /// fixpoints, even when each failing block rejoins the code after it.
+    /// A cut leader with no state in `fixpoint(C)` has none in
+    /// `fixpoint(C \ {L})` either (every path to it goes through another cut
+    /// block), so it needs no fixpoint. A cut leader that no other *emitting*
+    /// cut block can reach has the same replay state as in `full`. Cutting a
+    /// block that never passed a state on in `full` changes nothing in it,
+    /// not even the worklist order, and cutting a block that cannot reach the
+    /// leader changes nothing upstream of it. Only the remaining leaders need
+    /// a whole-function fixpoint of their own, and each restore reruns
+    /// [`Walk::cut_failing`].
+    ///
+    /// Those fixpoints are capped at [`SETTLE_FIXPOINTS`]. Once the budget is
+    /// spent, refinement stops and the current cut set stands: each cut block
+    /// is replayed from its state in `fixpoint(C)` if it fails there, and
+    /// otherwise from the state it was cut at, at which it failed. The
+    /// function is still rejected, and every reported error is a real failure
+    /// at a state the engine reached, but the two properties above hold only
+    /// within the budget: past it, a cut block may be a follow-on failure
+    /// that a restore would have cleared, and so report a follow-on
+    /// diagnostic. Rejecting a function costs at most `SETTLE_FIXPOINTS + 2`
+    /// whole-function fixpoints, the uncut one included.
     fn settle<C>(
         &self,
         entry: &C::Snapshot,
@@ -586,16 +611,25 @@ impl<'a, I> Walk<'a, I> {
             .zip(&full)
             .map(|(&cut, state)| if cut { state.clone() } else { None })
             .collect();
-        let mut states = self.cut_failing(entry, &mut cut, &mut replay, function, cx);
+        let mut budget = SETTLE_FIXPOINTS;
+        let mut states = self.cut_failing(entry, &mut cut, &mut replay, &mut budget, function, cx);
         let mut restored = vec![false; self.len()];
+        let mut exhausted = false;
         let mut changed = true;
-        while std::mem::take(&mut changed) {
+        'refine: while std::mem::take(&mut changed) {
             let mut reached_by_cut = self.reached_from_other_cut(&cut, emitted);
             for leader in 0..self.len() {
-                if !cut[leader] {
+                // A cut leader that only other cut blocks reach has no state
+                // in `fixpoint(C \ {leader})` either.
+                if !cut[leader] || states[leader].is_none() {
                     continue;
                 }
                 let state = if reached_by_cut[leader] {
+                    if budget == 0 {
+                        exhausted = true;
+                        break 'refine;
+                    }
+                    budget -= 1;
                     cut[leader] = false;
                     let mut candidate = self.fixpoint(entry, &cut, function, cx, None);
                     cut[leader] = true;
@@ -607,14 +641,33 @@ impl<'a, I> Walk<'a, I> {
                 let Some(state) = state else { continue };
                 if self.run_block(leader, &state, function, cx).is_err() {
                     replay[leader] = Some(state);
-                } else if !std::mem::replace(&mut restored[leader], true) {
+                } else if !restored[leader] {
+                    if budget == 0 {
+                        exhausted = true;
+                        break 'refine;
+                    }
                     // Its failure was a follow-on effect: restore it, and cut
                     // whatever its output makes fail.
+                    restored[leader] = true;
                     cut[leader] = false;
                     replay[leader] = None;
-                    states = self.cut_failing(entry, &mut cut, &mut replay, function, cx);
+                    states =
+                        self.cut_failing(entry, &mut cut, &mut replay, &mut budget, function, cx);
                     reached_by_cut = self.reached_from_other_cut(&cut, emitted);
                     changed = true;
+                }
+            }
+        }
+        if exhausted {
+            // Refinement stopped early. Prefer each cut block's state in the
+            // current fixpoint, which no block cut since passed on, when it
+            // fails there. A replay state always fails, so every cut block
+            // with a state still reports.
+            for leader in (0..self.len()).filter(|&leader| cut[leader]) {
+                if let Some(state) = &states[leader]
+                    && self.run_block(leader, state, function, cx).is_err()
+                {
+                    replay[leader] = Some(state.clone());
                 }
             }
         }
@@ -628,11 +681,16 @@ impl<'a, I> Walk<'a, I> {
     /// Converge with `cut` blocks passing nothing on, cutting every uncut
     /// block that fails at its converged state (recording that state in
     /// `replay`) until none does. Returns the final fixpoint.
+    ///
+    /// Each fixpoint is charged to `budget`. Once it is spent, the next
+    /// fixpoint is returned without cutting further: an uncut block failing
+    /// there still reports, from that state, when replayed.
     fn cut_failing<C>(
         &self,
         entry: &C::Snapshot,
         cut: &mut [bool],
         replay: &mut [Option<C::Snapshot>],
+        budget: &mut usize,
         function: u32,
         cx: &mut C,
     ) -> Vec<Option<C::Snapshot>>
@@ -642,6 +700,10 @@ impl<'a, I> Walk<'a, I> {
     {
         loop {
             let states = self.fixpoint(entry, cut, function, cx, None);
+            if *budget == 0 {
+                return states;
+            }
+            *budget -= 1;
             let failing = self.failing(&states, function, cx);
             let mut grew = false;
             for (leader, fails) in failing.into_iter().enumerate() {

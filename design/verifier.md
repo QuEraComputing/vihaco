@@ -391,18 +391,28 @@ pub enum DiagnosticKind {
   restoring cut blocks whose failure was a follow-on effect (they pass once
   the other cut blocks pass nothing on). Each block is restored at most once,
   so this terminates, and the cut set never empties while a block fails. Only
-  a cut block that another cut block reaches needs a fixpoint of its own, and
-  only if that other block passed a state on in some round of the uncut
-  fixpoint (cutting a block that never did changes nothing). A failing block
-  usually fails in every round, so independent errors cost a few fixpoints,
-  not one each, even when each failing branch rejoins the code after it.
+  a cut block that has a state in `fixpoint(C)` and that another cut block
+  reaches needs a fixpoint of its own, and only if that other block passed a
+  state on in some round of the uncut fixpoint (cutting a block that never did
+  changes nothing). A failing block usually fails in every round, so
+  independent errors that fail on first entry cost a few fixpoints, not one
+  each, even when each failing branch rejoins the code after it. Others, such
+  as loop headers that pass on first entry and fail after the back edge,
+  cost a fixpoint each, so these reruns are capped at a fixed budget (64
+  whole-function fixpoints per function): rejecting a function costs at most
+  the budget plus two fixpoints. Past the budget the engine stops refining
+  and keeps the current cut set, so the function is still rejected with
+  every real error found, but a follow-on diagnostic may appear; the
+  guarantees below hold within the budget.
 - A failing block `L` is replayed, and mapped, from its state in
   `fixpoint(C \ {L})`: fed by analysed blocks and by `L`'s own loops (which is
   what makes a loop header fail), but not by another failing block. Joins are
   checked only between edges from analysed blocks. So no diagnostic stems
   from a state another failing block passed on, and code reachable only
   through failing blocks has no type-map entry. (A block cut again after its
-  one restore keeps the state it was cut at, as a fallback.)
+  one restore keeps the state it was cut at, as a fallback; past the budget,
+  a cut block is replayed from its state in `fixpoint(C)` if it fails there,
+  else from the state it was cut at.)
 - Consecutive underflows at one address collapse into one: a rule returns one
   result per address, and the replay visits each address once.
 - `Unreachable` is a **warning**: unreachable code never runs, and code
