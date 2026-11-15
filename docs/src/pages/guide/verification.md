@@ -273,7 +273,9 @@ get instruction text in diagnostics; at runtime a `StepError` takes its text
 from `Dispatch::instruction_text`, which composites generate and hand-written
 machines may leave out (the error then shows the location alone). Metadata
 validation (`ProgramMetadata::validate`, `into_module`) does format types in
-its messages, so a custom type model there must be `Display + Clone`.
+its messages, by the metadata's names, so a custom type model there must be
+`DisplayNamed + Clone`; `lower_functions_with_metadata` also needs the header
+type to resolve into it (`S: ResolveType<Ty>`).
 
 A failing rule ends its basic block, so a block reports at most one rule error
 and code reachable only through it isn't analysed. A block that fails is

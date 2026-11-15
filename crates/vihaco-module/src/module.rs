@@ -149,7 +149,7 @@ pub enum FrameError<Ty> {
     },
 }
 
-impl<Ty: std::fmt::Display> FrameError<Ty> {
+impl<Ty> FrameError<Ty> {
     /// Display the error, naming parameters with `parameter_name` (for
     /// example from the string table).
     pub fn display_with<'a>(
@@ -173,7 +173,7 @@ struct FrameErrorDisplay<'a, Ty> {
     ty: Box<dyn Fn(&'a Ty) -> String + 'a>,
 }
 
-impl<Ty: std::fmt::Display> std::fmt::Display for FrameErrorDisplay<'_, Ty> {
+impl<Ty> std::fmt::Display for FrameErrorDisplay<'_, Ty> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.error {
             FrameError::TooManyLocals { count } => {

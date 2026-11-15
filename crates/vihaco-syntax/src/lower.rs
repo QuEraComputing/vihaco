@@ -54,7 +54,7 @@ fn validate_program_functions<I, S, Ty, V, Info>(
 ) -> eyre::Result<()>
 where
     S: ResolveType<Ty>,
-    Ty: PartialEq + Clone + std::fmt::Display + DisplayNamed,
+    Ty: PartialEq + Clone + DisplayNamed,
 {
     crate::types::validate_functions(functions, metadata)?;
     metadata.validate(functions.iter().map(|function| function.body.len()).sum())
@@ -88,7 +88,7 @@ pub fn lower_functions_with_metadata<I, S, Ty, V, Info, C>(
 ) -> eyre::Result<Vec<I::Runtime>>
 where
     S: ResolveType<Ty>,
-    Ty: PartialEq + Clone + std::fmt::Display + DisplayNamed,
+    Ty: PartialEq + Clone + DisplayNamed,
     I: Lower<C>,
     C: FunctionScope,
 {

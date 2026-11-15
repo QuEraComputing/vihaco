@@ -29,6 +29,7 @@ use crate::module::{
 };
 use crate::source_type::{ResolveType, SourceType, TypeLookup};
 use vihaco_abi::Value;
+use vihaco_abi::names::DisplayNamed;
 
 /// All non-code fields of a `LocalModule`, supplied explicitly by a section header.
 /// The ordinary metadata derive owns object parsing, including nested records.
@@ -321,7 +322,7 @@ impl<V, Ty, Info> ProgramMetadata<V, Ty, Info> {
     }
 }
 
-impl<V, Ty: PartialEq + Clone + fmt::Display, Info> ProgramMetadata<V, Ty, Info> {
+impl<V, Ty: PartialEq + Clone + DisplayNamed, Info> ProgramMetadata<V, Ty, Info> {
     /// Validate references and instruction ranges without altering supplied metadata.
     ///
     /// Names are string-table entries, unique per table (fields per struct).
@@ -377,7 +378,7 @@ impl<V, Ty: PartialEq + Clone + fmt::Display, Info> ProgramMetadata<V, Ty, Info>
                 let function = index as u32;
                 let message = error.display_with(
                     move |param| names.parameter_name(function, param),
-                    Ty::to_string,
+                    move |ty: &Ty| ty.named(&names).to_string(),
                 );
                 eyre::bail!("{at}: {message}");
             }
@@ -463,7 +464,7 @@ impl<V, Ty: StructTypeRef, Info> ProgramMetadata<V, Ty, Info> {
     }
 }
 
-impl<Ty: PartialEq + Clone + fmt::Display + StructTypeRef, Info> ProgramMetadata<Value, Ty, Info> {
+impl<Ty: PartialEq + Clone + DisplayNamed + StructTypeRef, Info> ProgramMetadata<Value, Ty, Info> {
     /// Assemble the standard value model, checking the supplied tables once.
     /// Custom value models can assemble `LocalModule` directly after `validate`
     /// and `validate_struct_types`.
