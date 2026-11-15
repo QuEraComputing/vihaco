@@ -30,9 +30,9 @@ sst v2
 
 .section main
 .header
-.file "first-machine.sst"
-.func @main() -> u64, locals 0
-.entry @main
+    .file "first-machine.sst"
+    .func @main() -> u64, locals 0
+    .entry @main
 .text
 @main:
     execution::program::const_u64 20

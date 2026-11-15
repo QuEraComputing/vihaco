@@ -162,8 +162,7 @@ impl<'a> SectionInfo<'a> {
 ///
 /// - `.func`: `functions[i], @name = 0x0000..0x0006` (its table index and
 ///   executable range).
-/// - `.entry`: `functions[i]`.
-/// - `.file`: `strings[i]`.
+/// - `.entry`, `.file`: none.
 /// - `.const`: `constants[i]`, with `= strings[j]` for a string and
 ///   `= functions[j]` for a function reference.
 pub(crate) fn header_notes<V: ConstantValue, Ty: Clone, Info>(
@@ -173,7 +172,6 @@ pub(crate) fn header_notes<V: ConstantValue, Ty: Clone, Info>(
     instructions: usize,
 ) -> Vec<Vec<String>> {
     let ranges = metadata.resolve_functions(symbols, instructions).ok();
-    let string = |text: &str| metadata.strings.iter().position(|entry| entry == text);
     let mut function = 0usize;
     let mut constant = 0usize;
     directives
@@ -195,13 +193,9 @@ pub(crate) fn header_notes<V: ConstantValue, Ty: Clone, Info>(
                     .unwrap_or_default();
                 vec![format!("functions[{index}], @{}{range}", declared.name)]
             }
-            ProgramDirective::Entry(_) => metadata
-                .main_function
-                .map(|index| vec![format!("functions[{index}]")])
-                .unwrap_or_default(),
-            ProgramDirective::File(path) => string(path)
-                .map(|index| vec![format!("strings[{index}]")])
-                .unwrap_or_default(),
+            // Like `.globl` / `.file` in an assembler listing, these restate
+            // their operand; a table index adds nothing for a reader.
+            ProgramDirective::Entry(_) | ProgramDirective::File(_) => Vec::new(),
             ProgramDirective::Const(kind) => {
                 let index = constant;
                 constant += 1;

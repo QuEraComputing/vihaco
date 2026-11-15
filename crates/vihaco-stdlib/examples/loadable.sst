@@ -2,12 +2,12 @@ sst v2
 
 .section controller
 .header
-experiment.description "Loadable SST example: 21 * 2"
-.file "loadable.sst"
-; Function table order is independent of executable function order.
-.func @helper() -> u64, locals 0
-.func @main() -> u64, locals 0
-.entry @main  ; a function, not an instruction address
+    experiment.description "Loadable SST example: 21 * 2"
+    .file "loadable.sst"
+    ; Function table order is independent of executable function order.
+    .func @helper() -> u64, locals 0
+    .func @main() -> u64, locals 0
+    .entry @main  ; a function, not an instruction address
 .text
 @main:
     execution::program::call 0, @helper

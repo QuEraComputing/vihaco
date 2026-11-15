@@ -32,9 +32,9 @@ sst v2
 
 .section main
 .header
-.file "output.sst"
-.func @main() -> u64, locals 0
-.entry @main
+    .file "output.sst"
+    .func @main() -> u64, locals 0
+    .entry @main
 .text
 @main:
     execution::program::const_u64 42
@@ -147,15 +147,16 @@ things by symbol. The loader builds every table and index from them; no index
 or string table is written by hand:
 
 ```text
-.file "loadable.sst"                  ; the file of the .func lines that follow
-.func @helper(x: u64) -> u64, locals 1
-.func @main() -> (u64, bool), locals 0
-.entry @main
-.const u64 42                         ; constants[0]
-.const str "hello"                    ; a string constant, by its text
-.const fn @helper                     ; a function reference, by name
-.source_symbol 12 "user"
-experiment.description "an example"   ; an application directive
+.header
+    .file "loadable.sst"                  ; the file of the .func lines that follow
+    .func @helper(x: u64) -> u64, locals 1
+    .func @main() -> (u64, bool), locals 0
+    .entry @main
+    .const u64 42                         ; constants[0]
+    .const str "hello"                    ; a string constant, by its text
+    .const fn @helper                     ; a function reference, by name
+    .source_symbol 12 "user"
+    experiment.description "an example"   ; an application directive
 ```
 
 | Directive | Meaning |
@@ -340,7 +341,7 @@ fn main() {
     let report = check_program::<Machine>(&source);
     let messages: Vec<String> = report.iter().map(ToString::to_string).collect();
     assert_eq!(messages, [
-        "7:8: error: `.entry @start` names no `.func` directive",
+        "7:12: error: `.entry @start` names no `.func` directive",
         "11:35: error: unexpected `x` in operands of `execution::program::const_u64`",
         "12:5: error: expected an instruction, found `calculator::arithmetic::sub`",
     ]);
@@ -445,12 +446,10 @@ sst v2
 
 .section main
 .header
-;; strings[1]
-.file "first-machine.sst"
-;; functions[0], @main = 0x0000..0x0004
-.func @main() -> u64, locals 0
-;; functions[0]
-.entry @main
+    .file "first-machine.sst"
+    ;; functions[0], @main = 0x0000..0x0004
+    .func @main() -> u64, locals 0
+    .entry @main
 .text
 ;; fn main() -> u64, locals 0, functions[0]
 @main:
@@ -477,7 +476,9 @@ has the same headers, code, symbols, and comments as the input.
   order.
 - `.global` content is consumer-defined and kept verbatim, except that trailing
   whitespace and trailing blank lines are removed.
-- Header directives also start at column 0, one per line, in source order.
+- Header directives are indented four spaces under `.header`, like
+  instructions under `.text`, one per line, in source order. Indentation is
+  only layout: the parser ignores it.
   Their order is meaningful (`.func` and `.const` order define the tables, and
   `.file` applies to the `.func` lines after it), so the formatter never
   reorders them, and application directives stay where they are. A directive
@@ -514,13 +515,12 @@ Generated comments are rewritten every time: every own-line `;;` comment is
 removed and fresh ones are written. Without them
 (`FormatOptions::without_generated_comments()`), existing own-line `;;`
 comments are still removed. Each note is written on the line above the item it
-describes:
+describes. Directives that only restate their operand, `.entry` and `.file`,
+get none:
 
 | Item | Generated comment |
 |---|---|
 | `.func @main(...)` | `;; functions[1], @main = 0x0000..0x0006` (its index and range) |
-| `.entry @main` | `;; functions[1]` |
-| `.file "loadable.sst"` | `;; strings[2]` |
 | `.const u64 42` | `;; constants[0]` |
 | `.const str "hello"` / `.const fn @helper` | `;; constants[1] = strings[3]` / `;; constants[2] = functions[0]` |
 | Function symbol `@main:` | `;; fn main() -> u64, locals 0, functions[1]` |

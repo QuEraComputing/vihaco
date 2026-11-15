@@ -282,16 +282,14 @@ mod tests {
 
 .section controller
 .header
-experiment.description "Loadable SST example: 21 * 2"
-;; strings[2]
-.file "loadable.sst"
-; Function table order is independent of executable function order.
-;; functions[0], @helper = 0x0006..0x0008
-.func @helper() -> u64, locals 0
-;; functions[1], @main = 0x0000..0x0006
-.func @main() -> u64, locals 0
-;; functions[1]
-.entry @main  ; a function, not an instruction address
+    experiment.description "Loadable SST example: 21 * 2"
+    .file "loadable.sst"
+    ; Function table order is independent of executable function order.
+    ;; functions[0], @helper = 0x0006..0x0008
+    .func @helper() -> u64, locals 0
+    ;; functions[1], @main = 0x0000..0x0006
+    .func @main() -> u64, locals 0
+    .entry @main  ; a function, not an instruction address
 .text
 ;; fn main() -> u64, locals 0, functions[1]
 @main:
@@ -336,7 +334,7 @@ experiment.description "Loadable SST example: 21 * 2"
             vihaco_sst::FormatOptions::without_generated_comments(),
         );
         assert!(!plain.contains(";;"));
-        assert!(plain.contains("\n.entry @main  ; a function, not an instruction address\n"));
+        assert!(plain.contains("\n    .entry @main  ; a function, not an instruction address\n"));
         let mut runtime = Runtime::from_sst(&plain)?;
         runtime.controller.execute(&[])?;
         assert_eq!(runtime.controller.machine().execution.stack(), &[42]);
@@ -357,9 +355,9 @@ experiment.description "Loadable SST example: 21 * 2"
         assert_eq!(
             check(&source),
             [
-                "8:7: error: function `@helper` (functions[0]) has no `@helper:` symbol \
+                "8:11: error: function `@helper` (functions[0]) has no `@helper:` symbol \
                  definition",
-                "10:8: error: `.entry @mian` names no `.func` directive",
+                "10:12: error: `.entry @mian` names no `.func` directive",
                 "13:33: error: function `@helper` has no `@helper:` symbol definition",
                 "16:28: error: undefined symbol `@finish`",
             ]
