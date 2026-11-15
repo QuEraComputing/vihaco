@@ -215,6 +215,21 @@ fn comments_everywhere_stay_with_their_items() {
 }
 
 #[test]
+fn comments_outside_blocks_stay_above_the_next_directive() {
+    let text = format!(
+        "; top\nsst v2\n; after version\n\n\n; second\n.section main\n; before header\n\
+         .header{HEADER}.text\n@main: t.halt\n@helper: t.halt\n"
+    );
+    let formatted = assert_properties(&text);
+    assert!(
+        formatted.starts_with(
+            "; top\nsst v2\n\n; after version\n\n; second\n.section main\n; before header\n.header\n"
+        ),
+        "{formatted}"
+    );
+}
+
+#[test]
 fn comments_at_the_end_of_a_block_stay_in_it() {
     let text = format!(
         "sst v2\n.section main\n.header{HEADER}\n; End of header.\n.text\n@main: t.halt\n@helper: t.halt\n\n\

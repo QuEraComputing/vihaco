@@ -273,24 +273,26 @@ fn main() -> eyre::Result<()> {
             let report = checker().check(&file);
             if report.is_ok() {
                 eprintln!("no problems found");
+                return Ok(());
             }
-            return report.into_result(&file);
+            eprint!("{}", report.render(&file));
+            std::process::exit(1);
         }
         Mode::Format(options) => {
             let file = vihaco_sst::SourceFile::new(name, source);
-            return match vihaco_sst::Formatter::with_checker(checker())
+            match vihaco_sst::Formatter::with_checker(checker())
                 .options(options)
                 .format(&file)
             {
                 Ok(formatted) => {
                     print!("{formatted}");
-                    Ok(())
+                    return Ok(());
                 }
                 Err(report) => {
                     eprint!("{}", report.render(&file));
-                    Err(eyre::eyre!("{} error(s)", report.error_count()))
+                    std::process::exit(1);
                 }
-            };
+            }
         }
     }
     let mut runtime = Runtime::from_sst(&source)?;
@@ -402,6 +404,32 @@ mod tests {
         runtime.controller.execute(&[])?;
         assert_eq!(runtime.controller.machine().execution.stack(), &[42]);
         Ok(())
+    }
+
+    #[test]
+    fn the_unformatted_example_formats_to_the_pinned_layout() {
+        let formatted = format(include_str!("loadable-unformatted.sst"), Default::default());
+        // Only the leading "Try:" comments differ from `loadable.sst`.
+        let (preamble, rest) = formatted.split_once(".section").unwrap();
+        assert!(
+            preamble.contains("; A hand-written, messy copy"),
+            "{formatted}"
+        );
+        assert_eq!(rest, FORMATTED.split_once(".section").unwrap().1);
+    }
+
+    #[test]
+    fn the_broken_example_reports_every_mistake() {
+        assert_eq!(
+            check(include_str!("loadable-broken.sst")),
+            [
+                "8:11: error: function `@helper` (functions[0]) has no `@helper:` symbol \
+                 definition",
+                "10:12: error: `.entry @mian` names no `.func` directive",
+                "13:33: error: function `@helper` has no `@helper:` symbol definition",
+                "16:28: error: undefined symbol `@finish`",
+            ]
+        );
     }
 
     #[test]

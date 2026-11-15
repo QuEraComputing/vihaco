@@ -75,7 +75,8 @@ A bracket left open at the end of a block is reported where it was opened, as
 ``unclosed `[` opened at line N``, and the lines after it are checked normally.
 
 A comment runs from `;` to the end of the line. Comments may end any line,
-including block directive lines, and may stand on their own line. Inside a
+including block directive lines, and may stand on their own line anywhere in
+the file, even before `sst v2` or between `.section` and its first block. Inside a
 bracket-continued statement they may also end each continued line. A `;`
 inside a string literal is part of the string, so string literals cannot span
 lines (write `\n`). The `.global` block is consumer-defined and decides its own
@@ -509,7 +510,10 @@ was written in: comments after the last item of a `.header` or `.text` stay at
 the end of that block, after a blank line if there was one. When one item had
 several trailing comments, the first stays trailing and the others move above
 the item. If a comment's position inside a declaration cannot be matched to the
-printed declaration, it is moved above the declaration.
+printed declaration, it is moved above the declaration. A comment outside
+every block (before `sst v2`, before the first `.global` or `.section`, or
+between `.section` and its first block) stays directly above the directive
+that follows it.
 
 Generated comments are rewritten every time: every own-line `;;` comment is
 removed and fresh ones are written. Without them

@@ -300,11 +300,18 @@ enum Block<I, D> {
 struct SectionModel<I, D> {
     name: String,
     comment: Option<String>,
+    /// Own-line comments between `.section` and its first block.
+    loose: Vec<String>,
     blocks: Vec<Block<I, D>>,
 }
 
 struct FileModel<I, D> {
+    /// Own-line comments before `sst v2`.
+    preamble: Vec<String>,
     version_comment: Option<String>,
+    /// Own-line comments between `sst v2` and the first `.global` or
+    /// `.section`.
+    loose: Vec<String>,
     /// The `.global` directive comment and normalized body, if declared.
     global: Option<(Option<String>, Vec<String>)>,
     sections: Vec<SectionModel<I, D>>,
@@ -319,6 +326,39 @@ fn directive_comment(text: &str, directive: Span) -> Option<String> {
     rest.starts_with(';')
         .then(|| user_part(rest, false))
         .flatten()
+}
+
+/// The end of the line holding `offset`, excluding the line terminator.
+fn line_end(text: &str, offset: usize) -> usize {
+    text[offset..]
+        .find('\n')
+        .map_or(text.len(), |index| offset + index)
+}
+
+/// The user comments on comment-only lines of `text[from..to]`, a range that
+/// lies outside every block. Generated `;;` lines are dropped. Blank lines
+/// between comments are kept as one empty string; leading and trailing blank
+/// lines are not.
+fn loose_comments(text: &str, from: usize, to: usize) -> Vec<String> {
+    let mut comments = Vec::new();
+    let mut blank = false;
+    for line in text
+        .get(from..to)
+        .unwrap_or_default()
+        .lines()
+        .map(str::trim)
+    {
+        if line.is_empty() {
+            blank = true;
+        } else if let Some(comment) = user_part(line, true) {
+            if blank && !comments.is_empty() {
+                comments.push(String::new());
+            }
+            blank = false;
+            comments.push(comment);
+        }
+    }
+    comments
 }
 
 /// The `.global` body as lines without trailing whitespace or trailing blank
@@ -453,7 +493,31 @@ where
         )
     });
     let mut sections = Vec::new();
-    for section in &framing.sections {
+    let first_after_version = framing
+        .global
+        .directive()
+        .or_else(|| framing.sections.first().map(|section| section.directive()))
+        .map_or(text.len(), |span| span.start);
+    let loose = loose_comments(
+        text,
+        line_end(text, framing.version.end),
+        first_after_version,
+    );
+    for (index, section) in framing.sections.iter().enumerate() {
+        let first_block = [section.header().directive(), section.text().directive()]
+            .into_iter()
+            .flatten()
+            .map(|span| span.start)
+            .min()
+            .or_else(|| {
+                framing
+                    .sections
+                    .get(index + 1)
+                    .map(|next| next.directive().start)
+            })
+            .unwrap_or(text.len());
+        let section_loose =
+            loose_comments(text, line_end(text, section.directive().end), first_block);
         let mut blocks = Vec::new();
         if let Some(directive) = section.header().directive() {
             let block = section.header();
@@ -528,6 +592,7 @@ where
         sections.push(SectionModel {
             name: section.name().to_owned(),
             comment: directive_comment(text, section.directive()),
+            loose: section_loose,
             blocks: blocks.into_iter().map(|(_, block)| block).collect(),
         });
     }
@@ -535,7 +600,9 @@ where
         return None;
     }
     Some(FileModel {
+        preamble: loose_comments(text, 0, framing.version.start),
         version_comment: directive_comment(text, framing.version),
+        loose,
         global,
         sections,
     })
@@ -561,6 +628,8 @@ fn snapshot<I: Print, D: Print>(model: &FileModel<I, D>) -> Snapshot {
     if let Some((comment, _)) = &model.global {
         keep(comment);
     }
+    comments.extend(model.preamble.iter().filter(|c| !c.is_empty()).cloned());
+    comments.extend(model.loose.iter().filter(|c| !c.is_empty()).cloned());
     let print = |value: &dyn Fn(&mut String) -> std::fmt::Result| {
         let mut text = String::new();
         value(&mut text).map_or_else(|_| "<unprintable>".to_owned(), |()| text)
@@ -568,6 +637,7 @@ fn snapshot<I: Print, D: Print>(model: &FileModel<I, D>) -> Snapshot {
     let mut sections = Vec::new();
     for section in &model.sections {
         comments.extend(section.comment.iter().cloned());
+        comments.extend(section.loose.iter().filter(|c| !c.is_empty()).cloned());
         let mut blocks = Vec::new();
         for block in &section.blocks {
             match block {
@@ -700,22 +770,39 @@ where
         D::Value: ConstantValue + Clone,
     {
         let mut output = String::new();
+        let push_lines = |lines: &[String], output: &mut String| {
+            for line in lines {
+                output.push_str(line);
+                output.push('\n');
+            }
+        };
+        push_lines(&model.preamble, &mut output);
         directive_line("sst v2", &model.version_comment, &mut output);
+        // Loose comments after `sst v2` sit directly above the directive
+        // that follows them.
+        let mut loose = model.loose.as_slice();
         if let Some((comment, lines)) = &model.global {
             output.push('\n');
+            push_lines(std::mem::take(&mut loose), &mut output);
             directive_line(".global", comment, &mut output);
             for line in lines {
                 output.push_str(line);
                 output.push('\n');
             }
         }
+        if model.sections.is_empty() && !loose.is_empty() {
+            output.push('\n');
+            push_lines(std::mem::take(&mut loose), &mut output);
+        }
         for section in &model.sections {
             output.push('\n');
+            push_lines(std::mem::take(&mut loose), &mut output);
             directive_line(
                 &format!(".section {}", section.name),
                 &section.comment,
                 &mut output,
             );
+            push_lines(&section.loose, &mut output);
             let standard: Vec<&ProgramDirective<D::Value, D::Type>> = section
                 .blocks
                 .iter()
