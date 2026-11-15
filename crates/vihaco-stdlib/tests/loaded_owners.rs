@@ -392,6 +392,10 @@ execution::program::ret 1";
     let error = run_image(Image::new(Verified::assume_verified(module))).unwrap_err();
     assert_eq!(
         error.to_string(),
+        "at @main+3 (address 3) `cpu::cpu::array_get u64`"
+    );
+    assert_eq!(
+        format!("{error:#}"),
         "at @main+3 (address 3) `cpu::cpu::array_get u64`: type error: heap object (slot 2, \
          generation 1) is array struct Point, expected array u64"
     );
@@ -404,11 +408,13 @@ execution::program::ret 1";
             .downcast_ref::<vihaco_abi::heap::HeapError>()
             .is_some()
     );
-    // The step's error is the StepError's source, so the report's chain
-    // reaches the HeapError without knowing about StepError.
+    // The StepError's source is the heap error rendered with names, so the
+    // report's chain reaches the structured HeapError without knowing about
+    // StepError.
     let heap = error
         .chain()
-        .find_map(|cause| cause.downcast_ref::<vihaco_abi::heap::HeapError>());
+        .find_map(|cause| cause.downcast_ref::<vihaco_abi::heap::NamedHeapError>())
+        .map(vihaco_abi::heap::NamedHeapError::error);
     assert!(
         matches!(heap, Some(vihaco_abi::heap::HeapError::TypeMismatch { .. })),
         "{heap:?}"
@@ -524,13 +530,7 @@ fn construction_resets_previous_invocation_without_resetting_machine_state() {
 fn active_replacement_is_rejected_and_faulted_invocation_can_resume() {
     let mut loaded = controller();
     loaded.machine_mut().fail_once = true;
-    assert!(
-        loaded
-            .execute(&[])
-            .unwrap_err()
-            .to_string()
-            .contains("injected")
-    );
+    assert!(format!("{:#}", loaded.execute(&[]).unwrap_err()).contains("injected"));
     let image = loaded.image().module().code.as_ptr();
     let pc = loaded.machine().execution.pc();
     let frames = loaded.machine().execution.frames().len();

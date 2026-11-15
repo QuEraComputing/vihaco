@@ -825,16 +825,17 @@ Details:
   through them. The `vihaco` facade does not re-export them at its root; they
   stay reachable as `vihaco::execution_state::{execute, resume}`, documented
   as the unverified runner, so the verified path is the obvious one.
-- A failing step is reported as a `StepError` located at its instruction
-  (text from `Dispatch::instruction_text`), `at @main+3 (address 3)
-  `cpu::cpu::array_get u64`: type
-  error: heap object (slot 2, generation 1) is array struct Point, expected
-  array u64`. CPU heap failures are structured `vihaco_abi::heap::HeapError`s
-  (references shown as slot and generation, types as `Type`), which the loop
-  renders with the module's struct names; `call_indirect` mismatches name
-  the callee and print both signatures as `FunctionType` does. The step's
-  error is the `StepError`'s `source()`, so `Report::chain()` reaches the
-  `HeapError`.
+- A failing step is reported as a `StepError`, a context layer that says
+  where: its instruction (text from `Dispatch::instruction_text`), `at
+  @main+3 (address 3) `cpu::cpu::array_get u64``. What went wrong is its
+  `source()`, so `{:#}` shows `at @main+3 (address 3)
+  `cpu::cpu::array_get u64`: type error: heap object (slot 2, generation 1)
+  is array struct Point, expected array u64`, each part once. CPU heap
+  failures are structured `vihaco_abi::heap::HeapError`s (references shown
+  as slot and generation, types as `Type`); in the chain the loop puts a
+  `NamedHeapError`, rendered with the module's names, whose `error()` is the
+  `HeapError`. `call_indirect` mismatches name the callee and print both
+  signatures as `FunctionType` does.
 
 ## Placement
 

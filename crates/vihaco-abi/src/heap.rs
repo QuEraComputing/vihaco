@@ -161,6 +161,65 @@ impl fmt::Display for HeapError {
 
 impl std::error::Error for HeapError {}
 
+/// A [`HeapError`] together with its text rendered with a module's names,
+/// for error chains: its `Display` is that text, so a report shows the types
+/// by name, once.
+///
+/// ```
+/// # use vihaco_abi::{Type, heap::{HeapError, HeapRef, NamedHeapError}, names::TypeNames};
+/// struct Tables;
+/// impl TypeNames for Tables {
+///     fn struct_name(&self, index: u32) -> Option<&str> {
+///         ["Point", "Pair"].get(index as usize).copied()
+///     }
+///     fn named_type_name(&self, _: u32) -> Option<&str> {
+///         None
+///     }
+/// }
+/// let error = HeapError::TypeMismatch {
+///     reference: HeapRef(0x1_0000_0001),
+///     found: Type::Struct(1),
+///     expected: Type::Struct(0),
+/// };
+/// let named = NamedHeapError::new(error.clone(), &Tables);
+/// assert_eq!(
+///     named.to_string(),
+///     "type error: heap object (slot 1, generation 1) is struct Pair, expected struct Point"
+/// );
+/// assert_eq!(named.error(), &error);
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NamedHeapError {
+    error: HeapError,
+    text: String,
+}
+
+impl NamedHeapError {
+    /// Render `error` with `names`.
+    pub fn new(error: HeapError, names: &dyn TypeNames) -> Self {
+        let text = error.display_with(names).to_string();
+        Self { error, text }
+    }
+
+    /// The structured error.
+    pub fn error(&self) -> &HeapError {
+        &self.error
+    }
+
+    /// Consume the rendering, returning the structured error.
+    pub fn into_error(self) -> HeapError {
+        self.error
+    }
+}
+
+impl fmt::Display for NamedHeapError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.text)
+    }
+}
+
+impl std::error::Error for NamedHeapError {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

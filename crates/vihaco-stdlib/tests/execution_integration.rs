@@ -314,9 +314,7 @@ fn execution_failures_preserve_consumption_and_faulting_pc() {
     ]);
     vm.fail_after_effects = true;
     assert!(
-        execute(&module, &mut vm, &[])
-            .unwrap_err()
-            .to_string()
+        format!("{:#}", execute(&module, &mut vm, &[]).unwrap_err())
             .contains("authored effect handling")
     );
     assert_eq!(vm.program.stack(), &[0, 6]);
@@ -399,7 +397,7 @@ fn indirect_calls_check_the_target_signature_before_entering() {
         let (module, mut vm) = program(signature);
         let error = execute(&module, &mut vm, &[]).unwrap_err();
         assert!(
-            error.to_string()
+            format!("{error:#}")
                 == format!(
                     "at function 0+2 (address 2) `program::program::call_indirect {found}`: \
                      call_indirect expects a function of type {found}, but function 1 has type \
@@ -426,8 +424,13 @@ fn recursion_stops_at_the_call_depth_limit_naming_the_function() {
     );
     vm.program.set_max_call_depth(4);
     let error = execute(&module, &mut vm, &[]).unwrap_err();
+    // The step error says where; its source says what.
     assert_eq!(
         error.to_string(),
+        "at @main+0 (address 0) `program::program::call 0, @main`"
+    );
+    assert_eq!(
+        format!("{error:#}"),
         "at @main+0 (address 0) `program::program::call 0, @main`: call to `@main` (function 0) \
          exceeds the maximum call depth of 4 frames"
     );
@@ -528,9 +531,7 @@ fn heap_transfers_use_program_operands_and_preserve_device_state() {
     ]);
     let error = execute(&module, &mut raw, &[]).unwrap_err();
     assert!(
-        error
-            .to_string()
-            .contains("invalid or has been deallocated"),
+        format!("{error:#}").contains("invalid or has been deallocated"),
         "{error:#}"
     );
     for operation in ["array_new u64, 2", "array_push u64"] {
@@ -554,7 +555,7 @@ fn heap_transfers_use_program_operands_and_preserve_device_state() {
         "cpu::cpu::array_get u64",
     ]);
     let error = execute(&module, &mut vm, &[]).unwrap_err();
-    assert!(error.to_string().contains("deallocated"));
+    assert!(format!("{error:#}").contains("deallocated"));
     assert_eq!(vm.program.stack(), &[2]);
     assert_eq!(vm.program.pc(), 9);
 }
@@ -589,7 +590,7 @@ fn struct_new_allocates_tagged_structs_and_fields_are_type_checked() {
     ]);
     let error = execute(&module, &mut vm, &[]).unwrap_err();
     assert!(
-        error.to_string().contains("is struct 1, expected struct 0"),
+        format!("{error:#}").contains("is struct 1, expected struct 0"),
         "{error:#}"
     );
     assert_eq!(vm.program.pc(), 2);
@@ -603,9 +604,7 @@ fn struct_new_allocates_tagged_structs_and_fields_are_type_checked() {
     ]);
     let error = execute(&module, &mut vm, &[]).unwrap_err();
     assert!(
-        error
-            .to_string()
-            .contains("is array u64, expected struct 0"),
+        format!("{error:#}").contains("is array u64, expected struct 0"),
         "{error:#}"
     );
     let (module, mut vm) = machine(&[
@@ -615,7 +614,7 @@ fn struct_new_allocates_tagged_structs_and_fields_are_type_checked() {
     ]);
     let error = execute(&module, &mut vm, &[]).unwrap_err();
     assert!(
-        error.to_string().contains("is struct 1, expected an array"),
+        format!("{error:#}").contains("is struct 1, expected an array"),
         "{error:#}"
     );
 }

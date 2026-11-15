@@ -219,7 +219,7 @@ heap objects.
 Every array instruction checks the object at runtime: it must be a live array
 whose element type is exactly `T`, so `array_get u64` on an `array f64` fails
 with `is array f64, expected array u64`. Program-image execution also reports
-where, and names structs by name:
+where, and names structs by name (a `StepError` printed with `{:#}`):
 
 ```text
 at @main+3 (address 3) `cpu::cpu::array_get u64`: type error: heap object (slot 2, generation 1) is array f64, expected array u64

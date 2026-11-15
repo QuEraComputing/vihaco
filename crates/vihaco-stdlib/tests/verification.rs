@@ -1052,6 +1052,10 @@ fn a_host_function_reference_of_the_wrong_type_fails_at_runtime() {
     // Located at the call, naming the callee, both types written alike.
     assert_eq!(
         error.to_string(),
+        "at @main+2 (address 2) `execution::program::call_indirect (u64) -> u64`"
+    );
+    assert_eq!(
+        format!("{error:#}"),
         "at @main+2 (address 2) `execution::program::call_indirect (u64) -> u64`: \
          call_indirect expects a function of type (u64) -> u64, but @negate has type (f64) -> f64"
     );

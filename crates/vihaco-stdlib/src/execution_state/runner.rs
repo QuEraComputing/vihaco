@@ -3,7 +3,7 @@
 
 use super::ExecutionState;
 use super::instruction_out_of_bounds;
-use vihaco_abi::heap::HeapError;
+use vihaco_abi::heap::{HeapError, NamedHeapError};
 use vihaco_abi::word::Word;
 use vihaco_module::module::LocalModule;
 use vihaco_runtime::{Dispatch, HasProgram};
@@ -110,10 +110,9 @@ fn step_error<I, V, Ty, Info>(
     instruction: Option<String>,
 ) -> eyre::Report {
     let names = module.names();
-    let message = match error.downcast_ref::<HeapError>() {
-        Some(heap) => heap.display_with(&names).to_string(),
-        None => format!("{error:#}"),
-    };
+    let named = error
+        .downcast_ref::<HeapError>()
+        .map(|heap| NamedHeapError::new(heap.clone(), &names));
     let location = match instruction {
         Some(text) => format!("{} `{text}`", names.location(position)),
         None => names.location(position).to_string(),
@@ -121,7 +120,7 @@ fn step_error<I, V, Ty, Info>(
     StepError {
         address: position,
         location,
-        message,
+        named,
         error,
     }
     .into()
@@ -129,20 +128,25 @@ fn step_error<I, V, Ty, Info>(
 
 /// An instruction failed while executing a program.
 ///
-/// Displays as one line, the location, the instruction, then the failure:
-/// `at @main+2 (address 2) `cpu::cpu::get_field @Point.x`: type error: heap
-/// object (slot 1, generation 1) is struct Pair, expected struct Point`.
+/// Like an eyre context layer, it displays only where the failure happened:
+/// the location and the instruction, `at @main+2 (address 2)
+/// `cpu::cpu::get_field @Point.x``. What went wrong is its
+/// [`source`](std::error::Error::source), so `{:#}` (or walking
+/// `eyre::Report::chain`) shows both, once each: `at @main+2 (address 2)
+/// `cpu::cpu::get_field @Point.x`: type error: heap object (slot 1,
+/// generation 1) is struct Pair, expected struct Point`.
 ///
-/// The step's original error is its [`source`](std::error::Error::source),
-/// so `eyre::Report::chain` and `downcast_ref` on the chain reach it (for
-/// example a [`HeapError`] or a device's own error type); [`StepError::error`]
-/// returns it directly. `downcast_ref::<HeapError>()` on the returned report
-/// itself finds the `StepError`, not the inner error: search the chain.
+/// The source is the step's own error (for example a device's error type),
+/// except that a [`HeapError`] appears as a [`NamedHeapError`], rendered with
+/// the module's names; its [`error`](NamedHeapError::error) is the
+/// structured `HeapError`. [`StepError::error`] returns the step's error
+/// unchanged. `downcast_ref` on the returned report itself finds the
+/// `StepError`: search the chain for the cause.
 #[derive(Debug)]
 pub struct StepError {
     address: u32,
     location: String,
-    message: String,
+    named: Option<NamedHeapError>,
     error: eyre::Report,
 }
 
@@ -165,12 +169,15 @@ impl StepError {
 
 impl std::fmt::Display for StepError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "at {}: {}", self.location, self.message)
+        write!(f, "at {}", self.location)
     }
 }
 
 impl std::error::Error for StepError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(self.error.as_ref())
+        match &self.named {
+            Some(named) => Some(named),
+            None => Some(self.error.as_ref()),
+        }
     }
 }
