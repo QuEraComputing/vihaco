@@ -659,6 +659,7 @@ dependencies = [
  "vihaco-runtime",
  "vihaco-stdlib",
  "vihaco-syntax",
+ "vihaco-verifier",
 ]
 
 [[package]]

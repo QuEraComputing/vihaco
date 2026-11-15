@@ -16,7 +16,9 @@ vihaco-module = { workspace = true }
 [features]
 default = []
 # Runs the integration test against a real `#[composite]` machine, whose
-# generated `Verify` aggregate exists only in typed-declaration builds.
+# generated `Verify` aggregate exists only in typed-declaration builds. The
+# `vihaco/verifier` facade feature (implied by `vihaco/program-image-execution`)
+# forwards it.
 typed-declarations = ["vihaco-runtime/typed-declarations"]
 
 [dev-dependencies]

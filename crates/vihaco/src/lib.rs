@@ -114,6 +114,15 @@ pub use vihaco_stdlib::{
     execution_state::{execute, resume},
 };
 
+/// Load-time verification: the engine, standard capabilities, diagnostics,
+/// [`ModuleVerifier`](verifier::ModuleVerifier), and
+/// [`Verified`](verifier::Verified). See the `vihaco-verifier` crate.
+#[cfg(feature = "verifier")]
+pub use vihaco_verifier as verifier;
+
+#[cfg(feature = "verifier")]
+pub use vihaco_verifier::{Verified, verify_module};
+
 #[cfg(test)]
 mod public_api_tests {
     use crate::{
