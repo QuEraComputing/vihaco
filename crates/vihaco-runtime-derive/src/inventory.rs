@@ -632,6 +632,39 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
             }
         }
     };
+    // Runtime instructions display as their qualified source mnemonic and
+    // operands, for diagnostics and runtime errors that name an instruction.
+    let display = if entries.is_empty() {
+        quote! {
+            impl ::core::fmt::Display for #runtime {
+                fn fmt(&self, _: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                    match *self {}
+                }
+            }
+        }
+    } else {
+        let arms = entries.iter().zip(&variants).zip(&types).map(|((entry, variant), ty)| {
+            let mut prefix = String::new();
+            for segment in &entry.record.segments {
+                match segment.source.first() {
+                    Some(source) => prefix.push_str(&source.value()),
+                    None => prefix.push_str(&segment.name.unraw().to_string()),
+                }
+                prefix.push_str("::");
+            }
+            prefix.push_str(&entry.record.dialect.unraw().to_string());
+            prefix.push_str("::");
+            quote!(Self::#variant(instruction) => #root::__private::write_instruction(
+                f, #prefix, <#ty as #root::__private::InstructionSpec>::MNEMONIC, instruction))
+        });
+        quote! {
+            impl ::core::fmt::Display for #runtime {
+                fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                    match self { #(#arms),* }
+                }
+            }
+        }
+    };
     let (declaration, syntax, parser_impl, lowering) = if entries.is_empty() {
         (
             quote!(pub enum #runtime {}),
@@ -719,6 +752,7 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
         #parser_impl
         #lowering
         #verification
+        #display
         impl #root::SurfaceInstruction for #syntax {}
 
         impl #dispatch_impl_generics #root::Dispatch<#execution_context> for #name #type_generics #dispatch_where_clause {

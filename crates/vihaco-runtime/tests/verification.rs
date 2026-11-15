@@ -237,6 +237,20 @@ fn rule_errors_propagate_from_every_component() {
     assert!(err.to_string().contains("channel 1 is not open"), "{err}");
 }
 
+#[test]
+fn runtime_instructions_display_their_qualified_mnemonic_and_operands() {
+    // Diagnostics and runtime errors name instructions this way.
+    assert_eq!(parse("cpu::compute::add").to_string(), "cpu::compute::add");
+    assert_eq!(
+        parse("seq::sequencer::play 3").to_string(),
+        "seq::sequencer::play 3"
+    );
+    assert_eq!(
+        parse("cpu::compute::br_if 4, 9").to_string(),
+        "cpu::compute::br_if 4, 9"
+    );
+}
+
 #[cfg(not(feature = "program-image-execution"))]
 #[test]
 fn verification_capability_diagnostics() {
