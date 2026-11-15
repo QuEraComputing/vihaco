@@ -1,4 +1,4 @@
-use vihaco::{Composite, Dispatch, ExecutionState, HasProgram, Image, Loadable};
+use vihaco::{Composite, Dispatch, ExecutionState, HasProgram, Image, Loadable, Verified};
 use vihaco::module::LocalModule;
 
 struct Machine(ExecutionState);
@@ -16,7 +16,7 @@ impl Dispatch<LocalModule<u64, vihaco::Value, vihaco::Type>> for Machine {
 }
 
 fn main() {
-    let image = Image::new(LocalModule::<u64, vihaco::Value, vihaco::Type>::default());
+    let image = Image::new(Verified::assume_verified(LocalModule::<u64, vihaco::Value, vihaco::Type>::default()));
     let mut loaded = Loadable::new(image, Machine(ExecutionState::new()));
     loaded.execute(&[]).unwrap();
 }

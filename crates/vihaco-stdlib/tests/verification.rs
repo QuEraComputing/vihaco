@@ -793,7 +793,7 @@ fn every_error_in_a_module_is_reported_in_address_order() {
 fn a_host_function_reference_of_the_wrong_type_fails_at_runtime() {
     use vihaco_abi::word::encode_function_ref;
     use vihaco_cpu::CPU;
-    use vihaco_stdlib::{ExecutionState, Image, Loadable};
+    use vihaco_stdlib::{ExecutionState, Image, Loadable, Verified};
 
     let main = [
         "P::const_u64 20",
@@ -823,7 +823,7 @@ fn a_host_function_reference_of_the_wrong_type_fails_at_runtime() {
     assert_eq!(verify(&program), []);
     let run = |function: u32| {
         let mut loaded = Loadable::new(
-            Image::new(load(&program).unwrap()),
+            Image::new(Verified::new(load(&program).unwrap()).unwrap()),
             Machine {
                 execution: ExecutionState::new(),
                 cpu: CPU::default(),

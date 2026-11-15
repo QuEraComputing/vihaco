@@ -11,8 +11,9 @@ use crate::{ExecutionState, Image, execution_state};
 
 /// A program image and the composite that executes its borrowed instructions.
 ///
-/// Construct the image explicitly before pairing it with a machine. Only
-/// [`Image`] is supported; the image remains unchanged throughout an invocation.
+/// Construct the image explicitly, from a verified module, before pairing it
+/// with a machine. Only [`Image`] is supported; the image remains unchanged
+/// throughout an invocation.
 /// Ordinary outer structs can own several loadables with different instruction
 /// sets. Section selection and image construction remain caller responsibilities.
 #[derive(Debug)]
@@ -53,8 +54,9 @@ where
 {
     /// Pair an image with a machine, resetting its previous invocation state.
     ///
-    /// Device state is retained. No parsing, lowering, or image validation is
-    /// performed here; construction of a valid image is the caller's job.
+    /// Device state is retained. No parsing, lowering, or verification is
+    /// performed here: the image already holds a verified module (see
+    /// [`Image::new`]).
     pub fn new(image: Image<Inst, V, Ty, Info>, mut machine: M) -> Self {
         machine.program_mut().reset();
         Self { image, machine }
@@ -102,7 +104,7 @@ where
     /// Returns the runner's entry or execution errors. Earlier machine mutations
     /// are retained; reset or resume according to the invocation's state.
     pub fn execute(&mut self, arguments: &[Word]) -> eyre::Result<()> {
-        execution_state::execute(&self.image.module, &mut self.machine, arguments)
+        execution_state::execute(self.image.module(), &mut self.machine, arguments)
     }
 
     /// Continue the existing invocation against the same paired image.
@@ -112,6 +114,6 @@ where
     /// Returns the runner's state, instruction-fetch, or dispatch errors without
     /// rolling back machine mutations. A halted invocation remains halted.
     pub fn resume(&mut self) -> eyre::Result<()> {
-        execution_state::resume(&self.image.module, &mut self.machine)
+        execution_state::resume(self.image.module(), &mut self.machine)
     }
 }

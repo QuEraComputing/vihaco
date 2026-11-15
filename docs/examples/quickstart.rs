@@ -3,10 +3,12 @@
 
 use vihaco::{
     Apply, BuildMessage, Execute, ExecutionState, HasInstructionSet, Image, Loadable, NoContext,
-    PopFromStack, PushToStack, SstFile, Step, Type, Value, component, composite, dialect, field,
+    PopFromStack, PushToStack, SstFile, Step, Type, Value, Verified, Verify, component, composite,
+    dialect, field,
     loader::MetadataLoweringContext,
     module::{LocalModule, ProgramMetadata},
     syntax::{HeaderDeclarations, ParsedModule, lower_functions_with_metadata},
+    verifier::{OperandStack, TypedSlot, stack_effect},
 };
 
 #[dialect]
@@ -37,6 +39,17 @@ impl Execute<arithmetic::Add> for Calculator {
             .ok_or_else(|| eyre::eyre!("addition overflow"))?;
         self.additions += 1;
         Ok(PushToStack((sum,)))
+    }
+}
+
+// The load-time typing rule: `add` pops two `u64` operands and pushes one.
+impl<C> Verify<C> for arithmetic::Add
+where
+    C: OperandStack + ?Sized,
+    C::Slot: TypedSlot,
+{
+    fn verify(&self, cx: &mut C) -> eyre::Result<()> {
+        stack_effect(cx, [Type::U64, Type::U64], [Type::U64])
     }
 }
 
@@ -109,7 +122,7 @@ pub fn main() -> eyre::Result<()> {
     );
     let mut context = MetadataLoweringContext::new(&metadata)?;
     let code = lower_functions_with_metadata(functions, &metadata, &mut context)?;
-    let module = metadata.into_module(code)?;
+    let module = Verified::new(metadata.into_module(code)?)?;
     let machine = Machine {
         execution: ExecutionState::new(),
         calculator: Calculator::default(),

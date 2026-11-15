@@ -138,14 +138,16 @@ With `program-image-execution`, use `Loadable<Image<Instruction>, Machine>` to
 pair immutable program data with a composite containing `ExecutionState` and
 other devices. An ordinary outer runtime holds each independently loaded program
 as a field. Construct a module explicitly through SST parsing and lowering (or
-bytecode decoding), wrap it in `Image::new(module)`, and construct
-`Loadable::new(image, machine)`. Ordinary nested composites share the enclosing
+bytecode decoding), verify it with `Verified::new(module)`, wrap it in
+`Image::new(verified)`, and construct `Loadable::new(image, machine)`. Images
+only accept verified modules; `Verified::assume_verified` is the explicit escape
+hatch for tests and trusted toolchains. Ordinary nested composites share the enclosing
 program's image.
 
 The complete [Loadable example](crates/vihaco-stdlib/examples/loadable.rs) and its
 [SST source](crates/vihaco-stdlib/examples/loadable.sst) show section selection,
 individual header-declaration preparation, metadata validation, symbolic function/label lowering,
-image construction, authored Steps, and execution. Run it from the repository root:
+load-time verification, image construction, authored Steps, and execution. Run it from the repository root:
 
 ```sh
 cargo run -p vihaco-stdlib --features program-image-execution --example loadable

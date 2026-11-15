@@ -12,7 +12,7 @@
 //! use vihaco_abi::{Type, Value};
 //! use vihaco_module::module::{LocalModule, FunctionInfo, Signature};
 //! use vihaco_runtime::{composite, field, Apply, BuildMessage, Execute, HasInstructionSet, Step};
-//! use vihaco_stdlib::{ExecutionState, Image, execution_state::execute, program::program};
+//! use vihaco_stdlib::{ExecutionState, Image, Verified, execution_state::execute, program::program};
 //! use vihaco_cpu::{CPU, cpu};
 //!
 //! #[composite]
@@ -72,11 +72,11 @@
 //! }
 //! impl Loaded {
 //!     fn run(&mut self) -> eyre::Result<()> {
-//!         execute(&self.image.module, &mut self.machine, &[])
+//!         execute(self.image.module(), &mut self.machine, &[])
 //!     }
 //! }
 //! let mut loaded = Loaded {
-//!     image: Image::new(module),
+//!     image: Image::new(Verified::new(module)?),
 //!     machine: Machine { execution: ExecutionState::new(), cpu: CPU::default() },
 //! };
 //! loaded.run()?;

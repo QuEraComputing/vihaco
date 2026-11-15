@@ -14,7 +14,8 @@ use vihaco_runtime::{
     Apply, BuildMessage, Composite, Dispatch, Execute, HasInstructionSet, HasProgram, Lower,
     NoMessage, Parse, Step, chumsky::prelude::*, composite, field,
 };
-use vihaco_stdlib::{ExecutionState, Image, Loadable, program::program};
+use vihaco_stdlib::{ExecutionState, Image, Loadable, Verified, program::program};
+use vihaco_verifier::{ModuleVerifier, Verify};
 
 type Module<M> = LocalModule<<M as HasInstructionSet>::Runtime, Value, Type>;
 type MachineImage<M> = Image<<M as HasInstructionSet>::Runtime>;
@@ -107,9 +108,7 @@ impl FromText for Header {
 
 impl SstHeader for Header {}
 
-fn construct_image<'src, M>(
-    section: SstSectionView<'src, NoContext>,
-) -> eyre::Result<MachineImage<M>>
+fn construct_module<'src, M>(section: SstSectionView<'src, NoContext>) -> eyre::Result<Module<M>>
 where
     M: HasInstructionSet,
     M::Syntax: Parse<'src> + 'src + Lower<MetadataLoweringContext, Runtime = M::Runtime>,
@@ -118,12 +117,23 @@ where
         vihaco_syntax::ParsedModule::<M::Syntax, Type, Header>::parse_section(section)?;
     let metadata = header.0;
     let mut context = MetadataLoweringContext::new(&metadata)?;
-    let module = vihaco_syntax::ParsedModule {
+    vihaco_syntax::ParsedModule {
         header: (),
         functions,
     }
-    .lower_with_metadata(metadata, &mut context)?;
-    Ok(Image::new(module))
+    .lower_with_metadata(metadata, &mut context)
+}
+
+/// Parse, lower, and verify a section into an image.
+fn construct_image<'src, M>(
+    section: SstSectionView<'src, NoContext>,
+) -> eyre::Result<MachineImage<M>>
+where
+    M: HasInstructionSet,
+    M::Syntax: Parse<'src> + 'src + Lower<MetadataLoweringContext, Runtime = M::Runtime>,
+    M::Runtime: for<'m> Verify<ModuleVerifier<'m>>,
+{
+    Ok(Image::new(Verified::new(construct_module::<M>(section)?)?))
 }
 
 fn section_source(name: &str, main: &str, helper: &str) -> String {
@@ -208,8 +218,6 @@ fn sibling_loadables_construct_and_execute_independent_programs() {
     let controller_program = construct_image::<ControllerMachine>(file.root()).unwrap();
     let sequencer_image =
         construct_image::<SequencerMachine>(file.root().child("sequencer").unwrap()).unwrap();
-    assert_verifies::<ControllerMachine>(&controller_program.module);
-    assert_verifies::<SequencerMachine>(&sequencer_image.module);
     let mut runtime = Runtime {
         controller: Loadable::new(
             controller_program,
@@ -229,7 +237,7 @@ fn sibling_loadables_construct_and_execute_independent_programs() {
     };
     drop(file);
     drop(source);
-    assert_eq!(runtime.controller.image().module.main_function, Some(1));
+    assert_eq!(runtime.controller.image().module().main_function, Some(1));
     runtime.controller.execute(&[]).unwrap();
     runtime.sequencer.execute(&[]).unwrap();
     assert_eq!(runtime.controller.machine().execution.stack(), &[11]);
@@ -283,24 +291,19 @@ execution::program::ret 1
     )
 }
 
-/// Well-formed fixture programs also pass load-time verification against the
-/// composite's generated rules.
-fn assert_verifies<M>(module: &Module<M>)
-where
-    M: HasInstructionSet,
-    M::Runtime: for<'m> vihaco_verifier::Verify<vihaco_verifier::ModuleVerifier<'m>>,
-{
-    if let Err(rejection) =
-        vihaco_verifier::verify_module(module, vihaco_verifier::VerifyOptions::default())
-    {
-        panic!("{rejection:?}");
-    }
-}
-
+/// Parse, lower, and verify a struct program: well-formed fixtures pass
+/// load-time verification against the composite's generated rules.
 fn load_struct_program(main_body: &str) -> eyre::Result<MachineImage<SequencerMachine>> {
     let source = struct_program(main_body);
     let file = SstFile::<NoContext>::from_text(&source)?;
     construct_image::<SequencerMachine>(file.root())
+}
+
+/// Parse and lower a struct program without verifying it.
+fn load_unverified_struct_program(main_body: &str) -> eyre::Result<Module<SequencerMachine>> {
+    let source = struct_program(main_body);
+    let file = SstFile::<NoContext>::from_text(&source)?;
+    construct_module::<SequencerMachine>(file.root())
 }
 
 #[test]
@@ -315,9 +318,8 @@ cpu::cpu::get_field @Point.y
 execution::program::ret 1",
     )
     .unwrap();
-    assert_verifies::<SequencerMachine>(&image.module);
-    assert_eq!(image.module.structs.len(), 1);
-    assert_eq!(image.module.functions[1].signature.ret, [Type::Struct(0)]);
+    assert_eq!(image.module().structs.len(), 1);
+    assert_eq!(image.module().functions[1].signature.ret, [Type::Struct(0)]);
     let mut loaded = Loadable::new(
         image,
         SequencerMachine {
@@ -330,7 +332,10 @@ execution::program::ret 1",
 }
 
 fn run_struct_program(main_body: &str) -> eyre::Result<Vec<u64>> {
-    let image = load_struct_program(main_body)?;
+    run_image(load_struct_program(main_body)?)
+}
+
+fn run_image(image: MachineImage<SequencerMachine>) -> eyre::Result<Vec<u64>> {
     let mut loaded = Loadable::new(
         image,
         SequencerMachine {
@@ -351,7 +356,6 @@ execution::program::const_u64 0
 cpu::cpu::array_get struct @Point
 cpu::cpu::get_field @Point.y
 execution::program::ret 1";
-    assert_verifies::<SequencerMachine>(&load_struct_program(source).unwrap().module);
     let stack = run_struct_program(source).unwrap();
     assert_eq!(stack, [9]);
 
@@ -363,11 +367,10 @@ execution::program::const_u64 0
 cpu::cpu::array_get u64
 cpu::cpu::get_field @Point.y
 execution::program::ret 1";
-    let rejection = vihaco_verifier::verify_module(
-        &load_struct_program(ill_typed).unwrap().module,
-        vihaco_verifier::VerifyOptions::default(),
-    )
-    .unwrap_err();
+    let module = load_unverified_struct_program(ill_typed).unwrap();
+    let rejection =
+        vihaco_verifier::verify_module(&module, vihaco_verifier::VerifyOptions::default())
+            .unwrap_err();
     assert_eq!(
         rejection.diagnostics[0].kind,
         vihaco_verifier::DiagnosticKind::TypeMismatch {
@@ -375,7 +378,13 @@ execution::program::ret 1";
             found: "array struct 0".into()
         }
     );
-    let error = run_struct_program(ill_typed).unwrap_err();
+    // Constructing the image verifies it, so only the escape hatch runs it.
+    let error = load_struct_program(ill_typed).unwrap_err();
+    assert!(
+        format!("{error:#}").contains("verification failed"),
+        "{error:#}"
+    );
+    let error = run_image(Image::new(Verified::assume_verified(module))).unwrap_err();
     assert!(
         format!("{error:#}").contains("is array struct 0, expected array u64"),
         "{error:#}"
@@ -408,9 +417,8 @@ cpu::cpu::array_get type @location
 cpu::cpu::unwrap @location
 execution::program::ret 1";
     let image = load_struct_program(source).unwrap();
-    assert_verifies::<SequencerMachine>(&image.module);
-    assert_eq!(image.module.types.len(), 1);
-    let code = format!("{:?}", image.module.code);
+    assert_eq!(image.module().types.len(), 1);
+    let code = format!("{:?}", image.module().code);
     assert!(code.contains("ArrayNew(Named(0), 1)"), "{code}");
     assert!(code.contains("Wrap(0)"), "{code}");
     assert_eq!(run_struct_program(source).unwrap(), [7]);
@@ -471,7 +479,7 @@ fn construction_resets_previous_invocation_without_resetting_machine_state() {
         visits: 7,
         fail_once: false,
     };
-    machine.execution.start(&image.module, &[]).unwrap();
+    machine.execution.start(image.module(), &[]).unwrap();
     assert!(!machine.execution.is_halted());
     let loaded = Loadable::new(image, machine);
     assert!(loaded.machine().execution.is_halted());
@@ -490,12 +498,12 @@ fn active_replacement_is_rejected_and_faulted_invocation_can_resume() {
             .to_string()
             .contains("injected")
     );
-    let image = loaded.image().module.code.as_ptr();
+    let image = loaded.image().module().code.as_ptr();
     let pc = loaded.machine().execution.pc();
     let frames = loaded.machine().execution.frames().len();
     let visits = loaded.machine().visits;
     assert!(loaded.replace_image(controller_image(17)).is_err());
-    assert_eq!(loaded.image().module.code.as_ptr(), image);
+    assert_eq!(loaded.image().module().code.as_ptr(), image);
     assert_eq!(loaded.machine().execution.pc(), pc);
     assert_eq!(loaded.machine().execution.frames().len(), frames);
     assert_eq!(loaded.machine().visits, visits);
@@ -522,10 +530,10 @@ fn explicit_reset_abandons_invocation_and_extraction_preserves_parts() {
     assert_eq!(loaded.machine().visits, 1);
     loaded.replace_image(controller_image(17)).unwrap();
     loaded.execute(&[]).unwrap();
-    let image_pointer = loaded.image().module.code.as_ptr();
+    let image_pointer = loaded.image().module().code.as_ptr();
     let visits = loaded.machine().visits;
     let (image, machine) = loaded.into_parts();
-    assert_eq!(image.module.code.as_ptr(), image_pointer);
+    assert_eq!(image.module().code.as_ptr(), image_pointer);
     assert_eq!(machine.visits, visits);
     assert_eq!(machine.execution.stack(), &[17]);
 }
@@ -543,9 +551,9 @@ fn failed_image_construction_leaves_installed_program_unchanged() {
         )
     );
     let file = SstFile::<NoContext>::from_text(&source).unwrap();
-    let image_pointer = loaded.image().module.code.as_ptr();
+    let image_pointer = loaded.image().module().code.as_ptr();
     assert!(construct_image::<ControllerMachine>(file.root()).is_err());
-    assert_eq!(loaded.image().module.code.as_ptr(), image_pointer);
+    assert_eq!(loaded.image().module().code.as_ptr(), image_pointer);
     assert_eq!(loaded.machine().visits, 0);
     loaded.execute(&[]).unwrap();
     assert_eq!(loaded.machine().execution.stack(), &[11]);
@@ -577,7 +585,8 @@ fn execution_borrows_non_clone_instructions_from_the_paired_image() {
             self.execution.execute(&program::Halt, NoMessage::new())
         }
     }
-    let image = Image::new(Program {
+    // A test-local instruction set with no verifier rules.
+    let image = Image::new(Verified::assume_verified(Program {
         code: vec![Instruction(Box::new(42))],
         main_function: Some(0),
         functions: vec![FunctionInfo {
@@ -592,7 +601,7 @@ fn execution_borrows_non_clone_instructions_from_the_paired_image() {
             file: 0,
         }],
         ..Default::default()
-    });
+    }));
     let mut loaded = Loadable::new(
         image,
         Machine {

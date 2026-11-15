@@ -78,10 +78,12 @@ at compile time, so the example doesn't depend on your working directory.
 
 use vihaco::{
     Apply, BuildMessage, Execute, ExecutionState, HasInstructionSet, Image, Loadable, NoContext,
-    PopFromStack, PushToStack, SstFile, Step, Type, Value, component, composite, dialect, field,
+    PopFromStack, PushToStack, SstFile, Step, Type, Value, Verified, Verify, component, composite,
+    dialect, field,
     loader::MetadataLoweringContext,
     module::{LocalModule, ProgramMetadata},
     syntax::{HeaderDeclarations, ParsedModule, lower_functions_with_metadata},
+    verifier::{OperandStack, TypedSlot, stack_effect},
 };
 
 #[dialect]
@@ -112,6 +114,17 @@ impl Execute<arithmetic::Add> for Calculator {
             .ok_or_else(|| eyre::eyre!("addition overflow"))?;
         self.additions += 1;
         Ok(PushToStack((sum,)))
+    }
+}
+
+// The load-time typing rule: `add` pops two `u64` operands and pushes one.
+impl<C> Verify<C> for arithmetic::Add
+where
+    C: OperandStack + ?Sized,
+    C::Slot: TypedSlot,
+{
+    fn verify(&self, cx: &mut C) -> eyre::Result<()> {
+        stack_effect(cx, [Type::U64, Type::U64], [Type::U64])
     }
 }
 
@@ -184,7 +197,7 @@ pub fn main() -> eyre::Result<()> {
     );
     let mut context = MetadataLoweringContext::new(&metadata)?;
     let code = lower_functions_with_metadata(functions, &metadata, &mut context)?;
-    let module = metadata.into_module(code)?;
+    let module = Verified::new(metadata.into_module(code)?)?;
     let machine = Machine {
         execution: ExecutionState::new(),
         calculator: Calculator::default(),
@@ -216,6 +229,12 @@ instructions take operands, compute, and put the answer back.
 The generic bounds on those steps let you use the same body for other
 instructions that meet the same requirements.
 
+The `Verify` implementation is `add`'s typing rule: it pops two `u64` operands
+and pushes a `u64`. The verifier uses it, together with the rules the standard
+program instructions already have, to check the whole program before it runs.
+A machine can only be verified if every instruction in it has a rule, and the
+compiler checks that.
+
 ## What vihaco supplies
 
 The macros handle instruction parsing, field routes, and dispatch through the
@@ -243,9 +262,15 @@ instructions `0..4`, returns one `u64`, and has no parameters or reserved locals
 Its name and source filename refer into `strings`.
 `ProgramMetadata::into_module` checks and assembles the tables and code.
 
-Finally, `Image::new` wraps the module, and `Loadable::new` pairs it with the
-machine. Calling `execute(&[])` enters the selected function with no host
-arguments.
+`Verified::new` then verifies the module: every function is checked against
+its declared signature and locals, so a program that would add a string or
+return the wrong number of values is rejected before it runs, with a
+diagnostic for each problem. An image only accepts a verified module.
+[Verification](/guide/verification) covers rules and diagnostics in depth.
+
+Finally, `Image::new` wraps the verified module, and `Loadable::new` pairs it
+with the machine. Calling `execute(&[])` enters the selected function with no
+host arguments.
 
 [Essential concepts](/guide/essentials) summarizes the minimum needed to define
 instructions, implement components, and wire a VM before you explore each topic.
