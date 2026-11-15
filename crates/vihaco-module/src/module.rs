@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: MIT
 
 use crate::color::Themed;
-pub use crate::program_metadata::ProgramMetadata;
+pub use crate::names::{Location, ModuleNames};
+pub use crate::program_metadata::{ProgramMetadata, explain_metadata};
+pub use crate::source_type::{ResolveType, SourceType, TypeLookup};
 
 /// A module for a single section.
 #[derive(Debug, Clone, PartialEq)]
@@ -82,7 +84,138 @@ impl<Type> FunctionInfo<Type> {
     pub fn local_count(&self) -> usize {
         self.locals.len()
     }
+
+    /// Check the frame this function declares: at most [`MAX_LOCALS`]
+    /// locals, at least one per parameter, and leading locals equal to the
+    /// parameter types.
+    ///
+    /// [`ProgramMetadata::validate`] reports these with the metadata path;
+    /// the verifier repeats the check for modules built without validation.
+    pub fn check_frame(&self) -> Result<(), FrameError<Type>>
+    where
+        Type: PartialEq + Clone,
+    {
+        let (locals, params) = (&self.locals, &self.signature.params);
+        if locals.len() > MAX_LOCALS {
+            return Err(FrameError::TooManyLocals {
+                count: locals.len(),
+            });
+        }
+        if locals.len() < params.len() {
+            return Err(FrameError::FewerLocalsThanParameters {
+                locals: locals.len(),
+                parameters: params.len(),
+            });
+        }
+        match locals
+            .iter()
+            .zip(params)
+            .enumerate()
+            .find(|(_, (local, param))| **local != param.ty)
+        {
+            Some((index, (local, param))) => Err(FrameError::LocalDisagreesWithParameter {
+                index,
+                local: local.clone(),
+                parameter: param.ty.clone(),
+            }),
+            None => Ok(()),
+        }
+    }
 }
+
+/// A function's declared frame is invalid; see [`FunctionInfo::check_frame`].
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum FrameError<Ty> {
+    /// More than [`MAX_LOCALS`] locals.
+    TooManyLocals {
+        /// The number of locals declared.
+        count: usize,
+    },
+    /// Fewer locals than parameters: every parameter occupies a local.
+    FewerLocalsThanParameters {
+        /// The number of locals declared.
+        locals: usize,
+        /// The number of parameters in the signature.
+        parameters: usize,
+    },
+    /// A leading local's type differs from its parameter's.
+    LocalDisagreesWithParameter {
+        /// The local and parameter index.
+        index: usize,
+        /// The local's declared type.
+        local: Ty,
+        /// The parameter's declared type.
+        parameter: Ty,
+    },
+}
+
+impl<Ty: std::fmt::Display> FrameError<Ty> {
+    /// Display the error, naming parameters with `parameter_name` (for
+    /// example from the string table).
+    pub fn display_with<'a>(
+        &'a self,
+        parameter_name: impl Fn(usize) -> Option<&'a str> + 'a,
+        ty: impl Fn(&'a Ty) -> String + 'a,
+    ) -> impl std::fmt::Display + 'a {
+        FrameErrorDisplay {
+            error: self,
+            parameter_name: Box::new(parameter_name),
+            ty: Box::new(ty),
+        }
+    }
+}
+
+type NameFn<'a> = Box<dyn Fn(usize) -> Option<&'a str> + 'a>;
+
+struct FrameErrorDisplay<'a, Ty> {
+    error: &'a FrameError<Ty>,
+    parameter_name: NameFn<'a>,
+    ty: Box<dyn Fn(&'a Ty) -> String + 'a>,
+}
+
+impl<Ty: std::fmt::Display> std::fmt::Display for FrameErrorDisplay<'_, Ty> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.error {
+            FrameError::TooManyLocals { count } => {
+                write!(f, "{count} locals exceed the maximum of {MAX_LOCALS}")
+            }
+            FrameError::FewerLocalsThanParameters { locals, parameters } => write!(
+                f,
+                "{locals} local{} declared, but the signature has {parameters} parameter{} \
+                 (locals start with one per parameter)",
+                if *locals == 1 { "" } else { "s" },
+                if *parameters == 1 { "" } else { "s" },
+            ),
+            FrameError::LocalDisagreesWithParameter {
+                index,
+                local,
+                parameter,
+            } => {
+                write!(
+                    f,
+                    "local {index} is declared {}, but parameter {index}",
+                    (self.ty)(local)
+                )?;
+                if let Some(name) = (self.parameter_name)(*index) {
+                    write!(f, " ({name})")?;
+                }
+                write!(
+                    f,
+                    " is {} (locals start with the parameter types)",
+                    (self.ty)(parameter)
+                )
+            }
+        }
+    }
+}
+
+impl<Ty: std::fmt::Display> std::fmt::Display for FrameError<Ty> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.display_with(|_| None, |ty| ty.to_string()).fmt(f)
+    }
+}
+
+impl<Ty: std::fmt::Debug + std::fmt::Display> std::error::Error for FrameError<Ty> {}
 
 #[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
 #[syntax_class(metadata, open = "{", close = "}")]
