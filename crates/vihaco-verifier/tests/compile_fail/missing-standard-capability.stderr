@@ -1,0 +1,32 @@
+error[E0277]: verifier context `FrameState<TypeSlot>` does not provide the `Signatures` capability
+  --> tests/compile_fail/missing-standard-capability.rs:19:30
+   |
+19 |     let _ = verify_functions(&[Ret], &[span], &mut cx, VerifyOptions::default());
+   |             ---------------- ^^^^^^ the trait `Signatures<vihaco_verifier::Type>` is not implemented for `FrameState<TypeSlot>`
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = note: `ModuleVerifier` and `WithState` provide every standard capability; a hand-written context implements it or delegates to `ModuleVerifier`
+help: the following other types implement trait `Signatures<Ty>`
+  --> src/module.rs
+   |
+   | impl Signatures<Type> for ModuleVerifier<'_> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `ModuleVerifier<'_>`
+...
+   | impl<S> Signatures<Type> for WithState<'_, S> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `WithState<'_, S>`
+note: required for `Ret` to implement `Verify<FrameState<TypeSlot>>`
+  --> tests/compile_fail/missing-standard-capability.rs:8:49
+   |
+ 8 | impl<C: TypedStack + Signatures<Type> + ?Sized> Verify<C> for Ret {
+   |                      ----------------           ^^^^^^^^^     ^^^
+   |                      |
+   |                      unsatisfied trait bound introduced here
+note: required by a bound in `verify_functions`
+  --> src/engine.rs
+   |
+   | pub fn verify_functions<I, C>(
+   |        ---------------- required by a bound in this function
+...
+   |     I: Verify<C>,
+   |        ^^^^^^^^^ required by this bound in `verify_functions`

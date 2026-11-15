@@ -19,6 +19,11 @@ use crate::state::{AbstractState, JoinPoint};
 /// the function's locals or its caller's frame.
 ///
 /// [`StackUnderflow`]: crate::DiagnosticKind::StackUnderflow
+#[diagnostic::on_unimplemented(
+    message = "verifier context `{Self}` does not provide the `OperandStack` capability",
+    note = "`ModuleVerifier`, `WithState` and `FrameState` provide it; a hand-written context \
+            implements it or delegates to one of them"
+)]
 pub trait OperandStack {
     /// The abstract value held in each stack slot.
     type Slot: Lattice;

@@ -1,0 +1,22 @@
+error[E0277]: instruction `Pulse` has no verification rule for context `ModuleVerifier<'m>`
+ --> tests/compile_fail/missing-rule.rs:9:27
+  |
+9 |     let _ = Verified::new(module);
+  |             ------------- ^^^^^^ `Pulse` cannot be verified with `ModuleVerifier<'m>`
+  |             |
+  |             required by a bound introduced by this call
+  |
+help: the trait `for<'m> Verify<ModuleVerifier<'m>>` is not implemented for `Pulse`
+ --> tests/compile_fail/missing-rule.rs:5:1
+  |
+5 | pub struct Pulse(pub u32);
+  | ^^^^^^^^^^^^^^^^
+  = note: implement `Verify<C>` for each instruction, bounding `C` only on the capabilities the rule uses; the notes below name the instruction or capability that is missing
+note: required by a bound in `Verified::<LocalModule<I, Value, vihaco_verifier::Type, Info>>::new`
+ --> src/verified.rs
+  |
+  |     pub fn new(
+  |            --- required by a bound in this associated function
+...
+  |         I: for<'m> Verify<ModuleVerifier<'m>>,
+  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `Verified::<LocalModule<I, Value, Type, Info>>::new`

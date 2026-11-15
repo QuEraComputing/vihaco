@@ -22,6 +22,11 @@ use crate::stack::{OperandStack, TypedStack};
 /// pops into one). Every index is bounds-checked against the function's
 /// declared locals; an out-of-range index is a
 /// [`DiagnosticKind::LocalIndexOutOfRange`](crate::DiagnosticKind::LocalIndexOutOfRange).
+#[diagnostic::on_unimplemented(
+    message = "verifier context `{Self}` does not provide the `Locals` capability",
+    note = "`ModuleVerifier` and `WithState` provide every standard capability; a hand-written \
+            context implements it or delegates to `ModuleVerifier`"
+)]
 pub trait Locals: OperandStack {
     /// The number of locals the function declares, parameters included.
     fn local_count(&self) -> u32;
@@ -42,6 +47,11 @@ pub trait Locals: OperandStack {
 ///
 /// [`DiagnosticKind::UnknownEntry`]: crate::DiagnosticKind::UnknownEntry
 /// [`DiagnosticKind::NoFunctionAt`]: crate::DiagnosticKind::NoFunctionAt
+#[diagnostic::on_unimplemented(
+    message = "verifier context `{Self}` does not provide the `Signatures` capability",
+    note = "`ModuleVerifier` and `WithState` provide every standard capability; a hand-written \
+            context implements it or delegates to `ModuleVerifier`"
+)]
 pub trait Signatures<Ty> {
     /// The number of functions in the function table.
     fn function_count(&self) -> usize;
@@ -86,6 +96,11 @@ pub trait Signatures<Ty> {
 ///
 /// [`DiagnosticKind::UnknownEntry`]: crate::DiagnosticKind::UnknownEntry
 /// [`DiagnosticKind::UnknownField`]: crate::DiagnosticKind::UnknownField
+#[diagnostic::on_unimplemented(
+    message = "verifier context `{Self}` does not provide the `StructTypes` capability",
+    note = "`ModuleVerifier` and `WithState` provide every standard capability; a hand-written \
+            context implements it or delegates to `ModuleVerifier`"
+)]
 pub trait StructTypes<Ty> {
     /// The number of structs in the struct table.
     fn struct_count(&self) -> usize;
@@ -108,6 +123,11 @@ pub trait StructTypes<Ty> {
 ///
 /// [`DiagnosticKind::UnknownEntry`]: crate::DiagnosticKind::UnknownEntry
 /// [`DiagnosticKind::UndefinedNamedType`]: crate::DiagnosticKind::UndefinedNamedType
+#[diagnostic::on_unimplemented(
+    message = "verifier context `{Self}` does not provide the `NamedTypes` capability",
+    note = "`ModuleVerifier` and `WithState` provide every standard capability; a hand-written \
+            context implements it or delegates to `ModuleVerifier`"
+)]
 pub trait NamedTypes<Ty> {
     /// The number of entries in the named-type table.
     fn named_type_count(&self) -> usize;
@@ -127,6 +147,11 @@ pub trait NamedTypes<Ty> {
 /// [`DiagnosticKind::UnknownEntry`].
 ///
 /// [`DiagnosticKind::UnknownEntry`]: crate::DiagnosticKind::UnknownEntry
+#[diagnostic::on_unimplemented(
+    message = "verifier context `{Self}` does not provide the `Constants` capability",
+    note = "`ModuleVerifier` and `WithState` provide every standard capability; a hand-written \
+            context implements it or delegates to `ModuleVerifier`"
+)]
 pub trait Constants<V, Ty> {
     /// The number of constants in the constant table.
     fn constant_count(&self) -> usize;
