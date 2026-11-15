@@ -150,9 +150,12 @@ changes. Field values themselves are untyped words; the CPU does not check that
 a value stored in an `f64` field is an `f64`.
 
 Heap references are opaque 64-bit values. A reference to a freed object stays
-invalid even after its slot is reused, so it can never reach the new object.
-Do not write references as literals; use the reference an allocating
-instruction returned.
+invalid after its slot is reused (for up to 2^31 reuses of that slot), so it
+does not reach the new object. References are predictable rather than secret,
+so the typed dialects have no instruction that writes one as a literal: use the
+reference an allocating instruction returned, or one the host passed in. (The
+legacy enum build still has `const_heap_ref N`; runtime tag checks apply to
+whatever word it pushes.)
 
 Types in signatures and fields may name a struct as `struct N`, its index in
 `structs`. At runtime such a value is a heap reference to a `struct N` object.

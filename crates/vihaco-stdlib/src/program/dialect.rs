@@ -129,8 +129,4 @@ pub mod program {
     #[instruction]
     #[pattern = "'const_fn_ref $0:Target"]
     pub struct ConstFunctionRef(pub Word);
-
-    #[instruction]
-    #[pattern = "'const_heap_ref $0:u64"]
-    pub struct ConstHeapRef(pub Word);
 }

@@ -90,7 +90,7 @@ macro_rules! steps {
             StoreF64, StoreBool, Dup, ArrayNew, ArrayGet, ArraySet, HeapDealloc,
             ArrayReserve, ArrayPush, ArrayLen, GetField, SetField, StructNew,
             ConstI32, ConstI64, ConstU32, ConstU64, ConstF32, ConstF64,
-            ConstBool, ConstString, ConstFunctionRef, ConstHeapRef, AddI32, AddF32,
+            ConstBool, ConstString, ConstFunctionRef, AddI32, AddF32,
             AddI64, AddU32, AddU64, AddF64, SubI32, SubI64,
             SubU32, SubU64, SubF32, SubF64, MulI32, MulI64,
             MulU32, MulU64, MulF32, MulF64, DivI32, DivI64,
@@ -687,7 +687,6 @@ fn every_executable_leaf_parses_directly_and_metadata_is_excluded() {
     check("const_bool false", cpu::ConstBool(0));
     check("const_string 0", cpu::ConstString(0));
     check("const_fn_ref 0", cpu::ConstFunctionRef(0));
-    check("const_heap_ref 0", cpu::ConstHeapRef(0));
     check("add_i32", cpu::AddI32);
     check("add_f32", cpu::AddF32);
     check("add_i64", cpu::AddI64);
@@ -800,11 +799,11 @@ fn every_executable_leaf_parses_directly_and_metadata_is_excluded() {
     check("struct_new 0", cpu::StructNew(point));
     assert_eq!(
         vihaco_runtime::__private::capabilities::<CPU>().count(),
-        146
+        145
     );
     assert_eq!(
         vihaco_runtime::__private::capabilities::<Machine>().count(),
-        292
+        290
     );
     assert!(
         !vihaco_runtime::__private::capabilities::<CPU>()
@@ -1153,4 +1152,26 @@ fn numeric_operands_bypass_capability_calls_and_targets_reject_malformed_input()
         cpu::ConstString(0)
     );
     assert_eq!(loader.image.module.strings, ["existing"]);
+}
+
+/// Typed programs cannot write a heap reference as a literal: references are
+/// predictable, so the only way to hold one is to allocate it or receive it.
+#[test]
+fn typed_dialects_have_no_reference_literal() {
+    for source in [
+        "ctl::host::cpu::const_heap_ref 4294967297",
+        "spare::cpu::const_heap_ref 0",
+    ] {
+        assert!(
+            <Machine as HasInstructionSet>::Syntax::parser()
+                .parse(source)
+                .into_result()
+                .is_err(),
+            "{source}"
+        );
+    }
+    assert!(
+        !vihaco_runtime::__private::capabilities::<CPU>()
+            .any(|leaf| leaf.instruction == "const_heap_ref")
+    );
 }

@@ -133,7 +133,6 @@ lower_literal! {
     ConstF64 => crate::Word::from,
     ConstU32 => crate::word::encode_u32,
     ConstBool => crate::word::encode_bool,
-    ConstHeapRef => crate::word::encode_heap_ref,
 }
 
 #[cfg(test)]

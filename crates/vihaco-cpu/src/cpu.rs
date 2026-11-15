@@ -188,10 +188,6 @@ pub mod cpu {
     pub struct ConstFunctionRef(pub Word);
 
     #[instruction]
-    #[pattern = "'const_heap_ref $0:u64"]
-    pub struct ConstHeapRef(pub Word);
-
-    #[instruction]
     #[pattern = "'add_i32"]
     pub struct AddI32;
 

@@ -328,21 +328,31 @@ fn heap_transfers_use_program_operands_and_preserve_device_state() {
         panic!("expected [reference, item], got {:?}", vm.program.stack());
     };
     assert_eq!(item, 9);
-    // A later program receives the issued reference (as a host would pass it).
-    let readback_ref = format!("program::program::const_heap_ref {reference}");
+    // A later program receives the issued reference as an argument from the
+    // host. Typed programs have no instruction that writes a reference literal.
+    for literal in [
+        "program::program::const_heap_ref 4294967297",
+        "cpu::cpu::const_heap_ref 4294967297",
+    ] {
+        assert!(Source::parser().parse(literal).into_result().is_err());
+    }
     let (readback, _) = machine(&[
-        &readback_ref,
+        "program::program::load_u64 0",
         "program::program::const_u64 0",
         "cpu::cpu::array_get u64",
         "program::program::ret 1",
     ]);
     module = readback;
+    module.functions[0].signature.params = vec![vihaco_module::module::Parameter {
+        name: 0,
+        ty: vihaco_abi::Type::array(vihaco_abi::Type::U64),
+    }];
     vm.program.reset();
-    execute(&module, &mut vm, &[]).unwrap();
+    execute(&module, &mut vm, &[reference]).unwrap();
     assert_eq!(vm.program.stack(), &[7]); // Existing device heap survives program reset/restart.
     vm.cpu.reset();
     vm.program.reset();
-    assert!(execute(&module, &mut vm, &[]).is_err()); // CPU reset clears it.
+    assert!(execute(&module, &mut vm, &[reference]).is_err()); // CPU reset clears it.
     // References use all 64 bits (slot + generation) and pass through locals intact.
     let (module, mut raw) = machine(&[
         "program::program::const_u64 1",

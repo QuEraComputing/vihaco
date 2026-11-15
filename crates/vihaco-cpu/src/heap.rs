@@ -5,7 +5,17 @@
 //!
 //! References are `slotmap` keys packed into a 64-bit word (32-bit slot index,
 //! 32-bit version). Freeing an object bumps its slot's version, so a stale
-//! reference can never reach the object that later reuses the slot.
+//! reference is rejected rather than reaching the object that later reuses the
+//! slot. The version is 32 bits and wraps, so this holds for up to 2^31 reuses
+//! of one slot; a reference held across that many free/alloc cycles of its
+//! slot would become valid again.
+//!
+//! References are not secret: a fresh heap always issues the same sequence
+//! (its first object is slot 1, version 1, i.e. `0x1_0000_0001`), so a word can
+//! be predicted. Memory safety does not depend on that: every access names the
+//! kind of object it expects and is checked against the object's tag. Typed
+//! dialects also have no instruction that writes a reference literal, so a
+//! typed program can only use references it was given or allocated itself.
 //!
 //! Every object records what it is: an array with a specific element type, or
 //! a specific struct. Each access names what it expects and is checked against
@@ -448,6 +458,29 @@ mod heap_tests {
         for forged in [0, 1, live as u32 as u64, u64::MAX] {
             assert!(heap.len(forged).is_err(), "{forged:#x}");
         }
+    }
+
+    /// Pins the reference policy: references are predictable, not secret. A
+    /// fresh heap's first object is always `0x1_0000_0001`, so that word reaches
+    /// it in any heap. What protects objects is the tag check (a predicted word
+    /// still has to name the right kind of object) and, in typed dialects, the
+    /// absence of any instruction that writes a reference literal.
+    #[test]
+    fn fresh_references_are_predictable_but_tag_checked() {
+        const FIRST: HeapRef = 1 << 32 | 1;
+        let mut a = Heap::default();
+        let mut b = Heap::default();
+        assert_eq!(a.alloc_array(Type::U64, vec![7]), FIRST);
+        assert_eq!(b.alloc_struct(POINT, vec![1, 2]).unwrap(), FIRST);
+        assert_eq!(a.get(FIRST, &Type::U64, 0).unwrap(), 7);
+        // The same predicted word must still name the right kind of object.
+        assert!(a.field(FIRST, field(0, 0)).is_err());
+        assert!(b.get(FIRST, &Type::U64, 0).is_err());
+        // Once freed, the predicted word is stale like any other reference.
+        a.dealloc(FIRST).unwrap();
+        let next = a.alloc_array(Type::U64, vec![8]);
+        assert_ne!(next, FIRST);
+        assert!(a.get(FIRST, &Type::U64, 0).is_err());
     }
 
     #[test]

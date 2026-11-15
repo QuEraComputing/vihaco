@@ -138,7 +138,6 @@ lower_literal! {
     ConstF64 => vihaco_abi::word::Word::from,
     ConstU32 => vihaco_abi::word::encode_u32,
     ConstBool => vihaco_abi::word::encode_bool,
-    ConstHeapRef => vihaco_abi::word::encode_heap_ref,
 }
 
 // String interning belongs to module construction, before immutable loading.

@@ -431,8 +431,8 @@ instructions carry their element type, as `get_field` carries its struct, and
 the CPU checks the tag before touching elements:
 `type error: heap object … is array u64, expected array f64`. This keeps the
 runtime guarantee independent of the verifier: a reference that reaches an
-array instruction from outside the verified instruction stream (a host value, a
-`const_heap_ref`) is still checked.
+array instruction from outside the verified instruction stream (a host value,
+or a `const_heap_ref` literal in the legacy enum build) is still checked.
 
 ### Instructions
 
@@ -464,9 +464,22 @@ allocation:
 Heap references are generational keys from the `slotmap` crate, packed into one
 64-bit word (32-bit slot index, 32-bit version). Freeing an object bumps its
 slot's version, so stale references fail with "invalid or has been
-deallocated" instead of silently reaching whichever object reuses the slot. A
-reference written as a literal (`const_heap_ref N`) is almost never valid,
-because it would also have to match the version. The heap rejects words whose
+deallocated" instead of silently reaching whichever object reuses the slot.
+The version is 32 bits and wraps, so this holds for up to 2^31 reuses of one
+slot.
+
+References are predictable, not secret: a fresh heap always issues the same
+sequence (the first object is `0x1_0000_0001`). What holds is narrower:
+
+- stale references are rejected (within the wrap bound above);
+- every access is checked against the object's tag, so a guessed word still
+  has to name the right kind of object;
+- typed dialects have no instruction that writes a reference literal, so a
+  typed program can only use references it allocated or was given (entry
+  arguments, host-supplied values). The legacy enum build keeps
+  `const_heap_ref N`, and there a correctly guessed word reaches the object.
+
+The heap rejects words whose
 version half is even (never issued) before decoding them, because slotmap's
 `KeyData::from_ffi` would otherwise force the version odd and let a bare slot
 index such as `1` reach the first object allocated in that slot.
@@ -481,7 +494,7 @@ object payload (kind, capacity, element storage) stays vihaco's own.
 | Case | Policy |
 |---|---|
 | `call_indirect` | The instruction carries its expected signature inline (`call_indirect (u64, f64) -> u64`). The verifier types it like a direct call; the runtime checks that the target function's signature matches before calling, as Wasm does. No signature table is needed. |
-| `const_heap_ref N` | Produces `heap`, never `struct N` or `array T`. A forged reference cannot be passed where a struct or typed array is expected, and runtime tags still check it if it reaches `heap`-accepting instructions. |
+| Reference literals | Typed dialects have no `const_heap_ref`: a typed program cannot write a reference, so the verifier never has to type one. (The legacy enum build keeps `const_heap_ref N`; it is unverified and relies on runtime tags.) |
 | Entry arguments from the host | Arity is checked at entry today; values are words. The host is trusted to pass the declared types, as with any foreign call. |
 | Host-supplied values (messages, completions of pending instructions) | Outside the instruction stream. The component's rule declares the type it pushes and the component guarantees it at runtime. |
 
