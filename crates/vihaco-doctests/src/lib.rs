@@ -109,8 +109,8 @@ sst v2
     execution::program::ret 1
 ";
 
-    /// Load and run the `main` section of `source`, returning the stack.
-    fn run(source: &str) -> eyre::Result<Vec<u64>> {
+    /// Load the `main` section of `source`.
+    fn load(source: &str) -> eyre::Result<Program> {
         let file = SSTFile::<NoContext>::from_text(source)?;
         let section = file
             .section("main")
@@ -129,7 +129,12 @@ sst v2
         let mut context = MetadataLoweringContext::new(&metadata, &symbols)?;
         let code = lower_code_with_metadata(code, &symbols, &metadata, &mut context)?;
         metadata.strings = context.into_strings();
-        let module = metadata.into_module(code, symbols)?;
+        metadata.into_module(code, symbols)
+    }
+
+    /// Load and run the `main` section of `source`, returning the stack.
+    fn run(source: &str) -> eyre::Result<Vec<u64>> {
+        let module = load(source)?;
         let machine = Machine {
             execution: ExecutionState::new(),
             calculator: Calculator::default(),
@@ -152,6 +157,21 @@ sst v2
         assert_eq!(formatted, FORMATTED);
         assert_eq!(format(&formatted), formatted);
         assert_eq!(run(&formatted).unwrap(), [42]);
+    }
+
+    /// Disassembling the loaded program gives the formatted file back, and
+    /// it loads to the same program.
+    #[test]
+    fn first_machine_sst_disassembles_to_its_formatted_layout() -> eyre::Result<()> {
+        use vihaco_sst::{Disassembler, FormatOptions};
+
+        let module = load(include_str!("../../../docs/examples/first-machine.sst"))?;
+        let text = Disassembler::new()
+            .section::<Machine>("main", &module)
+            .finish(FormatOptions::default())?;
+        assert_eq!(text, FORMATTED);
+        assert_eq!(load(&text)?, module);
+        Ok(())
     }
 }
 

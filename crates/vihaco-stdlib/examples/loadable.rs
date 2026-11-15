@@ -12,6 +12,8 @@
 //! - `--check`: report every problem, with line and column, and run nothing.
 //! - `--fmt`: print the canonical layout with generated `;;` notes.
 //! - `--fmt-plain`: the same, without generated notes.
+//! - `--disasm`: load the file, then disassemble the loaded program back to
+//!   SST and print it.
 
 use vihaco_abi::{Type, Value};
 use vihaco_bytecode::{NoContext, SSTFile};
@@ -19,6 +21,7 @@ use vihaco_cpu::CPU;
 use vihaco_module::{
     loader::MetadataLoweringContext,
     module::{LocalModule, ProgramDirective, ProgramHeader, StandardDirective},
+    raising::ExtraDirectives,
 };
 use vihaco_runtime::{Apply, BuildMessage, Execute, HasInstructionSet, Step, composite, field};
 use vihaco_stdlib::{ExecutionState, Image, Loadable};
@@ -78,9 +81,18 @@ where
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 struct ExperimentInfo {
     description: String,
+}
+
+// The disassembler writes the loaded description back as its directive.
+impl ExtraDirectives<HeaderDeclaration> for ExperimentInfo {
+    fn extra_directives(&self) -> eyre::Result<Vec<HeaderDeclaration>> {
+        Ok(vec![HeaderDeclaration::Description(
+            self.description.clone(),
+        )])
+    }
 }
 
 // A header is a list of directives, one per line. The standard directives
@@ -93,6 +105,13 @@ enum HeaderDeclaration {
     Standard(ProgramDirective<Value, Type>),
     #[pattern = "experiment.description $0"]
     Description(String),
+}
+
+// Lets the disassembler write standard directives into this header.
+impl From<ProgramDirective<Value, Type>> for HeaderDeclaration {
+    fn from(directive: ProgramDirective<Value, Type>) -> Self {
+        Self::Standard(directive)
+    }
 }
 
 // Lets the checker and formatter find the standard directives.
@@ -206,6 +225,14 @@ enum Mode {
     Run,
     Check,
     Format(vihaco_sst::FormatOptions),
+    Disassemble,
+}
+
+/// Disassemble the loaded controller program back to SST.
+fn disassemble(program: &Program) -> eyre::Result<String> {
+    vihaco_sst::Disassembler::new()
+        .section_with::<Machine, HeaderDeclaration>("controller", program)
+        .finish(vihaco_sst::FormatOptions::default())
 }
 
 fn checker() -> vihaco_sst::ProgramChecker<Machine, vihaco_sst::Declarations<HeaderDeclaration>> {
@@ -224,6 +251,7 @@ fn main() -> eyre::Result<()> {
             "--fmt-plain" => {
                 mode = Mode::Format(vihaco_sst::FormatOptions::without_generated_comments())
             }
+            "--disasm" => mode = Mode::Disassemble,
             flag if flag.starts_with("--") => return Err(eyre::eyre!("unknown flag `{flag}`")),
             _ => path = Some(arg),
         }
@@ -263,6 +291,11 @@ fn main() -> eyre::Result<()> {
                     std::process::exit(1);
                 }
             }
+        }
+        Mode::Disassemble => {
+            let runtime = Runtime::from_sst(&source)?;
+            print!("{}", disassemble(&runtime.controller.image().module)?);
+            return Ok(());
         }
     }
     let mut runtime = Runtime::from_sst(&source)?;
@@ -400,6 +433,112 @@ mod tests {
                 "16:28: error: undefined symbol `@finish`",
             ]
         );
+    }
+
+    /// `FORMATTED` without its user comments: what disassembly writes.
+    fn uncommented() -> String {
+        FORMATTED
+            .replace(
+                "    ; Function table order is independent of executable function order.\n",
+                "",
+            )
+            .replace("  ; a function, not an instruction address", "")
+    }
+
+    #[test]
+    fn disassembly_reloads_to_the_same_program() -> eyre::Result<()> {
+        for source in [
+            include_str!("loadable.sst"),
+            include_str!("loadable-unformatted.sst"),
+        ] {
+            let runtime = Runtime::from_sst(source)?;
+            let module = &runtime.controller.image().module;
+            let text = disassemble(module)?;
+            assert_eq!(text, uncommented());
+            let mut reloaded = Runtime::from_sst(&text)?;
+            assert_eq!(&reloaded.controller.image().module, module);
+            reloaded.controller.execute(&[])?;
+            assert_eq!(reloaded.controller.machine().execution.stack(), &[42]);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn branch_targets_without_symbols_get_synthesized_labels() -> eyre::Result<()> {
+        use vihaco_module::module::Symbol;
+
+        let runtime = Runtime::from_sst(include_str!("loadable.sst"))?;
+        let mut module = runtime.controller.image().module.clone();
+        // Drop `@done` (a branch target) and `@helper` (a function), and take
+        // the name a synthesized label would get.
+        module
+            .symbols
+            .retain(|symbol| symbol.name != "done" && symbol.name != "helper");
+        module.symbols.push(Symbol {
+            name: "L0005".into(),
+            address: 8,
+        });
+        let text = disassemble(&module)?;
+        assert!(
+            text.contains("\n    execution::program::br @L0005_1\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("\n@L0005_1:\n    execution::program::ret 1\n"),
+            "{text}"
+        );
+        assert!(text.contains("\n@helper:\n"), "{text}");
+        assert!(text.ends_with("\n@L0005:\n"), "{text}");
+
+        let reloaded = Runtime::from_sst(&text)?;
+        let reloaded = &reloaded.controller.image().module;
+        let names: Vec<(&str, u32)> = reloaded
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.name.as_str(), symbol.address))
+            .collect();
+        assert_eq!(
+            names,
+            [("main", 0), ("L0005_1", 5), ("helper", 6), ("L0005", 8)]
+        );
+        assert_eq!(reloaded.code, module.code);
+        assert_eq!(reloaded.functions, module.functions);
+        assert_eq!(reloaded.constants, module.constants);
+        assert_eq!(reloaded.strings, module.strings);
+        assert_eq!(reloaded.main_function, module.main_function);
+        Ok(())
+    }
+
+    #[test]
+    fn programs_that_sst_cannot_express_are_rejected() -> eyre::Result<()> {
+        let runtime = Runtime::from_sst(include_str!("loadable.sst"))?;
+        let mut module = runtime.controller.image().module.clone();
+        // `@helper` ends at the code length, so it cannot end earlier.
+        module.functions[0].end_address = 7;
+        let error = disassemble(&module).unwrap_err();
+        assert!(
+            format!("{error:#}").contains("functions[0] ends at 0x0007"),
+            "{error:#}"
+        );
+
+        let mut module = runtime.controller.image().module.clone();
+        // A function whose symbol is somewhere else.
+        module.functions[0].start_address = 7;
+        let error = disassemble(&module).unwrap_err();
+        assert!(
+            format!("{error:#}")
+                .contains("function `@helper` starts at 0x0007, but symbol `@helper` is at 0x0006"),
+            "{error:#}"
+        );
+        // Without that symbol, the call at 0x0000 targets no function.
+        module.symbols.retain(|symbol| symbol.name != "helper");
+        let error = disassemble(&module).unwrap_err();
+        assert_eq!(
+            format!("{error:#}"),
+            "cannot disassemble section `controller`: cannot raise the instruction at 0x0000: \
+             no function starts at address 0x0006"
+        );
+        Ok(())
     }
 
     #[test]
