@@ -318,7 +318,8 @@ fn resolve_element_type<C: StructLookup + NamedTypeLookup + ?Sized>(
     Ok(elem)
 }
 
-/// Resolve every type of a `call_indirect` signature (see [`resolve_type`]).
+/// Resolve every type of a `call_indirect` signature: names are looked up, and
+/// every struct and named type, named or numbered, is checked against its table.
 pub fn resolve_function_type<C: StructLookup + NamedTypeLookup + ?Sized>(
     operand: FunctionTypeOperand,
     context: &C,
