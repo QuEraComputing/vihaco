@@ -193,8 +193,10 @@ pub fn checked_add(lhs: usize, rhs: usize, label: &str) -> eyre::Result<usize> {
         .ok_or_else(|| eyre::eyre!("{label} overflows usize"))
 }
 
+/// Whether two ranges share a byte. An empty range occupies no bytes, so it
+/// never overlaps anything, wherever it points.
 fn ranges_overlap(lhs: &Range<usize>, rhs: &Range<usize>) -> bool {
-    lhs.start < rhs.end && rhs.start < lhs.end
+    !lhs.is_empty() && !rhs.is_empty() && lhs.start < rhs.end && rhs.start < lhs.end
 }
 
 fn read_usize_u64<R: Read>(reader: &mut R, label: &str) -> eyre::Result<usize> {
