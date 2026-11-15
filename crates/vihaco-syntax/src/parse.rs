@@ -251,15 +251,24 @@ impl<I, Ty, H> ParsedModule<I, Ty, H> {
 }
 
 /// Render parse errors for a message. A type nested past
-/// [`vihaco_abi::Type::MAX_ARRAY_DEPTH`] is named as such (with its byte span)
-/// instead of as an unexpected character or end of input.
+/// [`vihaco_abi::Type::MAX_ARRAY_DEPTH`] is named as such (with the error's
+/// byte span) instead of as an unexpected character or end of input, even when
+/// the parser reports the error at an enclosing token such as the `(` of a
+/// return list.
 pub(crate) fn describe_errors(text: &str, errors: &[Simple<'_, char>]) -> String {
+    let at = |message: String, error: &Simple<'_, char>| {
+        let span = error.span();
+        format!("{message} (at {}..{})", span.start, span.end)
+    };
     errors
         .iter()
         .find_map(|error| {
-            let span = error.span();
-            vihaco_abi::Type::nesting_error_at(text, span.start)
-                .map(|message| format!("{message} (at {}..{})", span.start, span.end))
+            vihaco_abi::Type::nesting_error_at(text, error.span().start)
+                .map(|message| at(message, error))
+        })
+        .or_else(|| {
+            let error = errors.first()?;
+            vihaco_abi::Type::nesting_error_in(text).map(|message| at(message, error))
         })
         .unwrap_or_else(|| format!("{errors:?}"))
 }

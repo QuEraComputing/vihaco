@@ -84,6 +84,9 @@ fn types_nested_too_deep_are_named_in_the_parse_error() -> eyre::Result<()> {
     for function in [
         format!("fn @main(p: {deep}) {{ }}"),
         format!("fn @main() {{ example.make {deep} }}"),
+        // The parser reports these at the `(`, not at the run of prefixes.
+        format!("fn @main() -> ({deep}) {{ }}"),
+        format!("fn @main() -> (u64, {deep}) {{ }}"),
     ] {
         let file = SstFile::<NoContext>::from_text(&format!(
             "sst v1\n.section(root):\n.header(root):\n.header(root).\n\

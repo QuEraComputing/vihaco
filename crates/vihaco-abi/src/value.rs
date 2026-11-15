@@ -135,6 +135,49 @@ impl Type {
         (depth > Self::MAX_ARRAY_DEPTH).then(|| Self::nesting_message(depth))
     }
 
+    /// Explain a failed type parse as too-deep nesting, wherever it is.
+    ///
+    /// Like [`Type::nesting_error_at`], but scans the whole `text` for a run
+    /// of more than [`Type::MAX_ARRAY_DEPTH`] `array` prefixes instead of
+    /// looking only where a parse error starts. Use it as the fallback when
+    /// no error position matches: a parser can report the error at an
+    /// enclosing token (the `(` of a return list, say) rather than at the run.
+    ///
+    /// ```
+    /// # use vihaco_abi::Type;
+    /// let text = format!("fn @main() -> (u64, {}i64) {{ }}", "array ".repeat(33));
+    /// assert_eq!(
+    ///     Type::nesting_error_in(&text).unwrap(),
+    ///     "array type nested 33 levels deep; at most 32 are allowed",
+    /// );
+    /// assert_eq!(Type::nesting_error_in("(array array i64, array i64)"), None);
+    /// ```
+    pub fn nesting_error_in(text: &str) -> Option<String> {
+        let is_word = |c: char| c.is_alphanumeric() || c == '_';
+        let (mut run, mut deepest) = (0usize, 0usize);
+        let mut rest = text;
+        while let Some(first) = rest.chars().next() {
+            let word_len = rest.find(|c: char| !is_word(c)).unwrap_or(rest.len());
+            if word_len == 0 {
+                // Whitespace keeps a run of prefixes going; punctuation ends it.
+                if !first.is_whitespace() {
+                    run = 0;
+                }
+                rest = &rest[first.len_utf8()..];
+                continue;
+            }
+            let (word, after) = rest.split_at(word_len);
+            if word == "array" && after.starts_with(char::is_whitespace) {
+                run += 1;
+                deepest = deepest.max(run);
+            } else {
+                run = 0;
+            }
+            rest = after;
+        }
+        (deepest > Self::MAX_ARRAY_DEPTH).then(|| Self::nesting_message(deepest))
+    }
+
     fn nesting_message(depth: usize) -> String {
         format!(
             "array type nested {depth} levels deep; at most {} are allowed",
@@ -623,7 +666,9 @@ fn format_value_parse_errors(text: &str, errors: Vec<Simple<'_, char>>) -> eyre:
         .into_iter()
         .next()
         .map(|error| {
-            Type::nesting_error_at(text, error.span().start).unwrap_or_else(|| format!("{error:?}"))
+            Type::nesting_error_at(text, error.span().start)
+                .or_else(|| Type::nesting_error_in(text))
+                .unwrap_or_else(|| format!("{error:?}"))
         })
         .unwrap_or_else(|| "unknown parse error".to_string());
     eyre::eyre!("failed to parse value text: {error}")

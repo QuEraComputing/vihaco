@@ -276,7 +276,8 @@ mod tests {
                 // As `ParsedModule::parse_section` reports it.
                 let nesting = errors
                     .iter()
-                    .find_map(|error| Type::nesting_error_at(text, error.span().start));
+                    .find_map(|error| Type::nesting_error_at(text, error.span().start))
+                    .or_else(|| Type::nesting_error_in(text));
                 eyre::eyre!("{}", nesting.unwrap_or_else(|| format!("{errors:?}")))
             })?
             .lower(&mut Points)
