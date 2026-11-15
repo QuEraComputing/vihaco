@@ -4,7 +4,8 @@
 //! Types as written in source, where structs and named types may be named.
 //!
 //! [`SourceType`] accepts every [`Type`] form plus `struct @Point` and
-//! `type @location`, at any nesting depth (`array struct @Point`). Parse a
+//! `type @location`, nested up to [`Type::MAX_ARRAY_DEPTH`] levels deep
+//! (`array struct @Point`); a deeper type is a parse error that names its depth. Parse a
 //! header and function signatures with it, then resolve the names against the
 //! section's own tables with [`ProgramMetadata::resolve_types`]; the
 //! signature check during lowering resolves function headers the same way
@@ -21,8 +22,8 @@ use crate::module::ProgramMetadata;
 use vihaco_abi::names::{DisplayNamed, TypeNames};
 
 /// A type as written in source: any [`Type`], where struct and named types may
-/// also be named (`struct @Point`, `type @location`), at any nesting depth
-/// (`array array struct @Point`).
+/// also be named (`struct @Point`, `type @location`), nested up to
+/// [`Type::MAX_ARRAY_DEPTH`] levels deep (`array array struct @Point`).
 ///
 /// ```
 /// # use vihaco_module::module::SourceType;

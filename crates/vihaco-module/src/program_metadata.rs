@@ -518,9 +518,17 @@ where
             .then_ignore(chumsky::prelude::end())
             .parse(text)
             .into_result()
-            .map_err(|errors| match explain_metadata(text) {
-                Some(explanation) => eyre::eyre!("invalid metadata: {explanation}"),
-                None => eyre::eyre!("invalid metadata: {errors:?}"),
+            .map_err(|errors| {
+                // A type nested too deep, else a header for an older format.
+                let nesting = errors.iter().find_map(|error| {
+                    let span = error.span();
+                    vihaco_abi::Type::nesting_error_at(text, span.start)
+                        .map(|message| format!("{message} (at {}..{})", span.start, span.end))
+                });
+                match nesting.or_else(|| explain_metadata(text)) {
+                    Some(explanation) => eyre::eyre!("invalid metadata: {explanation}"),
+                    None => eyre::eyre!("invalid metadata: {errors:?}"),
+                }
             })
     }
 }

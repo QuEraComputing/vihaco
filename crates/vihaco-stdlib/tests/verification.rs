@@ -1343,4 +1343,17 @@ fn function_headers_and_locals_may_name_struct_types() {
          (`ProgramMetadata<Value, Type>`); parse the header as `ProgramMetadata` (its types \
          default to `SourceType`) and resolve it with `resolve_types`"
     );
+
+    // A type nested past the limit is named as such, wherever it is written.
+    let deep = format!("{}struct @Point", "array ".repeat(40));
+    let error = load(&[main_fn(&[], &[], &[deep.as_str()], &["P::halt"])]).unwrap_err();
+    assert!(
+        format!("{error:#}").contains("array type nested 40 levels deep; at most 32 are allowed"),
+        "{error:#}"
+    );
+    let error = load(&[main_fn(&[deep.as_str()], &[], &[], &["P::halt"])]).unwrap_err();
+    assert!(
+        format!("{error:#}").contains("array type nested 40 levels deep; at most 32 are allowed"),
+        "{error:#}"
+    );
 }
