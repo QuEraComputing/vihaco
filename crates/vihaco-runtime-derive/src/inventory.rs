@@ -658,6 +658,10 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
                     type Runtime = Self;
                     fn lower(self, _: &mut #context_parameter) -> #root::eyre::Result<Self> { match self {} }
                 }
+                impl<#context_parameter: ?Sized> #root::Raise<#context_parameter> for #runtime {
+                    type Syntax = Self;
+                    fn raise(&self, _: &#context_parameter) -> #root::eyre::Result<Self> { match *self {} }
+                }
             },
         )
     } else {
@@ -675,6 +679,9 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
         }).collect::<Vec<_>>();
         let lower_arms = variants.iter().zip(&syntax_types).map(|(variant, ty)| quote! {
             Self::#variant(instruction) => Ok(#runtime::#variant(<#ty as #root::Lower<#context_parameter>>::lower(instruction, context)?))
+        });
+        let raise_arms = variants.iter().zip(&types).map(|(variant, ty)| quote! {
+            Self::#variant(instruction) => Ok(#runtime::#variant(<#ty as #root::Raise<#context_parameter>>::raise(instruction, context)?))
         });
         (
             quote! {
@@ -704,6 +711,13 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
                     type Runtime = #runtime;
                     fn lower(self, context: &mut #context_parameter) -> #root::eyre::Result<Self::Runtime> {
                         match self { #(#lower_arms),* }
+                    }
+                }
+                impl<#context_parameter: ?Sized> #root::Raise<#context_parameter> for #runtime
+                where #(#types: #root::Raise<#context_parameter, Syntax = #syntax_types>),* {
+                    type Syntax = #runtime<#root::Syntax>;
+                    fn raise(&self, context: &#context_parameter) -> #root::eyre::Result<Self::Syntax> {
+                        match self { #(#raise_arms),* }
                     }
                 }
             },

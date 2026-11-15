@@ -7,6 +7,7 @@ pub mod color;
 pub mod host;
 pub mod loader;
 pub mod module;
+pub mod raising;
 
 mod lowering;
 mod program_header;

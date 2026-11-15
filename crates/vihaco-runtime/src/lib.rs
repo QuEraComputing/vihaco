@@ -116,7 +116,7 @@ pub use chumsky;
 #[doc(hidden)]
 pub use eyre;
 pub use vihaco_abi::traits::{EffectSink, Reset};
-pub use vihaco_abi::{Effects, Lower, Runtime, Syntax, metadata};
+pub use vihaco_abi::{Effects, Lower, Raise, Runtime, Syntax, metadata};
 pub use vihaco_bytecode::{BytecodeSectionView, SSTSectionView};
 pub use vihaco_module::loader;
 #[doc(hidden)]

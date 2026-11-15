@@ -7,7 +7,7 @@ use vihaco_abi::word::Word;
 
 #[derive(vihaco_parser_derive::Parse, Clone, Debug, PartialEq)]
 #[syntax_class(value)]
-pub struct I32Literal(i32);
+pub struct I32Literal(pub(crate) i32);
 
 impl From<I32Literal> for Word {
     fn from(value: I32Literal) -> Self {
@@ -17,7 +17,7 @@ impl From<I32Literal> for Word {
 
 #[derive(vihaco_parser_derive::Parse, Clone, Debug, PartialEq)]
 #[syntax_class(value)]
-pub struct I64Literal(i64);
+pub struct I64Literal(pub(crate) i64);
 
 impl From<I64Literal> for Word {
     fn from(value: I64Literal) -> Self {
@@ -27,7 +27,7 @@ impl From<I64Literal> for Word {
 
 #[derive(vihaco_parser_derive::Parse, Clone, Debug, PartialEq)]
 #[syntax_class(value)]
-pub struct F32Literal(f32);
+pub struct F32Literal(pub(crate) f32);
 
 impl From<F32Literal> for Word {
     fn from(value: F32Literal) -> Self {
@@ -37,7 +37,7 @@ impl From<F32Literal> for Word {
 
 #[derive(vihaco_parser_derive::Parse, Clone, Debug, PartialEq)]
 #[syntax_class(value)]
-pub struct F64Literal(f64);
+pub struct F64Literal(pub(crate) f64);
 
 impl From<F64Literal> for Word {
     fn from(value: F64Literal) -> Self {
