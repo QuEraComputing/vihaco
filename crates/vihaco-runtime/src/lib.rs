@@ -158,10 +158,10 @@ pub use vihaco_runtime_derive::{Message, dispatch, machine, observe};
 /// from their declared dialects to a hidden flat runtime enum exposed through
 /// [`HasInstructionSet`]. Its syntax parser uses
 /// `field::nested_field::dialect::instruction` prefixes and accepts device aliases.
-/// Implement [`Step`] for every destination/leaf pair. With `program-image-execution`,
+/// Implement `Step` for every destination/leaf pair. With `program-image-execution`,
 /// a `#[program]` device selects program access and operand-storage wiring; Steps
 /// and effect handling remain authored.
-/// The generated [`Dispatch`] implementation requires complete [`Step`] coverage
+/// The generated `Dispatch` implementation requires complete `Step` coverage
 /// for the selected context when a `Dispatch<Context>` bound is required or dispatch
 /// is called. Declaring a composite alone does not check Step coverage.
 /// Generic declarations retain their original bounds.
@@ -172,7 +172,7 @@ pub use vihaco_runtime_derive::{Message, dispatch, machine, observe};
 /// section-loading implementations in that configuration. With the feature
 /// enabled, construct images explicitly and pair them with stdlib `Loadable`;
 /// `#[loadable]` helpers and generated section loading are unavailable.
-/// [`Field::get`] and [`Field::get_mut`] borrow eligible devices through direct or
+/// `Field::get` and `Field::get_mut` borrow eligible devices through direct or
 /// nested field routes, including devices that contain borrowed data.
 /// Named generic children are supported; bare type parameters and associated
 /// child types cannot supply an inferred inventory companion. Renamed child

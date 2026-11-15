@@ -37,6 +37,15 @@ jobs:
       - run: cargo clippy --workspace --exclude vihaco-doctests --all-targets --features vihaco/typed-declarations -- -D warnings
       - run: cargo clippy --workspace --exclude vihaco-doctests --all-targets --features vihaco/program-image-execution -- -D warnings
       - run: cargo clippy -p vihaco-doctests --all-targets --features program-image-execution -- -D warnings
+      # Broken intra-doc links are errors, in each configuration that changes
+      # the public API. `vihaco-doctests` is a dev-only crate with no API docs.
+      - name: Rustdoc (broken links are errors)
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: |
+          cargo doc --workspace --exclude vihaco-doctests --no-deps
+          cargo doc --workspace --exclude vihaco-doctests --no-deps --features vihaco/typed-declarations
+          cargo doc --workspace --exclude vihaco-doctests --no-deps --features vihaco/program-image-execution
 
   feature-checks:
     name: Feature checks (workspace)

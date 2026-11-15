@@ -76,8 +76,6 @@ pub use dialect::cpu;
 #[cfg(feature = "typed-declarations")]
 mod execute;
 
-/// Struct field operands (`get_field @Point.y`) and the [`field::StructLookup`]
-/// lowering capability that resolves them.
 #[cfg(feature = "typed-declarations")]
 pub mod field;
 
