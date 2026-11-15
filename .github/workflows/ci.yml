@@ -38,6 +38,23 @@ jobs:
       - run: cargo clippy --workspace --exclude vihaco-doctests --all-targets --features vihaco/program-image-execution -- -D warnings
       - run: cargo clippy -p vihaco-doctests --all-targets --features program-image-execution -- -D warnings
 
+  rustdoc:
+    name: Rustdoc
+    runs-on: ubuntu-latest
+    env:
+      # Broken, ambiguous, or private intra-doc links fail the build.
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.99.0
+      - uses: Swatinem/rust-cache@v2
+      # Feature-gated items change which links resolve, so check each
+      # configuration that clippy checks.
+      - run: cargo doc --workspace --no-deps
+      - run: cargo doc --workspace --exclude vihaco-doctests --no-deps --features vihaco/typed-declarations
+      - run: cargo doc --workspace --exclude vihaco-doctests --no-deps --features vihaco/program-image-execution
+      - run: cargo doc -p vihaco-doctests --no-deps --features program-image-execution
+
   feature-checks:
     name: Feature checks (workspace)
     runs-on: ubuntu-latest
