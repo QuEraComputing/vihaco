@@ -16,10 +16,13 @@ use crate::diagnostic::VerifyError;
 /// requeues the leader only when its saved state strictly changes, so the
 /// fixpoint terminates exactly when every chain of strict joins is finite.
 pub trait Lattice: Clone + PartialEq + fmt::Display {
-    /// Least upper bound of `self` and `other`.
+    /// An upper bound of `self` and `other`.
     ///
-    /// Must have finite height: repeatedly joining new values into a saved
-    /// value may change it only finitely many times.
+    /// The engine needs only two properties: the result is at least as
+    /// general as `self` (joining is monotone), and joins have finite height
+    /// (repeatedly joining new values into a saved value may change it only
+    /// finitely many times). It need not be the least upper bound, nor
+    /// commutative: [`TypeSlot`] keeps the first two conflicting types it saw.
     fn join(&self, other: &Self) -> Self;
 }
 
