@@ -126,7 +126,8 @@ implies `verifier`, which re-exports the load-time verifier as `vihaco::verifier
 `LocalModule`; the machine contains an `ExecutionState` component marked
 `#[program]`, which supplies execution-state access and operand-storage wiring.
 Call `vihaco_stdlib::execution_state::execute(&module, &mut machine, arguments)`
-(or the facade's `execute`) to enter main. `resume(&module, &mut machine)` requires
+(or `vihaco::execution_state::execute`, the unverified runner; prefer
+`Loadable`) to enter main. `resume(&module, &mut machine)` requires
 the same unchanged module associated with that invocation; identity is not enforced.
 
 `ExecutionState` owns call frames, locals, operands, private PC, and halt/running
