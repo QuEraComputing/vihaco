@@ -140,7 +140,10 @@ The CPU instructions name the struct, by name or by table index:
 Lowering resolves every form against this table: the field count of
 `struct_new` always comes from the table, and an unknown struct, field, or slot
 is a load-time error. (The legacy CPU instruction enum has no lowering step and
-takes `struct_new 0, 2` and `get_field 0, 1` with explicit numbers.)
+takes `struct_new 0, 2` and `get_field 0, 1` with explicit numbers. Those are
+checked against the struct table only if the embedder calls
+`vihaco_cpu::check_struct_operands` when assembling the module; otherwise the
+CPU trusts the written field count.)
 
 Heap objects are type-checked at runtime. Each object records what it is: an
 array with a specific element type, or a specific struct. `get_field` and

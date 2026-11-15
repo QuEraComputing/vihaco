@@ -294,8 +294,10 @@ fn check_struct(reference: HeapRef, object: &HeapObject, field: FieldSlot) -> ey
         object.kind,
         field.struct_id
     );
-    // Struct objects are allocated with exactly their field count and never
-    // grow, so a slot beyond it means the instruction disagrees with the layout.
+    // Struct objects never grow, so this bounds every field access. Typed
+    // dialects (and legacy modules passed through `check_struct_operands`)
+    // always allocate the table's field count, so a slot beyond it means the
+    // instruction disagrees with the layout.
     eyre::ensure!(
         (field.slot as usize) < object.values.len(),
         "struct {} has no field slot {} ({} fields)",

@@ -370,8 +370,10 @@ vihaco_runtime::component! {
         SetField(u32, u32),
 
         /// Pop `$1` field values (pushed in declaration order) and push a
-        /// reference to a new struct `$0`. `$1` must be the struct's field count;
-        /// typed dialects resolve it from the struct table instead.
+        /// reference to a new struct `$0`. `$1` must be the struct's field
+        /// count. The CPU cannot check that (it never sees the struct table):
+        /// call [`crate::check_struct_operands`] when assembling the module.
+        /// Typed dialects resolve the count from the struct table instead.
         #[pattern = "'struct_new $0 `,` $1"]
         StructNew(u32, u32),
 

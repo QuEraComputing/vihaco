@@ -67,6 +67,9 @@ mod display;
 #[cfg(not(feature = "typed-declarations"))]
 mod instruction;
 
+#[cfg(not(feature = "typed-declarations"))]
+mod structs;
+
 #[cfg(feature = "typed-declarations")]
 pub use dialect::cpu;
 
@@ -123,6 +126,9 @@ pub use data::{RuntimeInstruction, SurfaceInstruction};
 
 #[cfg(not(feature = "typed-declarations"))]
 pub use instruction::{SurfaceType, SurfaceValue};
+
+#[cfg(not(feature = "typed-declarations"))]
+pub use structs::check_struct_operands;
 
 #[cfg(not(feature = "program-image-execution"))]
 pub use outcome::StepOutcome;
