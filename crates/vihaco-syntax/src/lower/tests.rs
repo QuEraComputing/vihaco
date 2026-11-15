@@ -65,6 +65,62 @@ fn standard_loading_works_with_and_without_typed_declarations() -> eyre::Result<
     Ok(())
 }
 
+/// A `fn` line that disagrees with its metadata names the types by the
+/// section's struct names, not by index.
+#[test]
+fn header_mismatches_show_types_by_name() {
+    use vihaco_module::module::{FieldInfo, Parameter, StructInfo};
+    let mut metadata = one_function_metadata();
+    metadata
+        .strings
+        .extend(["p0", "Point", "Pair"].map(String::from));
+    metadata.structs = vec![
+        StructInfo {
+            name: 3,
+            fields: vec![],
+        },
+        StructInfo {
+            name: 4,
+            fields: vec![FieldInfo {
+                name: 2,
+                ty: Type::U64,
+            }],
+        },
+    ];
+    metadata.functions[0].signature.params = vec![Parameter {
+        name: 2,
+        ty: Type::Struct(1),
+    }];
+    metadata.functions[0].signature.ret = vec![Type::array(Type::Struct(1))];
+    metadata.functions[0].locals = vec![Type::Struct(1)];
+    let parsed = |param: Type, ret: Type| ParsedModule {
+        header: (),
+        functions: vec![ParsedFunction::<_, Type> {
+            name: Ident("main".into()),
+            params: vec![crate::Param {
+                name: Ident("p0".into()),
+                ty: param,
+            }],
+            return_types: vec![ret],
+            body: vec![Literal(42)],
+            #[cfg(feature = "typed-declarations")]
+            labels: vec![],
+        }],
+    };
+    let check = |module: ParsedModule<Literal, Type, ()>| {
+        module.validate_metadata(&metadata).unwrap_err().to_string()
+    };
+    assert_eq!(
+        check(parsed(Type::Struct(0), Type::array(Type::Struct(1)))),
+        "function `@main`: parameter 0 is `p0: struct Point`, but its metadata declares \
+         `p0: struct Pair`"
+    );
+    assert_eq!(
+        check(parsed(Type::Struct(1), Type::Struct(1))),
+        "function `@main` returns (struct Pair), but its metadata declares (array struct Pair)"
+    );
+}
+
 #[cfg(feature = "program-image-execution")]
 mod borrowed_metadata {
     use super::*;
