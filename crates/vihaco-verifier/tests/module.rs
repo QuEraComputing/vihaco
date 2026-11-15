@@ -881,3 +881,44 @@ fn named_types_resolve_names_and_representations() {
     assert_eq!(cx.named_type_index("flag").unwrap(), 1);
     assert_eq!(cx.named_type_repr(0).unwrap(), &Type::U64);
 }
+
+#[test]
+fn only_verification_or_the_escape_hatch_builds_verified_modules() {
+    use vihaco_verifier::Verified;
+
+    let main = || vec![decl(&[], &[Type::U64], &[], (0, 2))];
+    let good = || module(vec![Const(Type::U64), Ret(1)], main());
+    let verified = Verified::new(good()).unwrap();
+    assert_eq!(verified.code.len(), 2);
+    assert_eq!(verified.get().functions.len(), 1);
+
+    let options = VerifyOptions::default().with_type_maps(true);
+    let (verified, verification) = Verified::verify(good(), options).unwrap();
+    assert!(verification.warnings.is_empty());
+    let maps = verification.type_maps.unwrap();
+    assert_eq!(maps.get(0, 0), Some(&Frame::new(vec![])));
+    assert_eq!(verified.into_inner().code.len(), 2);
+
+    let bad = module(vec![Const(Type::F64), Ret(1)], main());
+    let rejection = Verified::verify(bad.clone(), options).unwrap_err();
+    assert_eq!(rejection.errors().count(), 1);
+    assert!(
+        rejection.type_maps.is_some(),
+        "type maps come with rejections"
+    );
+    // Rejections convert into eyre reports.
+    let report: eyre::Report = Verified::new(bad.clone()).unwrap_err().into();
+    assert!(
+        report
+            .to_string()
+            .starts_with("verification failed with 1 error"),
+        "{report}"
+    );
+
+    // The escape hatch skips verification entirely.
+    assert_eq!(Verified::assume_verified(bad).code.len(), 2);
+
+    // Component state takes part through `verify_with_state`.
+    let (verified, _) = Verified::verify_with_state(good(), (), VerifyOptions::default()).unwrap();
+    assert_eq!(verified.code.len(), 2);
+}

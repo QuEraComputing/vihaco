@@ -102,6 +102,7 @@ mod rules;
 mod slot;
 mod stack;
 mod state;
+mod verified;
 
 pub use capability::{
     Constants, Locals, NamedTypes, Signatures, StructTypes, call_effect, return_effect,
@@ -118,5 +119,6 @@ pub use rules::{
 pub use slot::{Lattice, TypeSlot, TypedSlot, type_satisfies};
 pub use stack::{Frame, FrameState, OperandStack, stack_effect};
 pub use state::AbstractState;
+pub use verified::Verified;
 
 pub use vihaco_abi::{Flow, FunctionType, Type, Value, Verify};
