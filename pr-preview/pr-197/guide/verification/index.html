@@ -31,20 +31,18 @@ is part of loading. (With <code>typed-declarations</code> alone, without
 which does not require <code>Verified</code>: there, verification happens only if you call
 <code>verify_module</code> before loading.)</p>
 <pre><code class="language-rust,ignore">let module = metadata.into_module(code)?;   // parse and lower as usual
-let image = Image::new(Verified::new(module)?);
-let mut loaded = Loadable::new(image, machine);
+let verified = Verified::new(module).map_err(|failed| failed.into_report())?;
+let mut loaded = Loadable::new(Image::new(verified), machine);
 </code></pre>
 <p>If the program has any error, <code>Verified::new</code> returns a <code>VerifyFailed</code>: it
 gives the module back (<code>failed.module</code>, or <code>into_parts()</code>) together with the
 <code>Rejection</code>, whose <code>diagnostics</code> list every finding, sorted by function and
-address. It converts into an <code>eyre::Report</code> for any instruction set, so <code>?</code>
-works; that report shows indices (<code>function 0, address 2</code>). To show the module’s
-names, which every <code>#[composite]</code> instruction set provides, render it with
-<code>failed.display_named()</code>:</p>
-<pre><code class="language-rust,ignore">let verified = Verified::new(module)
-    .map_err(|failed| eyre::eyre!("{}", failed.display_named()))?;
-</code></pre>
-<p>which reports something like:</p>
+address. <code>into_report()</code> turns it into an <code>eyre::Report</code> that renders every
+diagnostic with the module’s names, which every <code>#[composite]</code> instruction set
+provides (<code>failed.display_named()</code> shows the same text without consuming it).
+A bare <code>?</code> also works, for any instruction set, but its report shows indices
+(<code>function 0, address 2</code>). With <code>into_report</code>, a rejected program reports
+something like:</p>
 <pre><code class="language-text">verification failed with 1 error
 error: operand 0 of `mixer::mixer::scale_f64`: expected f64, found u64
   --> @main+2 (address 2): mixer::mixer::scale_f64
@@ -210,8 +208,10 @@ its messages, by the metadata’s names, so a custom type model there must be
 <code>DisplayNamed + Clone</code>; <code>lower_functions_with_metadata</code> also needs the header
 type to resolve into it (<code>S: ResolveType&#x3C;Ty></code>).</p>
 <p>A failing rule ends its basic block, so a block reports at most one rule error
-and code reachable only through it isn’t analysed. Each defect is reported once,
-even inside a loop.</p>
+and code reachable only through it isn’t analysed. A block that fails is
+checked against the paths that don’t run through another failing block, so a
+diagnostic never stems from a state some other defect produced. Each defect is
+reported once, even inside a loop.</p>
 <h3 id="type-maps">Type maps</h3>
 <p>With <code>VerifyOptions::with_type_maps(true)</code>, both a <code>Verification</code> and a
 <code>Rejection</code> carry <code>TypeMaps</code>: the converged state (locals and operand stack) at
