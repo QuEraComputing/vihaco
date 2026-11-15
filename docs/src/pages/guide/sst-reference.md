@@ -168,6 +168,28 @@ Module assembly rejects `struct N` indices outside the table, including ones
 nested in array types. Structs may refer to themselves or to each other, for
 example a linked node with a `next: struct 0` field.
 
+Every type position also accepts a struct by name, `struct @Point`, and a named
+type as `type @location`: `fn` headers, `signature`, `locals`, struct fields,
+and instruction operands. Instruction operands are resolved during lowering. To
+use names in the header and `fn` lines too, parse them with
+`vihaco::module::SourceType` in place of `Type` (for both the `ParsedModule`
+and `ProgramMetadata` type parameters), then resolve the header against its own
+tables with `ProgramMetadata::resolve_types` before lowering:
+
+```rust,ignore
+let ParsedModule { header, functions } =
+    ParsedModule::<Syntax, SourceType, HeaderDeclarations<ProgramMetadata<Value, SourceType>>>
+        ::parse_section(file.root())?;
+let metadata = header.into_iter().next().unwrap().resolve_types::<Type>()?;
+let mut context = MetadataLoweringContext::new(&metadata)?;
+let code = lower_functions_with_metadata(functions, &metadata, &mut context)?;
+let module = metadata.into_module(code)?;
+```
+
+An unknown name is reported at its metadata path, for example
+``metadata.functions[0].locals[1]: undefined struct `@Pointt` ``. Binary bytecode
+always stores indices.
+
 ### Arrays
 
 Arrays are typed by their element: `array f64`, `array struct 0`, or nested,
@@ -191,7 +213,14 @@ heap objects.
 
 Every array instruction checks the object at runtime: it must be a live array
 whose element type is exactly `T`, so `array_get u64` on an `array f64` fails
-with `is array f64, expected array u64`. Indices are always `u64` and are
+with `is array f64, expected array u64`. Program-image execution also reports
+where, and names structs by name:
+
+```text
+at @main+3 (address 3) `cpu::cpu::array_get u64`: type error: heap object (slot 2, generation 1) is array f64, expected array u64
+```
+
+Indices are always `u64` and are
 bounds-checked against the current length. Element types may name structs,
 `array_new struct @Point, 4`, resolved through the struct table during lowering;
 an unknown struct name or index is a load-time error.

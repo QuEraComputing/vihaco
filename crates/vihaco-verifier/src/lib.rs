@@ -5,7 +5,7 @@
 //!
 //! Components own their typing rules: each instruction implements
 //! [`Verify<C>`](Verify), bounding `C` on the capabilities it needs (such as
-//! [`OperandStack`]). This crate owns the generic parts: finding basic blocks
+//! [`TypedStack`]). This crate owns the generic parts: finding basic blocks
 //! and reachable code from [`Verify::flow`], walking each function to a
 //! fixpoint with strict-change joins at leaders, structural checks, two-phase
 //! reporting, and structured [`Diagnostic`]s. See `design/verifier.md`.
@@ -13,17 +13,22 @@
 //! The building blocks:
 //!
 //! - [`Lattice`], [`TypedSlot`] and the standard [`TypeSlot`]: abstract values.
-//! - [`OperandStack`]: the operand-stack capability rules are written
-//!   against, with [`stack_effect`] for fixed-signature instructions.
+//! - [`OperandStack`] and [`TypedStack`]: the operand-stack capability rules
+//!   are written against, with [`stack_effect`] and the [`stack_rules!`] macro
+//!   for fixed-signature instructions.
 //! - [`AbstractState`]: how the engine snapshots, restores and joins a
-//!   context's state. [`FrameState`] implements it (and [`OperandStack`]) for
-//!   a standard [`Frame`] of locals and operands; a machine-specific context
-//!   can wrap it and join its own state alongside.
+//!   context's state (joins see a [`JoinPoint`]). [`FrameState`] implements it
+//!   (and [`OperandStack`]) for a standard [`Frame`] of locals and operands; a
+//!   machine-specific context can wrap it and join its own state alongside.
 //! - [`verify_functions`]: the engine, returning a [`Verification`] (with
 //!   any warnings) or a [`Rejection`] listing every diagnostic. Either carries
-//!   [`TypeMaps`] when [`VerifyOptions::type_maps`] asks for them.
-//! - [`Diagnostic`] and [`DiagnosticKind`]: structured findings. Rules raise
-//!   them through [`VerifyError`]; [`VerifyError::unverifiable`] reports an
+//!   [`TypeMaps`] when [`VerifyOptions::type_maps`] asks for them;
+//!   [`TypeMaps::state_at`] replays any address's state.
+//! - [`Diagnostic`] and [`DiagnosticKind`]: structured findings, with types
+//!   as values, the [`Role`] of a mistyped value, and the [`Predecessor`]s of
+//!   a join. [`Diagnostic::display_with`] and [`Rejection::display_with`]
+//!   render them with a module's names ([`DiagnosticNames`]). Rules raise them
+//!   through [`VerifyError`]; [`VerifyError::unverifiable`] reports an
 //!   instruction whose operand count comes from a runtime value
 //!   ([`DiagnosticKind::Unverifiable`]), since device instructions must carry
 //!   counts as immediates to be checked.
@@ -33,18 +38,22 @@
 //!   against signatures.
 //! - Shared rule helpers for instructions several dialects implement:
 //!   [`load_local`] and [`store_local`], [`direct_call_effect`] and
-//!   [`indirect_call_effect`], [`string_constant`] and [`function_constant`],
-//!   and [`pop_array`].
+//!   [`indirect_call_effect`], [`struct_new_effect`] and
+//!   [`set_field_effect`], [`string_constant`] and [`function_constant`], and
+//!   [`pop_array`].
 //! - [`ModuleVerifier`]: the standard context for a [`LocalModule`] using
 //!   vihaco's [`Type`] and [`Value`], providing every standard capability
 //!   from the module's metadata. [`verify_module`] verifies a whole module
-//!   with it. [`WithState`] wraps it with a component's own
-//!   [`ComponentState`], for machines whose components need more.
+//!   with it. [`WithState`] wraps it with component state
+//!   ([`ComponentState`]); [`ComponentStateOf`] and [`component_state!`] let
+//!   components from different crates share one machine.
 //! - [`Verified`]: a module that passed verification, built by
-//!   [`Verified::new`], [`Verified::verify`] or
-//!   [`Verified::verify_with_state`], or explicitly by
-//!   [`Verified::assume_verified`]. The stdlib `Image::new` accepts only a
-//!   `Verified` module, so programs are verified as part of loading.
+//!   [`Verified::new`], [`Verified::verify`],
+//!   [`Verified::verify_with_state`] or, for a hand-written context,
+//!   [`Verified::verify_with`], or explicitly by
+//!   [`Verified::assume_verified`]. A rejection gives the module back in a
+//!   [`VerifyFailed`]. The stdlib `Image::new` accepts only a `Verified`
+//!   module, so programs are verified as part of loading.
 //!
 //! [`LocalModule`]: vihaco_module::module::LocalModule
 //!
@@ -55,13 +64,14 @@
 //! ```ignore
 //! let (module, verification) = Verified::verify(module, VerifyOptions::default())?;
 //! for warning in &verification.warnings {
-//!     eprintln!("{warning}"); // for example, unreachable code
+//!     eprintln!("{}", warning.display_with(module.get())); // for example, unreachable code
 //! }
 //! let image = vihaco_stdlib::Image::new(module);
 //! ```
 //!
-//! A [`Rejection`] lists every error, sorted by function and address, and
-//! converts into an [`eyre::Report`]. With
+//! On rejection, [`VerifyFailed`] holds the module and the [`Rejection`],
+//! which lists every error sorted by function and address; it displays them
+//! with the module's names and converts into an [`eyre::Report`]. With
 //! [`VerifyOptions::with_type_maps`], both outcomes carry the converged state
 //! at each reached block leader, for debuggers and editors.
 //!
@@ -70,11 +80,14 @@
 //! A rule implements [`Verify<C>`](Verify) for an instruction, bounding `C`
 //! only on the capabilities it uses, so it works in any machine whose context
 //! provides them; the `#[composite]` macro aggregates the rules of every
-//! device. Rules that only need the operand stack use [`stack_effect`];
-//! control-flow instructions also override [`Verify::flow`].
+//! device. Fixed stack effects are one line each with [`stack_rules!`];
+//! other rules bound `C: TypedStack` (plus any other capability) and use
+//! [`stack_effect`] or the shared helpers. Control-flow instructions also
+//! override [`Verify::flow`].
 //!
 //! Facade users reach this crate as `vihaco::verifier` (the `verifier`
-//! feature, implied by `program-image-execution`).
+//! feature, implied by `program-image-execution`); the macros work through
+//! the facade too.
 //!
 //! # Example
 //!
@@ -84,8 +97,8 @@
 //!
 //! ```
 //! use vihaco_verifier::{
-//!     DiagnosticKind, Flow, Frame, FrameState, FunctionSpan, OperandStack, Role, Type, TypeSlot,
-//!     TypedSlot, Verify, VerifyOptions, stack_effect, verify_functions,
+//!     DiagnosticKind, Flow, Frame, FrameState, FunctionSpan, Role, Type, TypeSlot, TypedStack,
+//!     Verify, VerifyOptions, stack_effect, verify_functions,
 //! };
 //!
 //! enum Inst {
@@ -95,11 +108,7 @@
 //!     Ret,
 //! }
 //!
-//! impl<C> Verify<C> for Inst
-//! where
-//!     C: OperandStack + ?Sized,
-//!     C::Slot: TypedSlot,
-//! {
+//! impl<C: TypedStack + ?Sized> Verify<C> for Inst {
 //!     fn flow(&self) -> Flow {
 //!         match self {
 //!             Inst::Ret => Flow::Return,
@@ -129,12 +138,19 @@
 //! assert_eq!(
 //!     diagnostic.kind,
 //!     DiagnosticKind::TypeMismatch {
+//!         // The top operand of `add_i64`: inputs count bottom first.
 //!         role: Some(Role::Operand(1)),
 //!         expected: Type::I64.into(),
 //!         found: TypeSlot::Known(Type::F64),
 //!     }
 //! );
+//! assert_eq!(
+//!     diagnostic.to_string(),
+//!     "error: operand 1 of the instruction: expected i64, found f64\n  \
+//!      --> function 0, address 2"
+//! );
 //! ```
+
 
 mod capability;
 mod diagnostic;

@@ -112,26 +112,17 @@ for reachability and stack checks"). Most instructions keep the default
 Rules are written against capabilities, never against a concrete verifier:
 
 ```rust,ignore
-// vihaco-cpu
-impl<C: OperandStack + ?Sized> Verify<C> for cpu::AddI64
-where
-    C::Slot: TypedSlot,
-{
-    fn verify(&self, cx: &mut C) -> eyre::Result<()> {
-        stack_effect(cx, [Type::I64, Type::I64], [Type::I64])
-    }
+// vihaco-cpu: fixed stack effects are one line each.
+stack_rules! {
+    cpu::AddI64: [Type::I64, Type::I64] -> [Type::I64];
+    cpu::ArrayGet as this: [Type::array(this.0.clone()), Type::U64] -> [this.0.clone()];
 }
 
-impl<C: OperandStack + StructTypes + ?Sized> Verify<C> for cpu::GetField
-where
-    C::Slot: TypedSlot,
-{
+impl<C: TypedStack + StructTypes<Type> + ?Sized> Verify<C> for cpu::GetField {
     fn verify(&self, cx: &mut C) -> eyre::Result<()> {
         let FieldSlot { struct_id, slot } = self.0;
-        cx.pop_expect(&Type::Struct(struct_id))?;
-        let ty = cx.field_type(struct_id, slot)?;
-        cx.push(C::Slot::of_type(ty));
-        Ok(())
+        let field = cx.field_type(struct_id, slot)?.clone();
+        stack_effect(cx, [Type::Struct(struct_id)], [field])
     }
 }
 
@@ -149,6 +140,17 @@ impl<C: OperandStack + ?Sized> Verify<C> for program::Branch {
 A rule that fails ends the analysis of its basic block; see
 [Diagnostics](#diagnostics).
 
+Settled in implementation (review round): `TypedStack` names
+`OperandStack<Slot: TypedSlot>`, the bound almost every rule needs, and the
+exported `stack_rules!` macro implements `Verify` for fixed stack effects.
+The CPU and program-device rules use both. `TypedSlot::check` (formerly
+`expect`, which read like a panicking call) and `OperandStack::pop_typed`
+(formerly `pop_expect`) check a slot against a type. `Verify` carries
+`#[diagnostic::on_unimplemented]`, as do the standard capability traits, so a
+missing rule or capability is a compile error that names it; trybuild fixtures
+in vihaco-verifier go through `verify_module`, `Verified::new` and
+`verify_functions`.
+
 ## Slots and types
 
 The abstract stack holds one **slot** per operand and per local. A slot is a
@@ -158,8 +160,8 @@ vihaco type, or a conflict where paths disagreed:
 pub enum TypeSlot {
     Known(Type),
     /// Paths disagreed at a join. Using it where a type is required is a
-    /// `TypeMismatch` that names both types.
-    Conflict(Type, Type),
+    /// `TypeMismatch` that names both types and the join.
+    Conflict { first: Type, second: Type, join: Option<u32> },
 }
 ```
 
@@ -250,7 +252,7 @@ external crates need nothing hidden, #169).
 
 | Capability | Provides | Used by |
 |---|---|---|
-| `OperandStack` | `type Slot`; `pop`, `pop_expect`, `pop_n`, `push`, `peek`, `depth` | almost every rule |
+| `OperandStack` | `type Slot`; `pop`, `pop_typed`, `pop_n`, `push`, `peek`, `depth` (`TypedStack` when slots are typed) | almost every rule |
 | `Locals` | `local(i)`, `set_local(i, slot)`, `local_count` | `load_*`, `store_*` |
 | `Signatures<Ty>` | signature by function index or address; the current function's signature | `call`, `ret`, `const_fn_ref`, `spawn` |
 | `StructTypes<Ty>` | field count and field type by struct index | `struct_new`, `get_field`, `set_field` |
@@ -294,14 +296,28 @@ impl<C: ChannelState + ?Sized> Verify<C> for seq::Play {
 The machine's verifier context wraps `ModuleVerifier`, delegates the standard
 capabilities, and implements `ChannelState` with its own state. The framework
 provides this wrapper as `WithState<'m, S>`: `S: ComponentState` (a `join`
-with the same contract as `AbstractState::join`; tuples combine several
-components' states) is snapshotted and joined alongside the frame, and the
-component crate implements its capability trait for `WithState<'_, S>`. A
-hand-written context can instead delegate to `ModuleVerifier` directly and
-build its entry states with `function_spans()` and `FunctionSpan::map_entry`. That state
-takes part in snapshots and joins (below) like the operand stack, so a channel
-opened on only one branch is not open after the join (the join intersects the
-open sets).
+with the same contract as `AbstractState::join`) is snapshotted and joined
+alongside the frame, and the component crate implements its capability trait
+for `WithState<'_, S>`. A hand-written context can instead delegate to
+`ModuleVerifier` directly and build its entry states with `function_spans()`
+and `FunctionSpan::map_entry`, then produce a `Verified` module with
+`Verified::verify_with`. That state takes part in snapshots and joins (below)
+like the operand stack, so a channel opened on only one branch is not open
+after the join (the join intersects the open sets).
+
+Settled in implementation (review round): components from different crates
+compose. A component crate implements its capability for every context whose
+state contains its own, `impl<S: ComponentStateOf<Open>> Channels for
+WithState<'_, S>`, reaching it with `WithState::component::<Open>()`. Every
+state contains itself, and a machine combines several components' states with
+`component_state! { struct MachineState { open: Open, elapsed: Elapsed } }`,
+which joins field by field and implements `ComponentStateOf` for each field.
+Implementing the capability for one concrete state instead
+(`WithState<'_, Open>`) would leave a machine needing both crates'
+capabilities on `WithState<'_, (Open, Elapsed)>` with no crate allowed to
+write the impl (the orphan rule), so tuples no longer implement
+`ComponentState`. An index-typed projection over tuples was rejected: the
+index parameter would be unconstrained in the capability impl (E0207).
 
 Component state and calls. Every function is verified from the same entry
 component state, so that state must assume nothing a caller might not have
@@ -372,8 +388,13 @@ pub trait AbstractState {
     fn snapshot(&self) -> Self::Snapshot;
     fn restore(&mut self, snapshot: &Self::Snapshot);
     /// Join `incoming` into the state saved at a leader. Returns whether the
-    /// saved state strictly changed, or a structural mismatch.
-    fn join(saved: &mut Self::Snapshot, incoming: &Self::Snapshot) -> Result<bool, VerifyError>;
+    /// saved state strictly changed, or a structural mismatch. `at` names the
+    /// leader and the edges the saved and incoming states arrived along.
+    fn join(
+        saved: &mut Self::Snapshot,
+        incoming: &Self::Snapshot,
+        at: &JoinPoint,
+    ) -> Result<bool, VerifyError>;
     /// Called before verifying each instruction, so errors carry addresses.
     fn set_address(&mut self, function: u32, address: u32);
 }
@@ -413,18 +434,33 @@ pub struct Diagnostic {
 }
 
 pub enum DiagnosticKind {
-    StackUnderflow,
-    StackDepthMismatch { expected: usize, found: usize },
-    TypeMismatch { expected: String, found: String },
+    StackUnderflow { needed: usize, depth: usize },
+    /// At a join (the diagnostic's address), naming the edge of each depth.
+    StackDepthMismatch {
+        expected: usize,
+        found: usize,
+        expected_from: Predecessor, // Entry | Fallthrough(address) | Jump(address)
+        found_from: Predecessor,
+    },
+    /// `role`: Operand(n) | Local(i) | StoredValue(i) | Argument { callee, index }
+    /// | Return(n) | Field { struct_id, field }.
+    TypeMismatch { role: Option<Role>, expected: Expected, found: TypeSlot },
     CallArityMismatch { callee: u32, declared: usize, found: usize },
     ReturnCountMismatch { declared: usize, found: usize },
     LocalIndexOutOfRange { index: u32, count: u32 },
     LocalCountMismatch { expected: usize, found: usize },
-    InvalidControlFlowTarget { target: u32 },
+    InvalidControlFlowTarget { target: u32, start: u32, end: u32 },
     /// A `Flow::Jump` with no targets: a jump must name an address.
     EmptyJump,
     /// A function's `start..end` is reversed or extends past the code.
     InvalidFunctionSpan { start: u32, end: u32, code_len: usize },
+    /// Frame metadata breaks the locals rules (shared with metadata validation).
+    InvalidFrame(FrameError<Type>),
+    UnknownEntry { table: Table, index: u32, len: usize },
+    NoFunctionAt { address: u32 },
+    UnknownField { struct_id: u32, field: u32, field_count: usize },
+    UndefinedNamedType { name: String },
+    FieldCountMismatch { struct_id: u32, declared: usize, found: usize },
     MissingTerminator,
     Unreachable,
     /// The operand count or shape comes from a runtime value.
@@ -433,6 +469,23 @@ pub enum DiagnosticKind {
     Rule(String),
 }
 ```
+
+Diagnostics hold data, not text: types are `Type` and `TypeSlot` values,
+tables and roles are enums. They render through the module:
+`Diagnostic::display_with(&module)` (and `Rejection::display_with`) take a
+`DiagnosticNames`, implemented for `LocalModule`s whose instructions display,
+and show the location as `@main+2 (address 2)` with the instruction text,
+structs and named types by name, and parameter and field names:
+
+```text
+error: operand 0 of `cpu::cpu::get_field`: expected struct Point, found struct Pair
+  --> @main+1 (address 1): cpu::cpu::get_field FieldSlot { struct_id: 0, slot: 0 }
+```
+
+The plain `Display` works without the module and shows indices
+(`function 0, address 1`, `struct 0`). Lowering errors use the same location
+form (``lowering @main+3 (address 6): undefined struct `@Line` ``), and so do
+runtime errors in the program-image loop (see [Enforcement](#enforcement)).
 
 - Standard capabilities return a `VerifyError` that maps to a structured kind;
   any other error a rule returns becomes `Rule`.
@@ -507,6 +560,10 @@ type, like `Verification`, and converts into an `eyre::Report` when the
 snapshot is `Send + Sync + 'static`; `Rejection::without_type_maps` drops the
 maps otherwise.
 
+Settled in implementation (review round): type maps record each function's
+span, and `TypeMaps::state_at(code, cx, function, address)` replays the block
+from its leader's converged state to give the state before any instruction.
+
 ## Required metadata changes
 
 - **Local types.** `FunctionInfo` records `local_count` but not local types,
@@ -530,6 +587,35 @@ maps otherwise.
   plus operands, and an embedder that needs a tighter bound lowers the limit.
 - **Array types.** Arrays are first-class and typed by element; see
   [Arrays](#arrays).
+
+Settled in implementation (review round):
+
+- `FunctionInfo::check_frame` returns a structured `FrameError`; metadata
+  validation reports it at its path and the verifier as
+  `DiagnosticKind::InvalidFrame`.
+- `ProgramMetadata::validate` and `MetadataLoweringContext::new` build the
+  same name tables, so name and index errors read the same from both: the
+  metadata path, the table, and both values.
+- Headers written for the old format fail with a specific message rather
+  than the parser's (`explain_metadata`, used by the `ProgramMetadata`
+  `FromText` impl and `HeaderDeclarations`): a function's `local_count`, or a
+  missing table. General parse errors keep the parser's output, a separate
+  follow-up.
+- Every type position accepts names (`struct @Point`, `type @location`):
+  headers and `fn` lines parse with `SourceType`,
+  `ProgramMetadata::resolve_types` resolves a header against its own tables,
+  and function headers resolve through `ResolveType` when checked against the
+  metadata.
+
+```text
+metadata.functions[0].locals[1]: local 1 is declared f64, but parameter 1 (p1) is i64 (locals start with the parameter types)
+metadata.structs[1].name: duplicate struct `Point` (first declared at metadata.structs[0].name)
+metadata.types[1].name: string 99 is outside the string table (length 9)
+invalid metadata: metadata.functions[0]: `local_count` was replaced by `locals: [..]`, which lists the type of every local, parameters first
+invalid metadata: metadata: missing required table `types` (write `types: []` if it is empty)
+metadata.functions[0].signature.params[0].ty: undefined struct `@Pointt`
+```
+
 
 ## Arrays
 
@@ -691,9 +777,12 @@ Settled in implementation (step 6):
   returns the `Verification`), `Verified::verify_with_state(module, entry,
   options)` (a `WithState` context), and `Verified::assume_verified(module)`.
   The first three exist for `LocalModule<I, Value, Type, Info>` with
-  `I: for<'m> Verify<…>`; other module models and hand-written contexts use
-  `assume_verified` after verifying. A rejected module is consumed; callers who
-  need it back verify a borrow with `verify_module` first.
+  `I: for<'m> Verify<…>`. (Review round:) other module models and
+  hand-written contexts use `Verified::verify_with(module, |module| ...)`,
+  whose closure builds and runs the context; the standard constructors are
+  built on it. A rejection returns `VerifyFailed { module, rejection }`, so
+  the module comes back; it displays every diagnostic with the module's names
+  and converts into an `eyre::Report`.
 - `Verified` gives shared access only (`Deref`, `get`), and `into_inner`
   returns the module unverified, so a verified module cannot be mutated in
   place.
@@ -709,6 +798,13 @@ Settled in implementation (step 6):
   through them. The `vihaco` facade does not re-export them at its root; they
   stay reachable as `vihaco::execution_state::{execute, resume}`, documented
   as the unverified runner, so the verified path is the obvious one.
+- (Review round:) a failing step is reported as a `StepError` located at
+  its instruction, `at @main+3 (address 3) `cpu::cpu::array_get u64`: type
+  error: heap object (slot 2, generation 1) is array struct Point, expected
+  array u64`. CPU heap failures are structured `vihaco_abi::heap::HeapError`s
+  (references shown as slot and generation, types as `Type`), which the loop
+  renders with the module's struct names; `call_indirect` mismatches name
+  the callee and print both signatures as `FunctionType` does.
 
 ## Placement
 
@@ -750,9 +846,16 @@ Settled in implementation (step 6):
 6. `Verified<M>` enforcement in stdlib images, type maps (also with
    rejections), the `Unverifiable` diagnostic, names in `call_indirect`
    signatures, the facade `verifier` feature, docs and guide examples
-   (including a verification guide). Closes #120. **Done.**
-7. Follow-ups: array constants; `future T` with #173 and context handles with
-   #174; deriving rules from stack messages.
+   (including a verification guide). Closes #120. **Done.** A review round
+   then made diagnostics structured and module-rendered, located lowering and
+   runtime errors, unified metadata validation messages, accepted names in
+   every type position, and added rule-author helpers (`stack_rules!`,
+   `TypedStack`), cross-crate component state, `VerifyFailed`,
+   `Verified::verify_with`, and `TypeMaps::state_at` (the "review round"
+   notes above).
+7. Follow-ups: rendering general metadata parse errors with line and column;
+   array constants; `future T` with #173 and context handles with #174;
+   deriving rules from stack messages.
 
 ## Open questions
 
