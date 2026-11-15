@@ -157,7 +157,10 @@ mod borrowed_metadata {
         let error =
             lower_functions_with_metadata(functions(1), &metadata, &mut context).unwrap_err();
         let message = format!("{error:#}");
-        assert!(message.contains("function @main, instruction 0"));
+        assert!(
+            message.contains("lowering @main+0 (address 0): "),
+            "{message}"
+        );
         assert!(message.contains("unknown pool index 1"));
         assert_eq!(context.entered, 1);
         Ok(())
@@ -354,7 +357,7 @@ mod typed {
             let error = parsed
                 .lower_with_metadata(metadata, &mut context)
                 .unwrap_err();
-            assert!(format!("{error:#}").contains("lowering function @main, instruction 3"));
+            assert!(format!("{error:#}").contains("lowering @main+3 (address 6): "));
             assert!(format!("{error:#}").contains("missing"));
         }
         Ok(())

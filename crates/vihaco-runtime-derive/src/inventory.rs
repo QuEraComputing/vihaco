@@ -643,20 +643,24 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
             }
         }
     } else {
-        let arms = entries.iter().zip(&variants).zip(&types).map(|((entry, variant), ty)| {
-            let mut prefix = String::new();
-            for segment in &entry.record.segments {
-                match segment.source.first() {
-                    Some(source) => prefix.push_str(&source.value()),
-                    None => prefix.push_str(&segment.name.unraw().to_string()),
+        let arms = entries
+            .iter()
+            .zip(&variants)
+            .zip(&types)
+            .map(|((entry, variant), ty)| {
+                let mut prefix = String::new();
+                for segment in &entry.record.segments {
+                    match segment.source.first() {
+                        Some(source) => prefix.push_str(&source.value()),
+                        None => prefix.push_str(&segment.name.unraw().to_string()),
+                    }
+                    prefix.push_str("::");
                 }
+                prefix.push_str(&entry.record.dialect.unraw().to_string());
                 prefix.push_str("::");
-            }
-            prefix.push_str(&entry.record.dialect.unraw().to_string());
-            prefix.push_str("::");
-            quote!(Self::#variant(instruction) => #root::__private::write_instruction(
+                quote!(Self::#variant(instruction) => #root::__private::write_instruction(
                 f, #prefix, <#ty as #root::__private::InstructionSpec>::MNEMONIC, instruction))
-        });
+            });
         quote! {
             impl ::core::fmt::Display for #runtime {
                 fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {

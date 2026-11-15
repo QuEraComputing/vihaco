@@ -34,10 +34,16 @@ where
             .parse(text)
             .into_result()
             .map(Self)
-            .map_err(|errors| {
-                let errors = crate::parse::describe_errors(text, &errors);
-                eyre::eyre!("invalid header declarations: {errors}")
-            })
+            .map_err(
+                |errors| match vihaco_module::module::explain_metadata(text) {
+                    // A header written for an older metadata format.
+                    Some(explanation) => eyre::eyre!("invalid header declarations: {explanation}"),
+                    None => eyre::eyre!(
+                        "invalid header declarations: {}",
+                        crate::parse::describe_errors(text, &errors)
+                    ),
+                },
+            )
     }
 }
 

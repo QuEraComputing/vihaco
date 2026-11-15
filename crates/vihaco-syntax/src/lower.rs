@@ -7,7 +7,7 @@ use crate::{ParsedFunction, ParsedModule};
 use eyre::WrapErr;
 use vihaco_abi::{Lower, Value};
 use vihaco_module::loader::FunctionScope;
-use vihaco_module::module::{LocalModule, ProgramMetadata, StructTypeRef};
+use vihaco_module::module::{LocalModule, ProgramMetadata, ResolveType, StructTypeRef};
 
 /// Lower functions in source order, preparing each function's complete label
 /// scope before lowering its first instruction.
@@ -34,21 +34,27 @@ where
         #[cfg(not(feature = "typed-declarations"))]
         let labels = std::iter::empty();
         context.enter_function(name, labels)?;
-        for (index, instruction) in function.body.into_iter().enumerate() {
+        for (offset, instruction) in function.body.into_iter().enumerate() {
+            let address = code.len();
+            // The same `@name+offset (address N)` form verifier diagnostics use.
             code.push(
                 instruction
                     .lower(context)
-                    .wrap_err_with(|| format!("lowering function @{name}, instruction {index}"))?,
+                    .wrap_err_with(|| format!("lowering @{name}+{offset} (address {address})"))?,
             );
         }
     }
     Ok(code)
 }
 
-fn validate_program_functions<I, Ty: PartialEq, V, Info>(
-    functions: &[ParsedFunction<I, Ty>],
+fn validate_program_functions<I, S, Ty, V, Info>(
+    functions: &[ParsedFunction<I, S>],
     metadata: &ProgramMetadata<V, Ty, Info>,
-) -> eyre::Result<()> {
+) -> eyre::Result<()>
+where
+    S: ResolveType<Ty>,
+    Ty: PartialEq + Clone + std::fmt::Display,
+{
     crate::types::validate_functions(functions, metadata)?;
     metadata.validate(functions.iter().map(|function| function.body.len()).sum())
 }
@@ -65,17 +71,23 @@ fn validate_program_functions<I, Ty: PartialEq, V, Info>(
 /// context. The returned code can be assembled with
 /// [`ProgramMetadata::into_module`], which also checks standard value references.
 ///
+/// Function headers may be parsed with a source type such as
+/// [`SourceType`](vihaco_module::module::SourceType), naming structs and named
+/// types (`fn @f(p: struct @Point)`); they are resolved against the metadata's
+/// tables before comparison (see [`ResolveType`]).
+///
 /// # Errors
 /// Returns declaration, table, or instruction-lowering errors. No partial code
 /// is returned; earlier context mutations are not rolled back.
 #[cfg(feature = "program-image-execution")]
-pub fn lower_functions_with_metadata<I, Ty, V, Info, C>(
-    functions: Vec<ParsedFunction<I, Ty>>,
+pub fn lower_functions_with_metadata<I, S, Ty, V, Info, C>(
+    functions: Vec<ParsedFunction<I, S>>,
     metadata: &ProgramMetadata<V, Ty, Info>,
     context: &mut C,
 ) -> eyre::Result<Vec<I::Runtime>>
 where
-    Ty: PartialEq,
+    S: ResolveType<Ty>,
+    Ty: PartialEq + Clone + std::fmt::Display,
     I: Lower<C>,
     C: FunctionScope,
 {
@@ -83,7 +95,7 @@ where
     lower_functions(functions, context)
 }
 
-impl<I, Ty: PartialEq + StructTypeRef, H> ParsedModule<I, Ty, H> {
+impl<I, Ty: PartialEq + Clone + std::fmt::Display + StructTypeRef, H> ParsedModule<I, Ty, H> {
     /// Validate declarations and tables, lower instructions with the supplied
     /// context, and assemble a module without inventing or reordering metadata.
     ///

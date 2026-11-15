@@ -3,6 +3,7 @@
 
 //! Parsed-syntax data shapes. See module docs in [`super`].
 
+use vihaco_module::module::{ResolveType, TypeLookup};
 use vihaco_parser::Ident;
 
 /// Parsed SST module containing consumer instruction values.
@@ -44,26 +45,48 @@ pub struct Param<Ty> {
     pub ty: Ty,
 }
 
-impl<I, Ty: PartialEq, H> ParsedModule<I, Ty, H> {
+impl<I, S, H> ParsedModule<I, S, H> {
     /// Check `fn` declarations against supplied metadata without changing either.
     /// Table bounds and runtime constant references are checked during assembly.
-    pub fn validate_metadata<V, Info>(
+    ///
+    /// Declared types are resolved against the metadata's tables first (see
+    /// [`ResolveType`]), so a header written with
+    /// [`SourceType`](vihaco_module::module::SourceType), such as
+    /// `fn @f(p: struct @Point)`, matches metadata declaring `struct 0`.
+    pub fn validate_metadata<V, Ty, Info>(
         &self,
         metadata: &vihaco_module::module::ProgramMetadata<V, Ty, Info>,
-    ) -> eyre::Result<()> {
+    ) -> eyre::Result<()>
+    where
+        S: ResolveType<Ty>,
+        Ty: PartialEq + std::fmt::Display,
+    {
         validate_functions(&self.functions, metadata)
     }
 }
 
+/// `(a, b)`, for messages about a list of types.
+fn type_list<Ty: std::fmt::Display>(types: &[Ty]) -> String {
+    let types: Vec<String> = types.iter().map(ToString::to_string).collect();
+    format!("({})", types.join(", "))
+}
+
 /// Check function declarations independently of the consumer's header shape.
-pub(crate) fn validate_functions<I, Ty: PartialEq, V, Info>(
-    functions: &[ParsedFunction<I, Ty>],
+pub(crate) fn validate_functions<I, S, Ty, V, Info>(
+    functions: &[ParsedFunction<I, S>],
     metadata: &vihaco_module::module::ProgramMetadata<V, Ty, Info>,
-) -> eyre::Result<()> {
+) -> eyre::Result<()>
+where
+    S: ResolveType<Ty>,
+    Ty: PartialEq + std::fmt::Display,
+{
     eyre::ensure!(
         functions.len() == metadata.functions.len(),
-        "function declarations and metadata must contain the same functions"
+        "the section declares {} functions, but metadata.functions has {} entries",
+        functions.len(),
+        metadata.functions.len()
     );
+    let lookup = TypeLookup::new(&metadata.structs, &metadata.types, &metadata.strings);
     let mut seen = std::collections::BTreeSet::new();
     let mut address = 0usize;
     for function in functions {
@@ -94,24 +117,46 @@ pub(crate) fn validate_functions<I, Ty: PartialEq, V, Info>(
             info.start_address,
             info.end_address
         );
+        let resolve = |ty: &S, what: &dyn Fn() -> String| {
+            ty.resolve_type(&lookup)
+                .map_err(|error| eyre::eyre!("function `@{name}`: {}: {error}", what()))
+        };
         eyre::ensure!(
             function.params.len() == info.signature.params.len(),
-            "function `@{name}`: parameter count disagrees with metadata"
+            "function `@{name}` declares {} parameters, but its metadata declares {}",
+            function.params.len(),
+            info.signature.params.len()
         );
-        for (parameter, declared) in function.params.iter().zip(&info.signature.params) {
+        for (index, (parameter, declared)) in function
+            .params
+            .iter()
+            .zip(&info.signature.params)
+            .enumerate()
+        {
+            let ty = resolve(&parameter.ty, &|| format!("parameter {index}"))?;
+            let declared_name = metadata
+                .strings
+                .get(declared.name as usize)
+                .map_or("<invalid name>", String::as_str);
             eyre::ensure!(
-                metadata
-                    .strings
-                    .get(declared.name as usize)
-                    .is_some_and(|value| value == parameter.name.as_str())
-                    && parameter.ty == declared.ty,
-                "function `@{name}`: parameter `{}` disagrees with metadata",
-                parameter.name
+                declared_name == parameter.name.as_str() && ty == declared.ty,
+                "function `@{name}`: parameter {index} is `{}: {ty}`, but its metadata declares \
+                 `{declared_name}: {}`",
+                parameter.name,
+                declared.ty
             );
         }
+        let returns = function
+            .return_types
+            .iter()
+            .enumerate()
+            .map(|(index, ty)| resolve(ty, &|| format!("result {index}")))
+            .collect::<eyre::Result<Vec<Ty>>>()?;
         eyre::ensure!(
-            function.return_types == info.signature.ret,
-            "function `@{name}`: return types disagree with metadata"
+            returns == info.signature.ret,
+            "function `@{name}` returns {}, but its metadata declares {}",
+            type_list(&returns),
+            type_list(&info.signature.ret)
         );
         #[cfg(feature = "typed-declarations")]
         {
