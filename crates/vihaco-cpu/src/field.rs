@@ -32,28 +32,36 @@ pub enum TypeOperand {
 
 impl<'src> Parse<'src> for TypeOperand {
     fn parser() -> impl Parser<'src, &'src str, Self, extra::Err<Simple<'src, char>>> {
-        // `recursive` needs cloneable parsers; `Parse::parser` is not `Clone`.
-        let resolved = Type::parser().boxed();
-        recursive(move |operand| {
-            let named_struct = just("struct")
-                .then(text::whitespace().at_least(1))
-                .then(just('@'))
-                .ignore_then(vihaco_parser::ident())
-                .map(|name| TypeOperand::StructSymbol(Ident(name)));
-            let array = just("array")
-                .then(text::whitespace().at_least(1))
-                .ignore_then(operand)
-                .map(|elem| match elem {
-                    // Keep fully resolved types in one piece.
-                    TypeOperand::Resolved(elem) => TypeOperand::Resolved(Type::array(elem)),
-                    elem => TypeOperand::Array(Box::new(elem)),
-                });
-            choice((
-                named_struct,
-                array,
-                resolved.clone().map(TypeOperand::Resolved),
-            ))
+        // `array` prefixes are counted rather than parsed recursively, so deep
+        // nesting is rejected (past `Type::MAX_ARRAY_DEPTH`) instead of
+        // overflowing the stack.
+        let prefixes = just("array")
+            .then(text::whitespace().at_least(1))
+            .repeated()
+            .count();
+        let named_struct = just("struct")
+            .then(text::whitespace().at_least(1))
+            .then(just('@'))
+            .ignore_then(vihaco_parser::ident())
+            .map(|name| TypeOperand::StructSymbol(Ident(name)));
+        let element = choice((named_struct, Type::parser().map(TypeOperand::Resolved)));
+        prefixes.then(element).try_map(|(depth, elem), span| {
+            TypeOperand::nested(depth, elem).ok_or(Simple::new(None, span))
         })
+    }
+}
+
+impl TypeOperand {
+    /// Wrap `elem` in `depth` array levels, or `None` past `Type::MAX_ARRAY_DEPTH`.
+    fn nested(depth: usize, elem: TypeOperand) -> Option<TypeOperand> {
+        match elem {
+            // Keep fully resolved types in one piece.
+            TypeOperand::Resolved(ty) => Type::nested_array(depth, ty)
+                .ok()
+                .map(TypeOperand::Resolved),
+            elem => (depth <= Type::MAX_ARRAY_DEPTH)
+                .then(|| (0..depth).fold(elem, |ty, _| TypeOperand::Array(Box::new(ty)))),
+        }
     }
 }
 
@@ -326,6 +334,20 @@ mod tests {
         assert!(lower::<cpu::ArrayGet<Syntax>>("array_get struct 7").is_err());
         assert!(lower::<cpu::ArrayGet<Syntax>>("array_get array struct 7").is_err());
         assert!(lower::<cpu::ArrayNew<Syntax>>("array_new nope, 1").is_err());
+    }
+
+    #[test]
+    fn element_type_nesting_is_limited() {
+        let max = Type::MAX_ARRAY_DEPTH;
+        let at_limit = format!("array_get {}struct @Point", "array ".repeat(max));
+        let lowered = lower::<cpu::ArrayGet<Syntax>>(&at_limit).unwrap();
+        assert_eq!(lowered.0.array_depth(), max);
+        for elem in ["struct @Point", "u64"] {
+            let past = format!("array_get {}{elem}", "array ".repeat(max + 1));
+            assert!(lower::<cpu::ArrayGet<Syntax>>(&past).is_err(), "{elem}");
+        }
+        let hostile = format!("array_get {}u64", "array ".repeat(200_000));
+        assert!(lower::<cpu::ArrayGet<Syntax>>(&hostile).is_err());
     }
 
     #[test]

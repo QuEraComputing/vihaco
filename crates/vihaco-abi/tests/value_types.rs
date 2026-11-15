@@ -97,6 +97,38 @@ fn array_types_nest_and_round_trip_through_text_and_bytes() {
 }
 
 #[test]
+fn array_nesting_is_limited_in_bytes_and_text() {
+    let max = Type::MAX_ARRAY_DEPTH;
+    let deepest = Type::nested_array(max, Type::I64).unwrap();
+    assert_eq!(deepest.array_depth(), max);
+
+    // At the limit: decodes and parses.
+    let mut bytes = vec![0x0C; max];
+    bytes.push(0x03);
+    assert_eq!(
+        Type::from_bytes(&mut std::io::Cursor::new(bytes)).unwrap(),
+        deepest
+    );
+    let text = format!("{}i64", "array ".repeat(max));
+    assert_eq!(Type::from_text(&text).unwrap(), deepest);
+
+    // One past the limit: an error, in both forms.
+    let mut bytes = vec![0x0C; max + 1];
+    bytes.push(0x03);
+    let err = Type::from_bytes(&mut std::io::Cursor::new(bytes)).unwrap_err();
+    assert!(err.to_string().contains("nested more than 32"), "{err}");
+    assert!(Type::from_text(&format!("{}i64", "array ".repeat(max + 1))).is_err());
+    assert!(Type::nested_array(1, deepest).is_err());
+
+    // A hostile run of array bytes is rejected without overflowing the stack.
+    let mut bytes = vec![0x0C; 2_000_000];
+    bytes.push(0x03);
+    assert!(Type::from_bytes(&mut std::io::Cursor::new(bytes)).is_err());
+    let text = format!("{}i64", "array ".repeat(200_000));
+    assert!(Type::from_text(&text).is_err());
+}
+
+#[test]
 fn struct_refs_are_found_inside_array_element_types() {
     let mut found = Vec::new();
     Type::array(Type::array(Type::Struct(3))).visit_struct_refs(&mut |index| found.push(index));

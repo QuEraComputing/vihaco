@@ -74,9 +74,38 @@ pub enum Type {
 }
 
 impl Type {
+    /// The deepest array nesting accepted when a type is decoded from bytecode
+    /// or parsed from text: `array` may be applied at most this many times.
+    ///
+    /// Untrusted input could otherwise nest types deeply enough to overflow the
+    /// stack while decoding, comparing, or dropping them.
+    pub const MAX_ARRAY_DEPTH: usize = 32;
+
     /// An array type with elements of type `elem`.
     pub fn array(elem: Type) -> Type {
         Type::Array(Box::new(elem))
+    }
+
+    /// How many `array` levels wrap this type (`0` for a non-array type).
+    pub fn array_depth(&self) -> usize {
+        let mut depth = 0;
+        let mut ty = self;
+        while let Type::Array(elem) = ty {
+            depth += 1;
+            ty = elem;
+        }
+        depth
+    }
+
+    /// Wrap `elem` in `depth` array levels, failing past [`Type::MAX_ARRAY_DEPTH`].
+    pub fn nested_array(depth: usize, elem: Type) -> Result<Type> {
+        let total = depth + elem.array_depth();
+        eyre::ensure!(
+            total <= Self::MAX_ARRAY_DEPTH,
+            "array type nested {total} levels deep; at most {} are allowed",
+            Self::MAX_ARRAY_DEPTH
+        );
+        Ok((0..depth).fold(elem, |ty, _| Type::array(ty)))
     }
 
     /// Visit every struct-table index this type refers to, including struct
@@ -241,7 +270,27 @@ impl crate::traits::FromBytes for Type {
     where
         Self: Sized,
     {
-        let type_byte = bytes.read_u8()?;
+        // Array element types are read iteratively, so a long run of array
+        // bytes is rejected instead of recursing once per level.
+        let mut depth = 0;
+        loop {
+            let type_byte = bytes.read_u8()?;
+            if type_byte != 0x0C {
+                return Type::nested_array(depth, Type::from_scalar_byte(type_byte, bytes)?);
+            }
+            depth += 1;
+            eyre::ensure!(
+                depth <= Type::MAX_ARRAY_DEPTH,
+                "array type nested more than {} levels deep",
+                Type::MAX_ARRAY_DEPTH
+            );
+        }
+    }
+}
+
+impl Type {
+    /// Decode a non-array type from its type byte (and payload).
+    fn from_scalar_byte<R: std::io::Read>(type_byte: u8, bytes: &mut R) -> Result<Type> {
         match type_byte {
             0x00 => Ok(Type::Undefined),
             0x01 => Ok(Type::String),
@@ -255,7 +304,6 @@ impl crate::traits::FromBytes for Type {
             0x09 => Ok(Type::I32),
             0x0A => Ok(Type::F32),
             0x0B => Ok(Type::Struct(bytes.read_u32::<LittleEndian>()?)),
-            0x0C => Ok(Type::array(Type::from_bytes(bytes)?)),
             _ => Err(eyre::eyre!("Unknown type byte: {}", type_byte)),
         }
     }
@@ -418,20 +466,35 @@ impl crate::traits::WriteBytes for Value {
     }
 }
 
+/// Parse any number of `array ` prefixes (without recursion) and return how
+/// many there were. Callers wrap their element type with [`Type::nested_array`],
+/// which enforces [`Type::MAX_ARRAY_DEPTH`].
+fn array_prefixes<'src>() -> impl Parser<'src, &'src str, usize, ValueParseExtra<'src>> + Clone {
+    just("array")
+        .then(text::whitespace().at_least(1))
+        .repeated()
+        .count()
+}
+
 fn type_text_parser<'src>() -> impl Parser<'src, &'src str, Type, ValueParseExtra<'src>> + Clone {
-    recursive(|ty| {
+    array_prefixes()
+        .then(element_type_text_parser())
+        .try_map(|(depth, elem), span| {
+            Type::nested_array(depth, elem).map_err(|_| Simple::new(None, span))
+        })
+}
+
+/// A type that is not itself written with an `array` prefix.
+fn element_type_text_parser<'src>()
+-> impl Parser<'src, &'src str, Type, ValueParseExtra<'src>> + Clone {
+    {
         // `struct` must precede `str`, which would otherwise match its prefix.
         let struct_type = just("struct")
             .then_ignore(text::whitespace().at_least(1))
             .ignore_then(scalar_text::<u32>())
             .map(Type::Struct);
-        let array_type = just("array")
-            .then_ignore(text::whitespace().at_least(1))
-            .ignore_then(ty)
-            .map(Type::array);
         choice((
             struct_type,
-            array_type,
             just("undefined").to(Type::Undefined),
             just("undef").to(Type::Undefined),
             just("string").to(Type::String),
@@ -448,7 +511,7 @@ fn type_text_parser<'src>() -> impl Parser<'src, &'src str, Type, ValueParseExtr
             just("heap_ref").to(Type::HeapRef),
             just("heap").to(Type::HeapRef),
         ))
-    })
+    }
 }
 
 fn value_text_parser<'src>() -> impl Parser<'src, &'src str, Value, ValueParseExtra<'src>> + Clone {
