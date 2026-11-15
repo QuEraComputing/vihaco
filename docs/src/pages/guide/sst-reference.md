@@ -111,7 +111,7 @@ comma-separated lists; trailing commas are accepted. The standard schema is
 | `functions` | An ordered array of function records, described below. Array position is the function index; this order may differ from function-body order. |
 | `structs` | An ordered array of struct declarations, described below. Array position is the struct index that `struct N` types refer to. Emit `[]` when the program declares none. |
 | `types` | An ordered array of named-type declarations, described below. Array position is the index that `type N` types refer to. Emit `[]` when the program declares none. |
-| `labels` | Records `{ name: string_index, address: instruction_address }`. Every source label needs a matching name and absolute section-local address. |
+| `labels` | Records `{ name: string_index, address: instruction_address }`. Every source label needs a matching name and absolute section-local address, and every record must match a source label: loading rejects a record no function body declares. |
 | `constants` | An ordered array of values parsed by the target's value parser. Constant indices are array positions. |
 | `main_function` | The entry function's table index, or `null` when no entry is selected. It is not an instruction address. |
 | `source_symbols` | Records `{ index: number, name: "symbol" }`. Indices must be unique; names are inline strings. Agree with the consumer on their meaning. |

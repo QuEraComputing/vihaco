@@ -65,6 +65,32 @@ fn standard_loading_works_with_and_without_typed_declarations() -> eyre::Result<
     Ok(())
 }
 
+/// Every header label must be declared in a body, with or without
+/// `typed-declarations` (without it, a body declares none).
+#[test]
+fn a_header_label_without_a_declaration_is_rejected_in_every_build() {
+    let mut metadata = one_function_metadata();
+    metadata.labels = vec![vihaco_module::module::LabelInfo {
+        address: 0,
+        name: 0,
+    }];
+    let parsed = ParsedModule {
+        header: (),
+        functions: vec![ParsedFunction::<_, Type> {
+            name: Ident("main".into()),
+            params: vec![],
+            return_types: vec![],
+            body: vec![Literal(42)],
+            #[cfg(feature = "typed-declarations")]
+            labels: vec![],
+        }],
+    };
+    assert_eq!(
+        parsed.validate_metadata(&metadata).unwrap_err().to_string(),
+        "metadata.labels[0]: label `@main` at address 0 is not declared in any function body"
+    );
+}
+
 /// A `fn` line that disagrees with its metadata names the types by the
 /// section's struct names, not by index.
 #[test]
@@ -386,6 +412,45 @@ mod typed {
         assert_eq!(module.constants, metadata.constants);
         assert_eq!(module.source_symbols, metadata.source_symbols);
         assert_eq!(module.main_function, metadata.main_function);
+        Ok(())
+    }
+
+    #[test]
+    fn a_header_label_no_body_declares_is_rejected() -> eyre::Result<()> {
+        // A label name instruction text could print, but source cannot write.
+        let mut extra = metadata();
+        extra.strings.push("p3".into());
+        extra.labels.push(LabelInfo {
+            address: 5,
+            name: 5,
+        });
+        // A declared name at an address where no body declares it.
+        let mut moved = metadata();
+        moved.labels.insert(
+            0,
+            LabelInfo {
+                address: 4,
+                name: 2,
+            },
+        );
+        for (metadata, expected) in [
+            (
+                extra,
+                "metadata.labels[2]: label `@p3` at address 5 is not declared in any function body",
+            ),
+            (
+                moved,
+                "metadata.labels[0]: label `@done` at address 4 is not declared in any function \
+                 body",
+            ),
+        ] {
+            let mut context = context(&metadata)?;
+            let error = parsed()
+                .lower_with_metadata(metadata, &mut context)
+                .unwrap_err();
+            assert_eq!(error.to_string(), expected);
+            assert!(context.entered.is_empty());
+        }
         Ok(())
     }
 

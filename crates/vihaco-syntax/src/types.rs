@@ -92,6 +92,9 @@ where
     let lookup = TypeLookup::new(metadata)?;
     let names = metadata.names();
     let mut seen = std::collections::BTreeSet::new();
+    // `(name, address)` of every label a function body declares.
+    #[cfg_attr(not(feature = "typed-declarations"), allow(unused_mut))]
+    let mut declared_labels = std::collections::BTreeSet::<(&str, usize)>::new();
     let mut address = 0usize;
     for function in functions {
         let name = function.name.as_str();
@@ -185,9 +188,24 @@ where
                     "function `@{name}`: label `@{}` at {label_address} requires matching metadata",
                     label.name
                 );
+                declared_labels.insert((label.name.as_str(), label_address));
             }
         }
         address = end;
+    }
+    // The header's label table is exactly the declared labels: instruction
+    // text names jump targets from it, and must parse back.
+    for (index, info) in metadata.labels.iter().enumerate() {
+        let label = metadata
+            .strings
+            .get(info.name as usize)
+            .map_or("<invalid name>", String::as_str);
+        eyre::ensure!(
+            declared_labels.contains(&(label, info.address as usize)),
+            "metadata.labels[{index}]: label `@{label}` at address {} is not declared in any \
+             function body",
+            info.address
+        );
     }
     Ok(())
 }
