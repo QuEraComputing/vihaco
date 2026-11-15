@@ -385,10 +385,21 @@ pub enum DiagnosticKind {
   analysed and has no type-map entry, which is safe because verification has
   already failed. Because a block may pass states on in early fixpoint rounds
   and fail only at convergence, the engine then reruns the fixpoint with the
-  out-edges of failing blocks cut, restoring one at a time each cut block
-  whose failure was a follow-on effect (restoring it makes no uncut block
-  fail). The cut set only shrinks, so this terminates, and it never empties
-  while a block fails. A failing block is replayed from the state it fails at.
+  out-edges of failing blocks cut. It settles on a cut set `C` where every
+  uncut block passes in `fixpoint(C)` and every cut block `L` fails in
+  `fixpoint(C \ {L})`, alternately cutting uncut blocks that fail and
+  restoring cut blocks whose failure was a follow-on effect (they pass once
+  the other cut blocks pass nothing on). Each block is restored at most once,
+  so this terminates, and the cut set never empties while a block fails. Only
+  a cut block that another cut block reaches needs a fixpoint of its own, so
+  independent errors cost a few fixpoints, not one each.
+- A failing block `L` is replayed, and mapped, from its state in
+  `fixpoint(C \ {L})`: fed by analysed blocks and by `L`'s own loops (which is
+  what makes a loop header fail), but not by another failing block. Joins are
+  checked only between edges from analysed blocks. So no diagnostic stems
+  from a state another failing block passed on, and code reachable only
+  through failing blocks has no type-map entry. (A block cut again after its
+  one restore keeps the state it was cut at, as a fallback.)
 - Consecutive underflows at one address collapse into one: a rule returns one
   result per address, and the replay visits each address once.
 - `Unreachable` is a **warning**: unreachable code never runs, and code

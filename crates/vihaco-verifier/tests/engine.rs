@@ -517,6 +517,106 @@ fn a_block_failing_only_on_a_follow_on_state_is_analysed_from_its_other_paths() 
     );
 }
 
+/// The follow-on case above, except that the other path into 10 brings two
+/// `bool`s, so 10 fails for real. The header at 3 fails, so the edge 6 -> 10
+/// exists only through a failing block.
+fn a_real_defect_after_a_failing_loop() -> Vec<Op> {
+    vec![
+        Const(Type::Bool), // 0
+        CondBr(2, 12),     // 1
+        Const(Type::I64),  // 2
+        Const(Type::I64),  // 3: loop header
+        Add,               // 4: fails once the back edge brings an f64
+        Const(Type::Bool), // 5
+        CondBr(7, 10),     // 6
+        Pop,               // 7
+        Const(Type::F64),  // 8
+        Br(3),             // 9
+        Use(Type::F64),    // 10: fails for real on the path through 12
+        Ret,               // 11
+        Const(Type::Bool), // 12
+        Const(Type::Bool), // 13
+        Br(10),            // 14
+    ]
+}
+
+#[test]
+fn a_failing_block_reports_its_real_defect_not_a_follow_on() {
+    // In the first round the header passed an i64 to 10. Neither that
+    // state, nor a depth mismatch between it and the path through 14, may be
+    // reported: 10 is analysed from the path through 14 alone.
+    assert_eq!(
+        rejected(verify(&a_real_defect_after_a_failing_loop())),
+        [
+            (0, 4, mismatch("i64", "i64 | f64")),
+            (0, 10, mismatch("f64", "bool")),
+        ]
+    );
+}
+
+#[test]
+fn a_join_into_a_failing_block_is_checked_only_between_analysed_edges() {
+    // In the first round the header passed an i64 on to 10, and so through
+    // 12 to 16, which then fails. At convergence only the path through 13
+    // reaches 10, so 12 passes two bools to 16: checking that edge against
+    // 16's state from the first round would report a depth mismatch between
+    // the edge from 12 and itself.
+    let code = [
+        Const(Type::Bool), // 0
+        CondBr(2, 13),     // 1
+        Const(Type::I64),  // 2
+        Const(Type::I64),  // 3: loop header
+        Add,               // 4: fails once the back edge brings an f64
+        Const(Type::Bool), // 5
+        CondBr(7, 10),     // 6
+        Pop,               // 7
+        Const(Type::F64),  // 8
+        Br(3),             // 9
+        Const(Type::Bool), // 10
+        Pop,               // 11
+        Br(16),            // 12
+        Const(Type::Bool), // 13
+        Const(Type::Bool), // 14
+        Br(10),            // 15
+        Use(Type::F64),    // 16
+        Ret,               // 17
+    ];
+    assert_eq!(
+        rejected(verify(&code)),
+        [
+            (0, 4, mismatch("i64", "i64 | f64")),
+            (0, 16, mismatch("f64", "bool")),
+        ]
+    );
+}
+
+#[test]
+fn many_independent_failing_blocks_settle_in_linear_time() {
+    // Each copy of `if cond { fail }` fails on its own, and no failing block
+    // can reach another, so no restore can succeed: settling must not rerun
+    // the whole-function fixpoint once per failing block.
+    let copies = 2_000u32;
+    let mut code = Vec::new();
+    for copy in 0..copies {
+        let base = 4 * copy;
+        code.extend([
+            Const(Type::Bool),
+            CondBr(base + 2, base + 4),
+            Fail("independent"),
+            Ret,
+        ]);
+    }
+    code.push(Ret);
+    FAIL_RUNS.with(|runs| runs.set(0));
+    let rejection = verify(&code).unwrap_err();
+    assert_eq!(rejection.errors().count(), copies as usize);
+    let runs = FAIL_RUNS.with(Cell::get);
+    assert!(
+        runs <= 8 * copies as usize,
+        "the failing rules ran {runs} times for {copies} failing blocks"
+    );
+}
+
 #[test]
 fn a_rule_error_ends_its_block_but_later_blocks_still_report() {
     let code = [

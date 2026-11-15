@@ -152,9 +152,9 @@ impl std::error::Error for Rejection {}
 ///    since blocks see unconverged states. If some block fails at its
 ///    converged state, the fixpoint is rerun with the out-edges of failing
 ///    blocks cut, so states a failing block passed on in early rounds are
-///    retracted; a cut block is restored if its failure was only a follow-on
-///    effect, that is, if restoring it makes no uncut block fail. These reruns
-///    happen only when verification fails;
+///    retracted. A cut block is restored if its failure was only a follow-on
+///    effect: if it passes once the other failing blocks pass nothing on.
+///    These reruns happen only when verification fails;
 /// 4. **replays** each reached block once, in address order, from its
 ///    converged state, reporting the first rule error in the block (which
 ///    ends that block) and any join mismatch on its outgoing edges (at the
@@ -162,9 +162,13 @@ impl std::error::Error for Rejection {}
 ///
 /// A block whose rule fails contributes nothing to its successors: code
 /// reachable only through failing blocks is not analysed, reports nothing, and
-/// has no type-map entry. A failing block itself is replayed (and mapped) from
-/// the state it fails at. Every diagnostic of every function is returned,
-/// sorted by function then address.
+/// has no type-map entry, and a join is checked only between edges from
+/// analysed blocks. A failing block itself is replayed (and mapped) from the
+/// state it fails at with every *other* failing block passing nothing on (its
+/// own loops still feed it, since they are what make, say, a loop header
+/// fail), so no diagnostic stems from a state another failing block passed
+/// on. Every diagnostic of every function is returned, sorted by function then
+/// address.
 ///
 /// The fixpoint terminates provided the context's joins have finite height
 /// (see [`Lattice`](crate::Lattice)).
@@ -298,49 +302,32 @@ where
 
     // A block that fails at its converged state passes nothing on, but in
     // early rounds it may have passed on states its converged run would not.
-    // Cut the out-edges of every failing block and converge again, so code
-    // reachable only through failing blocks has no state. Then restore, one
-    // at a time, each cut block whose failure turns out to be a follow-on
-    // effect: one that can be restored without any uncut block failing.
-    // The set of cut blocks only shrinks, and never to empty while some
-    // block fails, since nothing can be restored then.
-    let mut cut = walk.failing(&full, id, cx);
-    let mut states = full.clone();
-    if cut.contains(&true) {
-        states = walk.fixpoint(entry, &cut, id, cx);
-        for leader in 0..walk.len() {
-            if !cut[leader] {
-                continue;
-            }
-            cut[leader] = false;
-            let candidate = walk.fixpoint(entry, &cut, id, cx);
-            let failing = walk.failing(&candidate, id, cx);
-            if failing.iter().zip(&cut).all(|(&fails, &cut)| !fails || cut) {
-                states = candidate;
-            } else {
-                cut[leader] = true;
-            }
-        }
-        // A failing block is analysed from the full fixpoint's state, the
-        // one it fails at.
-        for (leader, state) in states.iter_mut().enumerate() {
-            if cut[leader] && state.is_some() {
-                state.clone_from(&full[leader]);
-            }
-        }
-    }
+    // Settle which blocks fail (see `Walk::settle`), so that code reachable
+    // only through failing blocks has no state.
+    let Settled {
+        cut,
+        states,
+        replay,
+    } = walk.settle(entry, full, id, cx);
 
     // Phase 2: replay each reached block once, in address order, reporting.
+    // A failing (cut) block is replayed from the state it fails at, and
+    // passes nothing on; joins are checked against `states`, which only
+    // analysed blocks feed.
     let mut mismatch_reported = vec![false; walk.len()];
     for leader in 0..walk.len() {
         let Some(saved) = states[leader].as_ref() else {
             continue;
         };
+        if cut[leader] {
+            let failing_at = replay[leader].as_ref().unwrap_or(saved);
+            if let Err((at, error)) = walk.run_block(leader, failing_at, id, cx) {
+                report(start + at as u32, Order::Rule, classify(&error));
+            }
+            continue;
+        }
         match walk.run_block(leader, saved, id, cx) {
             Err((at, error)) => report(start + at as u32, Order::Rule, classify(&error)),
-            // A cut block failed at this state in the full fixpoint, so it
-            // fails again here; it passes nothing on regardless.
-            Ok(_) if cut[leader] => {}
             Ok(exit) => {
                 let incoming = cx.snapshot();
                 for succ in walk.successors(exit) {
@@ -356,13 +343,36 @@ where
         }
     }
 
+    // Only analysed blocks are mapped; a failing one at the state it fails
+    // at.
     Some(
         states
             .into_iter()
+            .zip(replay)
             .enumerate()
-            .filter_map(|(i, state)| Some((start + i as u32, state?)))
+            .filter_map(|(i, (state, replay))| {
+                let state = state?;
+                let state = if cut[i] {
+                    replay.unwrap_or(state)
+                } else {
+                    state
+                };
+                Some((start + i as u32, state))
+            })
             .collect(),
     )
+}
+
+/// Which blocks fail, and the states to analyse each block from.
+struct Settled<S> {
+    /// Leaders of failing blocks, whose out-edges are cut.
+    cut: Vec<bool>,
+    /// The fixpoint with `cut` blocks passing nothing on. Only analysed
+    /// blocks (not cut, and reached without going through a cut block) feed
+    /// it.
+    states: Vec<Option<S>>,
+    /// For each cut leader, the state it fails at.
+    replay: Vec<Option<S>>,
 }
 
 /// One function's body with its control-flow facts, which depend only on
@@ -511,6 +521,161 @@ impl<'a, I> Walk<'a, I> {
             }
         }
         states
+    }
+
+    /// Settle which blocks fail, given `full`, the fixpoint with no block cut.
+    ///
+    /// A block that fails at its converged state passes nothing on, but in
+    /// early rounds it may have passed on states its converged run would
+    /// not, and those can make other blocks fail too. So this looks for a set
+    /// `C` of cut blocks such that
+    ///
+    /// - every block not in `C` passes at its state in `fixpoint(C)`, and
+    /// - every block `L` in `C` fails at its state in `fixpoint(C \ {L})`:
+    ///   with every other cut block passing nothing on, but `L`'s own loops
+    ///   running. That state is `L`'s replay state.
+    ///
+    /// `fixpoint(C)` is then fed only by analysed blocks, and each replay
+    /// state only by analysed blocks and code reachable through `L` itself, so
+    /// no diagnostic stems from a state another failing block passed on.
+    ///
+    /// It starts from the blocks failing in `full`, then repeatedly: cuts
+    /// every uncut block failing in `fixpoint(C)` (which only grows `C`), and
+    /// restores every cut block that passes at its replay state. A block is
+    /// restored at most once, which bounds the passes; a block cut again
+    /// after its restore keeps the state it was cut at, as a fallback. These
+    /// reruns happen only when some block fails.
+    ///
+    /// A cut leader that no other cut block can reach has the same replay
+    /// state as in `full`: cutting the other blocks changes nothing upstream
+    /// of it. Only leaders that another cut block reaches need a fixpoint, so
+    /// a function with many independent errors settles in a few fixpoints.
+    fn settle<C>(
+        &self,
+        entry: &C::Snapshot,
+        full: Vec<Option<C::Snapshot>>,
+        function: u32,
+        cx: &mut C,
+    ) -> Settled<C::Snapshot>
+    where
+        I: Verify<C>,
+        C: AbstractState + ?Sized,
+    {
+        let mut cut = self.failing(&full, function, cx);
+        if !cut.contains(&true) {
+            return Settled {
+                cut,
+                states: full,
+                replay: vec![None; self.len()],
+            };
+        }
+        let mut replay: Vec<Option<C::Snapshot>> = cut
+            .iter()
+            .zip(&full)
+            .map(|(&cut, state)| if cut { state.clone() } else { None })
+            .collect();
+        let mut states = self.cut_failing(entry, &mut cut, &mut replay, function, cx);
+        let mut restored = vec![false; self.len()];
+        let mut changed = true;
+        while std::mem::take(&mut changed) {
+            let mut reached_by_cut = self.reached_from_other_cut(&cut);
+            for leader in 0..self.len() {
+                if !cut[leader] {
+                    continue;
+                }
+                let state = if reached_by_cut[leader] {
+                    cut[leader] = false;
+                    let mut candidate = self.fixpoint(entry, &cut, function, cx);
+                    cut[leader] = true;
+                    candidate.swap_remove(leader)
+                } else {
+                    full[leader].clone()
+                };
+                // A cut block reached by no path keeps no state.
+                let Some(state) = state else { continue };
+                if self.run_block(leader, &state, function, cx).is_err() {
+                    replay[leader] = Some(state);
+                } else if !std::mem::replace(&mut restored[leader], true) {
+                    // Its failure was a follow-on effect: restore it, and cut
+                    // whatever its output makes fail.
+                    cut[leader] = false;
+                    replay[leader] = None;
+                    states = self.cut_failing(entry, &mut cut, &mut replay, function, cx);
+                    reached_by_cut = self.reached_from_other_cut(&cut);
+                    changed = true;
+                }
+            }
+        }
+        Settled {
+            cut,
+            states,
+            replay,
+        }
+    }
+
+    /// Converge with `cut` blocks passing nothing on, cutting every uncut
+    /// block that fails at its converged state (recording that state in
+    /// `replay`) until none does. Returns the final fixpoint.
+    fn cut_failing<C>(
+        &self,
+        entry: &C::Snapshot,
+        cut: &mut [bool],
+        replay: &mut [Option<C::Snapshot>],
+        function: u32,
+        cx: &mut C,
+    ) -> Vec<Option<C::Snapshot>>
+    where
+        I: Verify<C>,
+        C: AbstractState + ?Sized,
+    {
+        loop {
+            let states = self.fixpoint(entry, cut, function, cx);
+            let failing = self.failing(&states, function, cx);
+            let mut grew = false;
+            for (leader, fails) in failing.into_iter().enumerate() {
+                if fails && !cut[leader] {
+                    cut[leader] = true;
+                    replay[leader].clone_from(&states[leader]);
+                    grew = true;
+                }
+            }
+            if !grew {
+                return states;
+            }
+        }
+    }
+
+    /// Which cut leaders some *other* cut block reaches in the control-flow
+    /// graph, through its successors.
+    fn reached_from_other_cut(&self, cut: &[bool]) -> Vec<bool> {
+        // Propagate the identity of up to two cut blocks reaching each
+        // address: if one of them is not the leader itself, another cut block
+        // reaches it. Each address is visited at most twice.
+        let mut reached_by: Vec<SmallVec<[usize; 2]>> = vec![SmallVec::new(); self.len()];
+        let mut pending: Vec<(usize, usize)> = Vec::new();
+        for source in (0..self.len()).filter(|&leader| cut[leader]) {
+            let exit = self.block_exit(source);
+            pending.extend(self.successors(exit).into_iter().map(|succ| (succ, source)));
+        }
+        while let Some((i, source)) = pending.pop() {
+            if reached_by[i].len() == 2 || reached_by[i].contains(&source) {
+                continue;
+            }
+            reached_by[i].push(source);
+            pending.extend(self.successors(i).into_iter().map(|succ| (succ, source)));
+        }
+        (0..self.len())
+            .map(|leader| cut[leader] && reached_by[leader].iter().any(|&s| s != leader))
+            .collect()
+    }
+
+    /// The offset of the last instruction of the block starting at `leader`.
+    fn block_exit(&self, leader: usize) -> usize {
+        let mut i = leader;
+        while self.flows[i] == Flow::Next && i + 1 < self.len() && !self.leader[i + 1] {
+            i += 1;
+        }
+        i
     }
 
     /// Which leaders fail when run from their state in `states`.
