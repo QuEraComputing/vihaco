@@ -121,7 +121,8 @@ traits remain in `vihaco-module`. Direct stdlib consumers enable
 to CPU and runtime. Enabling only a CPU feature does not activate stdlib above it.
 
 The nondefault `program-image-execution` feature on `vihaco-stdlib`, `vihaco-cpu`,
-`vihaco`, or `vihaco-runtime` implies `typed-declarations`. The host owns a
+`vihaco`, or `vihaco-runtime` implies `typed-declarations`; on `vihaco` it also
+implies `verifier`, which re-exports the load-time verifier as `vihaco::verifier`. The host owns a
 `LocalModule`; the machine contains an `ExecutionState` component marked
 `#[program]`, which supplies execution-state access and operand-storage wiring.
 Call `vihaco_stdlib::execution_state::execute(&module, &mut machine, arguments)`
@@ -226,6 +227,7 @@ needs; there is no umbrella crate.
 | [`vihaco-runtime-derive`](crates/vihaco-runtime-derive) | `#[derive(Message)]`, `component!`, `#[composite]`, `#[observe]`, re-exported through `vihaco-runtime`'s `derive` feature. |
 | [`vihaco-stdlib`](crates/vihaco-stdlib) | Standard-library components and observers, including `ProgramImage` and `StdoutObserver`. |
 | [`vihaco-syntax`](crates/vihaco-syntax) | Typed SST parsing and module construction (`Resolve`). |
+| [`vihaco-verifier`](crates/vihaco-verifier) | Load-time verification: the control-flow fixpoint engine, standard capabilities, structured diagnostics, type maps, `ModuleVerifier`, and `Verified<M>`. Re-exported as `vihaco::verifier` with the `verifier` feature. |
 | [`vihaco-cpu`](crates/vihaco-cpu) | A ready-made CPU/host component — a small stack machine (constants, arithmetic, branches, halt, …) with a `StepOutcome` control-flow effect. Use directly, or as a reference for writing your own. |
 | [`vihaco-parser`](crates/vihaco-parser) | The `Parse<'src>` and `SurfaceInstruction` traits plus lexical, primitive, and collection implementations shared by the parser derive. |
 | [`vihaco-parser-derive`](crates/vihaco-parser-derive) | `#[derive(Parse)]` — turns instruction, value, and type enums or structs into [chumsky](https://github.com/zesterer/chumsky) parsers via `#[syntax_class]` and `#[pattern]`. |

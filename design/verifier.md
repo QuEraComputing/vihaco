@@ -1,7 +1,9 @@
 # Load-time verification
 
-Status: design. The stacked PRs into `feature/typed-heap-verifier` implement it
-in the order given under [Implementation order](#implementation-order).
+Status: implemented through step 6 of the
+[Implementation order](#implementation-order) by the stacked PRs into
+`feature/typed-heap-verifier`; step 7 lists follow-ups. Sections end with what
+was settled in implementation where it refines the design.
 
 ## Purpose
 
@@ -406,6 +408,8 @@ pub enum DiagnosticKind {
     InvalidFunctionSpan { start: u32, end: u32, code_len: usize },
     MissingTerminator,
     Unreachable,
+    /// The operand count or shape comes from a runtime value.
+    Unverifiable { reason: String },
     /// A component-defined error, from a rule or capability.
     Rule(String),
 }
@@ -455,6 +459,12 @@ pub enum DiagnosticKind {
   its jump targets are not checked. Every other kind is an error.
 - Diagnostics are sorted by function and address. `DiagnosticKind`
   is `#[non_exhaustive]`, so new structural checks are not breaking changes.
+- `Unverifiable` is the standard error for an instruction whose stack effect
+  depends on a runtime value, such as a count popped from the stack. Device
+  instructions must carry counts and shapes as immediates (`sum_f64 4`, a
+  lanes `move` with its lane count in the instruction) so that rules can check
+  them; a rule for an instruction that cannot follow this reports
+  `VerifyError::unverifiable(reason)` instead of an ad-hoc `Rule` message.
 
 ## Outputs
 
@@ -462,11 +472,21 @@ A successful verification produces:
 
 - **`Verified<M>`**, the only way to build a stdlib image (see
   [Enforcement](#enforcement)).
-- Optionally, **type maps**: each leader's converged state. Any address's state
-  is one block replay away, so debuggers and observers can show what each local
-  and operand slot holds at a breakpoint (#175, #176). Off by default, and
-  produced only when verification succeeds; returning them with a rejection
-  (for an IDE showing types next to errors) is a possible extension.
+- Warnings (`Unreachable`).
+
+Both a successful verification (`Verification<S>`) and a rejection
+(`Rejection<S>`) optionally carry **type maps**: each reached leader's converged
+state. Any address's state is one block replay away, so debuggers and observers
+can show what each local and operand slot holds at a breakpoint (#175, #176),
+and an editor can show types next to errors. They are off by default
+(`VerifyOptions::with_type_maps`). In a rejection, a leader has an entry only if
+some block transfer reached it without a rule error, so leaders reachable only
+through failing blocks, and functions with an invalid span, have none.
+
+Settled in implementation (step 6): `Rejection` is generic over the snapshot
+type, like `Verification`, and converts into an `eyre::Report` when the
+snapshot is `Send + Sync + 'static`; `Rejection::without_type_maps` drops the
+maps otherwise.
 
 ## Required metadata changes
 
@@ -588,17 +608,30 @@ object payload (kind, capacity, element storage) stays vihaco's own.
 | Reference literals | Typed dialects have no `const_heap_ref`: a typed program cannot write a reference, so the verifier never has to type one. (The legacy enum build keeps `const_heap_ref N`; it is unverified and relies on runtime tags.) |
 | Entry arguments from the host | Arity is checked at entry today; values are words. The host is trusted to pass the declared types, as with any foreign call. |
 | Host-supplied values (messages, completions of pending instructions) | Outside the instruction stream. The component's rule declares the type it pushes and the component guarantees it at runtime. |
+| Operand counts from runtime values | Not verifiable. Instructions carry counts as immediates; otherwise the rule reports `Unverifiable` ([Diagnostics](#diagnostics)). |
 
 Settled in implementation (step 5):
 
 - The `call_indirect` operand is a `vihaco_abi::FunctionType`, written like a
   function header's types: `(u64, f64) -> u64`, `() -> ()`, or
-  `(u64) -> (u64, f64)`. Types are numeric (`struct 0`, `type 0`); names are
-  not resolved inside it. The function reference is on top, above the
+  `(u64) -> (u64, f64)`. The function reference is on top, above the
   arguments. The stdlib program device compares the operand with the target's
   metadata signature; the `typed-declarations` CPU receives the target's
-  signature in a new `message::IndirectCallee` and compares it. The legacy enum
-  build keeps an operand-free `call_indirect` with no check.
+  signature in a new `message::IndirectCallee` and compares it.
+- In the typed dialects the signature's types may name structs and named
+  types, alongside the numeric forms:
+  `call_indirect (struct @Point, type @location) -> u64`. The syntax operand
+  is `vihaco_cpu::field::FunctionTypeOperand` (a list of `TypeOperand`s), and
+  lowering resolves it through `StructLookup` and `NamedTypeLookup`, the same
+  mechanism as `array_new struct @Point, 4`, checking every reference against
+  the tables. Unknown names are load-time errors. The runtime instruction and
+  the binary encoding keep the resolved `FunctionType`, so bytecode carries
+  indices only. (Step 6.)
+- Decided: the legacy enum build keeps an operand-free, unsigned
+  `call_indirect` with no check. It has no verifier and no lowering phase, and
+  the typed builds are where checked indirect calls live.
+- Decided: the `typed-declarations` CPU's `print` pops a `str` (a string-table
+  reference), `[str] -> []`; printing other values is a host or observer concern.
 - Untyped locals are `load i` and `store i`. A typed `load_<t>` / `store_<t>`
   requires the local to be declared exactly `<t>`. Every store checks the
   operand against the declared type and leaves the local's slot unchanged, so
@@ -619,6 +652,33 @@ produced only by the verifier, and the stdlib image constructors (`Image::new`,
 unverified module requires an explicit, greppable escape hatch
 (`Verified::assume_verified`) for tests and trusted toolchains.
 
+Settled in implementation (step 6):
+
+- `Verified<M>` lives in vihaco-verifier, as placed. vihaco-stdlib already
+  depends on it (for the program-instruction rules) under
+  `program-image-execution`, and vihaco-verifier depends only on vihaco-abi and
+  vihaco-module, so there is no cycle. vihaco-stdlib re-exports `Verified`.
+- Constructors: `Verified::new(module)` (standard `ModuleVerifier`, default
+  options, warnings dropped), `Verified::verify(module, options)` (also
+  returns the `Verification`), `Verified::verify_with_state(module, entry,
+  options)` (a `WithState` context), and `Verified::assume_verified(module)`.
+  The first three exist for `LocalModule<I, Value, Type, Info>` with
+  `I: for<'m> Verify<…>`; other module models and hand-written contexts use
+  `assume_verified` after verifying. A rejected module is consumed; callers who
+  need it back verify a borrow with `verify_module` first.
+- `Verified` gives shared access only (`Deref`, `get`), and `into_inner`
+  returns the module unverified, so a verified module cannot be mutated in
+  place.
+- `Image::new(Verified<LocalModule<…>>)`; the image's module is private, read
+  through `Image::module()`, and `Image::into_module()` returns the
+  `Verified` module. `Loadable::new` and `replace_image` take an `Image`, so
+  they need no change.
+- The free functions `execution_state::execute` and `resume` keep taking a
+  plain `&LocalModule`: they are the low-level runner that `Loadable` and
+  custom owners build on, and the module type is also what `Dispatch` and
+  `Step` receive. The runtime's own checks (heap tags, bounds, call
+  signatures) remain in force for code run through them.
+
 ## Placement
 
 - `Verify`, `Flow` in **vihaco-abi** next to `Lower`, so dialect crates depend
@@ -630,6 +690,10 @@ unverified module requires an explicit, greppable escape hatch
   diagnostics, `ModuleVerifier`, `Verified<M>` in a new **vihaco-verifier**
   crate, depending on vihaco-abi and vihaco-module.
 - CPU rules in **vihaco-cpu**; program-instruction rules in **vihaco-stdlib**.
+- The `vihaco` facade re-exports the crate as `vihaco::verifier` (plus
+  `Verified` and `verify_module` at the root) behind a `verifier` feature,
+  which implies `typed-declarations` and forwards vihaco-verifier's own
+  `typed-declarations`; `program-image-execution` implies `verifier`.
 - Typed builds only. The legacy enum build has no lowering phase to hook into.
 
 ## Implementation order
@@ -652,8 +716,10 @@ unverified module requires an explicit, greppable escape hatch
    capability). Rules for program instructions (control flow, calls, returns,
    locals, `call_indirect` with an inline signature) and CPU instructions
    (arithmetic, comparisons, casts, structs, arrays).
-6. `Verified<M>` enforcement in stdlib images, type maps, docs and guide
-   examples. Closes #120.
+6. `Verified<M>` enforcement in stdlib images, type maps (also with
+   rejections), the `Unverifiable` diagnostic, names in `call_indirect`
+   signatures, the facade `verifier` feature, docs and guide examples
+   (including a verification guide). Closes #120. **Done.**
 7. Follow-ups: array constants; `future T` with #173 and context handles with
    #174; deriving rules from stack messages.
 

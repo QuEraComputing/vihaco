@@ -19,6 +19,7 @@ export const guides: Guide[] = [
   { slug: "effects", label: "Handling effects", short: "Effects" },
   { slug: "program-execution", label: "Running programs", short: "Programs" },
   { slug: "loadables", label: "Images and Loadables", short: "Loadables" },
+  { slug: "verification", label: "Verification", short: "Verification" },
   { slug: "parser", label: "Parsing source", short: "Parsing" },
   { slug: "parser-advanced", label: "Loading SST programs", short: "SST loading" },
   { slug: "sst-reference", label: "Emitting SST from a compiler", short: "SST reference" },

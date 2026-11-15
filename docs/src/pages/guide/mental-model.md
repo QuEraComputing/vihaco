@@ -31,7 +31,8 @@ These names come up throughout the guide:
 | Effect | Carries a successful execution result back to the caller |
 | Composite | Owns devices and connects their execution through steps you write |
 | Module | Holds code and tables such as functions, strings, and labels |
-| Image | Owns a module as program data |
+| Verifier | Checks a module against each instruction's typing rule before it runs |
+| Image | Owns a verified module as program data |
 | ExecutionState | Holds one invocation's operands, locals, frames, and control state |
 | Loadable | Pairs an image with the composite that executes it |
 
@@ -44,14 +45,17 @@ source text
     → parsed syntax instructions and header declarations
     → validated metadata and symbolic lowering
     → LocalModule containing runtime instructions and metadata
+    → Verified module, checked against every instruction's typing rule
     → Image
 ```
 
 Parsing checks how instructions are spelled. Lowering turns source operands,
 such as function names and quoted strings, into the operands execution needs.
 Metadata describes the functions' signatures, reserved locals, instruction
-ranges, and which function to enter. Your loader prepares all of this before
-execution starts.
+ranges, and which function to enter. Verification then checks every function
+against those declarations and the typing rules your components supply, so a
+type error is reported at load time rather than in the middle of a run. Your
+loader prepares all of this before execution starts.
 
 ## From instruction to state change
 

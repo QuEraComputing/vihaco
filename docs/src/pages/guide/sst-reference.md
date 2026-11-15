@@ -228,7 +228,10 @@ runtime:
 
 Type operands of the array instructions accept `type @location` as well as
 `type 0`; lowering resolves names against `types`, and an unknown name or index
-is a load-time error.
+is a load-time error. The same holds for the types in a `call_indirect`
+signature, which may also name structs:
+`call_indirect (struct @Point, type @location) -> u64`. Binary bytecode always
+stores the resolved indices.
 
 ```text
 metadata {

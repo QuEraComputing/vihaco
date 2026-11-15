@@ -88,9 +88,11 @@ See [writing composites](/guide/composites) and
 [executing one instruction](/guide/execution) for the details, including generic
 steps that cover multiple instructions.
 
-To run a whole program, construct a module with code and metadata, wrap it in an
-`Image`, and pair it with your machine in a `Loadable`. See
-[running programs](/guide/program-execution) and [Images and Loadables](/guide/loadables).
+To run a whole program, construct a module with code and metadata, verify it
+with `Verified::new`, wrap it in an `Image`, and pair it with your machine in a
+`Loadable`. Verification needs a typing rule (`Verify`) for every instruction in
+the machine. See [running programs](/guide/program-execution),
+[Images and Loadables](/guide/loadables), and [verification](/guide/verification).
 If a compiler produces the program, use the
 [SST producer reference](/guide/sst-reference) for its current output contract.
 

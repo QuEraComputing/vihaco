@@ -84,4 +84,5 @@ You choose how one loaded machine calls another. That might be a method on the
 outer application or on a suitable component. Nesting sections in a file doesn't
 connect execution or forward effects between them.
 
-Next, [give your instructions a source spelling](/guide/parser).
+Next, see how [verification](/guide/verification) checks programs before they
+run.

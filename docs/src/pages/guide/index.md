@@ -49,6 +49,7 @@ dependencies.
 | [Handling effects](/guide/effects) | Decide what happens to a component's results |
 | [Running programs](/guide/program-execution) | Work with frames, control flow, entry, and recovery |
 | [Images and Loadables](/guide/loadables) | Own programs, replace images, and reset execution |
+| [Verification](/guide/verification) | Check programs before they run, and write typing rules |
 | [Parsing source](/guide/parser) | Give instructions a source spelling |
 | [Loading SST programs](/guide/parser-advanced) | Read sections, prepare metadata, and resolve symbols |
 | [Emitting SST from a compiler](/guide/sst-reference) | Produce the file structure, instruction syntax, and metadata a loader expects |
