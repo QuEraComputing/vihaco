@@ -82,7 +82,7 @@ impl OperandText<vihaco_abi::word::Word> for StringOperand {
     ) -> fmt::Result {
         let index = vihaco_abi::word::decode_string_id(*value);
         match names.string(index) {
-            Some(text) => write!(f, "{text:?}"),
+            Some(text) => write!(f, "{}", vihaco_abi::names::StringLiteral(text)),
             None => write!(f, "{index}"),
         }
     }

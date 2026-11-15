@@ -62,12 +62,20 @@ impl OperandText<Word> for I64Literal {
 
 impl OperandText<Word> for F32Literal {
     fn write_operand(value: &Word, _: &dyn SymbolNames, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", vihaco_abi::word::decode_f32(*value))
+        write!(
+            f,
+            "{}",
+            vihaco_abi::names::FloatLiteral(vihaco_abi::word::decode_f32(*value))
+        )
     }
 }
 
 impl OperandText<Word> for F64Literal {
     fn write_operand(value: &Word, _: &dyn SymbolNames, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", vihaco_abi::word::decode_f64(*value))
+        write!(
+            f,
+            "{}",
+            vihaco_abi::names::FloatLiteral(vihaco_abi::word::decode_f64(*value))
+        )
     }
 }

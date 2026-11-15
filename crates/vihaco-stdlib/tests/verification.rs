@@ -172,6 +172,13 @@ fn sst(functions: &[Function]) -> String {
                 }
                 None => end += 1,
             }
+            // A string literal must be in the string table; it is copied
+            // as written, since the header lexes literals the same way.
+            if let Some(literal) = line.strip_prefix("P::const_string ")
+                && !strings.iter().any(|s| s == literal)
+            {
+                strings.push(literal.to_string());
+            }
         }
         metadata.push(format!(
             "{{ name: {name}, signature: {{ params: [{}], ret: [{}] }}, locals: [{}], \
@@ -1184,6 +1191,58 @@ fn instructions_render_in_source_syntax_with_names() {
             .unwrap_or_else(|error| panic!("{error:#}\n{main_source:#?}\n{helper_source:#?}"));
         assert_eq!(reloaded, module, "{main_source:#?}\n{helper_source:#?}");
     }
+}
+
+/// String and float literals render so that they parse back to the same
+/// value: strings escape only what the SST lexer must have escaped, and
+/// infinities, which have no float syntax, overflow back from `1e999`.
+#[test]
+fn literals_render_so_they_parse_back() {
+    use vihaco_runtime::InstructionText as _;
+    let body = [
+        // A decomposed accent (e + U+0301), as names copied from macOS have.
+        "P::const_string \"e\u{301}\"",
+        // A raw control character, which the lexer accepts unescaped.
+        "P::const_string \"a\u{1}b\"",
+        r#"P::const_string "say \"hi\" \\ there\n\t\r\0 // not a comment""#,
+        "P::const_f64 1e999",
+        "P::const_f64 -1e999",
+        "P::const_f64 -0.0",
+        "P::const_f64 1e-7",
+        "P::const_f32 1e999",
+        "P::halt",
+    ];
+    let module = load(&[main_fn(&[], &[], &[], &body)]).unwrap();
+    let names = module.names();
+    let unexpand = |line: &str| line.replace(machine::P, "P::").replace(machine::C, "C::");
+    let texts: Vec<String> = module
+        .code
+        .iter()
+        .enumerate()
+        .map(|(address, instruction)| {
+            unexpand(&instruction.text_with(&names.at(address as u32)).to_string())
+        })
+        .collect();
+    assert_eq!(
+        texts,
+        [
+            "P::const_string \"e\u{301}\"",
+            "P::const_string \"a\u{1}b\"",
+            r#"P::const_string "say \"hi\" \\ there\n\t\r\0 // not a comment""#,
+            "P::const_f64 1e999",
+            "P::const_f64 -1e999",
+            "P::const_f64 -0.0",
+            "P::const_f64 1e-7",
+            "P::const_f32 1e999",
+            "P::halt",
+        ]
+    );
+    let source: Vec<&str> = texts.iter().map(String::as_str).collect();
+    let reloaded = load(&[main_fn(&[], &[], &[], &source)])
+        .unwrap_or_else(|error| panic!("{error:#}\n{source:#?}"));
+    assert_eq!(reloaded, module);
+    let negative_zero = module.code[5].to_string();
+    assert!(negative_zero.ends_with("-0.0"), "{negative_zero}");
 }
 
 #[test]

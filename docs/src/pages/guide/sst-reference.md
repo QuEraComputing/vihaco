@@ -293,6 +293,13 @@ assembling the module. Use `f32_bits` followed by a decimal `u32` or `f64_bits`
 followed by a decimal `u64` to preserve exact floating-point bits, including NaNs.
 Custom value types can define a different grammar.
 
+String literals, here and in instructions such as `const_string`, take any
+character raw except `"` and `\`, and the escapes `\"`, `\\`, `\n`, `\t`, `\r`
+and `\0`. Float literals in instructions (`const_f64 -0.0`, `const_f64 2.5e-3`)
+have no spelling for infinity or NaN: write an infinity as an overflowing
+literal such as `1e999` or `-1e999`, which is how instruction text shows one.
+A NaN operand cannot be written in instruction text.
+
 Populate strings before lowering. `MetadataLoweringContext` looks up strings
 without appending or reordering them; a missing literal is an error. Equal
 strings resolve to the first matching table entry. Function lookup preserves

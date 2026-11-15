@@ -162,6 +162,82 @@ fn write_symbol_or_number(
     }
 }
 
+/// Write `text` as an SST string literal that parses back to `text`.
+///
+/// The SST lexer accepts any character raw inside quotes except `"` and `\`,
+/// and the escapes `\"`, `\\`, `\n`, `\t`, `\r` and `\0`. So those characters
+/// are escaped (line breaks, tabs and NUL too, to keep the literal on one
+/// line), and everything else, combining marks and other control characters
+/// included, is written raw.
+///
+/// ```
+/// # use vihaco_abi::names::StringLiteral;
+/// assert_eq!(StringLiteral("say \"hi\"\n").to_string(), r#""say \"hi\"\n""#);
+/// assert_eq!(StringLiteral("e\u{301}").to_string(), "\"e\u{301}\"");
+/// ```
+pub struct StringLiteral<'a>(pub &'a str);
+
+impl fmt::Display for StringLiteral<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use fmt::Write as _;
+        f.write_char('"')?;
+        for ch in self.0.chars() {
+            match ch {
+                '"' => f.write_str("\\\"")?,
+                '\\' => f.write_str("\\\\")?,
+                '\n' => f.write_str("\\n")?,
+                '\t' => f.write_str("\\t")?,
+                '\r' => f.write_str("\\r")?,
+                '\0' => f.write_str("\\0")?,
+                ch => f.write_char(ch)?,
+            }
+        }
+        f.write_char('"')
+    }
+}
+
+/// Write a float as an SST literal that parses back to the same value.
+///
+/// Finite values, `-0.0` included, use their shortest round-tripping form.
+/// The SST float syntax has no infinity, so infinities are written as
+/// `1e999` and `-1e999`, which overflow back to them. NaN has no SST
+/// literal at all; it is written as `NaN`, which does not parse.
+///
+/// ```
+/// # use vihaco_abi::names::FloatLiteral;
+/// assert_eq!(FloatLiteral(2.5f64).to_string(), "2.5");
+/// assert_eq!(FloatLiteral(-0.0f64).to_string(), "-0.0");
+/// assert_eq!(FloatLiteral(f64::INFINITY).to_string(), "1e999");
+/// assert_eq!(FloatLiteral(f32::NEG_INFINITY).to_string(), "-1e999");
+/// ```
+pub struct FloatLiteral<T>(pub T);
+
+impl fmt::Display for FloatLiteral<f64> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write_float(f, self.0.is_infinite(), self.0.is_sign_negative(), &self.0)
+    }
+}
+
+impl fmt::Display for FloatLiteral<f32> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write_float(f, self.0.is_infinite(), self.0.is_sign_negative(), &self.0)
+    }
+}
+
+fn write_float(
+    f: &mut fmt::Formatter<'_>,
+    infinite: bool,
+    negative: bool,
+    value: &dyn fmt::Debug,
+) -> fmt::Result {
+    match (infinite, negative) {
+        (true, false) => f.write_str("1e999"),
+        (true, true) => f.write_str("-1e999"),
+        // `Debug` keeps the `.0` of integral values and the sign of `-0.0`.
+        _ => write!(f, "{value:?}"),
+    }
+}
+
 /// No names: every operand renders in its numeric form.
 impl SymbolNames for () {}
 
@@ -238,6 +314,20 @@ impl OperandText<Word> for bool {
 impl OperandText<Word> for u32 {
     fn write_operand(value: &Word, _: &dyn SymbolNames, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", decode_u32(*value))
+    }
+}
+
+/// A float as a literal that parses back (see [`FloatLiteral`]).
+impl OperandText<f64> for f64 {
+    fn write_operand(value: &f64, _: &dyn SymbolNames, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", FloatLiteral(*value))
+    }
+}
+
+/// A float as a literal that parses back (see [`FloatLiteral`]).
+impl OperandText<f32> for f32 {
+    fn write_operand(value: &f32, _: &dyn SymbolNames, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", FloatLiteral(*value))
     }
 }
 
