@@ -475,7 +475,9 @@ fn range_in(whole: &str, part: &str) -> Range<usize> {
 /// continue.
 fn classify_line(line: &str) -> Classified {
     let trimmed = line.trim();
-    if trimmed.is_empty() {
+    // A comment-only line is layout, like a blank line: it may appear
+    // anywhere, and inside a block it stays part of the block's text.
+    if trimmed.is_empty() || trimmed.starts_with(';') {
         return Classified {
             kind: LineKind::Blank,
             directive: 0..0,

@@ -533,6 +533,16 @@ fn rejects_sst_blocks_outside_a_section() {
 }
 
 #[test]
+fn sst_comment_lines_are_allowed_outside_blocks() {
+    let file = SSTFile::<TextContext>::from_text(
+        "; before the version\nsst v2\n; after it\n.section cpu\n; before .text\n.text\nhalt\n",
+    )
+    .unwrap();
+    let cpu = file.section("cpu").unwrap();
+    assert_eq!(cpu.text(), "halt\n");
+}
+
+#[test]
 fn rejects_sst_content_outside_a_block() {
     let err = parse_sst("stray\n").unwrap_err();
     assert!(
