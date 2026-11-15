@@ -11,7 +11,7 @@ use vihaco_cpu::{
     field::{NamedTypeLookup, StructLookup},
     lower::{FunctionLookup, LabelLookup, StringIntern},
     message,
-    operand::Target,
+    operand::JumpTarget,
 };
 
 use vihaco_abi::{FunctionType, Type};
@@ -295,7 +295,7 @@ fn readable_constants_parse_to_encoded_runtime_words() {
         .unwrap();
     assert_eq!(
         branch.0,
-        Target::Symbol(vihaco_parser::Ident("later".to_owned()))
+        JumpTarget::Symbol(vihaco_parser::Ident("later".to_owned()))
     );
     assert!(vihaco_runtime::Lower::lower(branch, &mut NumericContext).is_err());
     assert!(
@@ -326,9 +326,9 @@ fn sst_labels_are_readability_metadata_and_do_not_occupy_runtime_slots() {
     assert_eq!(parsed.labels[1].instruction_index, 1);
     assert!(matches!(
         &parsed.body[0],
-        __vihaco_MachineInstruction::V_controller__cpu__cpu__Branch(cpu::Branch(Target::Resolved(
-            1
-        )))
+        __vihaco_MachineInstruction::V_controller__cpu__cpu__Branch(cpu::Branch(
+            JumpTarget::Resolved(1)
+        ))
     ));
     let mut machine = machine();
     for instruction in parsed.body {

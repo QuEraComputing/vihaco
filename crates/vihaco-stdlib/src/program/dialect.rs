@@ -7,16 +7,16 @@
 pub mod program {
     use super::super::{
         literal::{F32Literal, F64Literal, I32Literal, I64Literal},
-        operand::{StringOperand, Target},
+        operand::{JumpTarget, StringOperand, Target},
     };
     use vihaco_abi::{FunctionType, word::Word};
     use vihaco_cpu::field::FunctionTypeOperand;
     #[instruction]
-    #[pattern = "'br $0:Target"]
+    #[pattern = "'br $0:JumpTarget"]
     pub struct Branch(pub u32);
 
     #[instruction]
-    #[pattern = "'cond_br $0:Target `,` $1:Target"]
+    #[pattern = "'cond_br $0:JumpTarget `,` $1:JumpTarget"]
     pub struct ConditionalBranch(pub u32, pub u32);
 
     #[instruction]

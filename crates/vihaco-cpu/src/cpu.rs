@@ -9,7 +9,7 @@ pub mod cpu {
         FieldSlot, StructLayout, Word,
         field::{FieldOperand, FunctionTypeOperand, NamedTypeOperand, StructOperand, TypeOperand},
         literal::{F32Literal, F64Literal, I32Literal, I64Literal},
-        operand::{StringOperand, Target},
+        operand::{JumpTarget, StringOperand, Target},
     };
     use vihaco_abi::{FunctionType, Type};
     #[instruction]
@@ -21,11 +21,11 @@ pub mod cpu {
     pub struct Breakpoint;
 
     #[instruction]
-    #[pattern = "'br $0:Target"]
+    #[pattern = "'br $0:JumpTarget"]
     pub struct Branch(pub u32);
 
     #[instruction]
-    #[pattern = "'cond_br $0:Target `,` $1:Target"]
+    #[pattern = "'cond_br $0:JumpTarget `,` $1:JumpTarget"]
     pub struct ConditionalBranch(pub u32, pub u32);
 
     #[instruction]

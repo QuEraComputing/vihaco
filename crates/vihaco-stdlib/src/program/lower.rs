@@ -4,7 +4,7 @@
 //! Instruction-owned program lowering, separate from the dialect definitions.
 
 use super::{
-    operand::{StringOperand, Target},
+    operand::{JumpTarget, StringOperand, Target},
     program,
 };
 
@@ -59,10 +59,10 @@ impl StringIntern for MetadataLoweringContext {
     }
 }
 
-fn label_target<C: LabelLookup + ?Sized>(target: Target, context: &C) -> eyre::Result<u32> {
+fn label_target<C: LabelLookup + ?Sized>(target: JumpTarget, context: &C) -> eyre::Result<u32> {
     match target {
-        Target::Resolved(address) => Ok(address),
-        Target::Symbol(name) => context.label_address(name.as_str()),
+        JumpTarget::Resolved(address) => Ok(address),
+        JumpTarget::Symbol(name) => context.label_address(name.as_str()),
     }
 }
 

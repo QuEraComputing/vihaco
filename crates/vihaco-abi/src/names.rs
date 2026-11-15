@@ -127,17 +127,36 @@ pub trait SymbolNames: TypeNames {
         None
     }
 
-    /// `@name` for a jump or call target at `address`: the function starting
-    /// there, else a label there, else the address itself.
-    fn write_target(&self, address: u32, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    /// A call target at `address`, as a call resolves it: `@name` of the
+    /// function starting there, else the address itself.
+    fn write_call_target(&self, address: u32, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let name = self
             .function_starting_at(address)
-            .and_then(|function| self.function_name(function))
-            .or_else(|| self.label_at(address));
-        match name {
-            Some(name) => write!(f, "@{name}"),
-            None => write!(f, "{address}"),
-        }
+            .and_then(|function| self.function_name(function));
+        write_symbol_or_number(name, address, f)
+    }
+
+    /// A jump target at `address`, as a jump resolves it: `@name` of a label
+    /// there, else the address itself. Never a function name, which a jump
+    /// cannot name, even when the address is a function's first instruction.
+    fn write_jump_target(&self, address: u32, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write_symbol_or_number(self.label_at(address), address, f)
+    }
+
+    /// Function `function` (a function reference), as `@name`, else its index.
+    fn write_function(&self, function: u32, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write_symbol_or_number(self.function_name(function), function, f)
+    }
+}
+
+fn write_symbol_or_number(
+    name: Option<&str>,
+    number: u32,
+    f: &mut fmt::Formatter<'_>,
+) -> fmt::Result {
+    match name {
+        Some(name) => write!(f, "@{name}"),
+        None => write!(f, "{number}"),
     }
 }
 

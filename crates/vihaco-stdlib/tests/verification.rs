@@ -143,6 +143,7 @@ const TYPES: &str = "[{ name: 4, repr: u64 }, { name: 5, repr: u64 }]";
 fn sst(functions: &[Function]) -> String {
     let mut strings: Vec<String> = STRINGS.iter().map(|s| format!("{s:?}")).collect();
     let mut metadata = Vec::new();
+    let mut labels = Vec::new();
     let mut text = String::new();
     let mut address = 0;
     for function in functions {
@@ -160,7 +161,18 @@ fn sst(functions: &[Function]) -> String {
             .chain(function.locals)
             .copied()
             .collect();
-        let end = address + function.body.len();
+        // `label @name` lines name the next instruction (and need a metadata
+        // entry); they are not one.
+        let mut end = address;
+        for line in function.body {
+            match line.strip_prefix("label @") {
+                Some(label) => {
+                    labels.push(format!("{{ name: {}, address: {end} }}", strings.len()));
+                    strings.push(format!("{label:?}"));
+                }
+                None => end += 1,
+            }
+        }
         metadata.push(format!(
             "{{ name: {name}, signature: {{ params: [{}], ret: [{}] }}, locals: [{}], \
              start_address: {address}, end_address: {end}, file: 0 }}",
@@ -200,7 +212,7 @@ metadata {{
     functions: [{functions}],
     structs: {STRUCTS},
     types: {TYPES},
-    labels: [], constants: [], main_function: 0, source_symbols: [], extra: {{}},
+    labels: [{labels}], constants: [], main_function: 0, source_symbols: [], extra: {{}},
 }}
 .header(root).
 .text(root):
@@ -210,6 +222,7 @@ metadata {{
         version = vihaco_bytecode::VERSION,
         strings = strings.join(", "),
         functions = metadata.join(",\n        "),
+        labels = labels.join(", "),
     )
 }
 
@@ -1077,77 +1090,75 @@ fn instructions_render_in_source_syntax_with_names() {
         "P::call_indirect (struct @Point) -> u64",
         "C::wrap @location",
         "P::call 1, @helper",
+        "P::const_fn_ref @helper",
         "C::array_new array struct @Pair, 2",
         "C::struct_new @Point",
         "P::const_f64 2.5",
+        "label @again",
         "P::const_bool true",
-        "P::cond_br 9, 9",
+        // A jump names a label, never a function: address 0 starts `@main`
+        // but has no label, so it stays a number.
+        "P::cond_br @again, 0",
+        "P::br 0",
         "P::halt",
     ];
-    let module = load(&[
-        main_fn(&[], &[], &[], &body),
-        Function {
-            name: "helper",
-            params: &["u64"],
-            ret: &[],
-            locals: &[],
-            body: &["P::ret 0"],
-        },
-    ])
-    .unwrap();
+    let helper = || Function {
+        name: "helper",
+        params: &["u64"],
+        ret: &[],
+        locals: &[],
+        body: &["P::ret 0"],
+    };
+    let module = load(&[main_fn(&[], &[], &[], &body), helper()]).unwrap();
+    let lines: Vec<&str> = body
+        .iter()
+        .copied()
+        .filter(|line| !line.starts_with("label "))
+        .collect();
+    let code = &module.code[..lines.len()];
     let names = module.names();
-    let named: Vec<String> = module.code[..body.len()]
+    let named: Vec<String> = code
         .iter()
         .map(|instruction| instruction.text_with(&names).to_string())
         .collect();
     let expand = |line: &str| line.replace("P::", machine::P).replace("C::", machine::C);
-    let expected: Vec<String> = body.iter().map(|line| expand(line)).collect();
+    let expected: Vec<String> = lines.iter().map(|line| expand(line)).collect();
     assert_eq!(named, expected);
-    let numeric: Vec<String> = module.code[..body.len()]
-        .iter()
-        .map(ToString::to_string)
-        .collect();
+    let numeric: Vec<String> = code.iter().map(ToString::to_string).collect();
     assert_eq!(
         numeric,
         [
             "C::set_field 0, 1",
             "P::call_indirect (struct 0) -> u64",
             "C::wrap 0",
-            "P::call 1, 10",
+            "P::call 1, 12",
+            "P::const_fn_ref 1",
             "C::array_new array struct 1, 2",
             "C::struct_new 0",
             "P::const_f64 2.5",
             "P::const_bool true",
-            "P::cond_br 9, 9",
+            "P::cond_br 8, 0",
+            "P::br 0",
             "P::halt",
         ]
         .map(expand)
     );
-    // Both forms parse back to the instruction they came from.
+
+    // Either form, pasted back in place of the program's instructions (with
+    // its labels where they were), loads to the same module.
     let unexpand = |line: &str| line.replace(machine::P, "P::").replace(machine::C, "C::");
-    for text in named.iter().chain(&numeric) {
-        let source = unexpand(text);
-        let reparsed = load(&[
-            main_fn(&[], &[], &[], &[source.as_str(), "P::halt"]),
-            Function {
-                name: "helper",
-                params: &["u64"],
-                ret: &[],
-                locals: &[],
-                body: &["P::ret 0"],
-            },
-        ]);
-        let index = named
-            .iter()
-            .chain(&numeric)
-            .position(|t| t == text)
-            .unwrap()
-            % body.len();
-        // Jump targets are absolute addresses, so only compare instructions
-        // that do not depend on the program's layout.
-        if !text.contains("call 1") && !text.contains("cond_br") {
-            assert_eq!(reparsed.unwrap().code[0], module.code[index], "{text}");
+    for texts in [&named, &numeric] {
+        let mut source = Vec::new();
+        for (address, text) in texts.iter().enumerate() {
+            if let Some(label) = names.label_at(address as u32) {
+                source.push(format!("label @{label}"));
+            }
+            source.push(unexpand(text));
         }
+        let source: Vec<&str> = source.iter().map(String::as_str).collect();
+        let reloaded = load(&[main_fn(&[], &[], &[], &source), helper()])
+            .unwrap_or_else(|error| panic!("{error:#}\n{source:#?}"));
+        assert_eq!(reloaded, module, "{source:#?}");
     }
 }
 
