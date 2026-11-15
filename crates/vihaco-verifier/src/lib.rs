@@ -170,6 +170,6 @@ pub mod __private {
     pub use eyre;
 }
 pub use state::{AbstractState, JoinPoint};
-pub use verified::Verified;
+pub use verified::{Verified, VerifyFailed};
 
 pub use vihaco_abi::{Flow, FunctionType, Type, Value, Verify};

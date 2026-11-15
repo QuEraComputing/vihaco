@@ -131,7 +131,8 @@ fn construct_image<'src, M>(
 where
     M: HasInstructionSet,
     M::Syntax: Parse<'src> + 'src + Lower<MetadataLoweringContext, Runtime = M::Runtime>,
-    M::Runtime: for<'m> Verify<ModuleVerifier<'m>>,
+    // A rejection displays with the module's names, so its instructions show.
+    M::Runtime: for<'m> Verify<ModuleVerifier<'m>> + std::fmt::Display + Send + Sync + 'static,
 {
     Ok(Image::new(Verified::new(construct_module::<M>(section)?)?))
 }

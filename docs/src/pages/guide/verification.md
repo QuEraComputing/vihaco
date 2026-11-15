@@ -185,7 +185,16 @@ fn main() -> eyre::Result<()> {
         "mixer::mixer::scale_f64",
         "execution::program::ret 1",
     ])?;
-    let rejection = Verified::verify(bad, options).unwrap_err();
+    let failed = Verified::verify(bad, options).unwrap_err();
+    // The error displays every diagnostic with the module's names.
+    assert_eq!(
+        failed.to_string(),
+        "verification failed with 1 error\n\
+         error: operand 0 of `mixer::mixer::scale_f64`: expected f64, found u64\n  \
+         --> @main+2 (address 2): mixer::mixer::scale_f64"
+    );
+    // It also holds the data: the module, given back, and each diagnostic.
+    let (module, rejection) = failed.into_parts();
     let [error] = rejection.diagnostics.as_slice() else { panic!("{rejection}") };
     assert_eq!((error.function, error.address), (0, 2));
     assert_eq!(
@@ -196,11 +205,7 @@ fn main() -> eyre::Result<()> {
             found: TypeSlot::Known(Type::U64),
         }
     );
-    assert_eq!(
-        error.to_string(),
-        "error: operand 0 of the instruction: expected f64, found u64\n  \
-         --> function 0, address 2"
-    );
+    assert_eq!(module.code.len(), 4);
     // Rejections carry type maps too, so a tool can show types next to errors.
     assert!(rejection.type_maps.is_some());
     Ok(())

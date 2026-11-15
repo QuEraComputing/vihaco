@@ -18,7 +18,7 @@ use vihaco_verifier::{
 };
 
 /// A fixture dialect written only against the standard capabilities.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 enum Op {
     /// Push a value of the given type.
     Const(Type),
@@ -1080,25 +1080,49 @@ fn only_verification_or_the_escape_hatch_builds_verified_modules() {
     assert_eq!(verified.into_inner().code.len(), 2);
 
     let bad = module(vec![Const(Type::F64), Ret(1)], main());
-    let rejection = Verified::verify(bad.clone(), options).unwrap_err();
-    assert_eq!(rejection.errors().count(), 1);
+    let failed = Verified::verify(bad.clone(), options).unwrap_err();
+    assert_eq!(failed.rejection.errors().count(), 1);
     assert!(
-        rejection.type_maps.is_some(),
+        failed.rejection.type_maps.is_some(),
         "type maps come with rejections"
     );
-    // Rejections convert into eyre reports.
+    // The rejected module comes back unchanged.
+    let (module, rejection) = failed.into_parts();
+    assert_eq!(module, bad);
+    assert_eq!(rejection.diagnostics.len(), 1);
+    // Failures display with the module's names and convert into eyre reports.
     let report: eyre::Report = Verified::new(bad.clone()).unwrap_err().into();
-    assert!(
-        report
-            .to_string()
-            .starts_with("verification failed with 1 error"),
-        "{report}"
+    assert_eq!(
+        report.to_string(),
+        "verification failed with 1 error\nerror: return value 0 of @main: expected u64, \
+         found f64\n  --> @main+1 (address 1): Ret(1)"
     );
 
     // The escape hatch skips verification entirely.
-    assert_eq!(Verified::assume_verified(bad).code.len(), 2);
+    assert_eq!(Verified::assume_verified(bad.clone()).code.len(), 2);
 
     // Component state takes part through `verify_with_state`.
     let (verified, _) = Verified::verify_with_state(good(), (), VerifyOptions::default()).unwrap();
     assert_eq!(verified.code.len(), 2);
+
+    // A hand-written context verifies through `verify_with`.
+    let (verified, verification) = Verified::verify_with(good(), |module| {
+        let mut cx = ModuleVerifier::new(module).with_state(Open::default());
+        cx.verify(&module.code, VerifyOptions::default())
+    })
+    .unwrap();
+    assert!(verification.warnings.is_empty());
+    assert_eq!(verified.code.len(), 2);
+    let failed = Verified::verify_with(bad.clone(), |module| {
+        ModuleVerifier::new(module).verify(&module.code, VerifyOptions::default())
+    })
+    .unwrap_err();
+    assert_eq!(failed.into_module(), bad);
+}
+
+/// Diagnostics show the fixture's instructions as their `Debug` form.
+impl std::fmt::Display for Op {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
 }
