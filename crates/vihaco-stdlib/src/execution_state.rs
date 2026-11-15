@@ -85,7 +85,7 @@
 //! ```
 use crate::program::program;
 use vihaco_abi::{frame::Frame, word::Word};
-use vihaco_module::module::{LocalModule, MAX_LOCALS};
+use vihaco_module::module::{DEFAULT_MAX_CALL_DEPTH, LocalModule, MAX_LOCALS};
 
 mod execution;
 mod messages;
@@ -106,6 +106,7 @@ pub struct ExecutionState {
     pc: u32,
     halted: bool,
     executing: bool,
+    max_call_depth: usize,
 }
 
 impl Default for ExecutionState {
@@ -116,6 +117,7 @@ impl Default for ExecutionState {
             pc: 0,
             halted: true,
             executing: false,
+            max_call_depth: DEFAULT_MAX_CALL_DEPTH,
         }
     }
 }
@@ -123,6 +125,36 @@ impl Default for ExecutionState {
 impl ExecutionState {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The most call frames (the entry function's included) an invocation
+    /// may have at once; [`DEFAULT_MAX_CALL_DEPTH`] unless changed.
+    pub fn max_call_depth(&self) -> usize {
+        self.max_call_depth
+    }
+
+    /// Limit nested call frames to `depth`. A call that would exceed it fails
+    /// with an error naming the callee, before any frame storage is reserved.
+    pub fn set_max_call_depth(&mut self, depth: usize) {
+        self.max_call_depth = depth;
+    }
+
+    /// [`Self::set_max_call_depth`], by value.
+    pub fn with_max_call_depth(mut self, depth: usize) -> Self {
+        self.set_max_call_depth(depth);
+        self
+    }
+
+    /// Fail if entering `function` would exceed the call-depth limit.
+    fn check_call_depth<I, V, Ty, Info>(
+        &self,
+        module: &LocalModule<I, V, Ty, Info>,
+        function: usize,
+    ) -> eyre::Result<()> {
+        if self.frames.len() >= self.max_call_depth {
+            return Err(call_too_deep(module, function, self.max_call_depth));
+        }
+        Ok(())
     }
 }
 
@@ -134,6 +166,7 @@ impl Clone for ExecutionState {
             pc: self.pc,
             halted: self.halted,
             executing: false,
+            max_call_depth: self.max_call_depth,
         }
     }
 }
@@ -156,7 +189,7 @@ fn function_entry<I, V, Ty, Info>(
     // Modules can be built without `ProgramMetadata::validate`, so re-check
     // the frame bound before any caller reserves or resizes storage.
     if locals > MAX_LOCALS {
-        return Err(too_many_locals(locals));
+        return Err(too_many_locals(module, index, locals));
     }
     if locals < function.signature.params.len() {
         return Err(invalid_local_count());
@@ -177,10 +210,42 @@ fn unknown_function(index: usize) -> eyre::Report {
     eyre::eyre!("unknown function reference {index}")
 }
 
+/// `@name (function N)`, or `function N` if the name is not in the string table.
+fn describe_function<I, V, Ty, Info>(module: &LocalModule<I, V, Ty, Info>, index: usize) -> String {
+    let name = module
+        .functions
+        .get(index)
+        .and_then(|function| module.strings.get(function.name as usize));
+    match name {
+        Some(name) => format!("`@{name}` (function {index})"),
+        None => format!("function {index}"),
+    }
+}
+
 #[cold]
 #[inline(never)]
-fn too_many_locals(locals: usize) -> eyre::Report {
-    eyre::eyre!("function declares {locals} locals, more than the maximum of {MAX_LOCALS}")
+fn too_many_locals<I, V, Ty, Info>(
+    module: &LocalModule<I, V, Ty, Info>,
+    index: usize,
+    locals: usize,
+) -> eyre::Report {
+    eyre::eyre!(
+        "{} declares {locals} locals, more than the maximum of {MAX_LOCALS}",
+        describe_function(module, index)
+    )
+}
+
+#[cold]
+#[inline(never)]
+fn call_too_deep<I, V, Ty, Info>(
+    module: &LocalModule<I, V, Ty, Info>,
+    index: usize,
+    limit: usize,
+) -> eyre::Report {
+    eyre::eyre!(
+        "call to {} exceeds the maximum call depth of {limit} frames",
+        describe_function(module, index)
+    )
 }
 
 #[cold]

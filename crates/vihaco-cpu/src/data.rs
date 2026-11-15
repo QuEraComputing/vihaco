@@ -35,6 +35,8 @@ vihaco_runtime::component! {
         pub(crate) pending_pc: Option<u32>,
         pub(crate) current_pc: u32,
         pub(crate) return_values: Vec<Word>,
+        /// `None` means `DEFAULT_MAX_CALL_DEPTH`.
+        pub(crate) max_call_depth: Option<usize>,
     }
 
     type Type = vihaco_abi::Type;
@@ -416,6 +418,8 @@ pub struct CPU {
     pub(crate) pending_pc: Option<u32>,
     pub(crate) current_pc: u32,
     pub(crate) return_values: Vec<Word>,
+    /// `None` means `DEFAULT_MAX_CALL_DEPTH`.
+    pub(crate) max_call_depth: Option<usize>,
 }
 
 impl StackMemory for CPU {

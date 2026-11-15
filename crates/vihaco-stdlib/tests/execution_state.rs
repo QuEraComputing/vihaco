@@ -74,7 +74,19 @@ fn oversized_frames_are_rejected_before_allocating() {
     module.functions[0].locals = vec![(); usize::MAX];
     let mut stack = ExecutionState::new();
     let err = stack.start(&module, &[7]).unwrap_err();
-    assert!(err.to_string().contains("more than the maximum"), "{err}");
+    assert_eq!(
+        err.to_string(),
+        format!(
+            "function 0 declares {} locals, more than the maximum of 65536",
+            usize::MAX
+        )
+    );
+    module.strings = vec!["main".into()];
+    let err = stack.start(&module, &[7]).unwrap_err();
+    assert!(
+        err.to_string().starts_with("`@main` (function 0) declares"),
+        "{err}"
+    );
     assert!(stack.is_halted());
     assert!(stack.stack().is_empty());
     assert!(stack.frames().is_empty());

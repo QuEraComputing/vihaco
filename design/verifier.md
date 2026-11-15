@@ -43,7 +43,7 @@ The open issues that motivate the verifier, and what each needs from it:
 | Issue | Use case | What the design provides |
 |---|---|---|
 | #120 | bloqade-lanes composes `vihaco-cpu` with a lanes device whose operands are `LOCATION`, `LANE`, `ZONE` values, all `u64` to vihaco. It checks that device operands carry the right tag, and checks groups of constant addresses (no duplicate lanes in one `move`). | Device operand kinds become [named types](#named-types) backed by `u64`, so a `LANE` passed as a `LOCATION` is a type error; groups of constant addresses are checked at runtime by the device ([Slots](#slots-and-types)). |
-| #120 | A frame-model hazard: a crafted program grew the stack to 68 GB through an out-of-range local index. | Declared local types bound every local index; a metadata cap bounds frame sizes ([Metadata](#required-metadata-changes)). |
+| #120 | A frame-model hazard: a crafted program grew the stack to 68 GB through an out-of-range local index. | Declared local types bound every local index; a metadata cap bounds frame sizes and a runtime call-depth limit bounds how many frames recursion can stack ([Metadata](#required-metadata-changes)). |
 | #175 | Records and lists that components and hosts can rely on. | Rules type `struct_new`, `get_field`, and the `array_*` instructions against the struct table and element types. |
 | #175, #176 | Observers, debuggers and IDEs need to know what a stack word means at a breakpoint. | The verifier's converged per-block states, exported as **type maps** ([Outputs](#outputs)). |
 | #173 | Asynchronous components: `submit` pushes a handle, `wait` pops it and pushes the result later. Lanes' `measure n` pushes measurement futures. | Handles are values with a type; a component-defined slot tag today, a standard `future T` type once #173 lands ([Open questions](#open-questions)). |
@@ -519,7 +519,12 @@ maps otherwise.
   frame entry re-check it before allocating, and `ModuleVerifier` reports a
   function whose frame metadata breaks these rules (too many locals, fewer
   locals than parameters, or locals disagreeing with parameter types), since
-  modules can be built without metadata validation.
+  modules can be built without metadata validation. The cap bounds one frame,
+  not the stack: recursion can still stack frames. Both runtimes therefore
+  also limit nested call frames (`DEFAULT_MAX_CALL_DEPTH = 10_000`,
+  configurable with `set_max_call_depth`); a call past the limit fails naming
+  the callee. The stack is then bounded by the limit times `MAX_LOCALS` words
+  plus operands, and an embedder that needs a tighter bound lowers the limit.
 - **Array types.** Arrays are first-class and typed by element; see
   [Arrays](#arrays).
 

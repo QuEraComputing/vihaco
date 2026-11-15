@@ -66,6 +66,17 @@ pub struct FunctionInfo<Type> {
 /// re-checks it before allocating, since modules can also be built directly.
 pub const MAX_LOCALS: usize = 65_536;
 
+/// The default limit on nested call frames (the entry function's frame
+/// included) for the standard runtimes: the stdlib `ExecutionState` and the
+/// CPU. A call that would exceed it fails, naming the callee, instead of
+/// recursing until memory runs out.
+///
+/// Verification cannot bound recursion, so this is a runtime check. Each frame
+/// holds at most [`MAX_LOCALS`] words, so the stack is bounded by
+/// `limit × MAX_LOCALS` words plus operands; embedders that need a tighter
+/// memory bound lower the limit (`set_max_call_depth`).
+pub const DEFAULT_MAX_CALL_DEPTH: usize = 10_000;
+
 impl<Type> FunctionInfo<Type> {
     /// The number of local slots, parameters included (`locals.len()`).
     pub fn local_count(&self) -> usize {

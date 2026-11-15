@@ -182,13 +182,48 @@ fn entry_rejects_local_count_smaller_than_arity_without_mutating_state() {
 }
 
 #[test]
+fn recursion_stops_at_the_call_depth_limit() {
+    let max = vihaco_module::module::MAX_LOCALS as u32;
+    let mut cpu = CPU::default();
+    assert_eq!(
+        cpu.max_call_depth(),
+        vihaco_module::module::DEFAULT_MAX_CALL_DEPTH
+    );
+    cpu.set_max_call_depth(4);
+    // A function with the largest frame calls itself.
+    cpu.start_function(0, 0, max, 0).unwrap();
+    for _ in 1..4 {
+        call(&mut cpu, I::Call(0, 0), 0, 0, max);
+    }
+    let err = cpu
+        .execute_generated(
+            &I::Call(0, 0),
+            CPUMessage::FunctionInfo {
+                arity: 0,
+                start_address: 0,
+                local_count: max,
+            },
+        )
+        .unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "call to the function at address 0 exceeds the maximum call depth of 4 frames"
+    );
+    // The failed call grew nothing.
+    assert_eq!(cpu.stack().len(), 4 * max as usize);
+}
+
+#[test]
 fn entry_rejects_oversized_frames_before_growing_the_stack() {
     let mut cpu = CPU::default();
     cpu.stack_mut().extend([10_u64]);
 
     // Without the cap this would try to allocate `u32::MAX` words.
     let err = cpu.start_function(1, 0, u32::MAX, 0).unwrap_err();
-    assert!(err.to_string().contains("more than the maximum"), "{err}");
+    assert_eq!(
+        err.to_string(),
+        "function 0 (at address 0) declares 4294967295 locals, more than the maximum of 65536"
+    );
     assert_eq!(cpu.stack(), &[10]);
     assert!(cpu.get_frame().is_err());
     let limit = vihaco_module::module::MAX_LOCALS as u32;

@@ -341,6 +341,21 @@ impl CPU {
         self.enter_function(arity, target, local_count, Some(function))
     }
 
+    /// The most call frames (the entry function's included) may be active at
+    /// once; [`DEFAULT_MAX_CALL_DEPTH`] unless changed.
+    ///
+    /// [`DEFAULT_MAX_CALL_DEPTH`]: vihaco_module::module::DEFAULT_MAX_CALL_DEPTH
+    pub fn max_call_depth(&self) -> usize {
+        self.max_call_depth
+            .unwrap_or(vihaco_module::module::DEFAULT_MAX_CALL_DEPTH)
+    }
+
+    /// Limit nested call frames to `depth`. A call that would exceed it fails,
+    /// naming the callee, before the stack grows.
+    pub fn set_max_call_depth(&mut self, depth: usize) {
+        self.max_call_depth = Some(depth);
+    }
+
     /// Shared frame setup for program entry and call instructions.
     pub(crate) fn enter_function(
         &mut self,
@@ -349,12 +364,25 @@ impl CPU {
         local_count: u32,
         function: Option<usize>,
     ) -> eyre::Result<StepOutcome> {
+        // The CPU never sees function names; name the callee by index and
+        // entry address.
+        let callee = || match function {
+            Some(index) => format!("function {index} (at address {target})"),
+            None => format!("the function at address {target}"),
+        };
         // Function metadata can bypass `ProgramMetadata::validate`, so bound
         // the frame before growing the stack.
         eyre::ensure!(
             local_count as usize <= vihaco_module::module::MAX_LOCALS,
-            "function declares {local_count} locals, more than the maximum of {}",
+            "{} declares {local_count} locals, more than the maximum of {}",
+            callee(),
             vihaco_module::module::MAX_LOCALS
+        );
+        let limit = self.max_call_depth();
+        eyre::ensure!(
+            self.frames.len() < limit,
+            "call to {} exceeds the maximum call depth of {limit} frames",
+            callee()
         );
         self.require_operands(arity as usize)?;
         self.ensure_local_count_is_at_least_arity(arity, local_count)?;

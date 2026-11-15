@@ -94,6 +94,7 @@ where
             .position(|f| f.start_address == instruction.1)
             .ok_or_else(|| unknown_call_target(instruction.1))?;
         let (arity, locals, target) = function_entry(module, function)?;
+        parent.program().check_call_depth(module, function)?;
         if instruction.0 as usize != arity {
             return Err(call_arity_mismatch());
         }
@@ -122,6 +123,7 @@ where
         parent.program().ensure_running()?;
         let function = decode_function_ref(parent.program().peek_operand()?) as usize;
         let (arity, locals, target) = function_entry(module, function)?;
+        parent.program().check_call_depth(module, function)?;
         // A function reference is only callable at its declared signature.
         let signature = &module.functions[function].signature;
         if !signature.matches(&instruction.0) {

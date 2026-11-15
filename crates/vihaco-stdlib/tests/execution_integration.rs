@@ -413,6 +413,40 @@ fn indirect_calls_check_the_target_signature_before_entering() {
 }
 
 #[test]
+fn recursion_stops_at_the_call_depth_limit_naming_the_function() {
+    // `@main` declares the largest frame and calls itself forever.
+    let (mut module, mut vm) = machine(&["program::program::call 0, 0"]);
+    module.strings = vec!["main".into()];
+    module.functions[0].locals = vec![vihaco_abi::Type::U64; vihaco_module::module::MAX_LOCALS];
+    assert_eq!(
+        vm.program.max_call_depth(),
+        vihaco_module::module::DEFAULT_MAX_CALL_DEPTH
+    );
+    vm.program.set_max_call_depth(4);
+    let error = execute(&module, &mut vm, &[]).unwrap_err();
+    assert_eq!(
+        format!("{error:#}")
+            .lines()
+            .last()
+            .unwrap()
+            .trim_start_matches("Error: "),
+        "call to `@main` (function 0) exceeds the maximum call depth of 4 frames"
+    );
+    assert_eq!(vm.program.frames().len(), 4);
+    assert_eq!(
+        vm.program.stack().len(),
+        4 * vihaco_module::module::MAX_LOCALS
+    );
+
+    // The default limit applies without configuration.
+    let (mut module, mut vm) = machine(&["program::program::call 0, 0"]);
+    module.functions[0].locals.clear();
+    let error = execute(&module, &mut vm, &[]).unwrap_err();
+    assert!(format!("{error:#}").contains("maximum call depth of 10000 frames"));
+    assert_eq!(vm.program.frames().len(), 10_000);
+}
+
+#[test]
 fn heap_transfers_use_program_operands_and_preserve_device_state() {
     let (mut module, mut vm) = machine(&[
         "program::program::const_u64 7",
