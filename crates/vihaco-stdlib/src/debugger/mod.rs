@@ -54,6 +54,19 @@ impl<K: Ord + 'static, I> Reset for Debugger<K, I> {
     }
 }
 
+impl<K: Ord + 'static, I> Debugger<K, I> {
+    /// Discard all saved breakpoint instructions and paused-breakpoint state.
+    ///
+    /// Use this when discarding the patched program, before using this debugger
+    /// with a different image. This does not restore instructions in the old
+    /// program. To remove breakpoints while keeping that program usable, call
+    /// [`Self::clear_all`] instead. Invocation-only resets retain breakpoints.
+    pub fn forget_breakpoints(&mut self) {
+        self.displaced.clear();
+        self.paused = None;
+    }
+}
+
 pub enum IsBreakpointToggled {
     Toggled,
     Untoggled,
@@ -253,5 +266,73 @@ impl<K: Ord + 'static, I> Execute<debug::Breakpoint> for Debugger<K, I> {
             PausedBreakpoint::Explicit
         });
         Ok(Break)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    enum Instruction {
+        Value(u64),
+        Breakpoint,
+    }
+
+    impl HasBreakpointInstruction for Instruction {
+        fn new_breakpoint() -> Self {
+            Self::Breakpoint
+        }
+    }
+
+    #[test]
+    fn forgetting_breakpoints_cannot_restore_old_instructions_into_a_new_program() {
+        let mut debugger = Debugger::<u32, Instruction>::default();
+        let mut original = LocalModule::<Instruction, (), ()> {
+            code: vec![Instruction::Value(11)],
+            ..Default::default()
+        };
+        debugger.set_breakpoint(&mut original, 0);
+        debugger
+            .execute(&debug::Breakpoint, BreakpointMessage { key: 0 })
+            .unwrap();
+
+        debugger.forget_breakpoints();
+        assert_eq!(debugger.breakpoints().len(), 0);
+        assert!(debugger.paused.is_none());
+
+        let mut replacement = LocalModule::<Instruction, (), ()> {
+            code: vec![Instruction::Value(42)],
+            ..Default::default()
+        };
+        assert!(matches!(
+            debugger.clear_breakpoint(&mut replacement, 0),
+            IsBreakpointToggled::Untoggled
+        ));
+        assert_eq!(replacement.code, vec![Instruction::Value(42)]);
+        assert_eq!(original.code, vec![Instruction::Breakpoint]);
+
+        debugger.set_breakpoint(&mut replacement, 0);
+        debugger.clear_all(&mut replacement);
+        assert_eq!(replacement.code, vec![Instruction::Value(42)]);
+    }
+
+    #[test]
+    fn invocation_reset_retains_saved_breakpoint_instructions() {
+        let mut debugger = Debugger::<u32, Instruction>::default();
+        let mut program = LocalModule::<Instruction, (), ()> {
+            code: vec![Instruction::Value(11)],
+            ..Default::default()
+        };
+        debugger.set_breakpoint(&mut program, 0);
+        debugger
+            .execute(&debug::Breakpoint, BreakpointMessage { key: 0 })
+            .unwrap();
+
+        debugger.reset();
+        assert!(debugger.paused.is_none());
+        assert!(debugger.contains(&0));
+        debugger.clear_all(&mut program);
+        assert_eq!(program.code, vec![Instruction::Value(11)]);
     }
 }
