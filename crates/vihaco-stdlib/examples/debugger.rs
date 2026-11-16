@@ -6,7 +6,9 @@
 
 use vihaco_abi::{Type, Value};
 use vihaco_module::module::{FunctionInfo, LocalModule, Signature};
-use vihaco_runtime::{Apply, BuildMessage, Execute, HasInstructionSet, Step, composite, field};
+use vihaco_runtime::{
+    Apply, BuildMessage, Execute, HasInstructionSet, ReusableMessageRecipe, Step, composite, field,
+};
 use vihaco_stdlib::{
     ExecutionState, Image, Loadable, RunState,
     debugger::{DebugAction, DebuggerState, HasBreakpointInstruction, dialect::debug},
@@ -25,6 +27,36 @@ pub struct Machine {
 type Instruction = <Machine as HasInstructionSet>::Runtime;
 type Program = LocalModule<Instruction, Value, Type>;
 type DebuggerField = field!(Machine::debugger);
+
+// This machine delegates message construction to the standard recipes.
+impl<I, M> BuildMessage<field!(Machine::execution), I, Program, M> for Machine
+where
+    ExecutionState<DebuggerState>: Execute<I, Message = M>,
+    M: ReusableMessageRecipe<Self, field!(Machine::execution), I, Program>,
+{
+    fn build_message(&mut self, instruction: &I, context: &Program) -> eyre::Result<M> {
+        <M as ReusableMessageRecipe<Self, field!(Machine::execution), I, Program>>::prepare(
+            self,
+            instruction,
+            context,
+        )
+    }
+}
+
+impl BuildMessage<DebuggerField, debug::Breakpoint, Program> for Machine {
+    fn build_message(
+        &mut self,
+        instruction: &debug::Breakpoint,
+        context: &Program,
+    ) -> eyre::Result<vihaco_stdlib::debugger::BreakpointMessage> {
+        <vihaco_stdlib::debugger::BreakpointMessage as ReusableMessageRecipe<
+            Self,
+            DebuggerField,
+            debug::Breakpoint,
+            Program,
+        >>::prepare(self, instruction, context)
+    }
+}
 
 impl HasBreakpointInstruction for Instruction {
     fn new_breakpoint() -> Self {

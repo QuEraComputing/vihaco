@@ -716,7 +716,7 @@ use vihaco_stdlib::{
     ExecutionState,
     execution_state::{execute_instruction, run},
 };
-# use vihaco::{BuildMessage, Execute, HasInstructionSet, Step, composite, field};
+# use vihaco::{BuildMessage, Execute, HasInstructionSet, ReusableMessageRecipe, Step, composite, field};
 # use vihaco_stdlib::program::program;
 # #[composite]
 # struct Machine {
@@ -725,6 +725,16 @@ use vihaco_stdlib::{
 # }
 # type Instruction = <Machine as HasInstructionSet>::Runtime;
 # type Program = LocalModule<Instruction, (), ()>;
+# impl<I, M> BuildMessage<field!(Machine::execution), I, Program, M> for Machine
+# where
+#     ExecutionState: Execute<I, Message = M>,
+#     M: ReusableMessageRecipe<Self, field!(Machine::execution), I, Program>,
+# {
+#     fn build_message(&mut self, instruction: &I, context: &Program) -> eyre::Result<M> {
+#         <M as ReusableMessageRecipe<Self, field!(Machine::execution), I, Program>>
+#             ::prepare(self, instruction, context)
+#     }
+# }
 # impl<I> Step<field!(Machine::execution), I, Program> for Machine
 # where
 #     ExecutionState: Execute<I, Effect = (), Error = eyre::Report>,

@@ -4,7 +4,9 @@
 #![cfg(feature = "program-image-execution")]
 
 use vihaco_module::module::{FunctionInfo, LocalModule, Signature};
-use vihaco_runtime::{Apply, BuildMessage, Execute, HasInstructionSet, Step, composite, field};
+use vihaco_runtime::{
+    Apply, BuildMessage, Execute, HasInstructionSet, ReusableMessageRecipe, Step, composite, field,
+};
 use vihaco_stdlib::{
     ExecutionState, Image, Loadable, RunState,
     debugger::{DebugAction, DebuggerState, HasBreakpointInstruction, dialect::debug},
@@ -26,6 +28,36 @@ type Instruction = <Machine as HasInstructionSet>::Runtime;
 type Program = LocalModule<Instruction, vihaco_abi::Value, vihaco_abi::Type>;
 type Loaded = Loadable<Image<Instruction>, Machine>;
 type DebuggerField = field!(Machine::debugger);
+
+// This machine delegates message construction to the standard recipes.
+impl<I, M> BuildMessage<field!(Machine::execution), I, Program, M> for Machine
+where
+    ExecutionState<DebuggerState>: Execute<I, Message = M>,
+    M: ReusableMessageRecipe<Self, field!(Machine::execution), I, Program>,
+{
+    fn build_message(&mut self, instruction: &I, context: &Program) -> eyre::Result<M> {
+        <M as ReusableMessageRecipe<Self, field!(Machine::execution), I, Program>>::prepare(
+            self,
+            instruction,
+            context,
+        )
+    }
+}
+
+impl BuildMessage<DebuggerField, debug::Breakpoint, Program> for Machine {
+    fn build_message(
+        &mut self,
+        instruction: &debug::Breakpoint,
+        context: &Program,
+    ) -> eyre::Result<vihaco_stdlib::debugger::BreakpointMessage> {
+        <vihaco_stdlib::debugger::BreakpointMessage as ReusableMessageRecipe<
+            Self,
+            DebuggerField,
+            debug::Breakpoint,
+            Program,
+        >>::prepare(self, instruction, context)
+    }
+}
 
 impl HasBreakpointInstruction for Instruction {
     fn new_breakpoint() -> Self {
@@ -265,6 +297,54 @@ fn displaced_call_returns_to_the_instruction_after_the_call() -> eyre::Result<()
     assert!(loaded.machine().execution.is_halted());
     assert_eq!(loaded.machine().execution.stack(), &[42]);
     assert_eq!(loaded.machine().executed, 4);
+    Ok(())
+}
+
+#[test]
+fn conditional_branches_and_indirect_calls_use_debugger_execution_state() -> eyre::Result<()> {
+    for (condition, expected) in [(0, 9), (1, 7)] {
+        let mut loaded = loaded(vec![
+            constant(condition),
+            Instruction::V_execution__program__ConditionalBranch(program::ConditionalBranch(2, 4)),
+            constant(7),
+            Instruction::V_execution__program__Branch(program::Branch(6)),
+            constant(9),
+            Instruction::V_execution__program__Branch(program::Branch(6)),
+            Instruction::V_execution__program__ConstFunctionRef(program::ConstFunctionRef(
+                vihaco_abi::word::encode_function_ref(1),
+            )),
+            Instruction::V_execution__program__IndirectCall(program::IndirectCall),
+            ret(2),
+            constant(42),
+            ret(1),
+        ]);
+        let (mut image, machine) = loaded.into_parts();
+        image.module.functions = vec![function(0, 9), function(9, 11)];
+        loaded = Loadable::new(image, machine);
+        loaded.set_breakpoint::<DebuggerField>(1);
+        loaded.set_breakpoint::<DebuggerField>(7);
+        loaded.start(&[])?;
+
+        loaded.resume_with_breaks::<DebuggerField>(DebugAction::Continue)?;
+        assert_paused(&loaded, 1);
+        loaded.resume_with_breaks::<DebuggerField>(DebugAction::Step)?;
+        assert_eq!(
+            loaded.machine().execution.pc(),
+            if condition == 0 { 4 } else { 2 }
+        );
+        assert!(loaded.machine().execution.stack().is_empty());
+
+        loaded.resume_with_breaks::<DebuggerField>(DebugAction::Continue)?;
+        assert_paused(&loaded, 7);
+        loaded.resume_with_breaks::<DebuggerField>(DebugAction::Step)?;
+        assert_eq!(loaded.machine().execution.pc(), 9);
+        assert_eq!(loaded.machine().execution.frames().len(), 2);
+        assert_eq!(loaded.machine().execution.stack(), &[expected]);
+
+        loaded.resume_with_breaks::<DebuggerField>(DebugAction::Continue)?;
+        assert!(loaded.machine().execution.is_halted());
+        assert_eq!(loaded.machine().execution.stack(), &[expected, 42]);
+    }
     Ok(())
 }
 

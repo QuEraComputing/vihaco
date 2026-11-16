@@ -39,7 +39,7 @@ use crate::{ExecutionState, RunState, debugger::dialect::debug};
 use std::{collections::BTreeMap, convert::Infallible};
 use vihaco_module::module::LocalModule;
 use vihaco_runtime::{
-    Apply, AutomaticMessage, Execute, HasProgram, Message, PrepareMessage, Reset, component,
+    Apply, Execute, HasProgram, Message, Reset, ReusableMessageRecipe, component,
 };
 
 /// Select continuous execution or a single step.
@@ -187,9 +187,8 @@ pub struct BreakpointMessage<K = u32> {
 
 impl<K: 'static> Message for BreakpointMessage<K> {}
 
-impl<K> AutomaticMessage for BreakpointMessage<K> {}
-
-impl<P, F, Context: ?Sized> PrepareMessage<P, F, debug::Breakpoint, Context> for BreakpointMessage
+impl<P, F, Context: ?Sized> ReusableMessageRecipe<P, F, debug::Breakpoint, Context>
+    for BreakpointMessage
 where
     P: HasProgram<Program = ExecutionState<DebuggerState>>,
 {

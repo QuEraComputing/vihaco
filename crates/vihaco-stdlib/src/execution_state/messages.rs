@@ -24,7 +24,7 @@ impl vihaco_runtime::Message for BranchMessage {}
 
 impl vihaco_runtime::Message for CallMessage {}
 
-impl<P, F, Code, V, Ty, Info>
+impl<P, F, Code, V, Ty, Info, S>
     ReusableMessageRecipe<P, F, program::Branch, LocalModule<Code, V, Ty, Info>> for BranchMessage
 where
     P: HasProgram<Program = ExecutionState<S>>,
@@ -45,7 +45,7 @@ where
     }
 }
 
-impl<P, F, Code, V, Ty, Info>
+impl<P, F, Code, V, Ty, Info, S>
     ReusableMessageRecipe<P, F, program::ConditionalBranch, LocalModule<Code, V, Ty, Info>>
     for BranchMessage
 where
@@ -72,7 +72,7 @@ where
     }
 }
 
-impl<P, F, Code, V, Ty, Info>
+impl<P, F, Code, V, Ty, Info, S>
     ReusableMessageRecipe<P, F, program::Call, LocalModule<Code, V, Ty, Info>> for CallMessage
 where
     P: HasProgram<Program = ExecutionState<S>>,
@@ -103,7 +103,7 @@ where
     }
 }
 
-impl<P, F, Code, V, Ty, Info>
+impl<P, F, Code, V, Ty, Info, S>
     ReusableMessageRecipe<P, F, program::IndirectCall, LocalModule<Code, V, Ty, Info>>
     for CallMessage
 where
