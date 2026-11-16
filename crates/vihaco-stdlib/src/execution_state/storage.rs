@@ -80,12 +80,24 @@ impl<S> ExecutionState<S> {
         self.pc
     }
 
-    pub(crate) fn resume_at(&mut self, pc: u32) {
+    /// Select a continuation and make the invocation runnable.
+    ///
+    /// Intended for custom runners resuming a suspended invocation. This does
+    /// not create a frame or validate `pc`; the caller must retain the active
+    /// invocation and choose a position in its original module. The next
+    /// [`super::execute_instruction`] call checks the frame and fetch position.
+    pub fn resume_at(&mut self, pc: u32) {
         self.pc = pc;
         self.run_state = RunState::Runnable;
     }
 
-    pub(crate) fn suspend(&mut self, state: S) {
+    /// Suspend the invocation with component-specific state.
+    ///
+    /// A component's effect handler can use this to stop the shared runner.
+    /// During dispatch, the runner restores the PC to the current instruction;
+    /// save any desired continuation in `state` before suspending. A custom
+    /// runner can later inspect [`Self::run_state`] and call [`Self::resume_at`].
+    pub fn suspend(&mut self, state: S) {
         self.run_state = RunState::Other(state);
     }
 

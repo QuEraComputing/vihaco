@@ -675,6 +675,146 @@ As the code grows, put implementations into modules by instruction family and
 backend. Shared message preparation stays with the composite; the computation
 stays with the device.
 
+## Give a component its own runner
+
+Some components need host-side work between instructions: a debugger must stop
+and resume at breakpoints, while a device driver might wait for an event or
+limit how much work happens in one call. Keep that policy in a runner alongside
+the component. The component still implements `Execute`, and the composite's
+authored `Step` still chooses how to apply its effects.
+
+The debugger's `resume_with_breaks` is one example. Its machine uses
+`ExecutionState<DebuggerState>`; applying the debugger's `Break` effect suspends
+the invocation. The runner interprets `Continue` or `Step`, selects the next
+continuation, and executes a saved instruction when resuming a gutter
+breakpoint. Ordinary `resume` leaves a suspended invocation untouched.
+
+You can build your own runner from the public helpers in
+`vihaco_stdlib::execution_state`:
+
+| Helper | Responsibility |
+| --- | --- |
+| `run(machine, initialize, step)` | Reject reentrant execution, initialize per-call driver state, and call `step` while the invocation is runnable. |
+| `execute_instruction(module, machine, instruction_override)` | Check and fetch the current instruction, advance the PC, and dispatch it. Restore the PC on an error, halt, or suspension. |
+
+`run` calls `initialize` once, even when the invocation is halted or suspended.
+It passes the resulting state to each `step` call. A step returns
+`ControlFlow::Continue(())` to keep driving or `ControlFlow::Break(())` to return
+to the host without changing the invocation's run state. The execution guard is
+released when either closure returns an error; stack, frame, and device
+mutations are retained. The guard is not released if a closure panics.
+
+For example, this runner executes at most `budget` instructions per call. It
+uses the same checked dispatch as the ordinary runner and leaves the invocation
+runnable when the budget is exhausted:
+
+```rust
+use std::ops::ControlFlow;
+use vihaco::{Dispatch, HasProgram, module::LocalModule};
+use vihaco_stdlib::{
+    ExecutionState,
+    execution_state::{execute_instruction, run},
+};
+# use vihaco::{BuildMessage, Execute, HasInstructionSet, Step, composite, field};
+# use vihaco_stdlib::program::program;
+# #[composite]
+# struct Machine {
+#     #[device(0)] #[program]
+#     execution: vihaco_stdlib::ExecutionState,
+# }
+# type Instruction = <Machine as HasInstructionSet>::Runtime;
+# type Program = LocalModule<Instruction, (), ()>;
+# impl<I> Step<field!(Machine::execution), I, Program> for Machine
+# where
+#     ExecutionState: Execute<I, Effect = (), Error = eyre::Report>,
+#     Self: BuildMessage<field!(Machine::execution), I, Program>,
+# {
+#     fn step(&mut self, instruction: &I, module: &Program) -> eyre::Result<()> {
+#         let message = <Self as BuildMessage<field!(Machine::execution), I, Program>>
+#             ::build_message(self, instruction, module)?;
+#         self.execution.execute(instruction, message)
+#     }
+# }
+
+fn resume_for<M, I, V, Ty, Info, S>(
+    module: &LocalModule<I, V, Ty, Info>,
+    machine: &mut M,
+    budget: usize,
+) -> eyre::Result<()>
+where
+    M: HasProgram<Program = ExecutionState<S>>
+        + Dispatch<LocalModule<I, V, Ty, Info>, Instruction = I>,
+{
+    run(
+        machine,
+        |_| Ok(budget),
+        |machine, remaining| {
+            if *remaining == 0 {
+                return Ok(ControlFlow::Break(()));
+            }
+            execute_instruction(module, machine, None)?;
+            *remaining -= 1;
+            Ok(ControlFlow::Continue(()))
+        },
+    )
+}
+# fn main() -> eyre::Result<()> {
+#     use vihaco::module::{FunctionInfo, Signature};
+#     let module = Program {
+#         code: vec![
+#             Instruction::V_execution__program__ConstU64(program::ConstU64(20)),
+#             Instruction::V_execution__program__ConstU64(program::ConstU64(22)),
+#             Instruction::V_execution__program__Return(program::Return(2)),
+#         ],
+#         main_function: Some(0),
+#         functions: vec![FunctionInfo {
+#             name: 0, signature: Signature { params: vec![], ret: vec![] },
+#             local_count: 0, start_address: 0, end_address: 3, file: 0,
+#         }],
+#         ..Default::default()
+#     };
+#     let mut machine = Machine { execution: ExecutionState::new() };
+#     machine.execution.start(&module, &[])?;
+#     resume_for(&module, &mut machine, 1)?;
+#     assert_eq!(machine.execution.pc(), 1);
+#     assert_eq!(machine.execution.stack(), &[20]);
+#     resume_for(&module, &mut machine, 0)?;
+#     assert_eq!(machine.execution.pc(), 1);
+#     assert_eq!(machine.execution.stack(), &[20]);
+#     resume_for(&module, &mut machine, 10)?;
+#     assert!(machine.execution.is_halted());
+#     assert_eq!(machine.execution.stack(), &[20, 22]);
+#     Ok(())
+# }
+```
+
+Call `ExecutionState::start` before driving a new invocation, and keep supplying
+the same module. Pass `None` to `execute_instruction` for ordinary fetching. The
+debugger passes a saved instruction as `Some(&instruction)` to execute it once
+without removing the installed breakpoint. Even with an override, the PC must
+address an instruction in the module.
+
+For a driver that needs suspension, choose a custom `S` for `ExecutionState<S>`.
+Its effect handler can call `suspend(state)`; the runner sees `RunState::Other`
+and stops. Save the desired continuation in that state before suspending:
+`execute_instruction` restores the PC to the current instruction after dispatch
+suspends. On the next call, your runner's initializer can inspect `run_state()`
+and call `resume_at(pc)` when the driver is ready. `resume_at` selects a PC and
+makes the invocation runnable; it does not create frames or validate the PC.
+The next `execute_instruction` checks the active frame and fetch position.
+
+The debugger exposes its driver as a free `resume_with_breaks` function and a
+`Loadable` convenience method. Library code can also add inherent methods in
+`impl ExecutionState<DriverState>` blocks. In an external crate, Rust does not
+allow inherent impls on the library's `ExecutionState` or `Loadable`. Publish a
+free runner function, implement your own extension trait for those types, or
+add a method on an application-owned wrapper. You can expose the driver-specific
+entry point without changing the shared execution machinery.
+
+See the [debugger runner source](https://github.com/QuEraComputing/vihaco/blob/main/crates/vihaco-stdlib/src/debugger/runner.rs)
+for the breakpoint policy, and run the complete integration example with
+`cargo run -p vihaco-stdlib --features program-image-execution --example debugger`.
+
 ## Typed interactive execution
 
 A REPL or application command can construct a leaf instruction and call its

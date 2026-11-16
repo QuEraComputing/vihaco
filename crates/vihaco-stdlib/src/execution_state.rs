@@ -7,6 +7,8 @@
 //! the private PC, and execution flags. A runner borrows both the module and the
 //! machine; instructions borrow the module while authored Steps mutate devices.
 //! Component authors choose messages/effects, without implementing stack logic.
+//! Custom drivers can wrap [`run`] and [`execute_instruction`] to change
+//! initialization, instruction selection, and when control returns to the host.
 //!
 //! ```
 //! use vihaco_abi::{Type, Value};
@@ -90,7 +92,7 @@ mod messages;
 pub(crate) mod runner;
 mod storage;
 
-pub use runner::{execute, resume};
+pub use runner::{execute, execute_instruction, resume, run};
 
 /// No custom execution state is available. By using this for the
 /// default in [`RunState`], we can get exhaustive pattern matching

@@ -65,7 +65,23 @@ where
     )
 }
 
-pub(crate) fn run<M, S, State>(
+/// Drive an invocation with caller-defined initialization and iteration policy.
+///
+/// After rejecting reentrant execution, calls `initialize` once, including for
+/// halted or suspended invocations. The returned state is passed to `step` on
+/// each iteration while the program is [`RunState::Runnable`]. Returning
+/// [`ControlFlow::Break`] ends this call without changing the program's run
+/// state. Use [`execute_instruction`] inside `step` for checked fetch/dispatch.
+///
+/// Call [`ExecutionState::start`] before running a new invocation. Initialization
+/// can inspect a suspended invocation and call [`ExecutionState::resume_at`] to
+/// continue it. The execution guard is released on both success and returned
+/// errors; unwinding through a panic does not release it. Device mutations are
+/// retained, so the caller chooses whether an error can be retried.
+///
+/// # Errors
+/// Rejects reentrant execution and propagates initialization or step errors.
+pub fn run<M, S, State>(
     machine: &mut M,
     initialize: impl FnOnce(&mut M) -> eyre::Result<State>,
     mut step: impl FnMut(&mut M, &mut State) -> eyre::Result<ControlFlow<()>>,
@@ -92,7 +108,25 @@ where
     result
 }
 
-pub(crate) fn execute_instruction<M, I, V, Ty, Info, S>(
+/// Fetch and dispatch one instruction with the standard PC and error semantics.
+///
+/// Requires a runnable invocation with an active frame. Fetch checks the PC
+/// against `module.code`, then advances it before calling the authored dispatch.
+/// On a dispatch error, halt, or suspension, the PC is restored to the fetched
+/// position. Other stack, frame, and device mutations are retained.
+///
+/// `instruction_override` replaces the fetched instruction for this dispatch
+/// only. The PC must still address a valid module instruction. The debugger
+/// uses this to execute a gutter breakpoint's displaced instruction without
+/// removing the installed trap. Pass `None` for ordinary instruction fetching.
+///
+/// This helper does not acquire the execution guard itself. Custom runners
+/// should call it inside [`run`] and supply the invocation's original module.
+///
+/// # Errors
+/// Rejects a non-runnable invocation, missing frame, invalid PC, or PC overflow,
+/// and propagates dispatch errors.
+pub fn execute_instruction<M, I, V, Ty, Info, S>(
     module: &LocalModule<I, V, Ty, Info>,
     machine: &mut M,
     instruction_override: Option<&I>,
