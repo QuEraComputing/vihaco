@@ -1,8 +1,9 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-use super::ExecutionState;
 use super::instruction_out_of_bounds;
+use super::{ExecutionState, RunState};
+use std::ops::ControlFlow;
 use vihaco_abi::word::Word;
 use vihaco_module::module::LocalModule;
 use vihaco_runtime::{Dispatch, HasProgram};
@@ -15,13 +16,13 @@ use vihaco_runtime::{Dispatch, HasProgram};
 /// # Errors
 /// Returns entry, checked-fetch, or authored Dispatch/Step errors. Operand and
 /// component mutations made before an error are retained.
-pub fn execute<M, I, V, Ty, Info>(
+pub fn execute<M, I, V, Ty, Info, S>(
     module: &LocalModule<I, V, Ty, Info>,
     machine: &mut M,
     arguments: &[Word],
 ) -> eyre::Result<()>
 where
-    M: HasProgram<Program = ExecutionState>
+    M: HasProgram<Program = ExecutionState<S>>
         + Dispatch<LocalModule<I, V, Ty, Info>, Instruction = I>,
 {
     machine.program_mut().start(module, arguments)?;
@@ -42,13 +43,31 @@ where
 /// # Errors
 /// Rejects reentrant execution, invalid running state, invalid fetches, PC
 /// overflow, or a failure returned by the authored Dispatch/Step.
-pub fn resume<M, I, V, Ty, Info>(
+pub fn resume<M, I, V, Ty, Info, S>(
     module: &LocalModule<I, V, Ty, Info>,
     machine: &mut M,
 ) -> eyre::Result<()>
 where
-    M: HasProgram<Program = ExecutionState>
+    M: HasProgram<Program = ExecutionState<S>>
         + Dispatch<LocalModule<I, V, Ty, Info>, Instruction = I>,
+{
+    run(
+        machine,
+        |_| Ok(()),
+        |machine, ()| {
+            execute_instruction(module, machine, None)?;
+            Ok(ControlFlow::Continue(()))
+        },
+    )
+}
+
+pub(crate) fn run<M, S, State>(
+    machine: &mut M,
+    initialize: impl FnOnce(&mut M) -> eyre::Result<State>,
+    mut step: impl FnMut(&mut M, &mut State) -> eyre::Result<ControlFlow<()>>,
+) -> eyre::Result<()>
+where
+    M: HasProgram<Program = ExecutionState<S>>,
 {
     let program = machine.program_mut();
     eyre::ensure!(
@@ -56,29 +75,43 @@ where
         "program execution is already in progress"
     );
     program.executing = true;
-    // Capture code once from the independent module borrow.
-    let code = &module.code;
     let result = (|| {
-        while !machine.program().halted {
-            let program = machine.program_mut();
-            program.ensure_running()?;
-            let position = program.pc;
-            let instruction = code
-                .get(position as usize)
-                .ok_or_else(|| instruction_out_of_bounds(position, code.len()))?;
-            program.pc = position
-                .checked_add(1)
-                .ok_or_else(|| eyre::eyre!("program counter overflow"))?;
-            // `instruction` borrows the external module, never machine.
-            let result = machine.dispatch(instruction, module);
-            let program = machine.program_mut();
-            if result.is_err() || program.halted {
-                program.pc = position;
+        let mut state = initialize(machine)?;
+        while matches!(machine.program().run_state, RunState::Runnable) {
+            if step(machine, &mut state)?.is_break() {
+                break;
             }
-            result?;
         }
         Ok(())
     })();
     machine.program_mut().executing = false;
+    result
+}
+
+pub(crate) fn execute_instruction<M, I, V, Ty, Info, S>(
+    module: &LocalModule<I, V, Ty, Info>,
+    machine: &mut M,
+    instruction_override: Option<&I>,
+) -> eyre::Result<()>
+where
+    M: HasProgram<Program = ExecutionState<S>>
+        + Dispatch<LocalModule<I, V, Ty, Info>, Instruction = I>,
+{
+    let program = machine.program_mut();
+    program.ensure_running()?;
+    let position = program.pc;
+    let fetched = module
+        .code
+        .get(position as usize)
+        .ok_or_else(|| instruction_out_of_bounds(position, module.code.len()))?;
+    let instruction = instruction_override.unwrap_or(fetched);
+    program.pc = position
+        .checked_add(1)
+        .ok_or_else(|| eyre::eyre!("program counter overflow"))?;
+    let result = machine.dispatch(instruction, module);
+    let program = machine.program_mut();
+    if result.is_err() || !matches!(program.run_state, RunState::Runnable) {
+        program.pc = position;
+    }
     result
 }

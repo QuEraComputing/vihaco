@@ -41,15 +41,19 @@ impl<Inst, V, Ty, Info, M: Composite> Loadable<Image<Inst, V, Ty, Info>, M> {
         &mut self.machine
     }
 
+    pub(crate) fn parts_mut(&mut self) -> (&mut Image<Inst, V, Ty, Info>, &mut M) {
+        (&mut self.image, &mut self.machine)
+    }
+
     /// Consume the owner, returning its image and machine without resetting them.
     pub fn into_parts(self) -> (Image<Inst, V, Ty, Info>, M) {
         (self.image, self.machine)
     }
 }
 
-impl<Inst, V, Ty, Info, M> Loadable<Image<Inst, V, Ty, Info>, M>
+impl<Inst, V, Ty, Info, M, S> Loadable<Image<Inst, V, Ty, Info>, M>
 where
-    M: Composite + HasProgram<Program = ExecutionState>,
+    M: Composite + HasProgram<Program = ExecutionState<S>>,
 {
     /// Pair an image with a machine, resetting its previous invocation state.
     ///
@@ -81,15 +85,22 @@ where
         Ok(())
     }
 
+    /// Initialize an invocation without executing instructions.
+    pub fn start(&mut self, arguments: &[Word]) -> eyre::Result<()> {
+        self.machine
+            .program_mut()
+            .start(&self.image.module, arguments)
+    }
+
     /// Abandon the invocation, retaining the image and all device state.
     pub fn reset(&mut self) {
         self.machine.program_mut().reset();
     }
 }
 
-impl<Inst, V, Ty, Info, M> Loadable<Image<Inst, V, Ty, Info>, M>
+impl<Inst, V, Ty, Info, M, S> Loadable<Image<Inst, V, Ty, Info>, M>
 where
-    M: HasProgram<Program = ExecutionState>
+    M: HasProgram<Program = ExecutionState<S>>
         + Dispatch<LocalModule<Inst, V, Ty, Info>, Instruction = Inst>,
 {
     /// Start at the program entrypoint with the supplied arguments.

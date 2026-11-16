@@ -5,7 +5,7 @@
 
 use super::program;
 use super::{
-    ExecutionState,
+    ExecutionState, RunState,
     messages::{BranchMessage, CallMessage},
 };
 
@@ -13,7 +13,7 @@ use vihaco_abi::word::Word;
 use vihaco_module::PopStack;
 use vihaco_runtime::{Execute, NoMessage};
 
-impl ExecutionState {
+impl<S> ExecutionState<S> {
     // Direct and indirect calls share checked frame setup and reservation order.
     fn enter(
         &mut self,
@@ -51,7 +51,7 @@ impl ExecutionState {
     }
 }
 
-impl Execute<program::ConstI32> for ExecutionState {
+impl<S> Execute<program::ConstI32> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -64,7 +64,7 @@ impl Execute<program::ConstI32> for ExecutionState {
     }
 }
 
-impl Execute<program::ConstI64> for ExecutionState {
+impl<S> Execute<program::ConstI64> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -77,7 +77,7 @@ impl Execute<program::ConstI64> for ExecutionState {
     }
 }
 
-impl Execute<program::ConstU32> for ExecutionState {
+impl<S> Execute<program::ConstU32> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -90,7 +90,7 @@ impl Execute<program::ConstU32> for ExecutionState {
     }
 }
 
-impl Execute<program::ConstU64> for ExecutionState {
+impl<S> Execute<program::ConstU64> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -103,7 +103,7 @@ impl Execute<program::ConstU64> for ExecutionState {
     }
 }
 
-impl Execute<program::ConstF32> for ExecutionState {
+impl<S> Execute<program::ConstF32> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -116,7 +116,7 @@ impl Execute<program::ConstF32> for ExecutionState {
     }
 }
 
-impl Execute<program::ConstF64> for ExecutionState {
+impl<S> Execute<program::ConstF64> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -129,7 +129,7 @@ impl Execute<program::ConstF64> for ExecutionState {
     }
 }
 
-impl Execute<program::ConstBool> for ExecutionState {
+impl<S> Execute<program::ConstBool> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -142,7 +142,7 @@ impl Execute<program::ConstBool> for ExecutionState {
     }
 }
 
-impl Execute<program::ConstString> for ExecutionState {
+impl<S> Execute<program::ConstString> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -155,7 +155,7 @@ impl Execute<program::ConstString> for ExecutionState {
     }
 }
 
-impl Execute<program::ConstFunctionRef> for ExecutionState {
+impl<S> Execute<program::ConstFunctionRef> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -172,7 +172,7 @@ impl Execute<program::ConstFunctionRef> for ExecutionState {
     }
 }
 
-impl Execute<program::ConstHeapRef> for ExecutionState {
+impl<S> Execute<program::ConstHeapRef> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -185,7 +185,7 @@ impl Execute<program::ConstHeapRef> for ExecutionState {
     }
 }
 
-impl Execute<program::LoadI32> for ExecutionState {
+impl<S> Execute<program::LoadI32> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -199,7 +199,7 @@ impl Execute<program::LoadI32> for ExecutionState {
     }
 }
 
-impl Execute<program::LoadI64> for ExecutionState {
+impl<S> Execute<program::LoadI64> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -213,7 +213,7 @@ impl Execute<program::LoadI64> for ExecutionState {
     }
 }
 
-impl Execute<program::LoadU32> for ExecutionState {
+impl<S> Execute<program::LoadU32> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -227,7 +227,7 @@ impl Execute<program::LoadU32> for ExecutionState {
     }
 }
 
-impl Execute<program::LoadU64> for ExecutionState {
+impl<S> Execute<program::LoadU64> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -241,7 +241,7 @@ impl Execute<program::LoadU64> for ExecutionState {
     }
 }
 
-impl Execute<program::LoadF32> for ExecutionState {
+impl<S> Execute<program::LoadF32> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -255,7 +255,7 @@ impl Execute<program::LoadF32> for ExecutionState {
     }
 }
 
-impl Execute<program::LoadF64> for ExecutionState {
+impl<S> Execute<program::LoadF64> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -269,7 +269,7 @@ impl Execute<program::LoadF64> for ExecutionState {
     }
 }
 
-impl Execute<program::LoadBool> for ExecutionState {
+impl<S> Execute<program::LoadBool> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -283,7 +283,7 @@ impl Execute<program::LoadBool> for ExecutionState {
     }
 }
 
-impl Execute<program::StoreI32> for ExecutionState {
+impl<S> Execute<program::StoreI32> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -298,7 +298,7 @@ impl Execute<program::StoreI32> for ExecutionState {
     }
 }
 
-impl Execute<program::StoreI64> for ExecutionState {
+impl<S> Execute<program::StoreI64> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -313,7 +313,7 @@ impl Execute<program::StoreI64> for ExecutionState {
     }
 }
 
-impl Execute<program::StoreU32> for ExecutionState {
+impl<S> Execute<program::StoreU32> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -328,7 +328,7 @@ impl Execute<program::StoreU32> for ExecutionState {
     }
 }
 
-impl Execute<program::StoreU64> for ExecutionState {
+impl<S> Execute<program::StoreU64> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -343,7 +343,7 @@ impl Execute<program::StoreU64> for ExecutionState {
     }
 }
 
-impl Execute<program::StoreF32> for ExecutionState {
+impl<S> Execute<program::StoreF32> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -358,7 +358,7 @@ impl Execute<program::StoreF32> for ExecutionState {
     }
 }
 
-impl Execute<program::StoreF64> for ExecutionState {
+impl<S> Execute<program::StoreF64> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -373,7 +373,7 @@ impl Execute<program::StoreF64> for ExecutionState {
     }
 }
 
-impl Execute<program::StoreBool> for ExecutionState {
+impl<S> Execute<program::StoreBool> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -388,7 +388,7 @@ impl Execute<program::StoreBool> for ExecutionState {
     }
 }
 
-impl Execute<program::Dup> for ExecutionState {
+impl<S> Execute<program::Dup> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -402,7 +402,7 @@ impl Execute<program::Dup> for ExecutionState {
     }
 }
 
-impl Execute<program::Return> for ExecutionState {
+impl<S> Execute<program::Return> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -421,7 +421,7 @@ impl Execute<program::Return> for ExecutionState {
         self.stack.truncate(frame.base + keep);
         self.frames.pop();
         if self.frames.is_empty() {
-            self.halted = true;
+            self.run_state = RunState::Halted;
         } else {
             self.pc = frame.ret_pc;
         }
@@ -429,7 +429,7 @@ impl Execute<program::Return> for ExecutionState {
     }
 }
 
-impl Execute<program::Halt> for ExecutionState {
+impl<S> Execute<program::Halt> for ExecutionState<S> {
     type Message = NoMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -437,12 +437,12 @@ impl Execute<program::Halt> for ExecutionState {
     #[inline]
     fn execute(&mut self, _instruction: &program::Halt, _: NoMessage) -> eyre::Result<()> {
         self.ensure_running()?;
-        self.halted = true;
+        self.run_state = RunState::Halted;
         Ok(())
     }
 }
 
-impl Execute<program::Branch> for ExecutionState {
+impl<S> Execute<program::Branch> for ExecutionState<S> {
     type Message = BranchMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -454,7 +454,7 @@ impl Execute<program::Branch> for ExecutionState {
     }
 }
 
-impl Execute<program::ConditionalBranch> for ExecutionState {
+impl<S> Execute<program::ConditionalBranch> for ExecutionState<S> {
     type Message = BranchMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -470,7 +470,7 @@ impl Execute<program::ConditionalBranch> for ExecutionState {
     }
 }
 
-impl Execute<program::Call> for ExecutionState {
+impl<S> Execute<program::Call> for ExecutionState<S> {
     type Message = CallMessage;
     type Effect = ();
     type Error = eyre::Report;
@@ -486,7 +486,7 @@ impl Execute<program::Call> for ExecutionState {
     }
 }
 
-impl Execute<program::IndirectCall> for ExecutionState {
+impl<S> Execute<program::IndirectCall> for ExecutionState<S> {
     type Message = CallMessage;
     type Effect = ();
     type Error = eyre::Report;

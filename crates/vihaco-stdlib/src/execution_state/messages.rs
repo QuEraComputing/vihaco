@@ -28,10 +28,10 @@ impl vihaco_runtime::AutomaticMessage for BranchMessage {}
 
 impl vihaco_runtime::AutomaticMessage for CallMessage {}
 
-impl<P, F, Code, V, Ty, Info> PrepareMessage<P, F, program::Branch, LocalModule<Code, V, Ty, Info>>
-    for BranchMessage
+impl<P, F, Code, V, Ty, Info, S>
+    PrepareMessage<P, F, program::Branch, LocalModule<Code, V, Ty, Info>> for BranchMessage
 where
-    P: HasProgram<Program = ExecutionState>,
+    P: HasProgram<Program = ExecutionState<S>>,
 {
     #[inline]
     fn prepare(
@@ -49,11 +49,11 @@ where
     }
 }
 
-impl<P, F, Code, V, Ty, Info>
+impl<P, F, Code, V, Ty, Info, S>
     PrepareMessage<P, F, program::ConditionalBranch, LocalModule<Code, V, Ty, Info>>
     for BranchMessage
 where
-    P: HasProgram<Program = ExecutionState>,
+    P: HasProgram<Program = ExecutionState<S>>,
 {
     #[inline]
     fn prepare(
@@ -62,7 +62,7 @@ where
         module: &LocalModule<Code, V, Ty, Info>,
     ) -> eyre::Result<Self> {
         parent.program().ensure_running()?;
-        let condition = <ExecutionState as PopStack<Word>>::pop(parent.program_mut())?;
+        let condition = <ExecutionState<S> as PopStack<Word>>::pop(parent.program_mut())?;
         let target = if condition != 0 {
             instruction.0
         } else {
@@ -76,10 +76,10 @@ where
     }
 }
 
-impl<P, F, Code, V, Ty, Info> PrepareMessage<P, F, program::Call, LocalModule<Code, V, Ty, Info>>
+impl<P, F, Code, V, Ty, Info, S> PrepareMessage<P, F, program::Call, LocalModule<Code, V, Ty, Info>>
     for CallMessage
 where
-    P: HasProgram<Program = ExecutionState>,
+    P: HasProgram<Program = ExecutionState<S>>,
 {
     #[inline(always)]
     fn prepare(
@@ -107,10 +107,10 @@ where
     }
 }
 
-impl<P, F, Code, V, Ty, Info>
+impl<P, F, Code, V, Ty, Info, S>
     PrepareMessage<P, F, program::IndirectCall, LocalModule<Code, V, Ty, Info>> for CallMessage
 where
-    P: HasProgram<Program = ExecutionState>,
+    P: HasProgram<Program = ExecutionState<S>>,
 {
     #[inline]
     fn prepare(
