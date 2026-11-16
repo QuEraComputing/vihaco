@@ -1,4 +1,4 @@
-# Annotated Step Topologies
+# Annotated step topologies
 
 Status: initial design proposal with a runnable
 [`annotated_route`](../crates/vihaco-runtime/examples/annotated_route.rs)
@@ -6,50 +6,46 @@ prototype. New routing APIs remain local to the example.
 
 ## Purpose
 
-Describe each `Step<F, I, Context>` as a static topology graph. Computation nodes
-build a message, execute an instruction, and handle its effects. Edges transfer
-payloads between those nodes. Both nodes and edges support arbitrary static or
-runtime annotations, interpreted by the context passed to the step.
+Each `Step<F, I, Context>` declares a static topology graph. Its computation nodes
+build a message, execute one instruction, and handle the resulting effects.
+Edges carry payloads between nodes. The step's context interprets annotations
+on either nodes or edges, whether their values are static or supplied at runtime.
 
-The graph must expose destinations, operation kinds, connections, payload types,
-and annotation types without executing application behavior. It is both a
-readable description of machine flow and the structure an interpreter executes.
-The earlier `../vihaco-static-top-experiment` provides the historical starting
-point for typed routes and owned continuations.
+The graph must describe destinations, operations, connections, payload types,
+and annotation types without running application code. An author can read the
+message flow, an inspector can visit it, and an interpreter can execute it.
+Typed routes and owned continuations come from the earlier
+`../vihaco-static-top-experiment`.
 
 ## Routes as static topologies
 
-A route declares the structure of one step as concrete Rust types: which
-computations exist, where they occur, which payloads connect them, and which
-branches receive the results. The builder materializes that declaration as a
-value. Its nodes and connections can be inspected without invoking message
+A route's concrete Rust types describe the computations in one step: where they
+run, which payloads connect them, and which branches receive the results. The
+builder constructs a value of that type. Inspecting it does not invoke message
 builders, instruction execution, or effect handlers.
 
-"Static" describes the declared structure, not all the data flowing through it.
-Instructions, prepared messages, effects, and runtime annotation values can vary
-between invocations of the same route type. A scheduler can change when work
-becomes ready while retaining the declared endpoints and dependencies. Failure
-can prevent a downstream node from running without changing the topology that
-was declared.
+The structure is static. Instructions, prepared messages, effects, and runtime
+annotation values can vary between invocations of the same route type. A
+scheduler controls when work becomes ready; the declared endpoints and
+dependencies stay fixed. Failure may prevent a downstream node from running,
+but that node remains part of the declared topology.
 
-For example, a fixed 7 ns DAC delivery and a runtime-valued DAC delivery both
-connect the source's execution node to the DAC's handling node. Their annotation
-representations differ, but both connections are explicit before any waveform
-exists. The context interprets these descriptions; it does not discover their
-destinations by running arbitrary application callbacks.
+For example, a fixed 7 ns DAC delivery and a delivery with a runtime latency both
+connect the source's execution node to the DAC's handling node. The connection
+is known before any waveform exists. The context reads its annotation and
+already knows the destination, without calling application code to find it.
 
-The topology is a graph of computation and transfer, rather than a map of
-physical devices alone. A destination identifies where computation occurs;
-the operation kind distinguishes separate nodes at that destination. The
-connections express payload flow and dependency, independently of the physical
-transport used by an interpreter. Runtime-selected destinations would require
-an explicit dynamic-boundary model, which the prototype does not provide.
+One physical device may host several computation nodes. A destination says where
+computation occurs; the operation kind distinguishes nodes at that destination.
+Connections describe payload flow and dependencies independently of the
+interpreter's physical transport. Supporting destinations chosen at runtime
+would require an explicit boundary in the graph. The prototype has no such
+boundary yet.
 
 ## Route describes the entire annotated graph
 
-`Route` is the public abstraction for a complete step topology. Its associated
-`Graph` type is the canonical description of every computation node, payload
-transfer edge, branch, and annotation:
+`Route` describes a complete step topology. Its associated `Graph` type contains
+every computation node, payload transfer edge, branch, and annotation:
 
 ```rust,ignore
 trait Route: Sized {
@@ -68,26 +64,38 @@ annotation bindings when needed; the built-in topology operations and static
 annotations are zero-sized. The example checks that a route with no runtime
 bindings occupies zero bytes.
 
-The graph is a structured type composition. `Then<Operation, Annotation, Next>`
-represents an annotated node or edge followed by its continuation, and
-`FanOut<Left, Right>` represents branching. Operations retain their field and
+The graph composes these types: `Then<Operation, Annotation, Next>` is an annotated
+node or edge followed by its continuation; `FanOut<Left, Right>` is a branch.
+Operations retain their field and
 instruction parameters, such as `BuildAt<Field, I>`, `MessageWire<Field>`,
 `ExecuteAt<Field>`, `EffectWire<From, To>`, and `HandleAt<Field>`. Annotation
 parameters retain `Static<A>` or `Dynamic<A>` at each graph position.
 
-This combines the graph and executable-route models without maintaining two
-independent descriptions. `Run` implementations compile that concrete graph
-into direct typed calls; `Inspect` implementations optionally visit the same
-concrete types. Execution does not construct or traverse a runtime graph,
-resolve field names, or look up annotations in a registry.
-Only a context that explicitly requests scheduling or other runtime behavior
-introduces the state needed for it.
+`Run` executes this graph through direct typed calls, and `Inspect` visits the
+same types. There is one description to maintain. Execution needs no runtime
+graph traversal, field-name resolution, or annotation registry. A context adds
+runtime state when its behavior requires it, as scheduling does.
+
+The builder, executor, and inspector share one graph description:
+
+```mermaid
+flowchart TD
+    B["Route builder expression"] --> R["DeclaredRoute&lt;I, Graph&gt;"]
+    R --> G["Concrete Graph type: Then, FanOut, End"]
+    G --> E["Run: typed stage calls"]
+    G --> V["Inspect: generic Visitor callbacks"]
+    E --> C["Context: interpret annotations and apply or defer work"]
+    V --> D["Optional topology display and diagnostics"]
+```
+
+The arrows here show API relationships, not additional payload wires. Inspection
+reads the declaration without running component behavior; execution uses that
+same declaration without first building a runtime graph representation.
 
 ### Essential topology types
 
-The core is `Route`, whose associated `Graph` is composed from annotated stages
-and branching. The remaining interfaces construct, execute, suspend, or inspect
-that same graph.
+`Route::Graph` composes annotated stages and branches. The interfaces below
+build, execute, suspend, or inspect that graph.
 
 | Type or trait | Role |
 | --- | --- |
@@ -100,7 +108,7 @@ that same graph.
 | `End` | Terminates a branch |
 | `Static<A>`, `Dynamic<A>`, `Unannotated` | Represent type-only, value-bound, or absent annotations on a stage |
 
-The concrete stage vocabulary is deliberately small:
+The prototype has five stage types:
 
 | Stage | Computation or wire |
 | --- | --- |
@@ -128,11 +136,11 @@ Then<BuildAt>
        -> Then<EffectWire to monitor> -> Then<HandleAt monitor> -> End
 ```
 
-Each `Then` has an independent annotation parameter. `Policy` submits annotated
-work to `Context`, which supplies interpretation. `Run` executes the typed
-composition; `Work<N, Input, Next>` owns a stage's input and continuation, and
-`Resume` lets the context continue that work later. `Inspect` and `Visitor`
-inspect the same graph through generic node and edge callbacks.
+Each `Then` has its own annotation parameter. `Policy` submits annotated work
+to `Context` for interpretation. `Run` executes the composition, while
+`Work<N, Input, Next>` owns a stage's input and continuation so that the context
+can resume it later through `Resume`. `Inspect` and `Visitor` expose generic
+callbacks for the graph's nodes and edges.
 
 `Through`, `Building`, `Forwarding`, `Executing`, `Delivering`, and `Handling` are
 builder states. They construct the graph while enforcing phase order and the
@@ -140,11 +148,10 @@ single instruction-execution boundary; they are not additional graph operations.
 
 ### Static execution and optional inspection
 
-Node versus edge classification is also encoded in types. Each stage has an
-associated `Kind`, using `Computation` or `Wire` markers. Owned work retains
-its concrete operation, input, and continuation types. A context receives that
-classification as a type parameter, so timing annotation compatibility can be
-selected through trait resolution rather than runtime variant checks.
+Each stage's associated `Kind` is either `Computation` or `Wire`. Owned work
+retains its concrete operation, input, and continuation types. Because the
+context receives `Kind` as a type parameter, trait resolution checks annotation
+compatibility at compile time.
 
 Inspection uses generic node and edge callbacks selected by the `Computation`
 and `Wire` types. It does not materialize a tagged graph representation.
@@ -152,14 +159,13 @@ The example scheduler defaults to a zero-sized `NoRecording` observer; selecting
 `RecordingScheduler` explicitly stores operation names and event times as
 application diagnostic output. That output is not used for execution dispatch.
 
-The optimization goal is no routing abstraction overhead relative to equivalent
-handwritten Rust. An immediate route should simplify to the same essential
-message preparation, instruction execution, and effect-handling calls. Runtime
-annotation values, payload ownership, parking, and scheduling retain the costs
-inherent in their requested behavior. The example scheduler's boxed queue is one
-optional backend choice, not a requirement of `Route` or its graph. Code-generation
-comparisons and benchmarks against handwritten baselines remain necessary to
-validate this goal; zero-sized graph values alone do not prove it.
+The performance goal is to compile an immediate route down to the message
+preparation, instruction execution, and effect-handling calls an author would
+write by hand. Runtime annotation storage, payload ownership, parking, and
+scheduling still have their own costs. The example scheduler chooses a boxed
+queue; another backend can choose a different representation. We still need
+code-generation comparisons and benchmarks against handwritten routes.
+Zero-sized graph values alone do not prove that routing has no overhead.
 
 ## Nodes and edges
 
@@ -187,10 +193,10 @@ The example contains four nodes and three edges:
 | Monitor delivery edge | Source execution node to monitor handling node | Make the waveform effect available to the monitor |
 | Monitor handling node | Monitor field | Apply receiver behavior through `Receive<E>` |
 
-Edges express logical payload availability even when both endpoints occupy the
-same component. They need not correspond to physical network transport. The
-initial borrowed instruction enters at the route boundary; an incoming
-instruction-delivery edge is not modeled by this prototype.
+An edge describes when a payload becomes available to its consumer, including
+when both endpoints share a component. It need not correspond to a physical
+network. The borrowed instruction enters at the route boundary; the prototype
+does not model its arrival as another edge.
 
 ## Step boundary
 
@@ -258,10 +264,10 @@ are effect-only receivers, while the current composite macro generates field
 routes for instruction devices. Generated accessors should eventually permit
 `deliver_to::<field!(Machine::dac)>()` and the equivalent monitor spelling.
 
-Construction describes the graph without executing it.
-`.inspect::<Machine, _>(&mut visitor)` visits its types without requiring a
-machine instance, context, or instruction value.
-`.start(...)` begins interpretation using borrowed machine and context access.
+Building the route does not execute it.
+`.inspect::<Machine, _>(&mut visitor)` visits the graph's types without a machine
+instance, context, or instruction value. `.start(...)` begins interpretation
+with borrowed access to the machine and context.
 
 ### Waveform computation
 
@@ -273,10 +279,10 @@ machine state into an owned `PulseMessage`. The source's `Execute` computes:
 output_sample = sample * instruction_amplitude * calibration_gain + offset
 ```
 
-The resulting waveform is delivered to two receivers. The DAC handler validates
-its output range and records the waveform. The monitor handler records sample
-count and peak amplitude. Application logic stays in these implementations;
-routing destinations stay explicit in the graph.
+The source delivers the resulting waveform to two receivers. The DAC handler
+validates its output range and records the waveform. The monitor records sample
+count and peak amplitude. These implementations contain the application logic;
+the graph names the destinations.
 
 ### Dynamic timings
 
@@ -363,16 +369,15 @@ deliver_to::<DacField>()
     .annotate_with(ComputeTime(RuntimeTime(duration))) // Node: DAC handling work.
 ```
 
-These describe independent costs. The edge annotation governs payload arrival;
-the node annotation governs computation after arrival. Annotating a node does
-not annotate its incoming or outgoing edges, and annotating one branch does not
-annotate its siblings. Annotations are attached to the graph description and
-preserved through interpretation, rather than applied to arbitrary statements
-inside an operation's implementation.
+The two annotations describe independent costs: payload arrival on the edge,
+then computation at the node. Each annotation applies only to its graph element.
+A node's annotation leaves its wires unchanged, as does one branch's annotation
+for its siblings. The interpreter receives annotations on declared graph
+elements; they do not annotate arbitrary statements inside an operation.
 
-Annotations remain application-defined. Resource requirements, tracing, and
-priority are other possible meanings. The routing core does not mandate timing
-semantics or restrict annotation meanings to nodes or edges.
+Applications define what annotations mean. Besides timing, they could describe
+resource requirements, tracing, or priority. The routing core leaves their
+interpretation and support on nodes or edges to the context.
 
 ### Static and runtime amount representations
 
@@ -442,19 +447,19 @@ A blanket implementation makes compatible contexts qualify automatically. All
 three step variants use `C: MachineContext`. Adding `ComputeTime<ConstNs<13>>` or any
 other supported amount requires no change to these bounds.
 
-The annotation structs themselves identify capabilities. In context bounds,
+The annotation structs also identify context capabilities. In context bounds,
 `ComputeTime` means `ComputeTime<()>` and `DeliveryLatency` means
 `DeliveryLatency<()>`, using the default amount parameter. These forms identify
 semantics without choosing an amount or constructing an annotation instance;
 `()` is not a `TimeAmount` and cannot accidentally supply an actual duration.
 `TraceLabel` directly identifies tracing support too.
 
-Both timing capability forms implement `AnnotationFamily` with interpreted value
-`Duration`. `TraceLabel` uses a label value. `ComputeTime<ConstNs<NS>>` and
-`ComputeTime<RuntimeTime>` map to `ComputeTime<()>`; both representations of
-`DeliveryLatency<Amount>` map to `DeliveryLatency<()>`. No separate family marker
-structs, registry keys, or runtime variants are needed. The associated family
-relationship remains the mechanism for grouping concrete bindings.
+Both timing capability forms implement `AnnotationFamily` with `Value = Duration`.
+`TraceLabel` uses a label value. `ComputeTime<ConstNs<NS>>` and
+`ComputeTime<RuntimeTime>` share the family `ComputeTime<()>`; both forms of
+`DeliveryLatency<Amount>` share `DeliveryLatency<()>`. This associated type groups
+the bindings without separate family marker structs, registry keys, or runtime
+variants.
 
 ```rust,ignore
 trait AnnotationFamily {
@@ -479,11 +484,26 @@ trait Context<M, Family: AnnotationFamily, Kind>: Sized {
 }
 ```
 
-The submission method is generic over the actual binding. The graph and its
-monomorphized submission therefore retain `Static<ComputeTime<ConstNs<7>>>`, including
-its exact constant; the family bound does not erase that type. The scheduler
-extracts the duration at its scheduling boundary, allowing fixed values to be
-constant-folded while reading runtime values when necessary.
+Submission is generic over the binding, so the graph and context method retain
+the full `Static<ComputeTime<ConstNs<7>>>` type, including its constant. The
+scheduler extracts a duration when it schedules the work. Rust can constant-fold
+fixed amounts; the scheduler reads runtime amounts from the binding.
+
+For computation timing, both representations reach the same context capability:
+
+```mermaid
+flowchart TD
+    S["annotate::&lt;ComputeTime&lt;ConstNs&lt;3&gt;&gt;&gt;()"] --> SB["Static binding: amount encoded in the type"]
+    R["annotate_with(ComputeTime(RuntimeTime(duration)))"] --> RB["Dynamic binding: owns the duration"]
+    SB --> F["Family = ComputeTime&lt;()&gt;"]
+    RB --> F
+    F --> C["Context&lt;Machine, ComputeTime, Computation&gt;"]
+    C --> T["Scheduler extracts a Duration at submission"]
+```
+
+The shared family selects the capability bound. Each submission still carries
+its concrete binding type into the generic context method. Delivery latency
+follows the same path with `DeliveryLatency` and `Wire`.
 
 `.annotate::<A>()` supplies a zero-sized `Static<A>` marker. The annotation author
 implements `StaticAnnotation` on `A`, providing its family and a static value
@@ -500,10 +520,10 @@ all fixed and runtime computation durations. Delivery latency is supported on
 fails type checking. Other families can support either or both graph kinds.
 An annotation can still combine static resource identity with runtime quantities.
 
-The current builder supports one annotation per node or edge. Accumulating
-annotations and defining interactions among them remains open. Type-level data
-makes static checks and specialized interpretation possible; it does not by
-itself implement compile-time graph analysis.
+The builder supports one annotation per node or edge. We still need to decide
+how to attach several annotations and how they interact. Types provide the
+information for static checks and specialized interpreters; compile-time graph
+analysis is not implemented yet.
 
 ## Context and timing semantics
 
@@ -536,17 +556,29 @@ For fixed timings:
 | DAC receives waveform | 13 ns |
 | DAC handling completes | 17 ns |
 
-Arrival at the DAC does not apply its receiver handler. It submits a separate
-four-nanosecond computation. That distinction is observable in both the graph
-and scheduler records.
+Each wire delays consumer readiness after producer completion. The diagram uses
+modeled nanoseconds; the scheduler does not wait for wall-clock time:
+
+```mermaid
+flowchart LR
+    B["Build message<br/>ready 0; complete 2"] -->|"Message wire: 1 ns"| X["Execute instruction<br/>ready 3; complete 6"]
+    X -->|"DAC wire: 7 ns"| D["Handle at DAC<br/>ready 13; complete 17"]
+    X -->|"Monitor wire: 0 ns; trace label"| M["Handle at monitor<br/>ready 6; complete 7"]
+```
+
+The monitor completes while the DAC waveform is still in transit. The two
+branches depend on execution completion, not on each other's progress.
+
+When the waveform arrives at the DAC, the scheduler submits its handler as a
+separate four-nanosecond computation. Both the graph and scheduler records
+distinguish arrival from handling.
 
 The scheduler orders equal deadlines by submission sequence, advances modeled
 time without wall-clock waits, and erases continuation types only in its queue.
 Its optional recording observer records each part's ready time, due time, and
-successful completion. The example uses `Cell` and `RefCell` to work through
-`&Context`; this is a
-single-threaded implementation choice. Unannotated parts run synchronously in
-the prototype, so full interpreter control over those parts remains open.
+successful completion. The single-threaded example uses `Cell` and `RefCell`
+to mutate scheduler state through `&Context`. Unannotated stages run synchronously;
+we have not yet decided how an interpreter would take control of those stages.
 
 ## Ownership and message snapshots
 
@@ -561,11 +593,32 @@ Acquire borrowed environment
     -> release borrows
 ```
 
-Submission initially clones the instruction. Message construction is itself
-scheduled, so it reads samples and calibration when its computation body runs.
-In this simulator that is at completion, 2 ns in the fixed route, rather than at
-`Step` submission. The built message owns the snapshot thereafter: changes to
-calibration during message transfer or instruction scheduling do not alter it.
+Across a deferred boundary, owned work survives while the machine borrow ends:
+
+```mermaid
+sequenceDiagram
+    participant D as Driver
+    participant M as Machine
+    participant C as Context / queue
+    D->>C: Take owned ready Work
+    D->>M: Borrow machine for work.resume
+    Note over D,M: Apply one ready stage
+    D->>C: Submit next Work with owned input and continuation
+    Note over D,M: resume returns, machine borrow ends
+    Note over C: Deferred Work is retained without a machine borrow
+    Note over D: Other ready work may progress
+    D->>C: Take next Work when ready
+    D->>M: Resume using a fresh machine borrow
+```
+
+This shows the deferred scheduling path. An immediate context instead resumes
+submitted work synchronously without retaining it in a queue.
+
+Submission clones the instruction. The scheduled message builder reads samples
+and calibration when its body runs: at completion, 2 ns into the fixed route.
+It does not read them at `Step` submission. The built message owns that snapshot,
+so later calibration changes during transfer or instruction scheduling do not
+alter the execution input.
 
 The current shared entry path also clones the instruction for immediate
 execution. A borrowed immediate path should avoid that requirement when no work
@@ -577,12 +630,12 @@ Instruction completion produces a waveform; each effect branch then owns its
 payload through transfer and handling. The prototype clones the waveform for
 one branch and moves it into the other.
 
-`Resume<M, C>` exposes the part's kind and operation as associated types and
-resumes it with fresh borrowed machine/context access. Other implementations might retain an owning
-program reference and instruction index instead of cloning an instruction.
-Consumers with different execution environments, multithreaded workers, and
-alternative sharing strategies remain extension work. Queue work currently
-requires `'static`, not `Send`.
+`Resume<M, C>` exposes a stage's kind and operation as associated types and resumes
+it with fresh borrows of the machine and context. An implementation could instead
+retain an owning program reference and instruction index to avoid cloning the
+instruction. Support for other execution environments, multithreaded workers,
+and sharing strategies remains open. The queue currently requires `'static`
+work; it has no `Send` bound.
 
 The `BuildMessage` call still receives `()` as its preparation context.
 Forwarding runtime preparation context and modeling explicit capture before a
@@ -590,40 +643,49 @@ computation starts require further design.
 
 ## Async execution and parking integration
 
-This is an integration direction, not implemented async support. The current
-prototype defers synchronous work to modeled deadlines. A future or external
-event requires a readiness boundary in addition to that timing behavior.
+The prototype schedules synchronous work at modeled deadlines. Async support is
+still a proposal: it needs a way to wait for a future or external event as well
+as a way to model elapsed time.
 
 ### Parking before work and awaiting work already started
 
-Waiting before execution retains owned instruction/input state until a condition
-is satisfied, then runs the computation once. The graph should declare such a
-wait dependency explicitly. Its static structure identifies what is awaited;
-runtime keys can identify a particular signal, resource, or operation instance.
-Placing the wait before message construction resolves inputs after waking;
-placing it after construction preserves the already-owned snapshot.
+A wait before execution retains the owned instruction and input until its
+condition is satisfied, then runs the computation once. The graph should declare
+this dependency. Its types identify what is awaited; runtime keys can identify
+a particular signal, resource, or operation instance. Wait placement matters:
+before message construction, the builder resolves inputs after waking; after
+construction, execution uses the snapshot it already owns.
 
 Async instruction execution starts an operation once, parks while it is pending,
 and completes the same execution node when its result arrives:
 
-```text
-Build message -> message wire -> execution starts
-                                  -> await completion
-                                  -> execution completes -> effect wires -> handling
+```mermaid
+flowchart LR
+    B["Build message"] --> W["Message wire"]
+    subgraph X["One instruction execution node: proposed async integration"]
+        S["Start operation once"] --> P["Pending owned operation state"]
+        P -->|"Completion event and result"| F["Finish execution"]
+    end
+    W --> S
+    F --> E["Effect wires"] --> H["Handle effects"]
 ```
+
+The execution node starts once and finishes when the result arrives. The phases
+shown inside it would require an extension to the current graph API; they do not
+introduce more `Execute` invocations.
 
 An owned pending value could be a concrete future or a typed wait descriptor.
 It carries operation state and the continuation expecting its completion result.
 On readiness, a typed completion work item supplies the result to the remaining
 graph. Waking must not call the instruction's initial execution again.
 
-The present `Stage::apply`/`Run` path immediately passes an output downstream, and
-`Resume` does not accept an external completion payload. Async execution needs a
-typed adapter or execution contract that distinguishes initiating work from
-continuing with its result. `Execute<I>::Effect` can already be an owned pending
-value, but the graph would need explicit support to await and finish it. A future
-borrowing the whole machine across suspension would defeat independent progress;
-prefer owned operation state and handles, reacquiring machine access on completion.
+Today, `Stage::apply`/`Run` immediately passes output downstream, and `Resume`
+cannot accept an external completion payload. Async execution needs a typed
+adapter or contract that separates starting an operation from completing it.
+`Execute<I>::Effect` can already hold an owned pending value, but the graph still
+needs support to wait for it and finish the node. Retain owned operation state
+and handles while waiting, then borrow the machine again on completion. Holding
+a borrow of the whole machine across suspension would block independent work.
 
 ### Runtime driver and instruction issue
 
@@ -634,14 +696,13 @@ not prevent other runnable work from progressing. External tasks can communicate
 results to the machine owner through channels. The graph does not require a
 separate runtime task for every instruction.
 
-The program runner establishes the sequential PC before dispatch. The suspension
-hooks added by [PR #198](https://github.com/QuEraComputing/vihaco/pull/198)
-let a route stop further instruction issue before returning successfully. A
-parking-aware driver still needs a way to associate pending work with its issuing
-invocation and track completion. `Ok(())` from `Step` acknowledges submission; it cannot also indicate that a parked instruction is finished. Save
-the desired continuation PC in the parking state: suspension during dispatch
-restores the visible PC to the originating instruction, and waking must resume
-the owned route rather than redispatch that instruction.
+The program runner sets the sequential PC before dispatch. Its suspension hooks
+([PR #198](https://github.com/QuEraComputing/vihaco/pull/198)) let a route stop
+instruction issue before returning successfully. The driver must associate
+pending work with the invocation that issued it and track completion.
+`Ok(())` from `Step` only acknowledges submission. Save the desired continuation
+PC before suspending: dispatch restores the visible PC to the originating
+instruction, but waking must resume the owned route without redispatching it.
 
 The driver must define which boundary releases the issuing stream: instruction
 completion, a particular effect-handling completion, or an explicit join. Other
@@ -651,25 +712,51 @@ from an earlier invocation.
 
 ### ExecutionState integration
 
-`ExecutionState` retains the program continuation: PC, frames, locals, and
-operand stack. The route's owned continuation retains progress within the
-current instruction. Parking preserves both; it does not start a second
-instruction or reconstruct a frame from scratch.
+Parking preserves two continuations. `ExecutionState` holds the program's PC,
+frames, locals, and operand stack. The owned route work holds progress within
+the current instruction. Resuming uses both without starting another instruction
+or reconstructing a frame.
 
-[PR #198](https://github.com/QuEraComputing/vihaco/pull/198) supplies the
-instruction-issue gate through `ExecutionState<S>` and
-`RunState::{Runnable, Halted, Other(S)}`. `suspend(state)` records a custom state;
-the shared runner loops only while `Runnable`, and `execute_instruction` rejects
-a suspended state. Ordinary `resume` therefore returns without issuing another
-instruction while parked. The separate `executing` flag guards against reentrant
-runner calls; it does not represent parking.
+The suspension gate from [PR #198](https://github.com/QuEraComputing/vihaco/pull/198)
+uses `ExecutionState<S>` with `RunState::{Runnable, Halted, Other(S)}`.
+`suspend(state)` stores custom state in `Other`. The shared runner loops only
+while `Runnable`, and `execute_instruction` rejects a suspended state. Calling
+ordinary `resume` while parked therefore returns without issuing an instruction.
+The separate `executing` flag guards against reentrant runner calls.
 
-There is an important PC convention: `execute_instruction` advances the PC before
-dispatch, but restores the originating position if dispatch fails or leaves the
-state other than `Runnable`, including suspension. Save the desired continuation
-before calling `suspend`; `resume_at(pc)` restores it and marks the state runnable.
-Control-flow instructions may already have changed that continuation, so it is
-not necessarily `p + 1`.
+`execute_instruction` advances the PC before dispatch. If dispatch fails or leaves
+the state other than `Runnable`, including suspension, it restores the originating
+position. Save the desired continuation before calling `suspend`; `resume_at(pc)`
+restores it and marks the state runnable. A control-flow instruction may already
+have changed that continuation, so it is not necessarily `p + 1`.
+
+The proposed driver connects the existing execution-state hooks to owned route
+work as follows. `c` is the saved continuation PC, including any control-flow
+change made during dispatch:
+
+```mermaid
+sequenceDiagram
+    participant D as Driver / runner
+    participant S as ExecutionState
+    participant R as Route continuation
+    participant A as Async runtime / event source
+    D->>S: Fetch at p, establish sequential PC
+    D->>R: Begin step, initiate operation once
+    R->>S: Save continuation PC c, suspend(Parked)
+    Note over S: RunState::Other, runner restores PC to p
+    R-->>D: Submission returns successfully
+    Note over D,S: Instruction loop stops, frames and stack remain
+    Note over R: Owned pending work survives
+    A-->>D: Operation completion becomes ready
+    D->>S: In run initializer: resume_at(c)
+    D->>R: Resume saved work with completion result
+    R->>S: Apply results required before next instruction
+    R-->>D: Release boundary reached
+    Note over D,S: Initializer returns Runnable, fetch from resulting PC
+```
+
+This diagram follows a completion that reaches the release boundary. If resumed
+work parks again, it suspends before returning and the fetch loop stays stopped.
 
 The intended lifecycle using these hooks is:
 
@@ -705,25 +792,24 @@ may remain in flight after release if the route's declared completion boundary
 allows that. Other devices or invocations with separate execution state can
 progress while this invocation is parked.
 
-If a backend needs an identifier to find the pending continuation, the custom
-state can additionally hold a `pending: PendingOperationId`. This is optional:
-a driver that already owns and associates the continuation with this execution
-state needs no lookup identifier. Neither a ticket nor `PendingOperationId` is
-an existing vihaco type or a requirement of PR #198.
+If a backend looks up pending continuations by ID, the custom state can also hold
+`pending: PendingOperationId`. A driver that already owns the continuation and
+knows its execution state needs no such ID. "Ticket" and `PendingOperationId`
+are placeholder names, not vihaco types or requirements of PR #198.
 
-Pending work must retain enough invocation and program ownership or identity to
-resume against the correct unchanged module. Reset, cancellation, and invocation
-replacement invalidate old pending work. Cloning an execution snapshot must not
-duplicate a live wait registration. Deferred faults
-retain their originating instruction position without automatically replaying
-an instruction whose state changes may already have occurred.
+Pending work must retain enough ownership or identity to resume the right
+invocation against the same unchanged module. Reset, cancellation, and invocation
+replacement invalidate it. Cloning an execution snapshot must not duplicate a
+live wait registration. Deferred faults keep their originating instruction
+position without automatically replaying side effects that may already have
+occurred.
 
-The execution-state hooks are supplied by PR #198; the routing example has not
-yet integrated them. The remaining work is a driver that connects these hooks to
-owned route continuations, defines result application and the lifetime of pending
-work, and handles readiness and deferred errors. Build that explicit parking path before
-adding an async-runtime adapter. The debugger's displaced-instruction replay is
-specific to breakpoints; an async route resumes its saved continuation instead.
+The routing example has not yet connected owned continuations to these
+execution-state hooks. That needs a driver with rules for applying results,
+retaining pending work, and handling readiness and deferred errors. Implement
+this parking path before adding an async-runtime adapter. The debugger replays
+displaced instructions to handle breakpoints; an async route resumes its saved
+continuation instead.
 
 ### Static topology and backend costs
 
@@ -735,11 +821,11 @@ typed tasks, generated work representations, or queue erasure according to its
 requirements; cross-thread work needs suitable ownership and `Send` bounds at
 that boundary.
 
-Computation-duration annotations describe modeled timing; actual async readiness
-comes from completion events. Their reconciliation, clock domains, and resource
-occupancy must be explicit context policies. First implement an explicit wait
-and typed completion path on a parking-aware driver, then add an async-runtime
-adapter around that path.
+Computation-duration annotations describe modeled timing. Completion events
+determine when async work is actually ready. The context must define how those
+interact, which clocks it uses, and when work occupies resources. The first
+implementation should support explicit waits and typed completion through the
+driver; an async-runtime adapter can then supply readiness events.
 
 ## Failures and completion
 
@@ -756,9 +842,9 @@ runtime outcomes.
 
 ## Framework and user responsibilities
 
-The intended ordinary authoring surface is the machine declaration, component
-behavior, and a route expression in each `Step`. The framework supplies graph
-structure and ownership machinery.
+Machine authors write the machine declaration, component behavior, and a route
+expression in each `Step`. The framework supplies the graph types and ownership
+machinery.
 
 | Concern | Provided by vihaco | Written or selected by the machine author |
 | --- | --- | --- |
@@ -779,12 +865,12 @@ These internals represent nodes and edges, enforce their composition, and
 construct owned continuations. Explicit receiver field accessors are temporary
 scaffolding pending generated access for effect-only destinations.
 
-Annotation authors define new metadata and its context interpretation. Interpreter
-authors implement submission, scheduling or recording, and any resource policy;
-they reuse standard graph work. The example latency types, computation-duration
-types, tracing label, and scheduler should be reusable policies, not copied into
-every machine. Their eventual standard-library or optional-runtime packaging
-remains open; a scheduler for every hardware environment is not assumed.
+Annotation authors define metadata and how a context interprets it. Interpreter
+authors reuse the graph's work types and implement submission, scheduling or
+recording, and resource policies. The timing annotations, tracing label, and
+scheduler should be reusable rather than copied into each machine. We have not
+decided whether they belong in the standard library or an optional runtime
+package. Hardware environments may still need their own schedulers.
 
 ## Prototype and validation
 
@@ -816,12 +902,10 @@ forms, one instruction execution, node and edge timing, calibrated output,
 owned inputs across suspension, preparation and handling failures, snapshot
 timing, zero-sized static graph values, execution without recording, and new
 static amounts submitted through unchanged family bounds. Both generic timing
-annotations are checked to occupy zero bytes with a static amount and one
-`Duration` with a runtime amount. A
-negative compilation check verifies that delivery latency on a computation node
-has no matching scheduler implementation; another rejects a runtime amount in
-the type-only annotation API. Focused execution, formatting, and
-Clippy checks validate the prototype.
+annotations occupy zero bytes with a static amount and one `Duration` with a
+runtime amount, as checked by the assertions. Negative compilation checks reject
+delivery latency on a computation node and a runtime amount in the type-only
+annotation API. Focused runs, formatting, and Clippy checks validate the prototype.
 
 ## Integration questions
 
