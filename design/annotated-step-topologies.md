@@ -1,116 +1,92 @@
 # Annotated Step Topologies
 
-Status: initial design proposal. A runnable prototype lives in
-[`annotated_route`](../crates/vihaco-runtime/examples/annotated_route.rs).
-The routing APIs remain local to that example; they are not library APIs yet.
+Status: initial design proposal with a runnable
+[`annotated_route`](../crates/vihaco-runtime/examples/annotated_route.rs)
+prototype. New routing APIs remain local to the example.
 
 ## Purpose
 
-Introduce a declarative route builder for the execution behavior supplied by
-`Step<F, I, Context>`. A route describes where a message is built, where an
-instruction executes, and where its effects propagate. Its structure must be
-statically inspectable, with explicit destinations and operation kinds.
+Describe each `Step<F, I, Context>` as a static topology graph. Computation nodes
+build a message, execute an instruction, and handle its effects. Edges transfer
+payloads between those nodes. Both nodes and edges support arbitrary static or
+runtime annotations, interpreted by the context passed to the step.
 
-Individual stages carry arbitrary annotations. The context passed to `Step`
-interprets those annotations and determines how work proceeds. A scheduler can
-interpret a delivery latency as a request to apply an effect at `now + latency`;
-another context can execute the same topology immediately.
+The graph must expose destinations, operation kinds, connections, payload types,
+and annotation types without executing application behavior. It is both a
+readable description of machine flow and the structure an interpreter executes.
+The earlier `../vihaco-static-top-experiment` provides the historical starting
+point for typed routes and owned continuations.
 
-The earlier `../vihaco-static-top-experiment` explored typed route builders and
-owned continuations. This proposal adapts that direction to the current `Step`,
-`Field`, `BuildMessage`, and `Execute` interfaces.
+## Routes as static topologies
+
+A route declares the structure of one step as concrete Rust types: which
+computations exist, where they occur, which payloads connect them, and which
+branches receive the results. The builder materializes that declaration as a
+value. Its nodes and connections can be inspected without invoking message
+builders, instruction execution, or effect handlers.
+
+"Static" describes the declared structure, not all the data flowing through it.
+Instructions, prepared messages, effects, and runtime annotation values can vary
+between invocations of the same route type. A scheduler can change when work
+becomes ready while retaining the declared endpoints and dependencies. Failure
+can prevent a downstream node from running without changing the topology that
+was declared.
+
+For example, a fixed 7 ns DAC delivery and a runtime-valued DAC delivery both
+connect the source's execution node to the DAC's handling node. Their annotation
+representations differ, but both connections are explicit before any waveform
+exists. The context interprets these descriptions; it does not discover their
+destinations by running arbitrary application callbacks.
+
+The topology is a graph of computation and transfer, rather than a map of
+physical devices alone. A destination identifies where computation occurs;
+the operation kind distinguishes separate nodes at that destination. The
+connections express payload flow and dependency, independently of the physical
+transport used by an interpreter. Runtime-selected destinations would require
+an explicit dynamic-boundary model, which the prototype does not provide.
+
+## Nodes and edges
+
+A node identifies a computation at a destination. A destination can host more
+than one node: message construction and instruction execution both occur at the
+source field in this example. They are distinct computations with a message
+transfer edge between them.
+
+```mermaid
+flowchart LR
+    B[Build message at source] -->|Message transfer| X[Execute instruction at source]
+    X -->|Waveform delivery| D[Handle effect at DAC]
+    X -->|Waveform delivery| M[Handle effect at monitor]
+```
+
+The example contains four nodes and three edges:
+
+| Graph element | Location or connection | Behavior |
+| --- | --- | --- |
+| Message construction node | Source field | Resolve and validate execution input through `BuildMessage` |
+| Message transfer edge | Source message node to source execution node | Make the prepared message available to execution |
+| Instruction execution node | Source field | Invoke its `Execute<I>` once |
+| DAC delivery edge | Source execution node to DAC handling node | Make the waveform effect available to the DAC |
+| DAC handling node | DAC field | Apply receiver behavior through `Receive<E>` |
+| Monitor delivery edge | Source execution node to monitor handling node | Make the waveform effect available to the monitor |
+| Monitor handling node | Monitor field | Apply receiver behavior through `Receive<E>` |
+
+Edges express logical payload availability even when both endpoints occupy the
+same component. They need not correspond to physical network transport. The
+initial borrowed instruction enters at the route boundary; an incoming
+instruction-delivery edge is not modeled by this prototype.
 
 ## Step boundary
 
-A step has three phases:
+Each declared step contains exactly one instruction execution node:
 
 ```text
-Build the instruction's message
-    -> Execute the instruction
-    -> Propagate the resulting effects
+Build message -> transfer message -> Execute instruction -> propagate effects
 ```
 
-Each declared step contains exactly one instruction execution node. Failures or
-deferred work can prevent that node from running, but the topology cannot declare
-a second execution. `Execute` refers exclusively to instruction execution.
-
-Effect delivery uses a separate receiving contract. Receiving an effect does
-not implicitly invoke another instruction. If a delivery leads to subsequent
-instruction execution, that execution belongs to another step. How such steps
-are initiated remains outside the initial prototype.
-
-The builder encodes these phases in its types. Only the prepared-message phase
-offers `.execute()`. Execution configuration can transition into propagation;
-propagation builders have no `.execute()` method.
-
-## Authoring a topology
-
-The proposed fixed-latency route has this shape:
-
-```rust,ignore
-route_through::<field!(Machine::source)>()
-    .build_message::<commands::Fire>()
-    .execute()
-    .annotate::<FixedLatencyNs<3>>()
-    .fan_out((
-        deliver_to::<field!(Machine::dac)>()
-            .annotate::<FixedLatencyNs<7>>(),
-        deliver_to::<field!(Machine::monitor)>()
-            .annotate_with(TraceLabel("monitor delivery")),
-    ))
-    .start(self, context, instruction)
-```
-
-Construction produces a typed description; `.start(...)` initiates its
-interpretation. The selected source field identifies the component and its
-`Execute<I>` implementation. `BuildMessage` determines that execution's input.
-Delivery fields identify receivers of the resulting effect.
-
-`route_through::<F>()` selects the instruction destination directly, replacing
-the separate `route::<Machine>().at::<F>()` selection. The concrete machine type
-is inferred from `self` at `.start(...)`, where its field and execution bounds
-are checked. Existing field markers identify declaration fields and can be
-shared by generic instantiations; the builder must not assume that it can
-recover a concrete parent type from the marker alone.
-
-`deliver_to::<F>()` constructs a propagation branch directly. Simple deliveries
-do not require a separate `branch()` constructor. Delivery builders have no
-instruction-execution method, preserving the single-execution step boundary.
-
-The runnable prototype still uses `route::<Machine>().at::<F>()` and
-`branch().deliver_to::<F>()`; adopting the constructors above is pending.
-It also uses explicit `DacField` and `MonitorField` implementations because the
-current composite macro generates field routes for instruction devices, while
-these receivers have no instruction inventory. Generated field markers for
-effect-only receivers are needed for the full spelling shown above.
-
-### Message preparation and execution
-
-The example models a waveform controller. `Fire` carries an output channel and
-an amplitude multiplier. Its `BuildMessage` implementation resolves waveform
-samples and calibration from machine state and creates an owned `PulseMessage`.
-Source execution computes each output sample as:
-
-```text
-sample * instruction_amplitude * calibration_gain + calibration_offset
-```
-
-The result is an owned waveform effect. The DAC receiver validates the output
-range and records the waveform; the monitor receiver records peak amplitude and
-sample count. Their receiving behavior is distinct from instruction execution.
-
-Message preparation currently happens when the step is submitted. It snapshots
-the selected samples and calibration, even if execution is deferred. The
-prototype calls `BuildMessage` with `()` as its preparation context. Forwarding
-additional preparation context and annotating preparation itself require further
-design; they are not implemented by the current builder.
-
-### Effect propagation
-
-The source and instruction are fixed by the route prefix. Each propagation
-branch declares a destination field in the topology, rather than hiding that
-destination inside an arbitrary callback. The field's child must implement the
-receiving contract for the effect type:
+Failures can prevent execution, and scheduling can defer it. Neither changes the
+single-execution boundary. `Execute` refers exclusively to instruction execution.
+Receiver computation is a separate node using a separate contract:
 
 ```rust,ignore
 trait Receive<E> {
@@ -118,145 +94,175 @@ trait Receive<E> {
 }
 ```
 
-The prototype fans out one effect into two branches, cloning the effect for the
-first branch and moving it into the second. This ownership policy and the
-two-branch arity are prototype choices. Routing multiple effects, selecting
-effect variants, transformations, and additional branching forms remain open.
+Delivery makes an effect available; handling applies it. Handling does not
+implicitly invoke another instruction. Any subsequent instruction execution
+belongs to another step; how such steps are initiated remains open.
 
-## Static topology and inspection
+Builder states enforce the phase progression. `.execute()` is available after
+message-transfer configuration and disappears once selected. Propagation
+builders provide `.handle_effect()`, with no instruction-execution method.
 
-The route must expose enough structure for a reader or tool to identify:
+## Authoring a topology
 
-- The instruction destination and instruction type.
-- Its message-preparation stage and associated message type.
-- Its single instruction execution.
-- Propagation connections, branch structure, and destination fields.
-- Annotation types and whether values are static or supplied at runtime.
+The fixed-timing route in the prototype is:
 
-Component implementations still define computation and message resolution.
-Static topology describes declared propagation boundaries; it does not reveal
-every read or mutation inside those implementations. Future transformations must
-preserve explicit source and destination information rather than concealing
-connections in opaque operations.
+```rust,ignore
+route_through::<field!(Machine::source)>()
+    .build_message::<commands::Fire>()
+    .annotate::<ComputeTimeNs<2>>()
+    .forward_message()
+    .annotate::<DeliveryLatencyNs<1>>()
+    .execute()
+    .annotate::<ComputeTimeNs<3>>()
+    .fan_out((
+        deliver_to::<DacField>()
+            .annotate::<DeliveryLatencyNs<7>>()
+            .handle_effect()
+            .annotate::<ComputeTimeNs<4>>(),
+        deliver_to::<MonitorField>()
+            .annotate_with(TraceLabel("monitor delivery"))
+            .handle_effect()
+            .annotate::<ComputeTimeNs<1>>(),
+    ))
+    .start(self, context, instruction)
+```
 
-The prototype's inspection method walks concrete route types and produces text
-without building a message or executing a handler. It uses field source names
-and Rust type names. This demonstrates structural inspection, not a stable
-export format or a compile-time analysis engine. Nested-route identity must
-retain the complete typed field path; `Field::SOURCE` alone names only the final
-field and its aliases.
+Each annotation decorates the immediately preceding node or edge. The monitor
+edge demonstrates an application annotation other than timing; this scheduler
+records the label and applies zero transfer delay.
 
-A runtime annotation changes attached data, not the topology's connections.
-An inspector can identify a dynamically valued latency without knowing its value
-until a particular route instance is constructed.
+`route_through::<F>()` selects the instruction field directly. The machine type
+is inferred from `self` at `.start(...)`, where compatibility bounds are checked.
+Field markers identify declaration fields and may be shared by generic
+instantiations; they cannot determine a concrete parent type on their own.
+`deliver_to::<F>()` creates an edge directly, without a separate branch starter.
+
+The prototype uses explicit `DacField` and `MonitorField` implementations. These
+are effect-only receivers, while the current composite macro generates field
+routes for instruction devices. Generated accessors should eventually permit
+`deliver_to::<field!(Machine::dac)>()` and the equivalent monitor spelling.
+
+Construction describes the graph without executing it. `.topology::<Machine>()`
+inspects it without requiring a machine instance, context, or instruction value.
+`.start(...)` begins interpretation using borrowed machine and context access.
+
+### Waveform computation
+
+`Fire` contains an output channel and an amplitude multiplier. Its custom
+`BuildMessage` implementation loads waveform samples and calibration from
+machine state into an owned `PulseMessage`. The source's `Execute` computes:
+
+```text
+output_sample = sample * instruction_amplitude * calibration_gain + offset
+```
+
+The resulting waveform is delivered to two receivers. The DAC handler validates
+its output range and records the waveform. The monitor handler records sample
+count and peak amplitude. Application logic stays in these implementations;
+routing destinations stay explicit in the graph.
+
+### Dynamic timings
+
+The runtime route uses the same nodes and connections, attaching runtime values:
+
+```rust,ignore
+.build_message::<commands::FireRuntime>()
+.annotate_with(DynamicComputeTime(Duration::from_nanos(2)))
+.forward_message()
+.annotate_with(DynamicLatency(Duration::from_nanos(1)))
+.execute()
+.annotate_with(DynamicComputeTime(execution_duration))
+```
+
+Runtime annotations can also decorate delivery edges and handling nodes. The
+example's runtime route uses runtime-valued computation durations for message
+construction and both handlers, as well as runtime delivery latencies. A mixed
+route combines fixed computation durations with runtime DAC delivery latency.
+Dynamic data changes annotation values, not the graph's connections.
+
+## Graph description
+
+The prototype exposes structured metadata rather than a list of opaque operation
+names:
+
+```rust,ignore
+enum Element {
+    Node {
+        site: Site,
+        instruction: Option<&'static str>,
+        input: &'static str,
+        output: &'static str,
+    },
+    Edge {
+        kind: EdgeKind,
+        from: Site,
+        to: Site,
+        payload: &'static str,
+    },
+}
+
+struct Part {
+    element: Element,
+    annotation: Annotation,
+}
+```
+
+A `Site` identifies the concrete machine type, field-marker type, display name,
+and computation kind: message building, instruction execution, or effect
+handling. An edge identifies message transfer or effect delivery and references its
+producer and consumer sites. Repeated
+connections from the execution node describe fan-out; fan-out is structural
+composition rather than a computation node in this prototype.
+
+`Annotation` identifies absent, static, or runtime metadata and retains the
+annotation's Rust type name. Static type names include const parameters. Runtime
+values are owned by the graph but are not exposed by this inspection format.
+
+The same `Element` metadata is available from owned work submitted to the
+context. The scheduler can distinguish a computation from a transfer and record
+readiness and completion/arrival times without inspecting application code.
+
+This representation demonstrates inspection, not a stable export format. Rust
+type names are diagnostic strings, not persistent identifiers. Repeated
+occurrences of the same computation at one field would need occurrence
+identifiers; the example has one node per field/computation-kind pair. Complete
+typed field paths preserve nested-route identity; final field names alone do not.
 
 ## Annotation model
 
-Annotations are application-defined types. Latency, tracing, resource requests,
-and priority are possible meanings; the routing core does not prescribe their
-interpretation.
+The attachment point and the annotation representation are independent:
 
-The builder distinguishes static annotations from runtime values:
-
-```rust,ignore
-.annotate::<FixedLatencyNs<7>>()
-.annotate_with(DynamicLatency(delay))
-```
-
-The static form retains `A` through a type marker such as
-`PhantomData<fn() -> A>`. It constructs no `A` value and requires no `Default`
-implementation. The runtime form owns its annotation value.
-
-```rust,ignore
-struct FixedLatencyNs<const NS: u64>;
-struct DynamicLatency(Duration);
-```
-
-Mixed metadata is also possible: a runtime annotation's type can identify a
-resource statically while its fields carry a runtime quantity. Static and
-runtime annotations can appear on different stages of the same route.
-
-An annotation applies to the immediately preceding stage. Execution latency
-decorates instruction execution; delivery latency decorates that delivery.
-Neither implicitly decorates descendant stages. The prototype permits one
-annotation per supported stage. Accumulation, composition, and interactions
-between annotations are unresolved.
-
-Keeping annotation information in types enables trait-based validation and
-specialized interpretation. Exact compile-time timing analysis would need
-additional traversal and analysis machinery. Even a fixed delay produces a
-runtime deadline when added to the current modeled time.
-
-## Framework and user responsibilities
-
-The intended ordinary user interface is the machine declaration, its component
-behavior, and the route expression inside each authored `Step`. Users select
-an execution context and annotations; they do not implement the builder or
-continuation machinery to use routes.
-
-The following is the proposed library boundary. Existing `Field`, `BuildMessage`,
-`Execute`, and `Step` interfaces already come from vihaco. New routing and
-receiving interfaces are currently example-local and would become library APIs
-as this design is implemented.
-
-| Concern | Provided by vihaco | Written or selected by the machine author |
+| Attachment | Static form | Runtime form |
 | --- | --- | --- |
-| Machine structure | Declaration macros, field-marker generation, and `Field` access machinery | Components, composite fields, and their state |
-| Instruction execution | `Execute<I>` contract and routing to the selected field | Instruction definitions and component `Execute<I>` implementations, or existing components |
-| Message preparation | `BuildMessage` contract, existing automatic preparation for supported message types, and the route node that invokes it | Application message types and custom resolvers when automatic preparation does not apply |
-| Step definition | `Step` contract and builder operations enforcing the phase order | A `Step` implementation that declares its topology and starts it with the supplied context |
-| Effect propagation | Delivery and fan-out nodes, field access, payload compatibility bounds, and a receiving contract | Receiver behavior and explicit destinations; application-specific transformations when needed |
-| Static annotations | Type-position attachment and dispatch to the context without constructing annotation values | Selection of annotation types and constants; custom annotation definitions when needed |
-| Runtime annotations | Value attachment and ownership through interpretation | Values computed from instructions, configuration, or execution input |
-| Deferred work | Standard execution/delivery work types and their resumption implementations | Selection of an existing interpreter; custom boundary data only for specialized integrations |
-| Inspection | Structural traversal of the declared topology | Calls to inspection APIs and any application-specific presentation |
-| Interpretation | Context extension contracts and an immediate interpreter | Selection of a provided context or implementation of an application-specific interpreter |
+| Computation node | `.annotate::<ComputeTimeNs<3>>()` | `.annotate_with(DynamicComputeTime(duration))` |
+| Transfer edge | `.annotate::<DeliveryLatencyNs<7>>()` | `.annotate_with(DynamicLatency(delay))` |
 
-### Ordinary machine authors
-
-For the waveform example, the application supplies `Fire`, `PulseMessage`, the
-source's `Execute` implementation, custom `BuildMessage` logic, and the DAC and
-monitor's receiving behavior. Its `Step` contains the route shown above. A
-consumer reusing those components would only compose them and declare the routes
-and policies appropriate to its machine.
-
-Users should not need to name or implement `ExecutionWork`, `DeliveryWork`,
-`Resume`, `Policy`, annotation wrappers, or builder state types for this path.
-Those types preserve the topology and ownership guarantees behind the public
-builder. Generic route signatures may expose associated bounds, but authoring a
-concrete route should not require manually spelling its nested topology type.
-
-The prototype's explicit `DacField` and `MonitorField` implementations are
-temporary integration scaffolding, not intended routine user work. Generated
-field access for effect-only receivers should eliminate that boilerplate.
-
-### Annotation and interpreter authors
-
-Adding a new annotation meaning requires defining its type and arranging for
-the chosen context to interpret it. A machine author using an already supported
-annotation supplies its type parameter or runtime value; they do not write a
-context implementation for every route or machine. For example, one generic
-`StaticContext<M, FixedLatencyNs<NS>>` implementation handles all fixed values
-and compatible machines.
-
-An interpreter author implements the submission contracts, scheduling or
-recording policy, and any required queue or external-service integration. The
-framework constructs ordinary owned continuations; the interpreter decides when
-to resume them. Only integrations requiring different ownership boundaries or
-consumer environments should need custom continuation representations.
-
-The immediate interpreter is intended to ship with the routing machinery. The
-example's latency types, tracing annotation, and scheduler demonstrate reusable
-policies; their eventual home in a standard-library crate or an optional runtime
-package is still open. They should not be copied into every machine. The initial
-proposal does not assume that vihaco's core includes a scheduler for every
-application or hardware environment.
-
-## Context interpretation
-
-The prototype separates runtime-valued and type-only interpretation:
+The builder's current phase determines the attachment point. For example:
 
 ```rust,ignore
+deliver_to::<DacField>()
+    .annotate::<DeliveryLatencyNs<7>>() // Edge: source output to DAC input.
+    .handle_effect()
+    .annotate_with(DynamicComputeTime(duration)) // Node: DAC handling work.
+```
+
+These describe independent costs. The edge annotation governs payload arrival;
+the node annotation governs computation after arrival. Annotating a node does
+not annotate its incoming or outgoing edges, and annotating one branch does not
+annotate its siblings. Annotations are attached to the graph description and
+preserved through interpretation, rather than applied to arbitrary statements
+inside an operation's implementation.
+
+Annotations remain application-defined. Resource requirements, tracing, and
+priority are other possible meanings. The routing core does not mandate timing
+semantics or restrict annotation meanings to nodes or edges.
+
+One `Context<M, A>` trait handles both representations:
+
+```rust,ignore
+struct Static<A>(PhantomData<fn() -> A>);
+struct Dynamic<A>(A);
+
 trait Context<M, A>: Sized {
     fn submit<W>(
         &self,
@@ -267,156 +273,193 @@ trait Context<M, A>: Sized {
     where
         W: Resume<M, Self> + 'static;
 }
-
-trait StaticContext<M, A>: Sized {
-    fn submit_static<W>(
-        &self,
-        machine: &mut M,
-        work: W,
-    ) -> eyre::Result<()>
-    where
-        W: Resume<M, Self> + 'static;
-}
 ```
 
-The scheduler implements `StaticContext<M, FixedLatencyNs<NS>>` for every
-supported const value. It obtains the delay directly from `NS`. Its runtime
-latency implementation reads the submitted value. Its tracing implementation
-records a label at submission and queues work with zero delay.
+`.annotate::<A>()` supplies a zero-sized static marker. It never constructs an
+`A` value or requires `Default`. `.annotate_with(value)` supplies an owned
+`Dynamic<A>`. Context implementations distinguish them through trait parameters.
+An annotation can also combine static resource identity with runtime quantities.
 
-The immediate interpreter explicitly ignores both forms of annotation and
-resumes work synchronously. Unannotated stages also run synchronously in the
-prototype. A production API must decide whether contexts should control those
-stages too.
+Required context implementations appear in step bounds. A single generic
+implementation can interpret a fixed annotation across constants and compatible
+machines. The example scheduler rejects computation-duration annotations on
+edges and delivery-latency annotations on nodes when work is submitted. Such
+placement checks are interpreter policy; statically enforcing selected policies
+could be added later.
 
-Required context implementations appear in the step's trait bounds. Unsupported
-annotations therefore fail type checking at route execution. Ignoring metadata
-is an explicit interpreter policy.
+The current builder supports one annotation per node or edge. Accumulating
+annotations and defining interactions among them remains open. Type-level data
+makes static checks and specialized interpretation possible; it does not by
+itself implement compile-time graph analysis.
 
-`Step` continues to borrow its context through `&Context`. The example scheduler
-uses `Cell` and `RefCell` to maintain its queue through that reference. These are
-single-threaded implementation choices, not requirements for all interpreters.
+## Context and timing semantics
 
-## Ownership and deferred execution
-
-Execution borrows its environment. At a deferred boundary, the interpreter
-receives an owned description of how to continue, not a closure retaining the
-step's machine borrow.
+The immediate context ignores annotations and completes the graph synchronously.
+The scheduler interprets node computation duration and edge delivery latency
+separately. Inputs are ready when a part is submitted. A computation's modeled
+start is that readiness time; the scheduler applies its body atomically at
+completion, making outputs available then:
 
 ```text
-Borrow machine and context
-    -> prepare input and interpret the route
-    -> construct owned work at a deferred boundary
-    -> submit work and release borrows
-
-Later, acquire an execution environment
-    -> resume work
-    -> propagate results through the remaining topology
+node_completion = node_start + computation_duration
+edge_arrival = producer_completion + delivery_latency
+consumer_start = edge_arrival
 ```
 
-Before instruction execution, owned work carries execution input and the
-remaining propagation topology. After execution, a deferred delivery carries
-its effect and destination. Effects do not have to exist when their downstream
-topology is declared.
+The last equation assumes no resource contention. This simulator does not reserve
+resources or mutate state at computation start. A hardware interpreter could
+instead initiate work and await completion, while retaining the same graph.
 
-The prototype clones the borrowed instruction and owns the prepared message.
-That is one implementation of the boundary. Other machines could retain an
-owning program reference and instruction position, or construct device-specific
-commands understood by another worker. The general requirement is an owned
-continuation with sufficient information for its consumer to resume it.
+For fixed timings:
 
-The current continuation contract reacquires the same machine/context types:
+| Event | Time |
+| --- | --- |
+| Message construction becomes ready | 0 ns |
+| Message construction completes | 2 ns |
+| Prepared message arrives at instruction execution | 3 ns |
+| Instruction completes and produces waveform | 6 ns |
+| Monitor receives waveform | 6 ns |
+| Monitor handling completes | 7 ns |
+| DAC receives waveform | 13 ns |
+| DAC handling completes | 17 ns |
 
-```rust,ignore
-trait Resume<M, C: ?Sized> {
-    fn resume(self, machine: &mut M, context: &C) -> eyre::Result<()>;
-}
-```
+Arrival at the DAC does not apply its receiver handler. It submits a separate
+four-nanosecond computation. That distinction is observable in both the graph
+and scheduler records.
 
-Supporting consumers with different environments or worker ownership models
-requires further design. The example queue requires `'static` work but not
-`Send`; multithreaded scheduling may impose stronger bounds at its boundaries.
+The scheduler orders equal deadlines by submission sequence, advances modeled
+time without wall-clock waits, and erases continuation types only in its queue.
+It records each part's ready time, due time, and successful completion. The
+example uses `Cell` and `RefCell` to work through `&Context`; this is a
+single-threaded implementation choice. Unannotated parts run synchronously in
+the prototype, so full interpreter control over those parts remains open.
 
-## Scheduler semantics and failures
+## Ownership and message snapshots
 
-The example interprets latency as delay before applying an operation. It does
-not model separate start and completion events or reserve a resource for the
-duration of the delay.
+Each deferred part owns its input and remaining graph. Execution borrows its
+environment only while applying a part:
 
 ```text
-t = 0 ns   submit source execution with fixed 3 ns latency
-t = 3 ns   execute source; produce waveform
-           submit DAC delivery with fixed 7 ns latency
-           submit monitor delivery with zero added delay
-t = 3 ns   monitor receives waveform
-t = 10 ns  DAC receives waveform
+Acquire borrowed environment
+    -> apply ready part
+    -> produce owned output and continuation
+    -> submit the next node or edge
+    -> release borrows
 ```
 
-Each delivery delay starts when that delivery is submitted after effect
-production. The scheduler orders equal deadlines by submission sequence. It
-erases concrete continuation types only at its heterogeneous queue.
+Submission initially clones the instruction. Message construction is itself
+scheduled, so it reads samples and calibration when its computation body runs.
+In this simulator that is at completion, 2 ns in the fixed route, rather than at
+`Step` submission. The built message owns the snapshot thereafter: changes to
+calibration during message transfer or instruction scheduling do not alter it.
 
-Successful `Step::step` means the route's initial synchronous work and submission
-succeeded. It does not guarantee deferred completion. Preparation failures are
-returned immediately; deferred execution and delivery failures surface when the
-scheduler resumes work. Existing state changes and successful submissions are
-not rolled back. Fan-out can partially succeed before a later branch fails.
-Cancellation, retries, and broader recovery policy remain open.
+The message-transfer continuation owns both the instruction and prepared message.
+Instruction completion produces a waveform; each effect branch then owns its
+payload through transfer and handling. The prototype clones the waveform for
+one branch and moves it into the other.
+
+`Resume<M, C>` exposes the part's `Element` description and resumes it with fresh
+borrowed machine/context access. Other implementations might retain an owning
+program reference and instruction index instead of cloning an instruction.
+Consumers with different execution environments, multithreaded workers, and
+alternative sharing strategies remain extension work. Queue work currently
+requires `'static`, not `Send`.
+
+The `BuildMessage` call still receives `()` as its preparation context.
+Forwarding runtime preparation context and modeling explicit capture before a
+computation starts require further design.
+
+## Failures and completion
+
+Successful `Step::step` means initial submission succeeded, not that the graph
+completed. Message preparation can now fail later when its node runs. Instruction
+execution and receiver handling can fail at their modeled completion times.
+Failed parts do not produce downstream work; the scheduler returns the error.
+
+Successful mutations, submissions, and other branches are not rolled back. A DAC
+range failure can occur after the monitor has already completed. Cancellation,
+retries, and aggregate completion reporting are unresolved. Finite topology
+inspection and a single instruction execution remain independent of such
+runtime outcomes.
+
+## Framework and user responsibilities
+
+The intended ordinary authoring surface is the machine declaration, component
+behavior, and a route expression in each `Step`. The framework supplies graph
+structure and ownership machinery.
+
+| Concern | Provided by vihaco | Written or selected by the machine author |
+| --- | --- | --- |
+| Machine structure | Declaration macros, generated field markers, `Field` access | Components, composite fields, and state |
+| Message construction | `BuildMessage` contract, existing automatic preparation, and a graph node invoking preparation | Application messages and custom resolvers where needed |
+| Instruction execution | `Execute<I>` contract and field-directed execution node | Instructions and component execution behavior, or reused components |
+| Step topology | Builder with phase checking, message edges, delivery edges, and handling nodes | Explicit destinations, connections, and node/edge annotations |
+| Effect receiving | Receiving contract, field access, and payload compatibility bounds | Receiver behavior and application transformations |
+| Annotation attachment | Static type markers and runtime value ownership | Chosen annotations, constants, values, and any custom annotation definitions |
+| Interpretation | One `Context` extension contract and an immediate interpreter | A provided context or custom scheduling/resource policy |
+| Deferred work | Typed stages, owned inputs, continuations, and resumption | Custom boundary representations only for specialized integrations |
+| Description | Structured node/edge inspection and metadata on submitted work | Inspection calls and application-specific presentation |
+
+Existing `Field`, `BuildMessage`, `Execute`, and `Step` already come from vihaco.
+The new graph APIs are currently example-local. Machine authors should not need
+to implement internal `Stage`, `Run`, `Work`, `Policy`, or builder state types.
+These internals represent nodes and edges, enforce their composition, and
+construct owned continuations. Explicit receiver field accessors are temporary
+scaffolding pending generated access for effect-only destinations.
+
+Annotation authors define new metadata and its context interpretation. Interpreter
+authors implement submission, scheduling or recording, and any resource policy;
+they reuse standard graph work. The example latency types, computation-duration
+types, tracing label, and scheduler should be reusable policies, not copied into
+every machine. Their eventual standard-library or optional-runtime packaging
+remains open; a scheduler for every hardware environment is not assumed.
 
 ## Prototype and validation
 
-The example is split by responsibility:
-
 | File | Responsibility |
 | --- | --- |
-| [framework.rs](../crates/vihaco-runtime/examples/annotated_route/framework.rs) | Proposed builder, typed nodes, context contracts, continuation machinery, and inspection |
-| [contexts.rs](../crates/vihaco-runtime/examples/annotated_route/contexts.rs) | Example latency and tracing policies, and scheduler |
-| [machine.rs](../crates/vihaco-runtime/examples/annotated_route/machine.rs) | Machine, instructions, message builder, source execution, receivers, and authored steps |
-| [annotated_route.rs](../crates/vihaco-runtime/examples/annotated_route.rs) | Executable scenarios and assertions |
-
-Run all three timing variants:
+| [framework.rs](../crates/vihaco-runtime/examples/annotated_route/framework.rs) | Typed graph operations, builder, structured description, and owned work |
+| [contexts.rs](../crates/vihaco-runtime/examples/annotated_route/contexts.rs) | Node duration and edge latency interpretation, scheduling, and event records |
+| [machine.rs](../crates/vihaco-runtime/examples/annotated_route/machine.rs) | Instructions, message builder, source execution, receivers, and authored steps |
+| [annotated_route.rs](../crates/vihaco-runtime/examples/annotated_route.rs) | Inspection, runnable scenarios, and assertions |
 
 ```sh
 cargo run -p vihaco-runtime --example annotated_route --features typed-declarations
 cargo run -p vihaco-runtime --example annotated_route --features typed-declarations -- 2 4
 ```
 
-The arguments supply runtime execution and delivery delays in nanoseconds.
-For the second invocation:
+Arguments supply instruction computation duration and DAC delivery latency in
+nanoseconds. Other durations in the runtime route are runtime-valued annotations
+with example defaults. For the second invocation:
 
-| Route | Source execution | DAC delivery |
-| --- | --- | --- |
-| Fixed 3 ns execution and 7 ns delivery | 3 ns | 10 ns |
-| Runtime 2 ns execution and 4 ns delivery | 2 ns | 6 ns |
-| Fixed 3 ns execution and runtime 4 ns delivery | 3 ns | 7 ns |
+| Route | Instruction completion | Monitor completion | DAC arrival | DAC completion |
+| --- | --- | --- | --- | --- |
+| Fixed | 6 ns | 7 ns | 13 ns | 17 ns |
+| Runtime instruction duration 2 ns and DAC latency 4 ns | 5 ns | 6 ns | 9 ns | 13 ns |
+| Fixed instruction duration and runtime DAC latency 4 ns | 6 ns | 7 ns | 10 ns | 14 ns |
 
-Assertions cover calibrated waveform values, one source execution per successful
-step, delivery timing, instruction ownership across suspension, topology
-inspection, preparation failure, and deferred DAC failure. The default and
-custom-delay runs, formatting, and targeted Clippy checks passed for the current
-prototype.
+Assertions cover graph connectivity and computation kinds, annotation storage
+forms, one instruction execution, node and edge timing, calibrated output,
+owned inputs across suspension, preparation and handling failures, and snapshot
+timing. Focused execution, formatting, and Clippy checks validate the prototype.
 
 ## Integration questions
 
-Before promoting this API into vihaco, resolve:
+Before promoting the API into vihaco, resolve:
 
-1. Adopt `route_through::<F>()` with machine inference at `.start(...)` and
-   direct `deliver_to::<F>()` branches. Provide generated field routes for
-   effect-only receivers and determine whether `Receive` should integrate with
-   existing effect-sink interfaces.
-2. Annotation support for message preparation, multiple annotations on a stage,
-   and interaction between execution policies.
-3. General propagation of zero, one, or many effects; effect selection;
-   transformations; fan-out arity; and ownership or sharing across branches.
-4. Message snapshot timing and the relationship between preparation context and
-   the step's execution context.
-5. Owned execution references beyond instruction cloning, and continuation
-   consumers with different environments or threading requirements.
-6. Structured topology inspection/export, full nested-field identities, and
-   static validation or timing analysis.
-7. Completion, cancellation, ordering, and failure behavior across scheduled
-   work and subsequent steps.
+1. Generated fields for effect-only receivers and integration with existing
+   effect-sink contracts.
+2. Annotation accumulation, composition, and optional static placement checks.
+3. Zero/one/many effects, variant selection, transformations, general fan-out,
+   and payload sharing.
+4. Resource-aware node starts, asynchronous computation completion, message
+   capture semantics, and preparation context forwarding.
+5. Owned program references, consumers with different execution environments,
+   and threading requirements.
+6. Stable topology export, node/edge occurrence identities, dynamic annotation
+   inspection, nested paths, and compile-time analyses.
+7. Completion, cancellation, recovery, and subsequent-step initiation.
 
-The central constraints remain: explicit static topology, a single instruction
-execution per step, generic static and runtime annotations, and owned work at
-deferred boundaries.
+The central constraints are explicit static connections, separately annotatable
+computation nodes and transfer edges, exactly one instruction execution per step,
+and owned continuation data at deferred boundaries.
