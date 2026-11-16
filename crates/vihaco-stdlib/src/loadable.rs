@@ -59,6 +59,14 @@ where
     ///
     /// Device state is retained. No parsing, lowering, or image validation is
     /// performed here; construction of a valid image is the caller's job.
+    ///
+    /// When reusing a machine with a different image, call
+    /// [`Debugger::forget_breakpoints`](crate::debugger::Debugger::forget_breakpoints)
+    /// on each debugger before using it with the new image. Saved instructions
+    /// belong to the discarded image; retaining them can overwrite new code
+    /// when a breakpoint is cleared. To keep the old image usable, restore its
+    /// instructions with [`Debugger::clear_all`](crate::debugger::Debugger::clear_all)
+    /// before separating it from the machine instead.
     pub fn new(image: Image<Inst, V, Ty, Info>, mut machine: M) -> Self {
         machine.program_mut().reset();
         Self { image, machine }
@@ -68,6 +76,15 @@ where
     ///
     /// Device state is retained. Image construction happens before this call;
     /// mutations made by the caller while constructing it are not rolled back.
+    ///
+    /// After replacement succeeds, call
+    /// [`Debugger::forget_breakpoints`](crate::debugger::Debugger::forget_breakpoints)
+    /// on each debugger before using it again. This discards instructions saved
+    /// from the old image, which must never be restored into the replacement.
+    /// Do not forget them before this call: if replacement is rejected, the old
+    /// image still needs those instructions to clear or resume its breakpoints.
+    /// Invocation-only [`Self::reset`] calls retain the image and its breakpoints.
+    /// See the `debugger` Cargo example for the replacement and reuse sequence.
     ///
     /// # Errors
     ///
@@ -122,6 +139,8 @@ where
     ///
     /// Returns the runner's state, instruction-fetch, or dispatch errors without
     /// rolling back machine mutations. A halted invocation remains halted.
+    /// A suspended invocation also remains suspended; use
+    /// [`Self::resume_with_breaks`] to continue from a debugger breakpoint.
     pub fn resume(&mut self) -> eyre::Result<()> {
         execution_state::resume(&self.image.module, &mut self.machine)
     }

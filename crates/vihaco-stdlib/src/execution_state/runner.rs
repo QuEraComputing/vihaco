@@ -29,7 +29,7 @@ where
     resume(module, machine)
 }
 
-/// Continue an invocation until Halt/root return or an error.
+/// Continue a runnable invocation until halt, root return, suspension, or error.
 ///
 /// Fetch establishes the sequential continuation before the Step runs. Program
 /// instructions can replace that continuation. A fault or terminal instruction
@@ -39,6 +39,10 @@ where
 /// invocation. This checked API validates accesses, but does not enforce module
 /// identity. After an error, earlier operand consumption and effects remain;
 /// the caller is responsible for deciding whether the invocation can resume.
+///
+/// A halted or suspended invocation returns successfully without executing any
+/// instructions. For a debugger breakpoint, use
+/// [`crate::debugger::resume_with_breaks`] to resume the suspended invocation.
 ///
 /// # Errors
 /// Rejects reentrant execution, invalid running state, invalid fetches, PC

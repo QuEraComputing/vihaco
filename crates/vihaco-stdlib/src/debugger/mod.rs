@@ -1,6 +1,33 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
+//! Breakpoints and single stepping for program-image execution.
+//!
+//! Use [`crate::ExecutionState<DebuggerState>`] as the machine's program device
+//! and [`Debugger<u32, I>`] as a debugger device, where `I` is the machine's
+//! runtime instruction type. Implement [`HasBreakpointInstruction`] for `I`.
+//! The debugger's authored `Step` builds a [`BreakpointMessage`], executes the
+//! debugger, and applies its [`Break`] effect to the execution state.
+//!
+//! Call [`crate::Loadable::start`] to initialize an invocation, then
+//! [`crate::Loadable::resume_with_breaks`] with [`DebugAction::Continue`] or
+//! [`DebugAction::Step`]. A gutter breakpoint pauses before its displaced
+//! instruction; continuing or stepping executes that instruction once. An
+//! explicit breakpoint resumes at the following instruction. Ordinary
+//! [`crate::Loadable::resume`] leaves a breakpoint-suspended invocation untouched.
+//!
+//! Breakpoint bookkeeping belongs to the patched image. After successful image
+//! replacement, or before reusing the machine with a different image, call
+//! [`Debugger::forget_breakpoints`]. To remove breakpoints while keeping the old
+//! image usable, restore its instructions with [`Debugger::clear_all`] instead.
+//! Invocation-only resets retain installed breakpoints.
+//!
+//! Run the complete wiring, stepping, replacement, and reuse example with:
+//!
+//! ```text
+//! cargo run -p vihaco-stdlib --features program-image-execution --example debugger
+//! ```
+
 pub mod dialect;
 
 mod loadable;
