@@ -55,7 +55,7 @@ explains each part.
 // SPDX-License-Identifier: MIT
 
 use vihaco::{
-    Apply, BuildMessage, Execute, ExecutionState, HasInstructionSet, Image, Loadable, NoContext,
+    Apply, BuildMessage, ReusableMessageRecipe, Execute, ExecutionState, HasInstructionSet, Image, Loadable, NoContext,
     PopFromStack, PushToStack, SstFile, Step, Type, Value, component, composite, dialect, field,
     loader::MetadataLoweringContext,
     module::{LocalModule, ProgramMetadata},
@@ -107,6 +107,30 @@ type Instruction = &lt;Machine as HasInstructionSet&gt;::Runtime;
 type SourceInstruction = &lt;Machine as HasInstructionSet&gt;::Syntax;
 
 type Program = LocalModule&lt;Instruction, Value, Type&gt;;
+
+impl&lt;I, M&gt; BuildMessage&lt;field!(Machine::execution), I, Program, M&gt; for Machine
+where
+    ExecutionState: Execute&lt;I, Message = M&gt;,
+    M: ReusableMessageRecipe&lt;Self, field!(Machine::execution), I, Program&gt;,
+{
+    fn build_message(&amp;mut self, instruction: &amp;I, context: &amp;Program) -&gt; eyre::Result&lt;M&gt; {
+        &lt;M as ReusableMessageRecipe&lt;Self, field!(Machine::execution), I, Program&gt;&gt;::prepare(
+            self, instruction, context,
+        )
+    }
+}
+
+impl&lt;I, M&gt; BuildMessage&lt;field!(Machine::calculator), I, Program, M&gt; for Machine
+where
+    Calculator: Execute&lt;I, Message = M&gt;,
+    M: ReusableMessageRecipe&lt;Self, field!(Machine::calculator), I, Program&gt;,
+{
+    fn build_message(&amp;mut self, instruction: &amp;I, context: &amp;Program) -&gt; eyre::Result&lt;M&gt; {
+        &lt;M as ReusableMessageRecipe&lt;Self, field!(Machine::calculator), I, Program&gt;&gt;::prepare(
+            self, instruction, context,
+        )
+    }
+}
 
 impl&lt;I&gt; Step&lt;field!(Machine::execution), I, Program&gt; for Machine
 where

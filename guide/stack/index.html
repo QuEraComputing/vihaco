@@ -30,7 +30,11 @@ stack after:  [42]      ← top
 </code></pre>
 <p>The composite’s <code>#[program]</code> device connects this preparation to operand storage.
 Remember the attribute: a field called <code>execution</code>, or even a field holding an
-<code>ExecutionState</code>, doesn’t make that connection on its own.</p>
+<code>ExecutionState</code>, doesn’t make that connection on its own.
+The composite also implements <code>BuildMessage</code>, explicitly calling the stack
+message’s <code>ReusableMessageRecipe::prepare</code> in its <code>build_message</code> body. The
+storage connection alone does not supply a builder. See
+<a href="/vihaco/guide/messages">preparing messages</a> for recipes and explicit delegation.</p>
 <h2 id="variable-input-counts">Variable input counts</h2>
 <p>When you need a variable number of values of the same type, use
 <code>PopFromStack&#x3C;StackBatch&#x3C;T>></code> and implement <code>StackInputCount&#x3C;I></code> on the component.
