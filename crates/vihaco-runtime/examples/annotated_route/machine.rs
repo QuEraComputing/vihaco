@@ -5,8 +5,8 @@
 //! execution, DAC delivery, and monitoring. Timing varies across three routes.
 
 use super::{
-    contexts::{DynamicLatency, FixedLatencyNs, TraceLabel},
-    framework::{Context, Receive, StaticContext, branch, route},
+    contexts::{ComputeTimeNs, DeliveryLatencyNs, DynamicComputeTime, DynamicLatency, TraceLabel},
+    framework::{Context, Dynamic, Receive, Static, deliver_to, route_through},
 };
 use eyre::{Result, ensure, eyre};
 use std::time::Duration;
@@ -16,7 +16,7 @@ use vihaco_runtime::{BuildMessage, Execute, Field, Step, component, composite, d
 #[vihaco(crate = ::vihaco_runtime)]
 pub(super) mod commands {
     // Operands: output channel and amplitude multiplier. Runtime variants also
-    // carry execution/delivery delays in nanoseconds for this demonstration.
+    // carry execution duration/delivery latency in nanoseconds for this demonstration.
     #[instruction]
     #[derive(Clone)]
     pub struct Fire(pub u32, pub u32);
@@ -154,8 +154,8 @@ pub(super) struct Machine {
 // Pure effect receivers have no instruction inventory. The current composite
 // macro generates Field routes for instruction devices only, so these two
 // explicit accessors bridge ordinary machine state into the prototype topology.
-struct DacField;
-struct MonitorField;
+pub(super) struct DacField;
+pub(super) struct MonitorField;
 impl Field<DacField> for Machine {
     type Child = Dac;
     const SOURCE: &'static [&'static str] = &["dac"];
@@ -219,91 +219,104 @@ impl<I: PulseInstruction> BuildMessage<field!(Machine::source), I, (), PulseMess
     }
 }
 
-// One topology: build Source's message, execute Fire once, propagate its effect.
-impl<C> Step<field!(Machine::source), commands::Fire, C> for Machine
-where
-    C: StaticContext<Machine, FixedLatencyNs<3>>
-        + StaticContext<Machine, FixedLatencyNs<7>>
-        + Context<Machine, TraceLabel>,
+// Interpreter capabilities used by this machine's three timing variants.
+// Existing interpreters qualify automatically; no manual marker impl is needed.
+trait MachineContext:
+    Context<Machine, Static<ComputeTimeNs<2>>>
+    + Context<Machine, Static<DeliveryLatencyNs<1>>>
+    + Context<Machine, Static<ComputeTimeNs<3>>>
+    + Context<Machine, Static<DeliveryLatencyNs<7>>>
+    + Context<Machine, Static<ComputeTimeNs<4>>>
+    + Context<Machine, Static<ComputeTimeNs<1>>>
+    + Context<Machine, Dynamic<DynamicComputeTime>>
+    + Context<Machine, Dynamic<DynamicLatency>>
+    + Context<Machine, Dynamic<TraceLabel>>
 {
+}
+
+impl<C> MachineContext for C where
+    C: Context<Machine, Static<ComputeTimeNs<2>>>
+        + Context<Machine, Static<DeliveryLatencyNs<1>>>
+        + Context<Machine, Static<ComputeTimeNs<3>>>
+        + Context<Machine, Static<DeliveryLatencyNs<7>>>
+        + Context<Machine, Static<ComputeTimeNs<4>>>
+        + Context<Machine, Static<ComputeTimeNs<1>>>
+        + Context<Machine, Dynamic<DynamicComputeTime>>
+        + Context<Machine, Dynamic<DynamicLatency>>
+        + Context<Machine, Dynamic<TraceLabel>>
+{
+}
+
+// Each route exposes four computation nodes and three payload-transfer edges.
+impl<C: MachineContext> Step<field!(Machine::source), commands::Fire, C> for Machine {
     fn step(&mut self, instruction: &commands::Fire, context: &C) -> Result<()> {
-        let topology = route::<Machine>()
-            .at::<field!(Machine::source)>()
+        route_through::<field!(Machine::source)>()
             .build_message::<commands::Fire>()
+            .annotate::<ComputeTimeNs<2>>()
+            .forward_message()
+            .annotate::<DeliveryLatencyNs<1>>()
             .execute()
-            .annotate::<FixedLatencyNs<3>>()
+            .annotate::<ComputeTimeNs<3>>()
             .fan_out((
-                branch()
-                    .deliver_to::<DacField>()
-                    .annotate::<FixedLatencyNs<7>>(),
-                branch()
-                    .deliver_to::<MonitorField>()
-                    .annotate_with(TraceLabel("monitor delivery")),
-            ));
-        // Inspection reads structure and types; it performs no machine work.
-        let description = topology.topology();
-        assert_eq!(
-            description
-                .iter()
-                .filter(|line| line.starts_with("execute instruction"))
-                .count(),
-            1
-        );
-        assert!(
-            description
-                .iter()
-                .any(|line| line.starts_with("deliver effect to dac"))
-        );
-        assert!(
-            description
-                .iter()
-                .any(|line| line.starts_with("deliver effect to monitor"))
-        );
-        assert_eq!(description.len(), 5);
-        topology.start(self, context, instruction)
+                deliver_to::<DacField>()
+                    .annotate::<DeliveryLatencyNs<7>>()
+                    .handle_effect()
+                    .annotate::<ComputeTimeNs<4>>(),
+                deliver_to::<MonitorField>()
+                    .annotate_with(TraceLabel("monitor delivery"))
+                    .handle_effect()
+                    .annotate::<ComputeTimeNs<1>>(),
+            ))
+            .start(self, context, instruction)
     }
 }
-impl<C> Step<field!(Machine::source), commands::FireRuntime, C> for Machine
-where
-    C: Context<Machine, DynamicLatency> + Context<Machine, TraceLabel>,
-{
+impl<C: MachineContext> Step<field!(Machine::source), commands::FireRuntime, C> for Machine {
     fn step(&mut self, instruction: &commands::FireRuntime, context: &C) -> Result<()> {
-        route::<Machine>()
-            .at::<field!(Machine::source)>()
+        route_through::<field!(Machine::source)>()
             .build_message::<commands::FireRuntime>()
+            .annotate_with(DynamicComputeTime(Duration::from_nanos(2)))
+            .forward_message()
+            .annotate_with(DynamicLatency(Duration::from_nanos(1)))
             .execute()
-            .annotate_with(DynamicLatency(Duration::from_nanos(instruction.2)))
+            .annotate_with(DynamicComputeTime(Duration::from_nanos(instruction.2)))
             .fan_out((
-                branch()
-                    .deliver_to::<DacField>()
-                    .annotate_with(DynamicLatency(Duration::from_nanos(instruction.3))),
-                branch()
-                    .deliver_to::<MonitorField>()
-                    .annotate_with(TraceLabel("monitor delivery")),
+                deliver_to::<DacField>()
+                    .annotate_with(DynamicLatency(Duration::from_nanos(instruction.3)))
+                    .handle_effect()
+                    .annotate_with(DynamicComputeTime(Duration::from_nanos(4))),
+                deliver_to::<MonitorField>()
+                    .annotate_with(TraceLabel("monitor delivery"))
+                    .handle_effect()
+                    .annotate_with(DynamicComputeTime(Duration::from_nanos(1))),
             ))
             .start(self, context, instruction)
     }
 }
-impl<C> Step<field!(Machine::source), commands::FireMixed, C> for Machine
-where
-    C: StaticContext<Machine, FixedLatencyNs<3>>
-        + Context<Machine, DynamicLatency>
-        + Context<Machine, TraceLabel>,
-{
+impl<C: MachineContext> Step<field!(Machine::source), commands::FireMixed, C> for Machine {
     fn step(&mut self, instruction: &commands::FireMixed, context: &C) -> Result<()> {
-        route::<Machine>()
-            .at::<field!(Machine::source)>()
+        route_through::<field!(Machine::source)>()
             .build_message::<commands::FireMixed>()
+            .annotate::<ComputeTimeNs<2>>()
+            .forward_message()
+            .annotate::<DeliveryLatencyNs<1>>()
             .execute()
-            .annotate::<FixedLatencyNs<3>>()
+            .annotate::<ComputeTimeNs<3>>()
             .fan_out((
-                branch()
-                    .deliver_to::<DacField>()
-                    .annotate_with(DynamicLatency(Duration::from_nanos(instruction.2))),
-                branch()
-                    .deliver_to::<MonitorField>()
-                    .annotate_with(TraceLabel("monitor delivery")),
+                deliver_to::<DacField>()
+                    .annotate_with(DynamicLatency(Duration::from_nanos(instruction.2)))
+                    .handle_effect()
+                    .annotate::<ComputeTimeNs<4>>(),
+                deliver_to::<MonitorField>()
+                    .annotate_with(TraceLabel("monitor delivery"))
+                    .handle_effect()
+                    .annotate::<ComputeTimeNs<1>>(),
             ))
             .start(self, context, instruction)
+    }
+}
+
+impl Machine {
+    pub(super) fn set_calibration_gain(&mut self, gain: f64) {
+        self.channels[0].gain = gain;
     }
 }
