@@ -31,3 +31,7 @@ typed-declarations = ["derive", "vihaco-runtime-derive/typed-declarations"]
 
 [dev-dependencies]
 trybuild = "1.0"
+
+[[example]]
+name = "annotated_route"
+required-features = ["typed-declarations"]
