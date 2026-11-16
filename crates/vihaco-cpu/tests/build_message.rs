@@ -13,7 +13,9 @@ use vihaco_cpu::{
 };
 
 use vihaco_module::host::{StackFrame, StackMemory};
-use vihaco_runtime::{BuildMessage, Execute, NoMessage, Step, composite, field};
+use vihaco_runtime::{
+    BuildMessage, Execute, NoMessage, ReusableMessageRecipe, Step, composite, field,
+};
 
 #[composite]
 #[derive(Default)]
@@ -69,8 +71,22 @@ impl BuildMessage<field!(Machine::cpu), cpu::Print, (), message::Print> for Mach
     }
 }
 
-// The consumer uses the default M while the builders above name M explicitly.
-// All CPU instructions share this Step, including the runtime input cases.
+// Choose the standard recipe for NoMessage without constraining custom builders.
+impl<I> BuildMessage<field!(Machine::cpu), I, (), NoMessage> for Machine
+where
+    CPU: Execute<I, Message = NoMessage>,
+    NoMessage: ReusableMessageRecipe<Self, field!(Machine::cpu), I, ()>,
+{
+    fn build_message(&mut self, instruction: &I, context: &()) -> eyre::Result<NoMessage> {
+        <NoMessage as ReusableMessageRecipe<Self, field!(Machine::cpu), I, ()>>::prepare(
+            self,
+            instruction,
+            context,
+        )
+    }
+}
+
+// All CPU instructions share this Step, including the custom runtime input cases.
 impl<I> Step<field!(Machine::cpu), I> for Machine
 where
     CPU: Execute<I, Effect = StepOutcome, Error = eyre::Report>,
@@ -106,7 +122,7 @@ fn machine() -> Machine {
 }
 
 #[test]
-fn blanket_no_message_builder_and_shared_step_execute_arithmetic() -> eyre::Result<()> {
+fn delegated_no_message_builder_and_shared_step_execute_arithmetic() -> eyre::Result<()> {
     let mut machine = machine();
     step(&mut machine, cpu::ConstU64(7))?;
     step(&mut machine, cpu::ConstU64(11))?;

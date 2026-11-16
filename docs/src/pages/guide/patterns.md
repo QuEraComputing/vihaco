@@ -220,9 +220,10 @@ can't overlap. Even if you keep the groups separate, the coherence checker can
 reject the impls.
 
 Name distinct message types explicitly to separate the builder impls, and
-require the child's associated message to match. Standard stack messages already
-have framework-supplied preparation, so custom builders only need to handle
-your own message types.
+require the child's associated message to match. Standard stack messages supply
+`ReusableMessageRecipe` implementations; your composite's builders can explicitly
+delegate to those recipes. See [preparing messages](/guide/messages) for the
+division between composite-specific building and upstream reusable recipes.
 
 `MemberOf<G>` helps group types, but doesn't declare execution support or bypass
 the overlap rules.
@@ -715,7 +716,7 @@ use vihaco_stdlib::{
     ExecutionState,
     execution_state::{execute_instruction, run},
 };
-# use vihaco::{BuildMessage, Execute, HasInstructionSet, Step, composite, field};
+# use vihaco::{BuildMessage, Execute, HasInstructionSet, ReusableMessageRecipe, Step, composite, field};
 # use vihaco_stdlib::program::program;
 # #[composite]
 # struct Machine {
@@ -724,6 +725,16 @@ use vihaco_stdlib::{
 # }
 # type Instruction = <Machine as HasInstructionSet>::Runtime;
 # type Program = LocalModule<Instruction, (), ()>;
+# impl<I, M> BuildMessage<field!(Machine::execution), I, Program, M> for Machine
+# where
+#     ExecutionState: Execute<I, Message = M>,
+#     M: ReusableMessageRecipe<Self, field!(Machine::execution), I, Program>,
+# {
+#     fn build_message(&mut self, instruction: &I, context: &Program) -> eyre::Result<M> {
+#         <M as ReusableMessageRecipe<Self, field!(Machine::execution), I, Program>>
+#             ::prepare(self, instruction, context)
+#     }
+# }
 # impl<I> Step<field!(Machine::execution), I, Program> for Machine
 # where
 #     ExecutionState: Execute<I, Effect = (), Error = eyre::Report>,

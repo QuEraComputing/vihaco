@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-use vihaco_runtime::{component, composite, dialect, field, BuildMessage, Dispatch, Execute, NoMessage, Step};
+use vihaco_runtime::{component, composite, dialect, field, BuildMessage, ReusableMessageRecipe, Dispatch, Execute, NoMessage, Step};
 #[dialect] mod ops { #[instruction] pub struct Run; }
 #[component] #[instructions { ops }] struct Device;
 impl Execute<ops::Run> for Device {
@@ -19,4 +19,9 @@ fn main() {
     type Instruction=<Machine as vihaco_runtime::HasInstructionSet>::Runtime;
     let mut machine=Machine{device:Device};
     machine.dispatch(&Instruction::V_device__ops__Run(ops::Run),&"wrong context").unwrap();
+}
+impl BuildMessage<field!(Machine::device), ops::Run, u32> for Machine {
+    fn build_message(&mut self, i: &ops::Run, context: &u32) -> eyre::Result<NoMessage> {
+        <NoMessage as ReusableMessageRecipe<Self, field!(Machine::device), ops::Run, u32>>::prepare(self, i, context)
+    }
 }

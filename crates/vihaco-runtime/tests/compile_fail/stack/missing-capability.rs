@@ -1,4 +1,4 @@
-use vihaco_runtime::{BuildMessage, Component, Composite, Execute, Field, PopFromStack};
+use vihaco_runtime::{ReusableMessageRecipe, Component, Composite, Execute, Field, PopFromStack};
 
 struct Instruction;
 struct Device;
@@ -21,5 +21,5 @@ impl Field<Route> for Machine {
 }
 
 fn main() {
-    let _ = <Machine as BuildMessage<Route, Instruction>>::build_message(&mut Machine(Device), &Instruction, &());
+    let _ = <PopFromStack<()> as ReusableMessageRecipe<Machine, Route, Instruction, ()>>::prepare(&mut Machine(Device), &Instruction, &());
 }

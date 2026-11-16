@@ -12,7 +12,7 @@ use vihaco_module::{
 };
 use vihaco_runtime::{
     Apply, BuildMessage, Composite, Dispatch, Execute, HasInstructionSet, HasProgram, Lower,
-    NoMessage, Parse, Step, chumsky::prelude::*, composite, field,
+    NoMessage, Parse, ReusableMessageRecipe, Step, chumsky::prelude::*, composite, field,
 };
 use vihaco_stdlib::{ExecutionState, Image, Loadable, program::program};
 
@@ -35,6 +35,46 @@ struct SequencerMachine {
     execution: vihaco_stdlib::ExecutionState,
     #[device(1)]
     cpu: vihaco_cpu::CPU,
+}
+
+impl<I, M> BuildMessage<field!(ControllerMachine::execution), I, Module<Self>, M>
+    for ControllerMachine
+where
+    ExecutionState: Execute<I, Message = M>,
+    M: ReusableMessageRecipe<Self, field!(ControllerMachine::execution), I, Module<Self>>,
+{
+    fn build_message(&mut self, instruction: &I, context: &Module<Self>) -> eyre::Result<M> {
+        <M as ReusableMessageRecipe<Self, field!(ControllerMachine::execution), I, Module<Self>>>::prepare(
+            self, instruction, context,
+        )
+    }
+}
+
+impl<I, M> BuildMessage<field!(SequencerMachine::execution), I, Module<Self>, M>
+    for SequencerMachine
+where
+    ExecutionState: Execute<I, Message = M>,
+    M: ReusableMessageRecipe<Self, field!(SequencerMachine::execution), I, Module<Self>>,
+{
+    fn build_message(&mut self, instruction: &I, context: &Module<Self>) -> eyre::Result<M> {
+        <M as ReusableMessageRecipe<Self, field!(SequencerMachine::execution), I, Module<Self>>>::prepare(
+            self, instruction, context,
+        )
+    }
+}
+
+impl<I, M> BuildMessage<field!(SequencerMachine::cpu), I, Module<Self>, M> for SequencerMachine
+where
+    CPU: Execute<I, Message = M>,
+    M: ReusableMessageRecipe<Self, field!(SequencerMachine::cpu), I, Module<Self>>,
+{
+    fn build_message(&mut self, instruction: &I, context: &Module<Self>) -> eyre::Result<M> {
+        <M as ReusableMessageRecipe<Self, field!(SequencerMachine::cpu), I, Module<Self>>>::prepare(
+            self,
+            instruction,
+            context,
+        )
+    }
 }
 
 impl<I> Step<field!(ControllerMachine::execution), I, Module<ControllerMachine>>

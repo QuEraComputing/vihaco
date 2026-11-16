@@ -14,7 +14,9 @@ use vihaco_module::{
     loader::MetadataLoweringContext,
     module::{LocalModule, ProgramMetadata},
 };
-use vihaco_runtime::{Apply, BuildMessage, Execute, HasInstructionSet, Step, composite, field};
+use vihaco_runtime::{
+    Apply, BuildMessage, Execute, HasInstructionSet, ReusableMessageRecipe, Step, composite, field,
+};
 use vihaco_stdlib::{ExecutionState, Image, Loadable};
 use vihaco_syntax::{HeaderDeclarations, ParsedModule, lower_functions_with_metadata};
 
@@ -36,6 +38,34 @@ type ControllerImage = Image<Instruction, Value, Type, ExperimentInfo>;
 
 // Each Step supplies runtime input and chooses how to handle execution effects.
 // Control/storage instructions mutate ExecutionState directly.
+impl<I, M> BuildMessage<field!(Machine::execution), I, Program, M> for Machine
+where
+    ExecutionState: Execute<I, Message = M>,
+    M: ReusableMessageRecipe<Self, field!(Machine::execution), I, Program>,
+{
+    fn build_message(&mut self, instruction: &I, context: &Program) -> eyre::Result<M> {
+        <M as ReusableMessageRecipe<Self, field!(Machine::execution), I, Program>>::prepare(
+            self,
+            instruction,
+            context,
+        )
+    }
+}
+
+impl<I, M> BuildMessage<field!(Machine::cpu), I, Program, M> for Machine
+where
+    CPU: Execute<I, Message = M>,
+    M: ReusableMessageRecipe<Self, field!(Machine::cpu), I, Program>,
+{
+    fn build_message(&mut self, instruction: &I, context: &Program) -> eyre::Result<M> {
+        <M as ReusableMessageRecipe<Self, field!(Machine::cpu), I, Program>>::prepare(
+            self,
+            instruction,
+            context,
+        )
+    }
+}
+
 impl<I> Step<field!(Machine::execution), I, Program> for Machine
 where
     ExecutionState: Execute<I, Effect = (), Error = eyre::Report>,

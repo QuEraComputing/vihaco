@@ -7,7 +7,7 @@ use vihaco_abi::{traits::Reset, word::*};
 use vihaco_cpu::CPU;
 use vihaco_module::module::LocalModule;
 use vihaco_module::module::{FunctionInfo, Signature};
-use vihaco_runtime::{Apply, BuildMessage, Execute, NoMessage, Step, field};
+use vihaco_runtime::{Apply, BuildMessage, Execute, NoMessage, ReusableMessageRecipe, Step, field};
 use vihaco_runtime::{HasInstructionSet, Lower, Parse, chumsky::Parser as _, composite};
 use vihaco_stdlib::ExecutionState;
 use vihaco_stdlib::execution_state::{execute, resume};
@@ -31,6 +31,56 @@ type Program = LocalModule<Instruction, vihaco_abi::Value, vihaco_abi::Type>;
 type Source = <Machine as HasInstructionSet>::Syntax;
 
 // These are authored policies, not generated or framework blanket Steps.
+impl<I, M> BuildMessage<field!(Machine::program), I, Program, M> for Machine
+where
+    ExecutionState: Execute<I, Message = M>,
+    M: ReusableMessageRecipe<Self, field!(Machine::program), I, Program>,
+{
+    fn build_message(&mut self, instruction: &I, context: &Program) -> eyre::Result<M> {
+        <M as ReusableMessageRecipe<Self, field!(Machine::program), I, Program>>::prepare(
+            self,
+            instruction,
+            context,
+        )
+    }
+}
+
+impl<I, M> BuildMessage<field!(Machine::cpu), I, Program, M> for Machine
+where
+    CPU: Execute<I, Message = M>,
+    M: ReusableMessageRecipe<Self, field!(Machine::cpu), I, Program>,
+{
+    fn build_message(&mut self, instruction: &I, context: &Program) -> eyre::Result<M> {
+        <M as ReusableMessageRecipe<Self, field!(Machine::cpu), I, Program>>::prepare(
+            self,
+            instruction,
+            context,
+        )
+    }
+}
+
+impl<I, Values>
+    BuildMessage<field!(Machine::collector), I, Program, vihaco_runtime::PopFromStack<Values>>
+    for Machine
+where
+    Collector: Execute<I, Message = vihaco_runtime::PopFromStack<Values>>,
+    vihaco_runtime::PopFromStack<Values>:
+        ReusableMessageRecipe<Self, field!(Machine::collector), I, Program>,
+{
+    fn build_message(
+        &mut self,
+        instruction: &I,
+        context: &Program,
+    ) -> eyre::Result<vihaco_runtime::PopFromStack<Values>> {
+        <vihaco_runtime::PopFromStack<Values> as ReusableMessageRecipe<
+            Self,
+            field!(Machine::collector),
+            I,
+            Program,
+        >>::prepare(self, instruction, context)
+    }
+}
+
 impl<I> Step<field!(Machine::program), I, Program> for Machine
 where
     ExecutionState: Execute<I, Effect = (), Error = eyre::Report>,

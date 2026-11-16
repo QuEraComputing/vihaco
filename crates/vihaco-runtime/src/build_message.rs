@@ -11,17 +11,17 @@ use crate::{Execute, Field, NoMessage};
 /// runners can instead supply immutable runtime data such as a borrowed module.
 /// Consumers can write `C: BuildMessage<F, I, Context>`.
 ///
-/// Standard message types supply framework preparation automatically, including
-/// [`NoMessage`] and typed stack inputs. Custom message types can have explicit
-/// author-provided builders; authors do not implement the internal preparation
-/// hook used by standard messages.
+/// Composite authors implement this trait to choose how their specific machine
+/// builds each message. The body of `build_message` can construct the input
+/// directly or explicitly delegate to a message's [`ReusableMessageRecipe`].
+/// Standard messages, including [`NoMessage`] and typed stack inputs, provide
+/// recipes but do not automatically implement this trait for a composite.
 ///
 /// Specify `M` explicitly in those implementations, such as
-/// `BuildMessage<F, Call, (), FunctionInfo>`. This keeps their trait identities
-/// disjoint from standard message preparation without relying on cross-crate
-/// associated-type normalization during coherence checking. The equality bound
-/// still requires `M` to match the child's execution message; it cannot select
-/// a different one.
+/// `BuildMessage<F, Call, (), FunctionInfo>`. Distinct explicit message types
+/// can separate generic builders for different input shapes. The equality bound
+/// requires `M` to match the child's execution message; it cannot select a
+/// different one.
 ///
 /// A [`crate::Step`] implementation can use this optional helper to separate
 /// message construction from execution and effect handling. Implementing this
@@ -62,39 +62,32 @@ pub trait BuildMessage<
     fn build_message(&mut self, instruction: &I, context: &Context) -> eyre::Result<M>;
 }
 
-/// Internal framework message-preparation hook. Ordinary component authors only
-/// select message types. This permits stdlib-owned messages to supply preparation
-/// without an orphan impl on every downstream composite.
-#[doc(hidden)]
-pub trait PrepareMessage<Parent, Route, I, Context: ?Sized>: Sized {
+/// Reusable message construction over machines with specified capabilities.
+///
+/// Upstream message authors implement this trait generically over `Parent`,
+/// requiring capabilities such as [`crate::Field`] or operand-stack access
+/// instead of depending on a particular composite type. `Route` identifies the
+/// destination device, `I` supplies instruction data, and `Context` supplies
+/// shared read-only runtime data. Context may be unsized.
+///
+/// A recipe does not provide a [`BuildMessage`] implementation. Composite
+/// authors choose whether to call `Self::prepare` on the message type from the
+/// body of their own `BuildMessage::build_message` implementation, or construct
+/// the message using machine-specific logic instead.
+///
+/// Available with the experimental `typed-declarations` feature. "Reusable"
+/// describes the intended use; implementations may also name a concrete parent.
+pub trait ReusableMessageRecipe<Parent, Route, I, Context: ?Sized>: Sized {
+    /// Construct the message from the parent's capabilities and runtime inputs.
+    ///
+    /// # Errors
+    ///
+    /// Returns construction or validation failures. Mutations made before an
+    /// error, including successful operand pops, are retained.
     fn prepare(parent: &mut Parent, instruction: &I, context: &Context) -> eyre::Result<Self>;
 }
 
-/// Internal eligibility marker for framework-provided message preparation.
-///
-/// Keeping this marker free of instruction parameters lets Rust distinguish
-/// custom messages from automatic preparation when checking generic builders.
-#[doc(hidden)]
-pub trait AutomaticMessage {}
-
-impl AutomaticMessage for NoMessage {}
-
-#[cfg(feature = "program-image-execution")]
-impl<Values> AutomaticMessage for crate::PopFromStack<Values> {}
-
-impl<C, F, I, Context: ?Sized, M> BuildMessage<F, I, Context, M> for C
-where
-    C: Field<F>,
-    C::Child: Execute<I, Message = M>,
-    M: AutomaticMessage + PrepareMessage<C, F, I, Context>,
-{
-    #[inline(always)]
-    fn build_message(&mut self, instruction: &I, context: &Context) -> eyre::Result<M> {
-        M::prepare(self, instruction, context)
-    }
-}
-
-impl<C, F, I, Context: ?Sized> PrepareMessage<C, F, I, Context> for NoMessage
+impl<C, F, I, Context: ?Sized> ReusableMessageRecipe<C, F, I, Context> for NoMessage
 where
     C: Field<F>,
     C::Child: Execute<I, Message = NoMessage>,

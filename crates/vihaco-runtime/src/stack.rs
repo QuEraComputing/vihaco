@@ -3,7 +3,9 @@
 
 //! Framework stack preparation and effect-application protocols.
 
-use crate::{Composite, Execute, Field, Message, PopStack, PrepareMessage, PushStack, StackValue};
+use crate::{
+    Composite, Execute, Field, Message, PopStack, PushStack, ReusableMessageRecipe, StackValue,
+};
 
 /// Copied operands prepared for an instruction, distinct from its payload.
 ///
@@ -34,10 +36,10 @@ pub struct PushToStack<Values>(pub Values);
 /// Ordinary component/composite authors select `PopFromStack` and `PushToStack`
 /// types; they do not implement stack storage or transfer logic.
 ///
-/// Opting into this capability selects the global tuple [`crate::BuildMessage`]
-/// implementations for compatible child message types. A field name or merely
-/// containing an ExecutionState does not establish the capability. Custom
-/// preparation can use a distinct message type with its own builder.
+/// This capability lets stack message recipes access operands. A composite's
+/// [`crate::BuildMessage`] implementation explicitly calls the selected recipe;
+/// providing this capability does not supply a builder. A field name or merely
+/// containing an ExecutionState does not establish the capability.
 ///
 /// No canonical-Boolean validation policy is needed: [`StackValue`] Boolean
 /// extraction interprets every nonzero word as true.
@@ -72,7 +74,7 @@ pub trait Apply<E> {
     fn apply(&mut self, effect: E);
 }
 
-impl<C, F, I, Context: ?Sized> PrepareMessage<C, F, I, Context> for PopFromStack<()>
+impl<C, F, I, Context: ?Sized> ReusableMessageRecipe<C, F, I, Context> for PopFromStack<()>
 where
     C: Composite + Field<F> + HasOperandStack<I>,
     C::Child: Execute<I, Message = PopFromStack<()>>,
@@ -100,9 +102,8 @@ where
     }
 }
 
-// Expand once here into ordinary global per-arity impls, never per instruction
-// or composite. The explicit message parameter keeps these disjoint from the
-// NoMessage blanket and consumers' distinct custom-message implementations.
+// Expand once here into message-owned per-arity recipes, never per instruction
+// or composite. Composite builders choose whether to delegate to these recipes.
 macro_rules! stack_tuple {
     (@pop $source:ident;) => {};
     (@pop $source:ident; $ty:ident:$value:ident $(, $rest:ident:$other:ident)*) => {
@@ -111,7 +112,7 @@ macro_rules! stack_tuple {
     };
     ($($ty:ident:$value:ident),+) => {
         impl<Parent, Route, Inst, Context: ?Sized, $($ty: StackValue),+>
-            PrepareMessage<Parent, Route, Inst, Context> for PopFromStack<($($ty,)+)>
+            ReusableMessageRecipe<Parent, Route, Inst, Context> for PopFromStack<($($ty,)+)>
         where
             Parent: Composite + Field<Route> + HasOperandStack<Inst>,
             Parent::Child: Execute<Inst, Message = PopFromStack<($($ty,)+)>>,
@@ -188,7 +189,7 @@ pub trait StackInputCount<I> {
     fn input_count(instruction: &I) -> eyre::Result<InputCount>;
 }
 
-impl<C, F, I, T, Context: ?Sized> PrepareMessage<C, F, I, Context>
+impl<C, F, I, T, Context: ?Sized> ReusableMessageRecipe<C, F, I, Context>
     for PopFromStack<crate::StackBatch<T>>
 where
     C: Composite + Field<F> + HasOperandStack<I>,

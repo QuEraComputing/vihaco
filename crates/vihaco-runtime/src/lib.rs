@@ -94,11 +94,7 @@ mod step;
 pub mod __private;
 
 #[cfg(feature = "typed-declarations")]
-pub use build_message::{BuildMessage, PrepareMessage};
-
-#[cfg(feature = "typed-declarations")]
-#[doc(hidden)]
-pub use build_message::AutomaticMessage;
+pub use build_message::{BuildMessage, ReusableMessageRecipe};
 
 #[cfg(feature = "typed-declarations")]
 pub use dispatch::Dispatch;
