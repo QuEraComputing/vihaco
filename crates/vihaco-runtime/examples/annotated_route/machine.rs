@@ -5,8 +5,8 @@
 //! execution, DAC delivery, and monitoring. Timing varies across three routes.
 
 use super::{
-    contexts::{ComputeTimeNs, DeliveryLatencyNs, DynamicComputeTime, DynamicLatency, TraceLabel},
-    framework::{Context, Dynamic, Receive, Static, deliver_to, route_through},
+    annotations::{ComputeTime, ConstNs, DeliveryLatency, RuntimeTime, TraceLabel},
+    framework::{Computation, Context, Receive, Route, Wire, deliver_to, route_through},
 };
 use eyre::{Result, ensure, eyre};
 use std::time::Duration;
@@ -221,29 +221,17 @@ impl<I: PulseInstruction> BuildMessage<field!(Machine::source), I, (), PulseMess
 
 // Interpreter capabilities used by this machine's three timing variants.
 // Existing interpreters qualify automatically; no manual marker impl is needed.
-trait MachineContext:
-    Context<Machine, Static<ComputeTimeNs<2>>>
-    + Context<Machine, Static<DeliveryLatencyNs<1>>>
-    + Context<Machine, Static<ComputeTimeNs<3>>>
-    + Context<Machine, Static<DeliveryLatencyNs<7>>>
-    + Context<Machine, Static<ComputeTimeNs<4>>>
-    + Context<Machine, Static<ComputeTimeNs<1>>>
-    + Context<Machine, Dynamic<DynamicComputeTime>>
-    + Context<Machine, Dynamic<DynamicLatency>>
-    + Context<Machine, Dynamic<TraceLabel>>
+pub(super) trait MachineContext:
+    Context<Machine, ComputeTime, Computation>
+    + Context<Machine, DeliveryLatency, Wire>
+    + Context<Machine, TraceLabel, Wire>
 {
 }
 
 impl<C> MachineContext for C where
-    C: Context<Machine, Static<ComputeTimeNs<2>>>
-        + Context<Machine, Static<DeliveryLatencyNs<1>>>
-        + Context<Machine, Static<ComputeTimeNs<3>>>
-        + Context<Machine, Static<DeliveryLatencyNs<7>>>
-        + Context<Machine, Static<ComputeTimeNs<4>>>
-        + Context<Machine, Static<ComputeTimeNs<1>>>
-        + Context<Machine, Dynamic<DynamicComputeTime>>
-        + Context<Machine, Dynamic<DynamicLatency>>
-        + Context<Machine, Dynamic<TraceLabel>>
+    C: Context<Machine, ComputeTime, Computation>
+        + Context<Machine, DeliveryLatency, Wire>
+        + Context<Machine, TraceLabel, Wire>
 {
 }
 
@@ -252,20 +240,20 @@ impl<C: MachineContext> Step<field!(Machine::source), commands::Fire, C> for Mac
     fn step(&mut self, instruction: &commands::Fire, context: &C) -> Result<()> {
         route_through::<field!(Machine::source)>()
             .build_message::<commands::Fire>()
-            .annotate::<ComputeTimeNs<2>>()
+            .annotate::<ComputeTime<ConstNs<2>>>()
             .forward_message()
-            .annotate::<DeliveryLatencyNs<1>>()
+            .annotate::<DeliveryLatency<ConstNs<1>>>()
             .execute()
-            .annotate::<ComputeTimeNs<3>>()
+            .annotate::<ComputeTime<ConstNs<3>>>()
             .fan_out((
                 deliver_to::<DacField>()
-                    .annotate::<DeliveryLatencyNs<7>>()
+                    .annotate::<DeliveryLatency<ConstNs<7>>>()
                     .handle_effect()
-                    .annotate::<ComputeTimeNs<4>>(),
+                    .annotate::<ComputeTime<ConstNs<4>>>(),
                 deliver_to::<MonitorField>()
                     .annotate_with(TraceLabel("monitor delivery"))
                     .handle_effect()
-                    .annotate::<ComputeTimeNs<1>>(),
+                    .annotate::<ComputeTime<ConstNs<1>>>(),
             ))
             .start(self, context, instruction)
     }
@@ -274,20 +262,24 @@ impl<C: MachineContext> Step<field!(Machine::source), commands::FireRuntime, C> 
     fn step(&mut self, instruction: &commands::FireRuntime, context: &C) -> Result<()> {
         route_through::<field!(Machine::source)>()
             .build_message::<commands::FireRuntime>()
-            .annotate_with(DynamicComputeTime(Duration::from_nanos(2)))
+            .annotate_with(ComputeTime(RuntimeTime(Duration::from_nanos(2))))
             .forward_message()
-            .annotate_with(DynamicLatency(Duration::from_nanos(1)))
+            .annotate_with(DeliveryLatency(RuntimeTime(Duration::from_nanos(1))))
             .execute()
-            .annotate_with(DynamicComputeTime(Duration::from_nanos(instruction.2)))
+            .annotate_with(ComputeTime(RuntimeTime(Duration::from_nanos(
+                instruction.2,
+            ))))
             .fan_out((
                 deliver_to::<DacField>()
-                    .annotate_with(DynamicLatency(Duration::from_nanos(instruction.3)))
+                    .annotate_with(DeliveryLatency(RuntimeTime(Duration::from_nanos(
+                        instruction.3,
+                    ))))
                     .handle_effect()
-                    .annotate_with(DynamicComputeTime(Duration::from_nanos(4))),
+                    .annotate_with(ComputeTime(RuntimeTime(Duration::from_nanos(4)))),
                 deliver_to::<MonitorField>()
                     .annotate_with(TraceLabel("monitor delivery"))
                     .handle_effect()
-                    .annotate_with(DynamicComputeTime(Duration::from_nanos(1))),
+                    .annotate_with(ComputeTime(RuntimeTime(Duration::from_nanos(1)))),
             ))
             .start(self, context, instruction)
     }
@@ -296,20 +288,22 @@ impl<C: MachineContext> Step<field!(Machine::source), commands::FireMixed, C> fo
     fn step(&mut self, instruction: &commands::FireMixed, context: &C) -> Result<()> {
         route_through::<field!(Machine::source)>()
             .build_message::<commands::FireMixed>()
-            .annotate::<ComputeTimeNs<2>>()
+            .annotate::<ComputeTime<ConstNs<2>>>()
             .forward_message()
-            .annotate::<DeliveryLatencyNs<1>>()
+            .annotate::<DeliveryLatency<ConstNs<1>>>()
             .execute()
-            .annotate::<ComputeTimeNs<3>>()
+            .annotate::<ComputeTime<ConstNs<3>>>()
             .fan_out((
                 deliver_to::<DacField>()
-                    .annotate_with(DynamicLatency(Duration::from_nanos(instruction.2)))
+                    .annotate_with(DeliveryLatency(RuntimeTime(Duration::from_nanos(
+                        instruction.2,
+                    ))))
                     .handle_effect()
-                    .annotate::<ComputeTimeNs<4>>(),
+                    .annotate::<ComputeTime<ConstNs<4>>>(),
                 deliver_to::<MonitorField>()
                     .annotate_with(TraceLabel("monitor delivery"))
                     .handle_effect()
-                    .annotate::<ComputeTimeNs<1>>(),
+                    .annotate::<ComputeTime<ConstNs<1>>>(),
             ))
             .start(self, context, instruction)
     }
