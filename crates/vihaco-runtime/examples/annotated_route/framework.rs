@@ -5,95 +5,114 @@
 //! have separate identities and annotations. A step executes one instruction.
 
 use eyre::Result;
-use std::{any::type_name, marker::PhantomData};
+use std::marker::PhantomData;
 use vihaco_runtime::{BuildMessage, Execute, Field};
 
 pub(super) trait Receive<E> {
     fn receive(&mut self, effect: E) -> Result<()>;
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum NodeKind {
-    BuildMessage,
-    ExecuteInstruction,
-    HandleEffect,
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum EdgeKind {
-    MessageTransfer,
-    EffectDelivery,
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Site {
-    pub(super) machine_type: &'static str,
-    pub(super) field_type: &'static str,
-    pub(super) name: &'static str,
-    pub(super) kind: NodeKind,
-}
-fn site<M: Field<F>, F>(kind: NodeKind) -> Site {
-    Site {
-        machine_type: type_name::<M>(),
-        field_type: type_name::<F>(),
-        name: M::SOURCE[0],
-        kind,
-    }
-}
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum Element {
-    Node {
-        site: Site,
-        instruction: Option<&'static str>,
-        input: &'static str,
-        output: &'static str,
-    },
-    Edge {
-        kind: EdgeKind,
-        from: Site,
-        to: Site,
-        payload: &'static str,
-    },
-}
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum Annotation {
-    None,
-    Static(&'static str),
-    Dynamic(&'static str),
-}
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Part {
-    pub(super) element: Element,
-    pub(super) annotation: Annotation,
-}
-
-// Interpreters see structural metadata as well as an owned continuation.
+// Nodes, edges, and annotations are represented by types throughout.
+pub(super) struct Computation;
+pub(super) struct Wire;
 pub(super) trait Resume<M, C: ?Sized> {
-    fn element(&self) -> Element;
+    type Kind;
+    type Input;
+    type Operation: Stage<M, Self::Input, Kind = Self::Kind>;
     fn resume(self, machine: &mut M, context: &C) -> Result<()>;
 }
-pub(super) trait Context<M, A>: Sized {
-    fn submit<W>(&self, machine: &mut M, annotation: A, work: W) -> Result<()>
+// Families identify semantics; concrete bindings retain the exact const values
+// or runtime representation in the graph and in the generic submission call.
+pub(super) trait AnnotationFamily {
+    type Value;
+}
+pub(super) trait StaticAnnotation {
+    type Family: AnnotationFamily;
+    fn value() -> <Self::Family as AnnotationFamily>::Value;
+}
+pub(super) trait RuntimeAnnotation {
+    type Family: AnnotationFamily;
+    fn into_value(self) -> <Self::Family as AnnotationFamily>::Value;
+}
+pub(super) trait AnnotationBinding {
+    type Family: AnnotationFamily;
+    fn into_value(self) -> <Self::Family as AnnotationFamily>::Value;
+}
+pub(super) trait Context<M, Family: AnnotationFamily, Kind>: Sized {
+    fn submit<A, W>(&self, machine: &mut M, annotation: A, work: W) -> Result<()>
     where
-        W: Resume<M, Self> + 'static;
+        A: AnnotationBinding<Family = Family>,
+        W: Resume<M, Self, Kind = Kind> + 'static;
 }
 pub(super) struct Unannotated;
 pub(super) struct Static<A>(PhantomData<fn() -> A>);
 pub(super) struct Dynamic<A>(pub(super) A);
-trait AnnotationInfo {
-    fn info() -> Annotation;
+impl<A: StaticAnnotation> AnnotationBinding for Static<A> {
+    type Family = A::Family;
+    fn into_value(self) -> <Self::Family as AnnotationFamily>::Value {
+        A::value()
+    }
+}
+impl<A: RuntimeAnnotation> AnnotationBinding for Dynamic<A> {
+    type Family = A::Family;
+    fn into_value(self) -> <Self::Family as AnnotationFamily>::Value {
+        self.0.into_value()
+    }
+}
+pub(super) trait AnnotationInfo {
+    type Value;
+    const STORAGE: &'static str;
 }
 impl AnnotationInfo for Unannotated {
-    fn info() -> Annotation {
-        Annotation::None
-    }
+    type Value = ();
+    const STORAGE: &'static str = "unannotated";
 }
 impl<A> AnnotationInfo for Static<A> {
-    fn info() -> Annotation {
-        Annotation::Static(type_name::<A>())
-    }
+    type Value = A;
+    const STORAGE: &'static str = "static";
 }
 impl<A> AnnotationInfo for Dynamic<A> {
-    fn info() -> Annotation {
-        Annotation::Dynamic(type_name::<A>())
+    type Value = A;
+    const STORAGE: &'static str = "runtime";
+}
+
+// Optional inspection visits concrete stage/annotation types directly. The kind
+// selects the callback through trait resolution, with no materialized graph tags.
+pub(super) trait Visitor<M> {
+    fn node<N, Input, A>(&mut self, annotation: &A)
+    where
+        N: Stage<M, Input, Kind = Computation>,
+        A: AnnotationInfo;
+    fn edge<N, Input, A>(&mut self, annotation: &A)
+    where
+        N: Stage<M, Input, Kind = Wire>,
+        A: AnnotationInfo;
+}
+pub(super) trait GraphKind: Sized {
+    fn visit<M, Input, N, A, V>(annotation: &A, visitor: &mut V)
+    where
+        N: Stage<M, Input, Kind = Self>,
+        A: AnnotationInfo,
+        V: Visitor<M>;
+}
+impl GraphKind for Computation {
+    fn visit<M, Input, N, A, V>(annotation: &A, visitor: &mut V)
+    where
+        N: Stage<M, Input, Kind = Self>,
+        A: AnnotationInfo,
+        V: Visitor<M>,
+    {
+        visitor.node::<N, Input, A>(annotation);
+    }
+}
+impl GraphKind for Wire {
+    fn visit<M, Input, N, A, V>(annotation: &A, visitor: &mut V)
+    where
+        N: Stage<M, Input, Kind = Self>,
+        A: AnnotationInfo,
+        V: Visitor<M>,
+    {
+        visitor.edge::<N, Input, A>(annotation);
     }
 }
 
@@ -107,7 +126,8 @@ impl<M, C, W: Resume<M, C>> Policy<M, C, W> for Unannotated {
 }
 impl<M, C, A, W> Policy<M, C, W> for Static<A>
 where
-    C: Context<M, Static<A>>,
+    Static<A>: AnnotationBinding,
+    C: Context<M, <Static<A> as AnnotationBinding>::Family, W::Kind>,
     W: Resume<M, C> + 'static,
 {
     fn submit(self, machine: &mut M, context: &C, work: W) -> Result<()> {
@@ -116,7 +136,8 @@ where
 }
 impl<M, C, A, W> Policy<M, C, W> for Dynamic<A>
 where
-    C: Context<M, Dynamic<A>>,
+    Dynamic<A>: AnnotationBinding,
+    C: Context<M, <Dynamic<A> as AnnotationBinding>::Family, W::Kind>,
     W: Resume<M, C> + 'static,
 {
     fn submit(self, machine: &mut M, context: &C, work: W) -> Result<()> {
@@ -127,8 +148,14 @@ where
 // Internal typed graph operations. `apply` covers both computation and transfer;
 // only ExecuteAt invokes the component's Execute implementation.
 pub(super) trait Stage<M, Input> {
+    type Kind: GraphKind;
+    type Source;
+    type Target;
+    type Instruction;
+    type Payload;
     type Output;
-    fn element() -> Element;
+    fn source() -> &'static str;
+    fn target() -> &'static str;
     fn apply(self, machine: &mut M, input: Input) -> Result<Self::Output>;
 }
 pub(super) struct PreparedInput<I, Message> {
@@ -141,14 +168,17 @@ where
     M: BuildMessage<F, I, (), Message>,
     M::Child: Execute<I, Message = Message>,
 {
+    type Kind = Computation;
     type Output = PreparedInput<I, Message>;
-    fn element() -> Element {
-        Element::Node {
-            site: site::<M, F>(NodeKind::BuildMessage),
-            instruction: Some(type_name::<I>()),
-            input: type_name::<I>(),
-            output: type_name::<Message>(),
-        }
+    type Source = Self;
+    type Target = Self;
+    type Instruction = I;
+    type Payload = Message;
+    fn source() -> &'static str {
+        <M as Field<F>>::SOURCE[0]
+    }
+    fn target() -> &'static str {
+        <M as Field<F>>::SOURCE[0]
     }
     fn apply(self, machine: &mut M, instruction: I) -> Result<Self::Output> {
         let message = machine.build_message(&instruction, &())?;
@@ -158,16 +188,19 @@ where
         })
     }
 }
-pub(super) struct MessageTransfer<F>(PhantomData<fn() -> F>);
-impl<M: Field<F>, F, I, Message> Stage<M, PreparedInput<I, Message>> for MessageTransfer<F> {
+pub(super) struct MessageWire<F>(PhantomData<fn() -> F>);
+impl<M: Field<F>, F, I, Message> Stage<M, PreparedInput<I, Message>> for MessageWire<F> {
+    type Kind = Wire;
     type Output = PreparedInput<I, Message>;
-    fn element() -> Element {
-        Element::Edge {
-            kind: EdgeKind::MessageTransfer,
-            from: site::<M, F>(NodeKind::BuildMessage),
-            to: site::<M, F>(NodeKind::ExecuteInstruction),
-            payload: type_name::<Message>(),
-        }
+    type Source = BuildAt<F, I>;
+    type Target = ExecuteAt<F>;
+    type Instruction = I;
+    type Payload = Message;
+    fn source() -> &'static str {
+        <M as Field<F>>::SOURCE[0]
+    }
+    fn target() -> &'static str {
+        <M as Field<F>>::SOURCE[0]
     }
     fn apply(self, _: &mut M, input: Self::Output) -> Result<Self::Output> {
         Ok(input)
@@ -180,14 +213,17 @@ where
     M::Child: Execute<I, Message = Message>,
     <M::Child as Execute<I>>::Error: Into<eyre::Report>,
 {
+    type Kind = Computation;
     type Output = <M::Child as Execute<I>>::Effect;
-    fn element() -> Element {
-        Element::Node {
-            site: site::<M, F>(NodeKind::ExecuteInstruction),
-            instruction: Some(type_name::<I>()),
-            input: type_name::<Message>(),
-            output: type_name::<Self::Output>(),
-        }
+    type Source = Self;
+    type Target = Self;
+    type Instruction = I;
+    type Payload = Self::Output;
+    fn source() -> &'static str {
+        <M as Field<F>>::SOURCE[0]
+    }
+    fn target() -> &'static str {
+        <M as Field<F>>::SOURCE[0]
     }
     fn apply(self, machine: &mut M, input: PreparedInput<I, Message>) -> Result<Self::Output> {
         <M as Field<F>>::get_mut(machine)
@@ -195,16 +231,19 @@ where
             .map_err(Into::into)
     }
 }
-pub(super) struct EffectTransfer<From, To>(PhantomData<fn() -> (From, To)>);
-impl<M: Field<From> + Field<To>, From, To, E> Stage<M, E> for EffectTransfer<From, To> {
+pub(super) struct EffectWire<From, To>(PhantomData<fn() -> (From, To)>);
+impl<M: Field<From> + Field<To>, From, To, E> Stage<M, E> for EffectWire<From, To> {
+    type Kind = Wire;
     type Output = E;
-    fn element() -> Element {
-        Element::Edge {
-            kind: EdgeKind::EffectDelivery,
-            from: site::<M, From>(NodeKind::ExecuteInstruction),
-            to: site::<M, To>(NodeKind::HandleEffect),
-            payload: type_name::<E>(),
-        }
+    type Source = ExecuteAt<From>;
+    type Target = HandleAt<To>;
+    type Instruction = ();
+    type Payload = E;
+    fn source() -> &'static str {
+        <M as Field<From>>::SOURCE[0]
+    }
+    fn target() -> &'static str {
+        <M as Field<To>>::SOURCE[0]
     }
     fn apply(self, _: &mut M, effect: E) -> Result<E> {
         Ok(effect)
@@ -215,14 +254,17 @@ impl<M: Field<F>, F, E> Stage<M, E> for HandleAt<F>
 where
     M::Child: Receive<E>,
 {
+    type Kind = Computation;
     type Output = ();
-    fn element() -> Element {
-        Element::Node {
-            site: site::<M, F>(NodeKind::HandleEffect),
-            instruction: None,
-            input: type_name::<E>(),
-            output: type_name::<()>(),
-        }
+    type Source = Self;
+    type Target = Self;
+    type Instruction = ();
+    type Payload = E;
+    fn source() -> &'static str {
+        <M as Field<F>>::SOURCE[0]
+    }
+    fn target() -> &'static str {
+        <M as Field<F>>::SOURCE[0]
     }
     fn apply(self, machine: &mut M, effect: E) -> Result<()> {
         <M as Field<F>>::get_mut(machine).receive(effect)
@@ -232,8 +274,8 @@ where
 pub(super) trait Run<M, C, Input> {
     fn run(self, machine: &mut M, context: &C, input: Input) -> Result<()>;
 }
-pub(super) trait Describe<M, Input> {
-    fn describe(&self, parts: &mut Vec<Part>);
+pub(super) trait Inspect<M, Input> {
+    fn inspect<V: Visitor<M>>(&self, visitor: &mut V);
 }
 pub(super) struct End;
 impl<M, C, Input> Run<M, C, Input> for End {
@@ -241,8 +283,8 @@ impl<M, C, Input> Run<M, C, Input> for End {
         Ok(())
     }
 }
-impl<M, Input> Describe<M, Input> for End {
-    fn describe(&self, _: &mut Vec<Part>) {}
+impl<M, Input> Inspect<M, Input> for End {
+    fn inspect<V: Visitor<M>>(&self, _: &mut V) {}
 }
 pub(super) struct Then<N, P, Next> {
     node: N,
@@ -259,9 +301,9 @@ where
     N: Stage<M, Input>,
     Next: Run<M, C, N::Output>,
 {
-    fn element(&self) -> Element {
-        N::element()
-    }
+    type Kind = N::Kind;
+    type Input = Input;
+    type Operation = N;
     fn resume(self, machine: &mut M, context: &C) -> Result<()> {
         let output = self.node.apply(machine, self.input)?;
         self.next.run(machine, context, output)
@@ -285,18 +327,15 @@ where
         )
     }
 }
-impl<M, N, P, Input, Next> Describe<M, Input> for Then<N, P, Next>
+impl<M, N, P, Input, Next> Inspect<M, Input> for Then<N, P, Next>
 where
     N: Stage<M, Input>,
     P: AnnotationInfo,
-    Next: Describe<M, N::Output>,
+    Next: Inspect<M, N::Output>,
 {
-    fn describe(&self, parts: &mut Vec<Part>) {
-        parts.push(Part {
-            element: N::element(),
-            annotation: P::info(),
-        });
-        self.next.describe(parts);
+    fn inspect<V: Visitor<M>>(&self, visitor: &mut V) {
+        N::Kind::visit::<M, Input, N, P, V>(&self.policy, visitor);
+        self.next.inspect(visitor);
     }
 }
 pub(super) struct FanOut<L, R> {
@@ -309,10 +348,10 @@ impl<M, C, E: Clone, L: Run<M, C, E>, R: Run<M, C, E>> Run<M, C, E> for FanOut<L
         self.right.run(machine, context, effect)
     }
 }
-impl<M, E, L: Describe<M, E>, R: Describe<M, E>> Describe<M, E> for FanOut<L, R> {
-    fn describe(&self, parts: &mut Vec<Part>) {
-        self.left.describe(parts);
-        self.right.describe(parts);
+impl<M, E, L: Inspect<M, E>, R: Inspect<M, E>> Inspect<M, E> for FanOut<L, R> {
+    fn inspect<V: Visitor<M>>(&self, visitor: &mut V) {
+        self.left.inspect(visitor);
+        self.right.inspect(visitor);
     }
 }
 
@@ -465,11 +504,11 @@ impl<F, D> Handling<F, D, Unannotated> {
         }
     }
 }
-type ReceiverPlan<From, To, D, H> = Then<EffectTransfer<From, To>, D, Then<HandleAt<To>, H, End>>;
+type ReceiverGraph<From, To, D, H> = Then<EffectWire<From, To>, D, Then<HandleAt<To>, H, End>>;
 impl<To, D, H> Handling<To, D, H> {
-    fn from<From>(self) -> ReceiverPlan<From, To, D, H> {
+    fn from<From>(self) -> ReceiverGraph<From, To, D, H> {
         Then {
-            node: EffectTransfer(PhantomData),
+            node: EffectWire(PhantomData),
             policy: self.delivery,
             next: Then {
                 node: HandleAt(PhantomData),
@@ -479,28 +518,28 @@ impl<To, D, H> Handling<To, D, H> {
         }
     }
 }
-type SourcePlan<F, I, B, T, X, Next> =
-    Then<BuildAt<F, I>, B, Then<MessageTransfer<F>, T, Then<ExecuteAt<F>, X, Next>>>;
-pub(super) struct Route<I, Plan> {
-    plan: Plan,
+type StepGraph<F, I, B, T, X, Next> =
+    Then<BuildAt<F, I>, B, Then<MessageWire<F>, T, Then<ExecuteAt<F>, X, Next>>>;
+pub(super) struct DeclaredRoute<I, Graph> {
+    graph: Graph,
     instruction: PhantomData<fn() -> I>,
 }
-type ForkedRoute<F, I, B, T, X, L, LD, LH, R, RD, RH> = Route<
+type ForkedRoute<F, I, B, T, X, L, LD, LH, R, RD, RH> = DeclaredRoute<
     I,
-    SourcePlan<F, I, B, T, X, FanOut<ReceiverPlan<F, L, LD, LH>, ReceiverPlan<F, R, RD, RH>>>,
+    StepGraph<F, I, B, T, X, FanOut<ReceiverGraph<F, L, LD, LH>, ReceiverGraph<F, R, RD, RH>>>,
 >;
 impl<F, I, B, T, X> Executing<F, I, B, T, X> {
     pub(super) fn fan_out<L, LD, LH, R, RD, RH>(
         self,
         branches: (Handling<L, LD, LH>, Handling<R, RD, RH>),
     ) -> ForkedRoute<F, I, B, T, X, L, LD, LH, R, RD, RH> {
-        Route {
+        DeclaredRoute {
             instruction: PhantomData,
-            plan: Then {
+            graph: Then {
                 node: BuildAt(PhantomData),
                 policy: self.build,
                 next: Then {
-                    node: MessageTransfer(PhantomData),
+                    node: MessageWire(PhantomData),
                     policy: self.transfer,
                     next: Then {
                         node: ExecuteAt(PhantomData),
@@ -515,28 +554,49 @@ impl<F, I, B, T, X> Executing<F, I, B, T, X> {
         }
     }
 }
-impl<I, Plan> Route<I, Plan> {
-    pub(super) fn start<M, C>(self, machine: &mut M, context: &C, instruction: &I) -> Result<()>
+// One canonical graph type contains every operation, connection, and annotation.
+// Graph values contain only runtime bindings; static-only graphs are zero-sized.
+pub(super) trait Route: Sized {
+    type Instruction;
+    type Graph;
+    fn graph(&self) -> &Self::Graph;
+    fn into_graph(self) -> Self::Graph;
+
+    fn start<M, C>(
+        self,
+        machine: &mut M,
+        context: &C,
+        instruction: &Self::Instruction,
+    ) -> Result<()>
     where
-        I: Clone,
-        Plan: Run<M, C, I>,
+        Self::Instruction: Clone,
+        Self::Graph: Run<M, C, Self::Instruction>,
     {
-        self.plan.run(machine, context, instruction.clone())
+        self.into_graph().run(machine, context, instruction.clone())
     }
-    pub(super) fn topology<M>(&self) -> Vec<Part>
+    fn inspect<M, V: Visitor<M>>(&self, visitor: &mut V)
     where
-        Plan: Describe<M, I>,
+        Self::Graph: Inspect<M, Self::Instruction>,
     {
-        let mut parts = Vec::new();
-        self.plan.describe(&mut parts);
-        parts
+        self.graph().inspect(visitor);
+    }
+}
+impl<I, Graph> Route for DeclaredRoute<I, Graph> {
+    type Instruction = I;
+    type Graph = Graph;
+    fn graph(&self) -> &Graph {
+        &self.graph
+    }
+    fn into_graph(self) -> Graph {
+        self.graph
     }
 }
 pub(super) struct Immediate;
-impl<M, A> Context<M, A> for Immediate {
-    fn submit<W>(&self, machine: &mut M, _: A, work: W) -> Result<()>
+impl<M, Family: AnnotationFamily, Kind> Context<M, Family, Kind> for Immediate {
+    fn submit<A, W>(&self, machine: &mut M, _: A, work: W) -> Result<()>
     where
-        W: Resume<M, Self> + 'static,
+        A: AnnotationBinding<Family = Family>,
+        W: Resume<M, Self, Kind = Kind> + 'static,
     {
         work.resume(machine, self)
     }

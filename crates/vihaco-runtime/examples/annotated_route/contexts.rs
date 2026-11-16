@@ -1,51 +1,81 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Example policy: computations apply atomically at completion; edges delay
-//! payload availability. No resource contention or wall-clock waiting is modeled.
+//! Optional scheduling backend: atomic computation at completion, transfer delay
+//! on edges. Runtime queueing/erasure belongs to this backend, not the Route API.
+//! Recording is opt-in and stores operation names and times only.
 
-use super::framework::{Context, Dynamic, Element, Resume, Static};
-use eyre::{Result, ensure, eyre};
+use super::{
+    annotations::{ComputeTime, DeliveryLatency, TraceLabel},
+    framework::{AnnotationBinding, Computation, Context, Resume, Wire},
+};
+use eyre::{Result, eyre};
 use std::{
     cell::{Cell, RefCell},
     collections::BTreeMap,
     time::Duration,
 };
 
-pub(super) struct ComputeTimeNs<const NS: u64>;
-pub(super) struct DeliveryLatencyNs<const NS: u64>;
-pub(super) struct DynamicComputeTime(pub(super) Duration);
-pub(super) struct DynamicLatency(pub(super) Duration);
-pub(super) struct TraceLabel(pub(super) &'static str);
+// These generic hooks are statically dispatched. A no-op observer needs no
+// metadata allocation, enum construction, or runtime branch to disable recording.
+pub(super) trait Observer<M> {
+    fn scheduled<C, W: Resume<M, C>>(&self, _: Duration, _: Duration) {}
+    fn completed<C, W: Resume<M, C>>(&self, _: Duration) {}
+    fn label(&self, _: Duration, _: &'static str) {}
+}
+#[derive(Default)]
+pub(super) struct NoRecording;
+impl<M> Observer<M> for NoRecording {}
 
-trait Pending<M> {
-    fn element(&self) -> Element;
-    fn run(self: Box<Self>, machine: &mut M, context: &Scheduler<M>) -> Result<()>;
-}
-impl<M, W: Resume<M, Scheduler<M>>> Pending<M> for W {
-    fn element(&self) -> Element {
-        Resume::element(self)
-    }
-    fn run(self: Box<Self>, machine: &mut M, context: &Scheduler<M>) -> Result<()> {
-        (*self).resume(machine, context)
-    }
-}
-type Queue<M> = BTreeMap<(Duration, u64), Box<dyn Pending<M>>>;
-#[derive(Debug)]
 pub(super) struct Scheduled {
-    pub(super) element: Element,
+    pub(super) operation: &'static str,
     pub(super) ready: Duration,
     pub(super) due: Duration,
 }
-pub(super) struct Scheduler<M> {
-    pub(super) now: Cell<Duration>,
-    queue: RefCell<Queue<M>>,
-    sequence: Cell<u64>,
+#[derive(Default)]
+pub(super) struct Recording {
     pub(super) trace: RefCell<Vec<(Duration, &'static str)>>,
     pub(super) scheduled: RefCell<Vec<Scheduled>>,
-    pub(super) completed: RefCell<Vec<(Duration, Element)>>,
+    pub(super) completed: RefCell<Vec<(Duration, &'static str)>>,
 }
-impl<M> Scheduler<M> {
+impl<M> Observer<M> for Recording {
+    fn scheduled<C, W: Resume<M, C>>(&self, ready: Duration, due: Duration) {
+        self.scheduled.borrow_mut().push(Scheduled {
+            operation: std::any::type_name::<W::Operation>(),
+            ready,
+            due,
+        });
+    }
+    fn completed<C, W: Resume<M, C>>(&self, due: Duration) {
+        self.completed
+            .borrow_mut()
+            .push((due, std::any::type_name::<W::Operation>()));
+    }
+    fn label(&self, now: Duration, label: &'static str) {
+        self.trace.borrow_mut().push((now, label));
+    }
+}
+
+trait Pending<M, O> {
+    fn run(self: Box<Self>, machine: &mut M, context: &Scheduler<M, O>) -> Result<()>;
+}
+impl<M, O: Observer<M>, W: Resume<M, Scheduler<M, O>>> Pending<M, O> for W {
+    fn run(self: Box<Self>, machine: &mut M, context: &Scheduler<M, O>) -> Result<()> {
+        let due = context.now.get();
+        (*self).resume(machine, context)?;
+        context.observer.completed::<Scheduler<M, O>, W>(due);
+        Ok(())
+    }
+}
+type Queue<M, O> = BTreeMap<(Duration, u64), Box<dyn Pending<M, O>>>;
+pub(super) struct Scheduler<M, O = NoRecording> {
+    pub(super) now: Cell<Duration>,
+    queue: RefCell<Queue<M, O>>,
+    sequence: Cell<u64>,
+    pub(super) observer: O,
+}
+pub(super) type RecordingScheduler<M> = Scheduler<M, Recording>;
+impl<M, O: Observer<M>> Scheduler<M, O> {
     fn enqueue<W: Resume<M, Self> + 'static>(&self, delay: Duration, work: W) -> Result<()> {
         let ready = self.now.get();
         let due = ready
@@ -57,11 +87,7 @@ impl<M> Scheduler<M> {
                 .checked_add(1)
                 .ok_or_else(|| eyre!("sequence overflow"))?,
         );
-        self.scheduled.borrow_mut().push(Scheduled {
-            element: work.element(),
-            ready,
-            due,
-        });
+        self.observer.scheduled::<Self, W>(ready, due);
         self.queue
             .borrow_mut()
             .insert((due, sequence), Box::new(work));
@@ -73,83 +99,46 @@ impl<M> Scheduler<M> {
             return Ok(false);
         };
         self.now.set(due);
-        let element = work.element();
         work.run(machine, self)?;
-        self.completed.borrow_mut().push((due, element));
         Ok(true)
     }
 }
-impl<M, const NS: u64> Context<M, Static<ComputeTimeNs<NS>>> for Scheduler<M> {
-    fn submit<W>(&self, _: &mut M, _: Static<ComputeTimeNs<NS>>, work: W) -> Result<()>
+// Annotation compatibility is selected entirely by family and graph kind.
+impl<M, O: Observer<M>> Context<M, ComputeTime, Computation> for Scheduler<M, O> {
+    fn submit<A, W>(&self, _: &mut M, annotation: A, work: W) -> Result<()>
     where
-        W: Resume<M, Self> + 'static,
+        A: AnnotationBinding<Family = ComputeTime>,
+        W: Resume<M, Self, Kind = Computation> + 'static,
     {
-        ensure!(
-            matches!(work.element(), Element::Node { .. }),
-            "computation time requires a node"
-        );
-        self.enqueue(Duration::from_nanos(NS), work)
+        self.enqueue(annotation.into_value(), work)
     }
 }
-impl<M, const NS: u64> Context<M, Static<DeliveryLatencyNs<NS>>> for Scheduler<M> {
-    fn submit<W>(&self, _: &mut M, _: Static<DeliveryLatencyNs<NS>>, work: W) -> Result<()>
+impl<M, O: Observer<M>> Context<M, DeliveryLatency, Wire> for Scheduler<M, O> {
+    fn submit<A, W>(&self, _: &mut M, annotation: A, work: W) -> Result<()>
     where
-        W: Resume<M, Self> + 'static,
+        A: AnnotationBinding<Family = DeliveryLatency>,
+        W: Resume<M, Self, Kind = Wire> + 'static,
     {
-        ensure!(
-            matches!(work.element(), Element::Edge { .. }),
-            "delivery latency requires an edge"
-        );
-        self.enqueue(Duration::from_nanos(NS), work)
+        self.enqueue(annotation.into_value(), work)
     }
 }
-impl<M> Context<M, Dynamic<DynamicComputeTime>> for Scheduler<M> {
-    fn submit<W>(
-        &self,
-        _: &mut M,
-        Dynamic(duration): Dynamic<DynamicComputeTime>,
-        work: W,
-    ) -> Result<()>
+impl<M, O: Observer<M>, Kind> Context<M, TraceLabel, Kind> for Scheduler<M, O> {
+    fn submit<A, W>(&self, _: &mut M, annotation: A, work: W) -> Result<()>
     where
-        W: Resume<M, Self> + 'static,
+        A: AnnotationBinding<Family = TraceLabel>,
+        W: Resume<M, Self, Kind = Kind> + 'static,
     {
-        ensure!(
-            matches!(work.element(), Element::Node { .. }),
-            "computation time requires a node"
-        );
-        self.enqueue(duration.0, work)
-    }
-}
-impl<M> Context<M, Dynamic<DynamicLatency>> for Scheduler<M> {
-    fn submit<W>(&self, _: &mut M, Dynamic(latency): Dynamic<DynamicLatency>, work: W) -> Result<()>
-    where
-        W: Resume<M, Self> + 'static,
-    {
-        ensure!(
-            matches!(work.element(), Element::Edge { .. }),
-            "delivery latency requires an edge"
-        );
-        self.enqueue(latency.0, work)
-    }
-}
-impl<M> Context<M, Dynamic<TraceLabel>> for Scheduler<M> {
-    fn submit<W>(&self, _: &mut M, Dynamic(label): Dynamic<TraceLabel>, work: W) -> Result<()>
-    where
-        W: Resume<M, Self> + 'static,
-    {
-        self.trace.borrow_mut().push((self.now.get(), label.0));
+        self.observer.label(self.now.get(), annotation.into_value());
         self.enqueue(Duration::ZERO, work)
     }
 }
-impl<M> Default for Scheduler<M> {
+impl<M, O: Default> Default for Scheduler<M, O> {
     fn default() -> Self {
         Self {
             now: Cell::new(Duration::ZERO),
             queue: RefCell::new(BTreeMap::new()),
             sequence: Cell::new(0),
-            trace: RefCell::new(Vec::new()),
-            scheduled: RefCell::new(Vec::new()),
-            completed: RefCell::new(Vec::new()),
+            observer: O::default(),
         }
     }
 }
