@@ -1,0 +1,11 @@
+error[E0277]: the trait bound `Machine: BuildMessage<Route, Instruction, (), NoMessage>` is not satisfied
+  --> tests/compile_fail/messages/no-automatic-builder.rs:23:14
+   |
+23 |     let _ = <Machine as BuildMessage<Route, Instruction>>::build_message(
+   |              ^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `BuildMessage<Route, Instruction, (), NoMessage>` is not implemented for `Machine`
+  --> tests/compile_fail/messages/no-automatic-builder.rs:14:1
+   |
+14 | struct Machine(Device);
+   | ^^^^^^^^^^^^^^

@@ -11,7 +11,7 @@
 //! ```
 //! use vihaco_abi::{Type, Value};
 //! use vihaco_module::module::{LocalModule, FunctionInfo, Signature};
-//! use vihaco_runtime::{composite, field, Apply, BuildMessage, Execute, HasInstructionSet, Step};
+//! use vihaco_runtime::{composite, field, Apply, BuildMessage, ReusableMessageRecipe, Execute, HasInstructionSet, Step};
 //! use vihaco_stdlib::{ExecutionState, Image, execution_state::execute, program::program};
 //! use vihaco_cpu::{CPU, cpu};
 //!
@@ -22,6 +22,30 @@
 //! }
 //! type Instruction = <Machine as HasInstructionSet>::Runtime;
 //! type Program = LocalModule<Instruction, Value, Type>;
+//!
+//! impl<I, M> BuildMessage<field!(Machine::execution), I, Program, M> for Machine
+//! where
+//!     ExecutionState: Execute<I, Message = M>,
+//!     M: ReusableMessageRecipe<Self, field!(Machine::execution), I, Program>,
+//! {
+//!     fn build_message(&mut self, instruction: &I, context: &Program) -> eyre::Result<M> {
+//!         <M as ReusableMessageRecipe<Self, field!(Machine::execution), I, Program>>::prepare(
+//!             self, instruction, context,
+//!         )
+//!     }
+//! }
+//!
+//! impl<I, M> BuildMessage<field!(Machine::cpu), I, Program, M> for Machine
+//! where
+//!     CPU: Execute<I, Message = M>,
+//!     M: ReusableMessageRecipe<Self, field!(Machine::cpu), I, Program>,
+//! {
+//!     fn build_message(&mut self, instruction: &I, context: &Program) -> eyre::Result<M> {
+//!         <M as ReusableMessageRecipe<Self, field!(Machine::cpu), I, Program>>::prepare(
+//!             self, instruction, context,
+//!         )
+//!     }
+//! }
 //!
 //! impl<I> Step<field!(Machine::execution), I, Program> for Machine
 //! where

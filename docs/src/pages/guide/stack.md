@@ -33,6 +33,10 @@ stack after:  [42]      ← top
 The composite's `#[program]` device connects this preparation to operand storage.
 Remember the attribute: a field called `execution`, or even a field holding an
 `ExecutionState`, doesn't make that connection on its own.
+The composite also implements `BuildMessage`, explicitly calling the stack
+message's `ReusableMessageRecipe::prepare` in its `build_message` body. The
+storage connection alone does not supply a builder. See
+[preparing messages](/guide/messages) for recipes and explicit delegation.
 
 ## Variable input counts
 

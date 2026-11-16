@@ -1,5 +1,5 @@
 use vihaco_runtime::{
-    BuildMessage, Component, Composite, Execute, Field, HasOperandStack, PopFromStack, PopStack,
+    ReusableMessageRecipe, Component, Composite, Execute, Field, HasOperandStack, PopFromStack, PopStack,
 };
 
 struct Instruction;
@@ -32,6 +32,6 @@ impl HasOperandStack<Instruction> for Machine {
 }
 
 fn main() {
-    let _ = <Machine as BuildMessage<Route, Instruction>>::build_message(
+    let _ = <PopFromStack<(f64,)> as ReusableMessageRecipe<Machine, Route, Instruction, ()>>::prepare(
         &mut Machine(WordStorage, Device), &Instruction, &());
 }

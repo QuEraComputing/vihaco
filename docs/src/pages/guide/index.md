@@ -42,7 +42,7 @@ dependencies.
 | [Essential concepts](/guide/essentials) | The minimum needed to define instructions, implement components, and wire a VM |
 | [Dialects and instructions](/guide/instructions) | Define the operations your components will implement |
 | [Writing components](/guide/components) | Give a device state and implement `Execute` |
-| [Preparing messages](/guide/messages) | Supply runtime input with `BuildMessage` |
+| [Preparing messages](/guide/messages) | Build composite-specific input and delegate to reusable recipes |
 | [Stack inputs and outputs](/guide/stack) | Move typed operands into and out of a component |
 | [Writing composites](/guide/composites) | Connect devices, including nested ones, and route instructions |
 | [Executing one instruction](/guide/execution) | Follow `Dispatch`, `Step`, `BuildMessage`, `Execute`, and `Apply` |

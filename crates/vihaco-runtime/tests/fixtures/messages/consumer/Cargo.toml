@@ -1,0 +1,10 @@
+[package]
+name = "message-consumer"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+message-author = { path = "../author" }
+vihaco = { path = "../../../../../vihaco", features = ["program-image-execution"] }
+vihaco-stdlib = { path = "../../../../../vihaco-stdlib", features = ["program-image-execution"] }

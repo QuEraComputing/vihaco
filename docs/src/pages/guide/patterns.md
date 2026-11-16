@@ -220,9 +220,10 @@ can't overlap. Even if you keep the groups separate, the coherence checker can
 reject the impls.
 
 Name distinct message types explicitly to separate the builder impls, and
-require the child's associated message to match. Standard stack messages already
-have framework-supplied preparation, so custom builders only need to handle
-your own message types.
+require the child's associated message to match. Standard stack messages supply
+`ReusableMessageRecipe` implementations; your composite's builders can explicitly
+delegate to those recipes. See [preparing messages](/guide/messages) for the
+division between composite-specific building and upstream reusable recipes.
 
 `MemberOf<G>` helps group types, but doesn't declare execution support or bypass
 the overlap rules.

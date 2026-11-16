@@ -19,7 +19,8 @@ The trait names describe different parts of that work:
 |---|---|---|
 | `Dispatch<Context>` | Composite macro | Chooses a route and calls its step |
 | `Step<F, I, Context>` | You, on the composite | Connects input preparation, execution, and result handling |
-| `BuildMessage<F, I, Context, M>` | Standard protocols or you | Prepares the child's required message |
+| `BuildMessage<F, I, Context, M>` | You, on the composite | Chooses machine-specific message construction |
+| `ReusableMessageRecipe<Parent, Route, I, Context>` | Message authors | Supplies generic construction over required machine capabilities |
 | `Execute<I>` | You, on the component | Executes a borrowed instruction |
 | `Apply<E>` | Effect/storage protocols or you | Applies one owned effect to a destination |
 
@@ -34,7 +35,8 @@ In [your first machine](/guide/first-machine), dispatch chooses
 `field!(Machine::calculator)` and `arithmetic::Add`. The step also receives a
 borrowed `Program` module as its context. It then does the following:
 
-1. `BuildMessage` takes two operands and returns `PopFromStack<(u64, u64)>`.
+1. The composite's `BuildMessage` delegates to the standard recipe, which takes
+   two operands and returns `PopFromStack<(u64, u64)>`.
 2. `Execute` checks the addition and returns `PushToStack<(u64,)>`.
 3. `Apply` puts the answer in `ExecutionState`.
 

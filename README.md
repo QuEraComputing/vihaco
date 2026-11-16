@@ -174,10 +174,13 @@ instructions replace it for branches, calls, and returns. Composite authors neve
 manage the PC. Halt/root return and errors retain the source instruction position.
 Earlier consumption and component mutations are not rolled back.
 
-Component authors select `PopFromStack` messages and `PushToStack` effects; standard
-builders transfer operands and resolve call/branch metadata. Authors implement Steps
-and choose effect handling; no Step or Apply policy is generated. Custom message
-builders remain available. Tuple inputs/outputs support arities 0–16 and homogeneous
+Component authors select `PopFromStack` messages and `PushToStack` effects. Composite
+authors implement `BuildMessage` to choose machine-specific construction, explicitly
+delegating to `ReusableMessageRecipe` when using standard or upstream preparation.
+Message authors supply these recipes generically over required machine capabilities;
+standard recipes transfer operands and resolve call/branch metadata. Authors implement
+Steps and choose effect handling; no Step or Apply policy is generated.
+Tuple inputs/outputs support arities 0–16 and homogeneous
 array outputs support any length. Boolean extraction treats any nonzero word as true
 and produces canonical `0`/`1` results.
 
