@@ -41,20 +41,32 @@ impl<Inst, V, Ty, Info, M: Composite> Loadable<Image<Inst, V, Ty, Info>, M> {
         &mut self.machine
     }
 
+    pub(crate) fn parts_mut(&mut self) -> (&mut Image<Inst, V, Ty, Info>, &mut M) {
+        (&mut self.image, &mut self.machine)
+    }
+
     /// Consume the owner, returning its image and machine without resetting them.
     pub fn into_parts(self) -> (Image<Inst, V, Ty, Info>, M) {
         (self.image, self.machine)
     }
 }
 
-impl<Inst, V, Ty, Info, M> Loadable<Image<Inst, V, Ty, Info>, M>
+impl<Inst, V, Ty, Info, M, S> Loadable<Image<Inst, V, Ty, Info>, M>
 where
-    M: Composite + HasProgram<Program = ExecutionState>,
+    M: Composite + HasProgram<Program = ExecutionState<S>>,
 {
     /// Pair an image with a machine, resetting its previous invocation state.
     ///
     /// Device state is retained. No parsing, lowering, or image validation is
     /// performed here; construction of a valid image is the caller's job.
+    ///
+    /// When reusing a machine with a different image, call
+    /// [`Debugger::forget_breakpoints`](crate::debugger::Debugger::forget_breakpoints)
+    /// on each debugger before using it with the new image. Saved instructions
+    /// belong to the discarded image; retaining them can overwrite new code
+    /// when a breakpoint is cleared. To keep the old image usable, restore its
+    /// instructions with [`Debugger::clear_all`](crate::debugger::Debugger::clear_all)
+    /// before separating it from the machine instead.
     pub fn new(image: Image<Inst, V, Ty, Info>, mut machine: M) -> Self {
         machine.program_mut().reset();
         Self { image, machine }
@@ -64,6 +76,15 @@ where
     ///
     /// Device state is retained. Image construction happens before this call;
     /// mutations made by the caller while constructing it are not rolled back.
+    ///
+    /// After replacement succeeds, call
+    /// [`Debugger::forget_breakpoints`](crate::debugger::Debugger::forget_breakpoints)
+    /// on each debugger before using it again. This discards instructions saved
+    /// from the old image, which must never be restored into the replacement.
+    /// Do not forget them before this call: if replacement is rejected, the old
+    /// image still needs those instructions to clear or resume its breakpoints.
+    /// Invocation-only [`Self::reset`] calls retain the image and its breakpoints.
+    /// See the `debugger` Cargo example for the replacement and reuse sequence.
     ///
     /// # Errors
     ///
@@ -81,15 +102,22 @@ where
         Ok(())
     }
 
+    /// Initialize an invocation without executing instructions.
+    pub fn start(&mut self, arguments: &[Word]) -> eyre::Result<()> {
+        self.machine
+            .program_mut()
+            .start(&self.image.module, arguments)
+    }
+
     /// Abandon the invocation, retaining the image and all device state.
     pub fn reset(&mut self) {
         self.machine.program_mut().reset();
     }
 }
 
-impl<Inst, V, Ty, Info, M> Loadable<Image<Inst, V, Ty, Info>, M>
+impl<Inst, V, Ty, Info, M, S> Loadable<Image<Inst, V, Ty, Info>, M>
 where
-    M: HasProgram<Program = ExecutionState>
+    M: HasProgram<Program = ExecutionState<S>>
         + Dispatch<LocalModule<Inst, V, Ty, Info>, Instruction = Inst>,
 {
     /// Start at the program entrypoint with the supplied arguments.
@@ -111,6 +139,8 @@ where
     ///
     /// Returns the runner's state, instruction-fetch, or dispatch errors without
     /// rolling back machine mutations. A halted invocation remains halted.
+    /// A suspended invocation also remains suspended; use
+    /// [`Self::resume_with_breaks`] to continue from a debugger breakpoint.
     pub fn resume(&mut self) -> eyre::Result<()> {
         execution_state::resume(&self.image.module, &mut self.machine)
     }

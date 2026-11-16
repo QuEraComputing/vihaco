@@ -3,12 +3,17 @@
 
 //! Checked word backing for frame locals and typed operands.
 
-use super::{ExecutionState, function_entry};
+use super::{ExecutionState, RunState, function_entry};
 use vihaco_abi::{frame::Frame, traits::Reset, word::*};
 use vihaco_module::module::LocalModule;
 use vihaco_module::{PopStack, PushStack};
 
-impl ExecutionState {
+impl<S> ExecutionState<S> {
+    /// Inspect the running state without changing it.
+    pub fn run_state(&self) -> &RunState<S> {
+        &self.run_state
+    }
+
     /// Materialized locals and operands, or results after the outermost return.
     pub fn stack(&self) -> &[Word] {
         &self.stack
@@ -21,14 +26,14 @@ impl ExecutionState {
 
     /// True before entry, after Halt, or after the outermost return.
     pub fn is_halted(&self) -> bool {
-        self.halted
+        matches!(self.run_state, RunState::Halted)
     }
 
     /// Enter main using its module metadata and host-supplied arguments.
     ///
     /// Entry creates the outermost frame, zeroes non-argument locals, selects
-    /// the function's first instruction, and clears the halt flag. A halted
-    /// invocation can be replaced while reusing allocated storage.
+    /// the function's first instruction, and sets the run state to runnable.
+    /// A halted invocation can be replaced while reusing allocated storage.
     ///
     /// # Errors
     /// Rejects an active invocation, invalid metadata/target, a wrong argument
@@ -39,7 +44,7 @@ impl ExecutionState {
         arguments: &[Word],
     ) -> eyre::Result<()> {
         eyre::ensure!(
-            self.halted && !self.executing,
+            matches!(self.run_state, RunState::Halted) && !self.executing,
             "a function is already active"
         );
         let function = module
@@ -66,7 +71,7 @@ impl ExecutionState {
             ret_pc: 0,
         });
         self.pc = target;
-        self.halted = false;
+        self.run_state = RunState::Runnable;
         Ok(())
     }
 
@@ -75,10 +80,31 @@ impl ExecutionState {
         self.pc
     }
 
+    /// Select a continuation and make the invocation runnable.
+    ///
+    /// Intended for custom runners resuming a suspended invocation. This does
+    /// not create a frame or validate `pc`; the caller must retain the active
+    /// invocation and choose a position in its original module. The next
+    /// [`super::execute_instruction`] call checks the frame and fetch position.
+    pub fn resume_at(&mut self, pc: u32) {
+        self.pc = pc;
+        self.run_state = RunState::Runnable;
+    }
+
+    /// Suspend the invocation with component-specific state.
+    ///
+    /// A component's effect handler can use this to stop the shared runner.
+    /// During dispatch, the runner restores the PC to the current instruction;
+    /// save any desired continuation in `state` before suspending. A custom
+    /// runner can later inspect [`Self::run_state`] and call [`Self::resume_at`].
+    pub fn suspend(&mut self, state: S) {
+        self.run_state = RunState::Other(state);
+    }
+
     #[inline(always)]
     pub(super) fn ensure_running(&self) -> eyre::Result<()> {
         eyre::ensure!(
-            !self.halted && !self.frames.is_empty(),
+            matches!(self.run_state, RunState::Runnable) && !self.frames.is_empty(),
             "program is not running"
         );
         Ok(())
@@ -127,16 +153,16 @@ impl ExecutionState {
     }
 }
 
-impl Reset for ExecutionState {
+impl<S> Reset for ExecutionState<S> {
     fn reset(&mut self) {
         self.stack.clear();
         self.frames.clear();
         self.pc = 0;
-        self.halted = true;
+        self.run_state = RunState::Halted;
     }
 }
 
-impl PopStack<Word> for ExecutionState {
+impl<S> PopStack<Word> for ExecutionState<S> {
     #[inline]
     fn pop(&mut self) -> eyre::Result<Word> {
         self.require_operands(1)?;
@@ -148,7 +174,7 @@ impl PopStack<Word> for ExecutionState {
 
 // Insertion is storage plumbing, not execution: it never starts an invocation
 // or changes PC. Step wiring supplies results only after successful preparation.
-impl PushStack<Word> for ExecutionState {
+impl<S> PushStack<Word> for ExecutionState<S> {
     #[inline]
     fn push(&mut self, value: Word) {
         self.stack.push(value);
@@ -157,13 +183,13 @@ impl PushStack<Word> for ExecutionState {
 
 macro_rules! float_access {
     ($ty:ty, $decode:ident, $encode:ident) => {
-        impl PopStack<$ty> for ExecutionState {
+        impl<S> PopStack<$ty> for ExecutionState<S> {
             #[inline]
             fn pop(&mut self) -> eyre::Result<$ty> {
                 <Self as PopStack<Word>>::pop(self).map($decode)
             }
         }
-        impl PushStack<$ty> for ExecutionState {
+        impl<S> PushStack<$ty> for ExecutionState<S> {
             #[inline]
             fn push(&mut self, value: $ty) {
                 <Self as PushStack<Word>>::push(self, $encode(value));

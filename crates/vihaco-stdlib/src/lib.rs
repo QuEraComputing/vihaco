@@ -9,10 +9,13 @@ pub mod clock;
 pub mod observer;
 
 #[cfg(feature = "program-image-execution")]
+pub mod debugger;
+
+#[cfg(feature = "program-image-execution")]
 pub mod execution_state;
 
 #[cfg(feature = "program-image-execution")]
-pub use execution_state::ExecutionState;
+pub use execution_state::{ExecutionState, NoCustomState, RunState};
 
 #[cfg(feature = "program-image-execution")]
 pub mod image;

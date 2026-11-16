@@ -43,3 +43,7 @@ vihaco-syntax = { workspace = true }
 [[example]]
 name = "loadable"
 required-features = ["program-image-execution"]
+
+[[example]]
+name = "debugger"
+required-features = ["program-image-execution"]

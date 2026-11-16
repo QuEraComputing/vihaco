@@ -7,6 +7,8 @@
 //! the private PC, and execution flags. A runner borrows both the module and the
 //! machine; instructions borrow the module while authored Steps mutate devices.
 //! Component authors choose messages/effects, without implementing stack logic.
+//! Custom drivers can wrap [`run`] and [`execute_instruction`] to change
+//! initialization, instruction selection, and when control returns to the host.
 //!
 //! ```
 //! use vihaco_abi::{Type, Value};
@@ -111,10 +113,24 @@ use vihaco_module::module::LocalModule;
 
 mod execution;
 mod messages;
-mod runner;
+pub(crate) mod runner;
 mod storage;
 
-pub use runner::{execute, resume};
+pub use runner::{execute, execute_instruction, resume, run};
+
+/// No custom execution state is available. By using this for the
+/// default in [`RunState`], we can get exhaustive pattern matching
+/// for `Runnable` and `Halted` by default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoCustomState {}
+
+/// Whether an invocation can execute its next instruction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunState<S = NoCustomState> {
+    Runnable,
+    Halted,
+    Other(S),
+}
 
 #[vihaco_runtime::component]
 #[instructions { program }]
@@ -122,21 +138,21 @@ pub use runner::{execute, resume};
 ///
 /// The module is supplied by reference at entry and is never stored here.
 #[derive(Debug)]
-pub struct ExecutionState {
+pub struct ExecutionState<S = NoCustomState> {
     stack: Vec<Word>,
     frames: Vec<Frame>,
     pc: u32,
-    halted: bool,
+    run_state: RunState<S>,
     executing: bool,
 }
 
-impl Default for ExecutionState {
+impl<S> Default for ExecutionState<S> {
     fn default() -> Self {
         Self {
             stack: Vec::new(),
             frames: Vec::new(),
             pc: 0,
-            halted: true,
+            run_state: RunState::Halted,
             executing: false,
         }
     }
@@ -148,13 +164,13 @@ impl ExecutionState {
     }
 }
 
-impl Clone for ExecutionState {
+impl<S: Clone> Clone for ExecutionState<S> {
     fn clone(&self) -> Self {
         Self {
             stack: self.stack.clone(),
             frames: self.frames.clone(),
             pc: self.pc,
-            halted: self.halted,
+            run_state: self.run_state.clone(),
             executing: false,
         }
     }
