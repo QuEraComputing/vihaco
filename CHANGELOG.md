@@ -18,6 +18,13 @@ below the `## [Unreleased]` heading, so do not remove or reword that line.
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/QuEraComputing/vihaco/compare/v0.7.0...v0.8.0) - 2026-11-17
+
+### Added
+
+- [**breaking**] make message recipe delegation explicit ([#199](https://github.com/QuEraComputing/vihaco/pull/199))
+- *(stdlib)* add debugger breakpoints and single-step execution ([#198](https://github.com/QuEraComputing/vihaco/pull/198))
+
 ## [0.7.0](https://github.com/QuEraComputing/vihaco/compare/v0.6.0...v0.7.0) - 2026-10-27
 
 ### Added
