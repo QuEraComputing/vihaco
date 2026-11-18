@@ -52,3 +52,7 @@ required-features = ["program-image-execution"]
 [[example]]
 name = "heterogeneous"
 required-features = ["program-image-execution"]
+
+[[example]]
+name = "static_execution_state"
+required-features = ["program-image-execution"]
