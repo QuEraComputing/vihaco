@@ -671,6 +671,7 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
             },
         )
     };
+    let inspection = inspection_impl(root, &runtime, entries, &variants, &types);
     let dispatch_body = if entries.is_empty() {
         quote!(match *instruction {})
     } else {
@@ -684,6 +685,8 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
             type Runtime = #runtime;
             type Syntax = #syntax;
         }
+        #inspection
+
         #parser_impl
         #lowering
         impl #root::SurfaceInstruction for #syntax {}
@@ -696,6 +699,46 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
             }
         }
     })
+}
+
+/// Emit inspection for the resolved aggregate using its generated routes and leaves.
+fn inspection_impl(
+    root: &Path,
+    runtime: &Ident,
+    entries: &[Entry],
+    variants: &[Ident],
+    types: &[Type],
+) -> TokenStream {
+    let inspect_arms = entries.iter().zip(variants).zip(types).map(|((entry, variant), ty)| {
+        let path = entry.record.segments.iter().map(|segment| segment.name.unraw().to_string());
+        let dialect = entry.record.dialect.unraw().to_string();
+        quote! {
+            Self::#variant(leaf) => #root::__private::InspectOperands::inspect_operands(leaf, |operands| {
+                inspect(#root::__private::InstructionView {
+                    device_path: &[#(#path),*],
+                    dialect: #dialect,
+                    mnemonic: <#ty as #root::__private::InstructionSpec>::MNEMONIC,
+                    operands,
+                    leaf,
+                })
+            })
+        }
+    });
+    let inspect_body = if entries.is_empty() {
+        quote!(match *self {})
+    } else {
+        quote!(match self { #(#inspect_arms),* })
+    };
+    quote! {
+        impl #root::__private::InspectInstruction for #runtime {
+            fn inspect<__VihacoResult>(
+                &self,
+                inspect: impl FnOnce(#root::__private::InstructionView<'_>) -> __VihacoResult,
+            ) -> __VihacoResult {
+                #inspect_body
+            }
+        }
+    }
 }
 
 /// Keep generated aggregate parameters distinct from authored framework paths.

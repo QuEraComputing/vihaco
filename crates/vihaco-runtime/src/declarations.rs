@@ -16,6 +16,10 @@
 
 use crate::{Component, Execute, Field};
 
+pub use crate::inspection::{
+    InspectInstruction, InspectOperands, InstructionOperand, InstructionView,
+};
+
 pub use vihaco_parser_derive::__dialect_parsers;
 pub use vihaco_runtime_derive::__inventory_collect;
 
