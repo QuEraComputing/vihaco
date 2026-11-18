@@ -51,7 +51,12 @@ and decide what happens to its result. You can read other devices along the way.
 
 
 
-<table><thead><tr><th>Trait</th><th>Who supplies it</th><th>What it does</th></tr></thead><tbody><tr><td><code>Dispatch&#x3C;Context></code></td><td>Composite macro</td><td>Chooses a route and calls its step</td></tr><tr><td><code>Step&#x3C;F, I, Context></code></td><td>You, on the composite</td><td>Connects input preparation, execution, and result handling</td></tr><tr><td><code>BuildMessage&#x3C;F, I, Context, M></code></td><td>Standard protocols or you</td><td>Prepares the child’s required message</td></tr><tr><td><code>Execute&#x3C;I></code></td><td>You, on the component</td><td>Executes a borrowed instruction</td></tr><tr><td><code>Apply&#x3C;E></code></td><td>Effect/storage protocols or you</td><td>Applies one owned effect to a destination</td></tr></tbody></table>
+
+
+
+
+
+<table><thead><tr><th>Trait</th><th>Who supplies it</th><th>What it does</th></tr></thead><tbody><tr><td><code>Dispatch&#x3C;Context></code></td><td>Composite macro</td><td>Chooses a route and calls its step</td></tr><tr><td><code>Step&#x3C;F, I, Context></code></td><td>You, on the composite</td><td>Connects input preparation, execution, and result handling</td></tr><tr><td><code>BuildMessage&#x3C;F, I, Context, M></code></td><td>You, on the composite</td><td>Chooses machine-specific message construction</td></tr><tr><td><code>ReusableMessageRecipe&#x3C;Parent, Route, I, Context></code></td><td>Message authors</td><td>Supplies generic construction over required machine capabilities</td></tr><tr><td><code>Execute&#x3C;I></code></td><td>You, on the component</td><td>Executes a borrowed instruction</td></tr><tr><td><code>Apply&#x3C;E></code></td><td>Effect/storage protocols or you</td><td>Applies one owned effect to a destination</td></tr></tbody></table>
 <p>The component’s associated types define its execution inputs and outputs.
 <code>Step</code> and <code>Dispatch</code> return <code>eyre::Result&#x3C;()></code>, so a step can propagate or
 convert errors along the way. <code>Apply::apply</code> returns <code>()</code>; write fallible result
@@ -61,7 +66,8 @@ handling directly in the step when you need it.</p>
 <code>field!(Machine::calculator)</code> and <code>arithmetic::Add</code>. The step also receives a
 borrowed <code>Program</code> module as its context. It then does the following:</p>
 <ol>
-<li><code>BuildMessage</code> takes two operands and returns <code>PopFromStack&#x3C;(u64, u64)></code>.</li>
+<li>The composite’s <code>BuildMessage</code> delegates to the standard recipe, which takes
+two operands and returns <code>PopFromStack&#x3C;(u64, u64)></code>.</li>
 <li><code>Execute</code> checks the addition and returns <code>PushToStack&#x3C;(u64,)></code>.</li>
 <li><code>Apply</code> puts the answer in <code>ExecutionState</code>.</li>
 </ol>
@@ -156,7 +162,7 @@ succeeded.</p>
           mqNav.addEventListener("change", () => setOpen(false));
         }
       })();
-    </script><script>
+    </script> <script>
       // Inject a copy button into every <pre> block.
       (() => {
         const COPY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
@@ -201,7 +207,7 @@ succeeded.</p>
           });
         }
       })();
-    </script><script>
+    </script> <script>
       // Theme switcher: light / dark / auto, persisted in localStorage.
       (() => {
         const root = document.documentElement;
@@ -227,7 +233,7 @@ succeeded.</p>
           if (readPref() === "auto") apply("auto");
         });
       })();
-    </script><button type="button" class="back-to-top" aria-label="Back to top" hidden> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M12 19V5"></path> <path d="m5 12 7-7 7 7"></path> </svg> </button> <script>
+    </script> <button type="button" class="back-to-top" aria-label="Back to top" hidden> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M12 19V5"></path> <path d="m5 12 7-7 7 7"></path> </svg> </button> <script>
       (() => {
         const btn = document.querySelector(".back-to-top");
         if (!btn) return;
@@ -244,12 +250,12 @@ succeeded.</p>
         window.addEventListener("resize", sync);
         sync();
       })();
-    </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-11-16</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+    </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
+          documentation generated <time>2026-11-18</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {
           hljs.highlightElement(el);
         }
       })();
-    </script></body> </html>
+    </script> </body> </html>

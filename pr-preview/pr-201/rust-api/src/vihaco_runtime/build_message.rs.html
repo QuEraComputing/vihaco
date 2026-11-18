@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `crates/vihaco-runtime/src/build_message.rs`."><title>build_message.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-0c87338a.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="vihaco_runtime" data-themes="" data-resource-suffix="" data-rustdoc-version="1.99.0 (b940084d7 2026-09-28)" data-channel="1.99.0" data-search-js="search-cf4fc35e.js" data-stringdex-js="stringdex-b5109af9.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../../static.files/src-script-813739b1.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-9f56287d.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1><div class="sub-heading">vihaco_runtime/</div>build_message.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-3"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="comment">// SPDX-FileCopyrightText: 2026 The vihaco Authors
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `crates/vihaco-runtime/src/build_message.rs`."><title>build_message.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-0c87338a.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="vihaco_runtime" data-themes="" data-resource-suffix="" data-rustdoc-version="1.99.0 (b940084d7 2026-09-28)" data-channel="1.99.0" data-search-js="search-cf4fc35e.js" data-stringdex-js="stringdex-b5109af9.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../../static.files/src-script-813739b1.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-9f56287d.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1><div class="sub-heading">vihaco_runtime/</div>build_message.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-2"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="comment">// SPDX-FileCopyrightText: 2026 The vihaco Authors
 <a href=#2 id=2 data-nosnippet>2</a>// SPDX-License-Identifier: MIT
 <a href=#3 id=3 data-nosnippet>3</a>
 <a href=#4 id=4 data-nosnippet>4</a></span><span class="kw">use crate</span>::{Execute, Field, NoMessage};
@@ -11,17 +11,17 @@
 <a href=#11 id=11 data-nosnippet>11</a>/// runners can instead supply immutable runtime data such as a borrowed module.
 <a href=#12 id=12 data-nosnippet>12</a>/// Consumers can write `C: BuildMessage&lt;F, I, Context&gt;`.
 <a href=#13 id=13 data-nosnippet>13</a>///
-<a href=#14 id=14 data-nosnippet>14</a>/// Standard message types supply framework preparation automatically, including
-<a href=#15 id=15 data-nosnippet>15</a>/// [`NoMessage`] and typed stack inputs. Custom message types can have explicit
-<a href=#16 id=16 data-nosnippet>16</a>/// author-provided builders; authors do not implement the internal preparation
-<a href=#17 id=17 data-nosnippet>17</a>/// hook used by standard messages.
-<a href=#18 id=18 data-nosnippet>18</a>///
-<a href=#19 id=19 data-nosnippet>19</a>/// Specify `M` explicitly in those implementations, such as
-<a href=#20 id=20 data-nosnippet>20</a>/// `BuildMessage&lt;F, Call, (), FunctionInfo&gt;`. This keeps their trait identities
-<a href=#21 id=21 data-nosnippet>21</a>/// disjoint from standard message preparation without relying on cross-crate
-<a href=#22 id=22 data-nosnippet>22</a>/// associated-type normalization during coherence checking. The equality bound
-<a href=#23 id=23 data-nosnippet>23</a>/// still requires `M` to match the child's execution message; it cannot select
-<a href=#24 id=24 data-nosnippet>24</a>/// a different one.
+<a href=#14 id=14 data-nosnippet>14</a>/// Composite authors implement this trait to choose how their specific machine
+<a href=#15 id=15 data-nosnippet>15</a>/// builds each message. The body of `build_message` can construct the input
+<a href=#16 id=16 data-nosnippet>16</a>/// directly or explicitly delegate to a message's [`ReusableMessageRecipe`].
+<a href=#17 id=17 data-nosnippet>17</a>/// Standard messages, including [`NoMessage`] and typed stack inputs, provide
+<a href=#18 id=18 data-nosnippet>18</a>/// recipes but do not automatically implement this trait for a composite.
+<a href=#19 id=19 data-nosnippet>19</a>///
+<a href=#20 id=20 data-nosnippet>20</a>/// Specify `M` explicitly in those implementations, such as
+<a href=#21 id=21 data-nosnippet>21</a>/// `BuildMessage&lt;F, Call, (), FunctionInfo&gt;`. Distinct explicit message types
+<a href=#22 id=22 data-nosnippet>22</a>/// can separate generic builders for different input shapes. The equality bound
+<a href=#23 id=23 data-nosnippet>23</a>/// requires `M` to match the child's execution message; it cannot select a
+<a href=#24 id=24 data-nosnippet>24</a>/// different one.
 <a href=#25 id=25 data-nosnippet>25</a>///
 <a href=#26 id=26 data-nosnippet>26</a>/// A [`crate::Step`] implementation can use this optional helper to separate
 <a href=#27 id=27 data-nosnippet>27</a>/// message construction from execution and effect handling. Implementing this
@@ -62,46 +62,39 @@
 <a href=#62 id=62 data-nosnippet>62</a>    </span><span class="kw">fn </span>build_message(<span class="kw-2">&amp;mut </span><span class="self">self</span>, instruction: <span class="kw-2">&amp;</span>I, context: <span class="kw-2">&amp;</span>Context) -&gt; eyre::Result&lt;M&gt;;
 <a href=#63 id=63 data-nosnippet>63</a>}
 <a href=#64 id=64 data-nosnippet>64</a>
-<a href=#65 id=65 data-nosnippet>65</a><span class="doccomment">/// Internal framework message-preparation hook. Ordinary component authors only
-<a href=#66 id=66 data-nosnippet>66</a>/// select message types. This permits stdlib-owned messages to supply preparation
-<a href=#67 id=67 data-nosnippet>67</a>/// without an orphan impl on every downstream composite.
-<a href=#68 id=68 data-nosnippet>68</a></span><span class="attr">#[doc(hidden)]
-<a href=#69 id=69 data-nosnippet>69</a></span><span class="kw">pub trait </span>PrepareMessage&lt;Parent, Route, I, Context: <span class="question-mark">?</span>Sized&gt;: Sized {
-<a href=#70 id=70 data-nosnippet>70</a>    <span class="kw">fn </span>prepare(parent: <span class="kw-2">&amp;mut </span>Parent, instruction: <span class="kw-2">&amp;</span>I, context: <span class="kw-2">&amp;</span>Context) -&gt; eyre::Result&lt;<span class="self">Self</span>&gt;;
-<a href=#71 id=71 data-nosnippet>71</a>}
-<a href=#72 id=72 data-nosnippet>72</a>
-<a href=#73 id=73 data-nosnippet>73</a><span class="doccomment">/// Internal eligibility marker for framework-provided message preparation.
-<a href=#74 id=74 data-nosnippet>74</a>///
-<a href=#75 id=75 data-nosnippet>75</a>/// Keeping this marker free of instruction parameters lets Rust distinguish
-<a href=#76 id=76 data-nosnippet>76</a>/// custom messages from automatic preparation when checking generic builders.
-<a href=#77 id=77 data-nosnippet>77</a></span><span class="attr">#[doc(hidden)]
-<a href=#78 id=78 data-nosnippet>78</a></span><span class="kw">pub trait </span>AutomaticMessage {}
-<a href=#79 id=79 data-nosnippet>79</a>
-<a href=#80 id=80 data-nosnippet>80</a><span class="kw">impl </span>AutomaticMessage <span class="kw">for </span>NoMessage {}
-<a href=#81 id=81 data-nosnippet>81</a>
-<a href=#82 id=82 data-nosnippet>82</a><span class="attr">#[cfg(feature = <span class="string">"program-image-execution"</span>)]
-<a href=#83 id=83 data-nosnippet>83</a></span><span class="kw">impl</span>&lt;Values&gt; AutomaticMessage <span class="kw">for </span><span class="kw">crate</span>::PopFromStack&lt;Values&gt; {}
-<a href=#84 id=84 data-nosnippet>84</a>
-<a href=#85 id=85 data-nosnippet>85</a><span class="kw">impl</span>&lt;C, F, I, Context: <span class="question-mark">?</span>Sized, M&gt; BuildMessage&lt;F, I, Context, M&gt; <span class="kw">for </span>C
-<a href=#86 id=86 data-nosnippet>86</a><span class="kw">where
-<a href=#87 id=87 data-nosnippet>87</a>    </span>C: Field&lt;F&gt;,
-<a href=#88 id=88 data-nosnippet>88</a>    C::Child: Execute&lt;I, Message = M&gt;,
-<a href=#89 id=89 data-nosnippet>89</a>    M: AutomaticMessage + PrepareMessage&lt;C, F, I, Context&gt;,
-<a href=#90 id=90 data-nosnippet>90</a>{
-<a href=#91 id=91 data-nosnippet>91</a>    <span class="attr">#[inline(always)]
-<a href=#92 id=92 data-nosnippet>92</a>    </span><span class="kw">fn </span>build_message(<span class="kw-2">&amp;mut </span><span class="self">self</span>, instruction: <span class="kw-2">&amp;</span>I, context: <span class="kw-2">&amp;</span>Context) -&gt; eyre::Result&lt;M&gt; {
-<a href=#93 id=93 data-nosnippet>93</a>        M::prepare(<span class="self">self</span>, instruction, context)
-<a href=#94 id=94 data-nosnippet>94</a>    }
-<a href=#95 id=95 data-nosnippet>95</a>}
-<a href=#96 id=96 data-nosnippet>96</a>
-<a href=#97 id=97 data-nosnippet>97</a><span class="kw">impl</span>&lt;C, F, I, Context: <span class="question-mark">?</span>Sized&gt; PrepareMessage&lt;C, F, I, Context&gt; <span class="kw">for </span>NoMessage
-<a href=#98 id=98 data-nosnippet>98</a><span class="kw">where
-<a href=#99 id=99 data-nosnippet>99</a>    </span>C: Field&lt;F&gt;,
-<a href=#100 id=100 data-nosnippet>100</a>    C::Child: Execute&lt;I, Message = NoMessage&gt;,
-<a href=#101 id=101 data-nosnippet>101</a>{
-<a href=#102 id=102 data-nosnippet>102</a>    <span class="attr">#[inline]
-<a href=#103 id=103 data-nosnippet>103</a>    </span><span class="kw">fn </span>prepare(<span class="kw">_</span>: <span class="kw-2">&amp;mut </span>C, <span class="kw">_</span>: <span class="kw-2">&amp;</span>I, <span class="kw">_</span>: <span class="kw-2">&amp;</span>Context) -&gt; eyre::Result&lt;<span class="self">Self</span>&gt; {
-<a href=#104 id=104 data-nosnippet>104</a>        <span class="prelude-val">Ok</span>(NoMessage::new())
-<a href=#105 id=105 data-nosnippet>105</a>    }
-<a href=#106 id=106 data-nosnippet>106</a>}
+<a href=#65 id=65 data-nosnippet>65</a><span class="doccomment">/// Reusable message construction over machines with specified capabilities.
+<a href=#66 id=66 data-nosnippet>66</a>///
+<a href=#67 id=67 data-nosnippet>67</a>/// Upstream message authors implement this trait generically over `Parent`,
+<a href=#68 id=68 data-nosnippet>68</a>/// requiring capabilities such as [`crate::Field`] or operand-stack access
+<a href=#69 id=69 data-nosnippet>69</a>/// instead of depending on a particular composite type. `Route` identifies the
+<a href=#70 id=70 data-nosnippet>70</a>/// destination device, `I` supplies instruction data, and `Context` supplies
+<a href=#71 id=71 data-nosnippet>71</a>/// shared read-only runtime data. Context may be unsized.
+<a href=#72 id=72 data-nosnippet>72</a>///
+<a href=#73 id=73 data-nosnippet>73</a>/// A recipe does not provide a [`BuildMessage`] implementation. Composite
+<a href=#74 id=74 data-nosnippet>74</a>/// authors choose whether to call `Self::prepare` on the message type from the
+<a href=#75 id=75 data-nosnippet>75</a>/// body of their own `BuildMessage::build_message` implementation, or construct
+<a href=#76 id=76 data-nosnippet>76</a>/// the message using machine-specific logic instead.
+<a href=#77 id=77 data-nosnippet>77</a>///
+<a href=#78 id=78 data-nosnippet>78</a>/// Available with the experimental `typed-declarations` feature. "Reusable"
+<a href=#79 id=79 data-nosnippet>79</a>/// describes the intended use; implementations may also name a concrete parent.
+<a href=#80 id=80 data-nosnippet>80</a></span><span class="kw">pub trait </span>ReusableMessageRecipe&lt;Parent, Route, I, Context: <span class="question-mark">?</span>Sized&gt;: Sized {
+<a href=#81 id=81 data-nosnippet>81</a>    <span class="doccomment">/// Construct the message from the parent's capabilities and runtime inputs.
+<a href=#82 id=82 data-nosnippet>82</a>    ///
+<a href=#83 id=83 data-nosnippet>83</a>    /// # Errors
+<a href=#84 id=84 data-nosnippet>84</a>    ///
+<a href=#85 id=85 data-nosnippet>85</a>    /// Returns construction or validation failures. Mutations made before an
+<a href=#86 id=86 data-nosnippet>86</a>    /// error, including successful operand pops, are retained.
+<a href=#87 id=87 data-nosnippet>87</a>    </span><span class="kw">fn </span>prepare(parent: <span class="kw-2">&amp;mut </span>Parent, instruction: <span class="kw-2">&amp;</span>I, context: <span class="kw-2">&amp;</span>Context) -&gt; eyre::Result&lt;<span class="self">Self</span>&gt;;
+<a href=#88 id=88 data-nosnippet>88</a>}
+<a href=#89 id=89 data-nosnippet>89</a>
+<a href=#90 id=90 data-nosnippet>90</a><span class="kw">impl</span>&lt;C, F, I, Context: <span class="question-mark">?</span>Sized&gt; ReusableMessageRecipe&lt;C, F, I, Context&gt; <span class="kw">for </span>NoMessage
+<a href=#91 id=91 data-nosnippet>91</a><span class="kw">where
+<a href=#92 id=92 data-nosnippet>92</a>    </span>C: Field&lt;F&gt;,
+<a href=#93 id=93 data-nosnippet>93</a>    C::Child: Execute&lt;I, Message = NoMessage&gt;,
+<a href=#94 id=94 data-nosnippet>94</a>{
+<a href=#95 id=95 data-nosnippet>95</a>    <span class="attr">#[inline]
+<a href=#96 id=96 data-nosnippet>96</a>    </span><span class="kw">fn </span>prepare(<span class="kw">_</span>: <span class="kw-2">&amp;mut </span>C, <span class="kw">_</span>: <span class="kw-2">&amp;</span>I, <span class="kw">_</span>: <span class="kw-2">&amp;</span>Context) -&gt; eyre::Result&lt;<span class="self">Self</span>&gt; {
+<a href=#97 id=97 data-nosnippet>97</a>        <span class="prelude-val">Ok</span>(NoMessage::new())
+<a href=#98 id=98 data-nosnippet>98</a>    }
+<a href=#99 id=99 data-nosnippet>99</a>}
 </code></pre></div></section></main></body></html>
