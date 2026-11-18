@@ -671,7 +671,45 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
             },
         )
     };
-    let inspect_arms = entries.iter().zip(&variants).zip(&types).map(|((entry, variant), ty)| {
+    let inspection = inspection_impl(root, &runtime, entries, &variants, &types);
+    let dispatch_body = if entries.is_empty() {
+        quote!(match *instruction {})
+    } else {
+        quote!(match instruction { #(#arms),* })
+    };
+    Ok(quote! {
+        #[doc(hidden)] #[allow(non_camel_case_types, clippy::enum_variant_names)] #[derive(Clone, Debug, PartialEq)]
+        #declaration
+
+        impl #impl_generics #root::HasInstructionSet for #name #type_generics #where_clause {
+            type Runtime = #runtime;
+            type Syntax = #syntax;
+        }
+        #inspection
+
+        #parser_impl
+        #lowering
+        impl #root::SurfaceInstruction for #syntax {}
+
+        impl #dispatch_impl_generics #root::Dispatch<#execution_context> for #name #type_generics #dispatch_where_clause {
+            type Instruction = #runtime;
+            #[inline(always)]
+            fn dispatch(&mut self, instruction: &#runtime, context: &#execution_context) -> #root::eyre::Result<()> {
+                #dispatch_body
+            }
+        }
+    })
+}
+
+/// Emit inspection for the resolved aggregate using its generated routes and leaves.
+fn inspection_impl(
+    root: &Path,
+    runtime: &Ident,
+    entries: &[Entry],
+    variants: &[Ident],
+    types: &[Type],
+) -> TokenStream {
+    let inspect_arms = entries.iter().zip(variants).zip(types).map(|((entry, variant), ty)| {
         let path = entry.record.segments.iter().map(|segment| segment.name.unraw().to_string());
         let dialect = entry.record.dialect.unraw().to_string();
         quote! {
@@ -691,19 +729,7 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
     } else {
         quote!(match self { #(#inspect_arms),* })
     };
-    let dispatch_body = if entries.is_empty() {
-        quote!(match *instruction {})
-    } else {
-        quote!(match instruction { #(#arms),* })
-    };
-    Ok(quote! {
-        #[doc(hidden)] #[allow(non_camel_case_types, clippy::enum_variant_names)] #[derive(Clone, Debug, PartialEq)]
-        #declaration
-
-        impl #impl_generics #root::HasInstructionSet for #name #type_generics #where_clause {
-            type Runtime = #runtime;
-            type Syntax = #syntax;
-        }
+    quote! {
         impl #root::__private::InspectInstruction for #runtime {
             fn inspect<__VihacoResult>(
                 &self,
@@ -712,19 +738,7 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
                 #inspect_body
             }
         }
-
-        #parser_impl
-        #lowering
-        impl #root::SurfaceInstruction for #syntax {}
-
-        impl #dispatch_impl_generics #root::Dispatch<#execution_context> for #name #type_generics #dispatch_where_clause {
-            type Instruction = #runtime;
-            #[inline(always)]
-            fn dispatch(&mut self, instruction: &#runtime, context: &#execution_context) -> #root::eyre::Result<()> {
-                #dispatch_body
-            }
-        }
-    })
+    }
 }
 
 /// Keep generated aggregate parameters distinct from authored framework paths.
