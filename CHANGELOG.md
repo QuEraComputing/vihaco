@@ -18,6 +18,12 @@ below the `## [Unreleased]` heading, so do not remove or reword that line.
 
 ## [Unreleased]
 
+## [0.8.1](https://github.com/QuEraComputing/vihaco/compare/v0.8.0...v0.8.1) - 2026-11-18
+
+### Added
+
+- *(runtime)* generate inspection for composite instructions ([#202](https://github.com/QuEraComputing/vihaco/pull/202))
+
 ## [0.8.0](https://github.com/QuEraComputing/vihaco/compare/v0.7.0...v0.8.0) - 2026-11-17
 
 ### Added
