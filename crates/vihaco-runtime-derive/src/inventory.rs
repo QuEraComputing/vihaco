@@ -671,6 +671,26 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
             },
         )
     };
+    let inspect_arms = entries.iter().zip(&variants).zip(&types).map(|((entry, variant), ty)| {
+        let path = entry.record.segments.iter().map(|segment| segment.name.unraw().to_string());
+        let dialect = entry.record.dialect.unraw().to_string();
+        quote! {
+            Self::#variant(leaf) => #root::__private::InspectOperands::inspect_operands(leaf, |operands| {
+                inspect(#root::__private::InstructionView {
+                    device_path: &[#(#path),*],
+                    dialect: #dialect,
+                    mnemonic: <#ty as #root::__private::InstructionSpec>::MNEMONIC,
+                    operands,
+                    leaf,
+                })
+            })
+        }
+    });
+    let inspect_body = if entries.is_empty() {
+        quote!(match *self {})
+    } else {
+        quote!(match self { #(#inspect_arms),* })
+    };
     let dispatch_body = if entries.is_empty() {
         quote!(match *instruction {})
     } else {
@@ -684,6 +704,15 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
             type Runtime = #runtime;
             type Syntax = #syntax;
         }
+        impl #root::__private::InspectInstruction for #runtime {
+            fn inspect<__VihacoResult>(
+                &self,
+                inspect: impl FnOnce(#root::__private::InstructionView<'_>) -> __VihacoResult,
+            ) -> __VihacoResult {
+                #inspect_body
+            }
+        }
+
         #parser_impl
         #lowering
         impl #root::SurfaceInstruction for #syntax {}

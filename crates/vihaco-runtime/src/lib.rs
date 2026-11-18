@@ -130,6 +130,11 @@ pub use generated::{
 
 pub use marker::Message;
 pub use member_of::MemberOf;
+
+#[cfg(feature = "typed-declarations")]
+mod inspection;
+#[cfg(feature = "typed-declarations")]
+pub use inspection::{InspectInstruction, InstructionOperand, InstructionView};
 pub use no_message::NoMessage;
 pub use observe::Observe;
 

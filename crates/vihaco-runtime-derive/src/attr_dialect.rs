@@ -358,6 +358,7 @@ fn emit(dialect: Dialect) -> Result<TokenStream> {
     } = dialect;
     let head = module.ident.unraw().to_string();
     let mut instructions = Vec::new();
+    let mut operand_inspectors = Vec::new();
     let mut runtime_names = Vec::new();
     for leaf in &leaves {
         let runtime = &leaf.ident;
@@ -388,6 +389,33 @@ fn emit(dialect: Dialect) -> Result<TokenStream> {
             .attrs
             .push(parse_quote!(#[__vihaco_runtime(#runtime)]));
         instructions.push(quote!(#instruction));
+        let packed = leaf
+            .attrs
+            .iter()
+            .filter(|attr| attr.path().is_ident("repr"))
+            .any(|attr| {
+                attr.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
+                    .is_ok_and(|args| args.iter().any(|meta| meta.path().is_ident("packed")))
+            });
+        let fields = (0..leaf.fields.len()).map(syn::Index::from);
+        let operands = if packed {
+            quote!(::core::option::Option::None)
+        } else {
+            quote!(::core::option::Option::Some(&[#(#root::__private::InstructionOperand {
+                debug: &self.#fields,
+                value: &self.#fields,
+            }),*]))
+        };
+        operand_inspectors.push(quote! {
+            impl #root::__private::InspectOperands for #runtime {
+                fn inspect_operands<__VihacoResult>(
+                    &self,
+                    inspect: impl FnOnce(::core::option::Option<&[#root::__private::InstructionOperand<'_>]>) -> __VihacoResult,
+                ) -> __VihacoResult {
+                    inspect(#operands)
+                }
+            }
+        });
     }
     // A coverage parameter must not shadow an authored instruction type.
     let mut component = format_ident!("__VihacoComponent");
@@ -409,6 +437,7 @@ fn emit(dialect: Dialect) -> Result<TokenStream> {
     let declarations = quote! {
         #producer
         #(#slots)*
+        #(#operand_inspectors)*
         #[doc(hidden)]
         pub struct __VihacoDialect;
 
