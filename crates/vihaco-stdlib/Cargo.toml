@@ -47,3 +47,7 @@ required-features = ["program-image-execution"]
 [[example]]
 name = "debugger"
 required-features = ["program-image-execution"]
+
+[[example]]
+name = "static_execution_state"
+required-features = ["program-image-execution"]
