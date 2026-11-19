@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: MIT
 
 use crate::{CPU, Word, cpu};
+use eyre::WrapErr;
 use vihaco_runtime::{Execute, InputCount, PopFromStack, PushToStack, StackBatch, StackInputCount};
+
+fn checked_heap_id(handle: Word) -> eyre::Result<u32> {
+    u32::try_from(handle).wrap_err_with(|| format!("heap handle {handle} out of range"))
+}
 
 impl StackInputCount<cpu::HeapAlloc> for CPU {
     fn input_count(instruction: &cpu::HeapAlloc) -> eyre::Result<InputCount> {
@@ -27,14 +32,15 @@ impl Execute<cpu::HeapAlloc> for CPU {
 }
 
 impl Execute<cpu::GetItem> for CPU {
-    type Message = PopFromStack<(u32, u64)>;
+    type Message = PopFromStack<(Word, u64)>;
     type Effect = PushToStack<(Word,)>;
     type Error = eyre::Report;
     fn execute(
         &mut self,
         _: &cpu::GetItem,
-        PopFromStack((id, index)): Self::Message,
+        PopFromStack((handle, index)): Self::Message,
     ) -> eyre::Result<Self::Effect> {
+        let id = checked_heap_id(handle)?;
         let index = usize::try_from(index)?;
         let value = *self
             .heap
@@ -46,15 +52,15 @@ impl Execute<cpu::GetItem> for CPU {
 }
 
 impl Execute<cpu::HeapDealloc> for CPU {
-    type Message = PopFromStack<(u32,)>;
+    type Message = PopFromStack<(Word,)>;
     type Effect = PushToStack<()>;
     type Error = eyre::Report;
     fn execute(
         &mut self,
         _: &cpu::HeapDealloc,
-        PopFromStack((id,)): Self::Message,
+        PopFromStack((handle,)): Self::Message,
     ) -> eyre::Result<Self::Effect> {
-        self.heap.dealloc(id)?;
+        self.heap.dealloc(checked_heap_id(handle)?)?;
         Ok(PushToStack(()))
     }
 }
@@ -81,22 +87,23 @@ impl Execute<cpu::HeapPush> for CPU {
     fn execute(
         &mut self,
         _: &cpu::HeapPush,
-        PopFromStack((id, value)): Self::Message,
+        PopFromStack((handle, value)): Self::Message,
     ) -> eyre::Result<Self::Effect> {
-        self.heap.push(crate::word::decode_heap_ref(id), value)?;
-        Ok(PushToStack((id,)))
+        self.heap.push(checked_heap_id(handle)?, value)?;
+        Ok(PushToStack((handle,)))
     }
 }
 
 impl Execute<cpu::HeapLen> for CPU {
-    type Message = PopFromStack<(u32,)>;
+    type Message = PopFromStack<(Word,)>;
     type Effect = PushToStack<(u64,)>;
     type Error = eyre::Report;
     fn execute(
         &mut self,
         _: &cpu::HeapLen,
-        PopFromStack((id,)): Self::Message,
+        PopFromStack((handle,)): Self::Message,
     ) -> eyre::Result<Self::Effect> {
+        let id = checked_heap_id(handle)?;
         Ok(PushToStack((u64::try_from(self.heap.get(id)?.len())?,)))
     }
 }
