@@ -3,6 +3,7 @@
 
 #![cfg(feature = "program-image-execution")]
 
+use std::ops::ControlFlow;
 use vihaco_abi::{Type, Value, traits::FromText};
 use vihaco_bytecode::{NoContext, SstFile, SstHeader, SstSectionView};
 use vihaco_cpu::CPU;
@@ -14,7 +15,7 @@ use vihaco_runtime::{
     Apply, BuildMessage, Composite, Dispatch, Execute, HasInstructionSet, HasProgram, Lower,
     NoMessage, Parse, ReusableMessageRecipe, Step, chumsky::prelude::*, composite, field,
 };
-use vihaco_stdlib::{ExecutionState, Image, Loadable, program::program};
+use vihaco_stdlib::{ExecutionState, Image, Loadable, execution_state, program::program};
 
 type Module<M> = LocalModule<<M as HasInstructionSet>::Runtime, Value, Type>;
 type MachineImage<M> = Image<<M as HasInstructionSet>::Runtime>;
@@ -294,6 +295,28 @@ fn construction_resets_previous_invocation_without_resetting_machine_state() {
     assert!(loaded.machine().execution.is_halted());
     assert!(loaded.machine().execution.frames().is_empty());
     assert_eq!(loaded.machine().visits, 7);
+}
+
+#[test]
+fn borrowed_parts_allow_one_step_before_resuming_the_same_loadable() {
+    let mut loaded = controller();
+    loaded.start(&[]).unwrap();
+
+    let (image, machine) = loaded.parts_mut();
+    execution_state::run(
+        machine,
+        |_| Ok(()),
+        |machine, ()| {
+            execution_state::execute_instruction(&image.module, machine, None)?;
+            Ok(ControlFlow::Break(()))
+        },
+    )
+    .unwrap();
+
+    assert_eq!(loaded.machine().visits, 1);
+    loaded.resume().unwrap();
+    assert_eq!(loaded.machine().visits, 4);
+    assert_eq!(loaded.machine().execution.stack(), &[11]);
 }
 
 #[test]
