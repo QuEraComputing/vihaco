@@ -70,7 +70,7 @@ at compile time, so the example doesn't depend on your working directory.
 
 use vihaco::{
     Apply, BuildMessage, ReusableMessageRecipe, Execute, ExecutionState, HasInstructionSet, Image, Loadable, NoContext,
-    PopFromStack, PushToStack, SstFile, Step, Type, Value, component, composite, dialect, field,
+    PopFromStack, PushToStack, SSTFile, Step, Type, Value, component, composite, dialect, field,
     loader::MetadataLoweringContext,
     module::{LocalModule, ProgramMetadata},
     syntax::{HeaderDeclarations, ParsedModule, lower_code_with_metadata},
