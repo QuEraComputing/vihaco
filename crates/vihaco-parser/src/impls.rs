@@ -74,7 +74,7 @@ macro_rules! impl_uint {
         })+
     };
 }
-impl_uint!(u64, u32, usize);
+impl_uint!(u64, u32, u16, u8, usize);
 
 macro_rules! impl_sint {
     ($($t:ty),+) => {

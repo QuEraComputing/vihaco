@@ -90,9 +90,13 @@ mod tests {
         assert!(i32::parser().parse("2147483648").has_errors());
         assert!(i32::parser().parse("-2147483649").has_errors());
         assert!(i64::parser().parse("9223372036854775808").has_errors());
+        assert!(u8::parser().parse("256").has_errors());
+        assert!(u16::parser().parse("65536").has_errors());
         assert!(u32::parser().parse("4294967296").has_errors());
         assert!(u64::parser().parse("18446744073709551616").has_errors());
         assert_eq!(parses::<i32>("-2147483648"), i32::MIN);
+        assert_eq!(parses::<u8>("255"), u8::MAX);
+        assert_eq!(parses::<u16>("65535"), u16::MAX);
         assert_eq!(parses::<u64>("18446744073709551615"), u64::MAX);
     }
 
