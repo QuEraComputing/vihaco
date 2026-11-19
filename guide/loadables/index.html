@@ -51,6 +51,8 @@ it pairs the objects, keeping the device state intact.</p>
 <p>You can inspect the pair with <code>image()</code> and <code>machine()</code>, or configure the machine
 through <code>machine_mut()</code>. If you change invocation state directly, keep it
 consistent with the paired image.</p>
+<p>For a custom runner, <code>parts_mut()</code> borrows the image immutably and the machine
+mutably in one call. You can use the Loadable again once those borrows end.</p>
 <p>When you need the objects back, <code>into_parts()</code> consumes the Loadable and returns
 its image and machine without resetting either. An outer runtime can own
 several Loadables with different instruction sets and provide application
@@ -228,7 +230,7 @@ connect execution or forward effects between them.</p>
         sync();
       })();
     </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-11-18</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
+          documentation generated <time>2026-11-19</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {
