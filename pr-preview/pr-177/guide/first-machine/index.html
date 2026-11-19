@@ -59,8 +59,8 @@ at compile time, so the example doesn’t depend on your working directory.</p>
 // SPDX-License-Identifier: MIT
 
 use vihaco::{
-    Apply, BuildMessage, Execute, ExecutionState, HasInstructionSet, Image, Loadable, NoContext,
-    PopFromStack, PushToStack, SSTFile, Step, Type, Value, component, composite, dialect, field,
+    Apply, BuildMessage, ReusableMessageRecipe, Execute, ExecutionState, HasInstructionSet, Image, Loadable, NoContext,
+    PopFromStack, PushToStack, SstFile, Step, Type, Value, component, composite, dialect, field,
     loader::MetadataLoweringContext,
     module::{LocalModule, ProgramMetadata},
     syntax::{HeaderDeclarations, ParsedModule, lower_code_with_metadata},
@@ -111,6 +111,30 @@ type Instruction = &#x3C;Machine as HasInstructionSet>::Runtime;
 type SourceInstruction = &#x3C;Machine as HasInstructionSet>::Syntax;
 
 type Program = LocalModule&#x3C;Instruction, Value, Type>;
+
+impl&#x3C;I, M> BuildMessage&#x3C;field!(Machine::execution), I, Program, M> for Machine
+where
+    ExecutionState: Execute&#x3C;I, Message = M>,
+    M: ReusableMessageRecipe&#x3C;Self, field!(Machine::execution), I, Program>,
+{
+    fn build_message(&#x26;mut self, instruction: &#x26;I, context: &#x26;Program) -> eyre::Result&#x3C;M> {
+        &#x3C;M as ReusableMessageRecipe&#x3C;Self, field!(Machine::execution), I, Program>>::prepare(
+            self, instruction, context,
+        )
+    }
+}
+
+impl&#x3C;I, M> BuildMessage&#x3C;field!(Machine::calculator), I, Program, M> for Machine
+where
+    Calculator: Execute&#x3C;I, Message = M>,
+    M: ReusableMessageRecipe&#x3C;Self, field!(Machine::calculator), I, Program>,
+{
+    fn build_message(&#x26;mut self, instruction: &#x26;I, context: &#x26;Program) -> eyre::Result&#x3C;M> {
+        &#x3C;M as ReusableMessageRecipe&#x3C;Self, field!(Machine::calculator), I, Program>>::prepare(
+            self, instruction, context,
+        )
+    }
+}
 
 impl&#x3C;I> Step&#x3C;field!(Machine::execution), I, Program> for Machine
 where
@@ -200,8 +224,9 @@ instructions take operands, compute, and put the answer back.</p>
 instructions that meet the same requirements.</p>
 <h2 id="what-vihaco-supplies">What vihaco supplies</h2>
 <p>The macros handle instruction parsing, field routes, and dispatch through the
-combined instruction set. Standard builders move operands into <code>PopFromStack</code>,
-and <code>Apply</code> inserts the <code>PushToStack</code> result. The runner fetches instructions and
+combined instruction set. The composite’s <code>BuildMessage</code> implementations explicitly
+delegate to reusable message recipes. Standard recipes move operands into
+<code>PopFromStack</code>, and <code>Apply</code> inserts the <code>PushToStack</code> result. The runner fetches instructions and
 moves to the next one; program instructions handle calls, branches, and returns.</p>
 <p><code>SSTFile</code> reads the file’s flat list of sections, and <code>section("main")</code> picks
 ours. <code>ParsedModule</code> then parses that section’s metadata declarations, its
@@ -286,7 +311,7 @@ instructions, implement components, and wire a VM before you explore each topic.
           mqNav.addEventListener("change", () => setOpen(false));
         }
       })();
-    </script><script>
+    </script> <script>
       // Inject a copy button into every <pre> block.
       (() => {
         const COPY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
@@ -331,7 +356,7 @@ instructions, implement components, and wire a VM before you explore each topic.
           });
         }
       })();
-    </script><script>
+    </script> <script>
       // Theme switcher: light / dark / auto, persisted in localStorage.
       (() => {
         const root = document.documentElement;
@@ -357,7 +382,7 @@ instructions, implement components, and wire a VM before you explore each topic.
           if (readPref() === "auto") apply("auto");
         });
       })();
-    </script><button type="button" class="back-to-top" aria-label="Back to top" hidden> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M12 19V5"></path> <path d="m5 12 7-7 7 7"></path> </svg> </button> <script>
+    </script> <button type="button" class="back-to-top" aria-label="Back to top" hidden> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M12 19V5"></path> <path d="m5 12 7-7 7 7"></path> </svg> </button> <script>
       (() => {
         const btn = document.querySelector(".back-to-top");
         if (!btn) return;
@@ -374,12 +399,12 @@ instructions, implement components, and wire a VM before you explore each topic.
         window.addEventListener("resize", sync);
         sync();
       })();
-    </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-11-15</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+    </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
+          documentation generated <time>2026-11-19</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {
           hljs.highlightElement(el);
         }
       })();
-    </script></body> </html>
+    </script> </body> </html>

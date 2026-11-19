@@ -49,8 +49,8 @@ explains each part.
 // SPDX-License-Identifier: MIT
 
 use vihaco::{
-    Apply, BuildMessage, Execute, ExecutionState, HasInstructionSet, Image, Loadable, NoContext,
-    PopFromStack, PushToStack, SSTFile, Step, Type, Value, component, composite, dialect, field,
+    Apply, BuildMessage, ReusableMessageRecipe, Execute, ExecutionState, HasInstructionSet, Image, Loadable, NoContext,
+    PopFromStack, PushToStack, SstFile, Step, Type, Value, component, composite, dialect, field,
     loader::MetadataLoweringContext,
     module::{LocalModule, ProgramMetadata},
     syntax::{HeaderDeclarations, ParsedModule, lower_code_with_metadata},
@@ -101,6 +101,30 @@ type Instruction = &lt;Machine as HasInstructionSet&gt;::Runtime;
 type SourceInstruction = &lt;Machine as HasInstructionSet&gt;::Syntax;
 
 type Program = LocalModule&lt;Instruction, Value, Type&gt;;
+
+impl&lt;I, M&gt; BuildMessage&lt;field!(Machine::execution), I, Program, M&gt; for Machine
+where
+    ExecutionState: Execute&lt;I, Message = M&gt;,
+    M: ReusableMessageRecipe&lt;Self, field!(Machine::execution), I, Program&gt;,
+{
+    fn build_message(&amp;mut self, instruction: &amp;I, context: &amp;Program) -&gt; eyre::Result&lt;M&gt; {
+        &lt;M as ReusableMessageRecipe&lt;Self, field!(Machine::execution), I, Program&gt;&gt;::prepare(
+            self, instruction, context,
+        )
+    }
+}
+
+impl&lt;I, M&gt; BuildMessage&lt;field!(Machine::calculator), I, Program, M&gt; for Machine
+where
+    Calculator: Execute&lt;I, Message = M&gt;,
+    M: ReusableMessageRecipe&lt;Self, field!(Machine::calculator), I, Program&gt;,
+{
+    fn build_message(&amp;mut self, instruction: &amp;I, context: &amp;Program) -&gt; eyre::Result&lt;M&gt; {
+        &lt;M as ReusableMessageRecipe&lt;Self, field!(Machine::calculator), I, Program&gt;&gt;::prepare(
+            self, instruction, context,
+        )
+    }
+}
 
 impl&lt;I&gt; Step&lt;field!(Machine::execution), I, Program&gt; for Machine
 where
@@ -210,7 +234,7 @@ and <a href="/vihaco/pr-preview/pr-177/guide">author’s guide</a>, or look up i
           mqNav.addEventListener("change", () => setOpen(false));
         }
       })();
-    </script><script>
+    </script> <script>
       // Inject a copy button into every <pre> block.
       (() => {
         const COPY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
@@ -255,7 +279,7 @@ and <a href="/vihaco/pr-preview/pr-177/guide">author’s guide</a>, or look up i
           });
         }
       })();
-    </script><script>
+    </script> <script>
       // Theme switcher: light / dark / auto, persisted in localStorage.
       (() => {
         const root = document.documentElement;
@@ -281,7 +305,7 @@ and <a href="/vihaco/pr-preview/pr-177/guide">author’s guide</a>, or look up i
           if (readPref() === "auto") apply("auto");
         });
       })();
-    </script><button type="button" class="back-to-top" aria-label="Back to top" hidden> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M12 19V5"></path> <path d="m5 12 7-7 7 7"></path> </svg> </button> <script>
+    </script> <button type="button" class="back-to-top" aria-label="Back to top" hidden> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M12 19V5"></path> <path d="m5 12 7-7 7 7"></path> </svg> </button> <script>
       (() => {
         const btn = document.querySelector(".back-to-top");
         if (!btn) return;
@@ -298,12 +322,12 @@ and <a href="/vihaco/pr-preview/pr-177/guide">author’s guide</a>, or look up i
         window.addEventListener("resize", sync);
         sync();
       })();
-    </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-11-15</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+    </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
+          documentation generated <time>2026-11-19</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {
           hljs.highlightElement(el);
         }
       })();
-    </script></body> </html>
+    </script> </body> </html>
