@@ -39,6 +39,9 @@ You can inspect the pair with `image()` and `machine()`, or configure the machin
 through `machine_mut()`. If you change invocation state directly, keep it
 consistent with the paired image.
 
+For a custom runner, `parts_mut()` borrows the image immutably and the machine
+mutably in one call. You can use the Loadable again once those borrows end.
+
 When you need the objects back, `into_parts()` consumes the Loadable and returns
 its image and machine without resetting either. An outer runtime can own
 several Loadables with different instruction sets and provide application

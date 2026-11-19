@@ -41,7 +41,16 @@ impl<Inst, V, Ty, Info, M: Composite> Loadable<Image<Inst, V, Ty, Info>, M> {
         &mut self.machine
     }
 
-    pub(crate) fn parts_mut(&mut self) -> (&mut Image<Inst, V, Ty, Info>, &mut M) {
+    /// Borrow the image and mutably borrow the machine for custom runners.
+    ///
+    /// Within [`execution_state::run`], pass `&image.module` and the machine
+    /// to [`execution_state::execute_instruction`] to drive a step. Keep any
+    /// direct changes to invocation state consistent with the paired image.
+    pub fn parts_mut(&mut self) -> (&Image<Inst, V, Ty, Info>, &mut M) {
+        (&self.image, &mut self.machine)
+    }
+
+    pub(crate) fn breakpoint_parts_mut(&mut self) -> (&mut Image<Inst, V, Ty, Info>, &mut M) {
         (&mut self.image, &mut self.machine)
     }
 

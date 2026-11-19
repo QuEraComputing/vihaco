@@ -16,7 +16,7 @@ where
         M: Field<F, Child = Debugger<u32, Inst>>,
         Inst: HasBreakpointInstruction,
     {
-        let (image, machine) = self.parts_mut();
+        let (image, machine) = self.breakpoint_parts_mut();
         <M as Field<F>>::get_mut(machine).set_breakpoint(&mut image.module, pc)
     }
 
@@ -26,7 +26,7 @@ where
         M: Field<F, Child = Debugger<u32, Inst>>,
         Inst: HasBreakpointInstruction,
     {
-        let (image, machine) = self.parts_mut();
+        let (image, machine) = self.breakpoint_parts_mut();
         <M as Field<F>>::get_mut(machine).clear_breakpoint(&mut image.module, pc)
     }
 
