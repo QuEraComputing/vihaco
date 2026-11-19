@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["DebugAction","DebuggerState","IsBreakpointInstalled","IsBreakpointToggled"],"fn":["resume_with_breaks"],"mod":["dialect"],"struct":["Break","BreakpointMessage","Debugger"],"trait":["BreakpointPatchableProgram","HasBreakpointInstruction"]};
