@@ -237,6 +237,36 @@ The punctuation literals `:`, `;`, `{`, `}`, `[`, `]`, `(`, and `)` accept
 optional whitespace and line comments on either side. Delimited metadata
 records use these rules too. Commas and at signs keep the spacing rules above.
 
+### Require trivia between tokens
+
+In a hand-written parser, use `text::keyword` to match the whole keyword.
+`.padded()` adds optional whitespace, and `trivia()` consumes zero or more
+whitespace characters or `//` line comments. To require a separator,
+capture the slice consumed by `trivia()` and require it to be nonempty.
+
+```rust
+use chumsky::{Parser as _, text};
+use vihaco_parser::{Parse, trivia};
+
+let separator = trivia()
+    .to_slice()
+    .filter(|slice: &&str| !slice.is_empty())
+    .ignored();
+let setting = text::keyword("set")
+    .ignore_then(separator)
+    .ignore_then(i64::parser());
+
+for input in ["set -42", "set\t-42", "set\n-42", "set// comment\n-42"] {
+    assert_eq!(setting.parse(input).into_result(), Ok(-42));
+}
+
+assert!(setting.parse("set42").has_errors());
+assert!(setting.parse("set-42").has_errors());
+```
+
+`set42` has no keyword boundary. `set-42` has a boundary at `-`, so the
+required separator rejects it.
+
 ## Delimited metadata records
 
 For a named struct, you can generate a key/value record parser without writing
