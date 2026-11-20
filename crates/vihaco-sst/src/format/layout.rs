@@ -13,7 +13,7 @@
 
 use std::ops::Range;
 
-use super::comments::Comment;
+use super::comments::{Comment, user_part};
 
 /// A comma-separated sequence of items, delimited by brackets (or by the
 /// whole text, for the root).
@@ -490,6 +490,48 @@ impl Line {
 
 /// Indentation added per nesting level.
 pub(crate) const INDENT: usize = 4;
+
+/// Keep the source line breaks so inline `;;` comments stay with code.
+pub(crate) fn preserve_lines(
+    text: &str,
+    comments: &[Range<usize>],
+    source_indent: usize,
+    indent: usize,
+) -> Vec<Line> {
+    let mut comments = comments.iter().peekable();
+    let mut lines = Vec::new();
+    let mut end = 0;
+    for line in text.split_inclusive('\n') {
+        let start = end;
+        end += line.len();
+        let (code, comment) = if let Some(range) = comments.next_if(|range| range.start < end) {
+            let code = &line[..range.start - start];
+            (
+                code,
+                user_part(&text[range.clone()], code.trim().is_empty()),
+            )
+        } else {
+            (line, None)
+        };
+        let extra_indent = code
+            .chars()
+            .take_while(|c| c.is_whitespace())
+            .count()
+            .saturating_sub(source_indent);
+        let indent = indent + extra_indent;
+        let code = code.trim();
+        if code.is_empty() {
+            if let Some(comment) = comment {
+                lines.push(Line::new(indent, comment));
+            }
+        } else {
+            let mut line = Line::new(indent, code);
+            line.trailing.extend(comment);
+            lines.push(line);
+        }
+    }
+    lines
+}
 
 fn must_break(group: &Group) -> bool {
     !group.open_trailing.is_empty()

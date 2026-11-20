@@ -292,6 +292,20 @@ fn generated_comments_can_be_turned_off() {
 }
 
 #[test]
+fn multiline_functions_keep_inline_double_semicolon_comments() {
+    for directive in [
+        ".func @main( ;; opening\n) , locals 0",
+        ".func @main( ;; opening\n    ;; stale note\n    x: u64, ;; parameter\n) , locals 1",
+    ] {
+        let text = program("@main: t.halt\n@helper: t.halt\n")
+            .replace(".func @main( ) , locals 0", directive);
+        let formatted = assert_properties(&text);
+        assert!(formatted.contains(";; opening\n"));
+        assert!(!formatted.contains(";; stale note"));
+    }
+}
+
+#[test]
 fn constants_and_parameters_are_resolved() {
     let text = r#"sst v2
 .section main

@@ -916,6 +916,27 @@ where
                 return None;
             }
         };
+        let source_text = self.source.slice(entry.span);
+        if entry
+            .value
+            .inner
+            .iter()
+            .any(|comment| comments::is_generated(&comment.text))
+        {
+            // These are user comments only while they trail code. Keep the
+            // lines that carry them so flattening cannot turn them into notes.
+            let source_indent = self.source.location(entry.span.start).column - 1;
+            return Some(LaidOut {
+                leading: Vec::new(),
+                trailing: Vec::new(),
+                lines: layout::preserve_lines(
+                    source_text,
+                    &entry.value.raw,
+                    source_indent,
+                    HEADER_INDENT,
+                ),
+            });
+        }
         let hoisted = || {
             entry
                 .value
@@ -930,7 +951,6 @@ where
             lines: vec![Line::new(HEADER_INDENT, printed.clone())],
         };
 
-        let source_text = self.source.slice(entry.span);
         let relative: Vec<Comment> = entry
             .value
             .inner

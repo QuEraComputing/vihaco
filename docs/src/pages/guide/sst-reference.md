@@ -488,7 +488,7 @@ has the same headers, code, symbols, and comments as the input.
   not fit in `max_width` (80 columns by default), or that carries comments, is
   broken one item per line inside its brackets with a trailing comma, like
   rustfmt. Tuples and declarations whose pattern needs its punctuation on one
-  line are never broken.
+  line stay on one line when possible.
 - In `.text`, each symbol definition and each instruction gets its own line:
   `@name:` at column 0 and instructions indented four spaces.
 - Blank lines between items are kept, collapsed to at most one. Blank lines at
@@ -512,7 +512,9 @@ was written in: comments after the last item of a `.header` or `.text` stay at
 the end of that block, after a blank line if there was one. When one item had
 several trailing comments, the first stays trailing and the others move above
 the item. If a comment's position inside a declaration cannot be matched to the
-printed declaration, it is moved above the declaration. A comment outside
+printed declaration, it is moved above the declaration. A multiline
+declaration with an inline `;;` comment keeps its line breaks so the
+comment remains a user comment. A comment outside
 every block (before `sst v2`, before the first `.global` or `.section`, or
 between `.section` and its first block) stays directly above the directive
 that follows it.
