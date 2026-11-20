@@ -5,7 +5,7 @@
 <a href=#5 id=5 data-nosnippet>5</a>
 <a href=#6 id=6 data-nosnippet>6</a></span><span class="kw">use </span>chumsky::prelude::<span class="kw-2">*</span>;
 <a href=#7 id=7 data-nosnippet>7</a><span class="kw">use </span>vihaco_abi::traits::FromText;
-<a href=#8 id=8 data-nosnippet>8</a><span class="kw">use </span>vihaco_bytecode::SstHeader;
+<a href=#8 id=8 data-nosnippet>8</a><span class="kw">use </span>vihaco_bytecode::SSTHeader;
 <a href=#9 id=9 data-nosnippet>9</a><span class="kw">use </span>vihaco_parser::Parse;
 <a href=#10 id=10 data-nosnippet>10</a>
 <a href=#11 id=11 data-nosnippet>11</a><span class="doccomment">/// Semicolon-terminated declarations parsed from one section header.
@@ -38,7 +38,7 @@
 <a href=#38 id=38 data-nosnippet>38</a>    }
 <a href=#39 id=39 data-nosnippet>39</a>}
 <a href=#40 id=40 data-nosnippet>40</a>
-<a href=#41 id=41 data-nosnippet>41</a><span class="kw">impl</span>&lt;D&gt; SstHeader <span class="kw">for </span>HeaderDeclarations&lt;D&gt; <span class="kw">where for</span>&lt;<span class="lifetime">'src</span>&gt; D: Parse&lt;<span class="lifetime">'src</span>&gt; {}
+<a href=#41 id=41 data-nosnippet>41</a><span class="kw">impl</span>&lt;D&gt; SSTHeader <span class="kw">for </span>HeaderDeclarations&lt;D&gt; <span class="kw">where for</span>&lt;<span class="lifetime">'src</span>&gt; D: Parse&lt;<span class="lifetime">'src</span>&gt; {}
 <a href=#42 id=42 data-nosnippet>42</a>
 <a href=#43 id=43 data-nosnippet>43</a><span class="kw">impl</span>&lt;D&gt; IntoIterator <span class="kw">for </span>HeaderDeclarations&lt;D&gt; {
 <a href=#44 id=44 data-nosnippet>44</a>    <span class="kw">type </span>Item = D;

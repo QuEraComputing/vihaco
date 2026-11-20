@@ -37,7 +37,7 @@ metadata stay stable.</p>
 
 
 
-<table><thead><tr><th>Type</th><th>What it holds</th></tr></thead><tbody><tr><td><code>LocalModule&#x3C;I, V, Ty, Info></code></td><td>Runtime code, functions, labels, constants, strings, entry selection, source symbols, and application metadata</td></tr><tr><td><code>Image&#x3C;I, V, Ty, Info></code></td><td>The module as owned program data</td></tr><tr><td><code>Loadable&#x3C;Image&#x3C;I, V, Ty, Info>, M></code></td><td>The image paired with composite <code>M</code>, with methods to run and manage it</td></tr></tbody></table>
+<table><thead><tr><th>Type</th><th>What it holds</th></tr></thead><tbody><tr><td><code>LocalModule&#x3C;I, V, Ty, Info></code></td><td>Runtime code, functions, symbols, constants, strings, entry selection, source symbols, and application metadata</td></tr><tr><td><code>Image&#x3C;I, V, Ty, Info></code></td><td>The module as owned program data</td></tr><tr><td><code>Loadable&#x3C;Image&#x3C;I, V, Ty, Info>, M></code></td><td>The image paired with composite <code>M</code>, with methods to run and manage it</td></tr></tbody></table>
 <p>First build a valid module by parsing and lowering source or decoding a binary
 program. Then wrap it in <code>Image::new(module)</code> and pair it with a machine using
 <code>Loadable::new(image, machine)</code>. These constructors don’t parse or validate the
@@ -76,8 +76,9 @@ loaded program has its own image and machine. To own several independent
 programs, put each Loadable in an ordinary Rust field in an outer runtime, and
 select their source sections when constructing them.</p>
 <p>You choose how one loaded machine calls another. That might be a method on the
-outer application or on a suitable component. Nesting sections in a file doesn’t
-connect execution or forward effects between them.</p>
+outer application or on a suitable component. Sections in a file are a flat
+list; putting two programs in one file doesn’t connect their execution or
+forward effects between them.</p>
 <p>Next, <a href="/vihaco/guide/parser">give your instructions a source spelling</a>.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/guide/program-execution" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Running programs</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/guide/parser" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Parsing source</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#module-image-and-owner" data-toc-link="#module-image-and-owner">Module, image, and owner</a></li><li><a href="#execute-and-inspect" data-toc-link="#execute-and-inspect">Execute and inspect</a></li><li><a href="#reset-and-replace" data-toc-link="#reset-and-replace">Reset and replace</a></li><li><a href="#composition-and-independent-programs" data-toc-link="#composition-and-independent-programs">Composition and independent programs</a></li> </ol> </details> </div> </main> <script>
         // Scroll-spy: mark the TOC link for the section currently in view.
         (() => {
@@ -230,7 +231,7 @@ connect execution or forward effects between them.</p>
         sync();
       })();
     </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-11-19</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
+          documentation generated <time>2026-11-20</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

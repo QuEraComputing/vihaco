@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["block_i64_flat","block_i64_pairs","skip","string_literal","symbol_ref"]};
+window.SIDEBAR_ITEMS = {"fn":["block_i64_flat","block_i64_pairs","skip","string_literal","symbol_definition","symbol_ref"]};

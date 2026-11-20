@@ -73,8 +73,8 @@ encode it as a word while preserving its bits.</p>
 <p>The generated aggregate requires the lowering capabilities of all its included
 instructions. You’ll need to supply those even if one program only uses numeric
 operands.</p>
-<p>Each parsed instruction lowers to one runtime instruction. Function-local source
-labels become metadata, so they don’t add instructions. If you want instruction
+<p>Each parsed instruction lowers to one runtime instruction. <code>@name:</code> symbol
+definitions go into the section’s symbol table, so they don’t add instructions. If you want instruction
 expansion, do that in a producer before this pipeline.</p>
 <p>The <a href="/vihaco/guide/parser-patterns">pattern parser reference</a> covers dialect instruction
 patterns and parsers for metadata, values, and types, with delimiter rules and
@@ -232,7 +232,7 @@ programs.</p> </article>  <nav class="section-pager" aria-label="Section navigat
         sync();
       })();
     </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-11-19</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
+          documentation generated <time>2026-11-20</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

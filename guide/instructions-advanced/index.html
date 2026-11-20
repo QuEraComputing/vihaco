@@ -19,11 +19,12 @@ change. Don’t rely on compatibility between versions.</p>
 module you want to execute. Reading the container is the first part; you still
 need to construct a runnable image from its contents.</p>
 <h2 id="container-and-section-data">Container and section data</h2>
-<p><code>BytecodeFile&#x3C;C>::from_bytes(bytes)</code> reads the container and gives you a root
-section. Your <code>C</code> implements <code>BytecodeGlobalContext</code> to read global data and
-<code>SectionNameResolver</code> to look up child-section names stored as indices.
-Use <code>child(name)</code> or <code>children()</code> to choose independently loaded units.</p>
-<p>Section views expose header bytes, instruction bytes, and child sections.
+<p><code>BytecodeFile&#x3C;C>::from_bytes(bytes)</code> reads the container: a global context
+followed by a flat section table. Your <code>C</code> implements <code>BytecodeGlobalContext</code> to
+read global data and <code>SectionNameResolver</code> to look up section names stored as
+indices. Use <code>section(name)</code> or <code>sections()</code> to choose independently loaded
+units.</p>
+<p>Section views expose the section name, header bytes, and instruction bytes.
 Read your header representation with <code>decode_header::&#x3C;H>()</code>. If <code>I</code> implements
 the required bytecode traits, <code>decode_instructions::&#x3C;I>()</code> can decode its
 instruction stream.</p>
@@ -41,7 +42,7 @@ representation, keep that dependency in the codec, away from component execution
 and step behavior.</p>
 <h2 id="preserve-the-whole-program">Preserve the whole program</h2>
 <p>Code is only part of what a program needs. Keep its function signatures and
-ranges, reserved locals, entry selection, labels, constants, strings, source
+ranges, reserved locals, entry selection, symbols, constants, strings, source
 symbols, and application configuration too. Check references and table bounds
 before pairing the decoded result with a machine. An instruction round trip
 alone doesn’t show that the decoded program will behave the same way.</p>
@@ -206,7 +207,7 @@ tests. Keep exact wire layouts with the codec’s reference documentation.</p>
         sync();
       })();
     </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-11-19</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
+          documentation generated <time>2026-11-20</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

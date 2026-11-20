@@ -20,46 +20,40 @@ Begin with the <a href="/vihaco/guide">version and dependency setup</a>,
       code as <code>src/main.rs</code>. Run <code>cargo run</code>. The
 <a href="/vihaco/guide/first-machine">first machine walkthrough</a>
 explains each part.
-</p> <h2>The SST program</h2> <pre><code>sst v1
-.section(root):
-    .header(root):
-        metadata {
-            strings: [&quot;main&quot;, &quot;first-machine.sst&quot;],
-            functions: [
-                {
-                    name: 0,
-                    signature: { params: [], ret: [u64] },
-                    local_count: 0,
-                    start_address: 0,
-                    end_address: 4,
-                    file: 1,
-                },
-            ],
-            labels: [],
-            constants: [],
-            main_function: 0,
-            source_symbols: [],
-            extra: {},
-        };
-    .header(root).
-    .text(root):
-        fn @main() -&gt; u64 {
-            execution::program::const_u64 20
-            execution::program::const_u64 22
-            calculator::arithmetic::add
-            execution::program::ret 1
-        }
-    .text(root).
-.section(root).
+</p> <h2>The SST program</h2> <pre><code>sst v2
+
+.section main
+.header
+    metadata {
+        strings: [&quot;main&quot;, &quot;first-machine.sst&quot;],
+        functions: [
+            {
+                name: 0,
+                signature: { params: [], ret: [u64] },
+                local_count: 0,
+                file: 1,
+            },
+        ],
+        constants: [],
+        main_function: 0,
+        source_symbols: [],
+        extra: {},
+    };
+.text
+@main:
+    execution::program::const_u64 20
+    execution::program::const_u64 22
+    calculator::arithmetic::add
+    execution::program::ret 1
 </code></pre> <h2>The Rust machine</h2> <pre><code class="language-rust">// SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
 use vihaco::{
     Apply, BuildMessage, ReusableMessageRecipe, Execute, ExecutionState, HasInstructionSet, Image, Loadable, NoContext,
-    PopFromStack, PushToStack, SstFile, Step, Type, Value, component, composite, dialect, field,
+    PopFromStack, PushToStack, SSTFile, Step, Type, Value, component, composite, dialect, field,
     loader::MetadataLoweringContext,
     module::{LocalModule, ProgramMetadata},
-    syntax::{HeaderDeclarations, ParsedModule, lower_functions_with_metadata},
+    syntax::{HeaderDeclarations, ParsedModule, lower_code_with_metadata},
 };
 
 #[dialect]
@@ -169,12 +163,18 @@ where
 
 pub fn main() -&gt; eyre::Result&lt;()&gt; {
     let source = include_str!(&quot;first-machine.sst&quot;);
-    let file = SstFile::&lt;NoContext&gt;::from_text(source)?;
-    let ParsedModule { header, functions } = ParsedModule::&lt;
+    let file = SSTFile::&lt;NoContext&gt;::from_text(source)?;
+    let section = file
+        .section(&quot;main&quot;)
+        .ok_or_else(|| eyre::eyre!(&quot;missing main section&quot;))?;
+    let ParsedModule {
+        header,
+        code,
+        symbols,
+    } = ParsedModule::&lt;
         SourceInstruction,
-        Type,
         HeaderDeclarations&lt;ProgramMetadata&gt;,
-    &gt;::parse_section(file.root())?;
+    &gt;::parse_section(section)?;
 
     let mut declarations = header.into_iter();
     let metadata = declarations
@@ -184,9 +184,9 @@ pub fn main() -&gt; eyre::Result&lt;()&gt; {
         declarations.next().is_none(),
         &quot;expected one metadata declaration&quot;
     );
-    let mut context = MetadataLoweringContext::new(&amp;metadata)?;
-    let code = lower_functions_with_metadata(functions, &amp;metadata, &amp;mut context)?;
-    let module = metadata.into_module(code)?;
+    let mut context = MetadataLoweringContext::new(&amp;metadata, &amp;symbols)?;
+    let code = lower_code_with_metadata(code, &amp;symbols, &amp;metadata, &amp;mut context)?;
+    let module = metadata.into_module(code, symbols)?;
     let machine = Machine {
         execution: ExecutionState::new(),
         calculator: Calculator::default(),
@@ -323,7 +323,7 @@ and <a href="/vihaco/guide">author’s guide</a>, or look up individual
         sync();
       })();
     </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-11-19</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
+          documentation generated <time>2026-11-20</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {
