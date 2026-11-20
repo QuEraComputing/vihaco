@@ -374,8 +374,9 @@ and instructions that fail to lower, such as an unresolved `@name`. A bad
 directive does not stop the `.text` checks: they run against the directives
 that were fine. Use `ProgramChecker` to select sections with
 `require_sections`, parse an application header with
-`with_header::<Declarations<YourDeclaration>>()`, or lower with your own
-context. `check_framing` needs no machine, and `check_file` accepts any
+`with_header::<Declarations<YourDeclaration>>()` and check its application
+rules with `with_header_validation`, or lower with your own context.
+`check_framing` needs no machine, and `check_file` accepts any
 `SectionChecker` for other header or instruction grammars.
 
 ## Formatting SST files

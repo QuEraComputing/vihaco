@@ -144,21 +144,26 @@ struct HeaderDeclarationsState {
     description: Option<String>,
 }
 
+fn record_description<T: AsRef<str>>(seen: &mut Option<T>, description: T) -> eyre::Result<()> {
+    eyre::ensure!(seen.is_none(), "duplicate description declaration");
+    let empty = description.as_ref().is_empty();
+    // An empty declaration still counts when checking later declarations.
+    *seen = Some(description);
+    eyre::ensure!(!empty, "experiment.description must not be empty");
+    Ok(())
+}
+
+fn require_description<T>(description: Option<T>) -> eyre::Result<T> {
+    description.ok_or_else(|| eyre::eyre!("missing experiment.description"))
+}
+
 impl HeaderDeclaration {
     fn collect_into(self, declarations: &mut HeaderDeclarationsState) -> eyre::Result<()> {
         match self {
             // Standard directives are assembled in header order.
             Self::Standard(directive) => declarations.program.push(directive),
             Self::Description(description) => {
-                eyre::ensure!(
-                    declarations.description.is_none(),
-                    "duplicate description declaration"
-                );
-                eyre::ensure!(
-                    !description.is_empty(),
-                    "experiment.description must not be empty"
-                );
-                declarations.description = Some(description);
+                record_description(&mut declarations.description, description)?;
             }
         }
         Ok(())
@@ -170,9 +175,7 @@ impl HeaderDeclarationsState {
     fn finish_program(
         self,
     ) -> eyre::Result<vihaco_module::module::ProgramMetadata<Value, Type, ExperimentInfo>> {
-        let description = self
-            .description
-            .ok_or_else(|| eyre::eyre!("missing experiment.description"))?;
+        let description = require_description(self.description)?;
         self.program.finish(ExperimentInfo { description })
     }
 }
@@ -238,9 +241,36 @@ enum Mode {
     Format(vihaco_sst::FormatOptions),
 }
 
+fn validate_header(
+    header: &vihaco_sst::Declarations<HeaderDeclaration>,
+    section: &vihaco_sst::check::Section<'_>,
+    out: &mut vihaco_sst::Diagnostics<'_>,
+) {
+    let mut description = None;
+    for declaration in &header.0 {
+        if let HeaderDeclaration::Description(value) = &declaration.value
+            && let Err(error) = record_description(&mut description, value.as_str())
+        {
+            out.error(
+                declaration.span.clone(),
+                error.to_string(),
+                "in this declaration",
+            );
+        }
+    }
+    if let Err(error) = require_description(description) {
+        out.error(
+            section.block_anchor(section.header()),
+            error.to_string(),
+            "in this header",
+        );
+    }
+}
+
 fn checker() -> vihaco_sst::ProgramChecker<Machine, vihaco_sst::Declarations<HeaderDeclaration>> {
     vihaco_sst::ProgramChecker::<Machine>::new()
         .with_header::<vihaco_sst::Declarations<HeaderDeclaration>>()
+        .with_header_validation(validate_header)
         .require_sections(["controller"])
 }
 
@@ -333,9 +363,7 @@ mod tests {
 
     fn check(source: &str) -> Vec<String> {
         let source = vihaco_sst::SourceFile::new("loadable.sst", source);
-        vihaco_sst::ProgramChecker::<Machine>::new()
-            .with_header::<vihaco_sst::Declarations<HeaderDeclaration>>()
-            .require_sections(["controller"])
+        checker()
             .check(&source)
             .iter()
             .map(ToString::to_string)
@@ -376,12 +404,52 @@ mod tests {
 
     fn format(text: &str, options: vihaco_sst::FormatOptions) -> String {
         let source = vihaco_sst::SourceFile::new("loadable.sst", text);
-        let checker = vihaco_sst::ProgramChecker::<Machine>::new()
-            .with_header::<vihaco_sst::Declarations<HeaderDeclaration>>();
-        vihaco_sst::Formatter::with_checker(checker)
+        vihaco_sst::Formatter::with_checker(checker())
             .options(options)
             .format(&source)
             .unwrap_or_else(|report| panic!("{}", report.render(&source)))
+    }
+
+    #[test]
+    fn description_rules_match_when_loading_checking_and_formatting() {
+        let original = include_str!("loadable.sst");
+        let original_description = "    experiment.description \"Loadable SST example: 21 * 2\"";
+        for (replacement, location, message) in [
+            ("", "4:1", "missing experiment.description"),
+            (
+                "    experiment.description \"\"",
+                "5:5",
+                "experiment.description must not be empty",
+            ),
+            (
+                "    experiment.description \"first\"\n    experiment.description \"second\"",
+                "6:5",
+                "duplicate description declaration",
+            ),
+        ] {
+            let text = original.replacen(original_description, replacement, 1);
+            let load_error = Runtime::from_sst(&text).err().expect("invalid description");
+            assert_eq!(load_error.to_string(), message);
+            let source = vihaco_sst::SourceFile::new("loadable.sst", text);
+            let report = checker().check(&source);
+            assert_eq!(report.diagnostics.len(), 1);
+            assert_eq!(
+                report.diagnostics[0].to_string(),
+                format!("{location}: error: {message}")
+            );
+            for options in [
+                vihaco_sst::FormatOptions::default(),
+                vihaco_sst::FormatOptions::without_generated_comments(),
+            ] {
+                assert_eq!(
+                    vihaco_sst::Formatter::with_checker(checker())
+                        .options(options)
+                        .format(&source)
+                        .unwrap_err(),
+                    report
+                );
+            }
+        }
     }
 
     #[test]

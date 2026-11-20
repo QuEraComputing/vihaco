@@ -241,9 +241,11 @@ where
 pub struct ProgramChecker<M, H = StandardHeader, L = MetadataLowering, C = NoContext> {
     lowering: L,
     required: Option<Vec<String>>,
+    header_validation: Option<HeaderValidation<H>>,
     marker: Marker<M, H, C>,
 }
 
+type HeaderValidation<H> = fn(&H, &Section<'_>, &mut Diagnostics<'_>);
 type Marker<M, H, C> = PhantomData<fn() -> (M, H, C)>;
 
 impl<M> ProgramChecker<M> {
@@ -253,6 +255,7 @@ impl<M> ProgramChecker<M> {
         Self {
             lowering: MetadataLowering,
             required: None,
+            header_validation: None,
             marker: PhantomData,
         }
     }
@@ -270,8 +273,17 @@ impl<M, H, L, C> ProgramChecker<M, H, L, C> {
         ProgramChecker {
             lowering: self.lowering,
             required: self.required,
+            header_validation: None,
             marker: PhantomData,
         }
+    }
+
+    /// Check application-specific rules after a header has parsed without
+    /// syntax errors. Set this after choosing the header type with
+    /// [`with_header`](Self::with_header).
+    pub fn with_header_validation(mut self, validate: HeaderValidation<H>) -> Self {
+        self.header_validation = Some(validate);
+        self
     }
 
     /// Parse the `.global` block as `C2`.
@@ -279,6 +291,7 @@ impl<M, H, L, C> ProgramChecker<M, H, L, C> {
         ProgramChecker {
             lowering: self.lowering,
             required: self.required,
+            header_validation: self.header_validation,
             marker: PhantomData,
         }
     }
@@ -301,6 +314,7 @@ impl<M, H, L, C> ProgramChecker<M, H, L, C> {
         ProgramChecker {
             lowering,
             required: self.required,
+            header_validation: self.header_validation,
             marker: PhantomData,
         }
     }
@@ -367,6 +381,11 @@ where
         }
         let start_errors = out.error_count();
         let header = H::parse(section, out);
+        if out.error_count() == start_errors
+            && let (Some(header), Some(validate)) = (&header, self.header_validation)
+        {
+            validate(header, section, out);
+        }
         let before_text = out.error_count();
         let text = parse_instructions::<M::Syntax>(section.text(), out);
         let text_ok = out.error_count() == before_text;
