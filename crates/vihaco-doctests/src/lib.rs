@@ -44,14 +44,15 @@ mod ex_quickstart {
 
         let source = include_str!("../../../docs/examples/first-machine.sst");
         let file = SSTFile::<NoContext>::from_text(source).unwrap();
+        let section = file.section("main").unwrap();
+        let header = section.header_text();
+        let text = section.text();
         let parsed =
             ParsedModule::<SourceInstruction, HeaderDeclarations<ProgramDirective>>::parse_section(
-                file.section("main").unwrap(),
+                section,
             )
             .unwrap();
 
-        let header = source.split(".header\n").nth(1).unwrap();
-        let header = header.split(".text").next().unwrap();
         let printed: Vec<_> = parsed
             .header
             .0
@@ -68,7 +69,6 @@ mod ex_quickstart {
             .collect();
         assert_eq!(printed, header.lines().map(str::trim).collect::<Vec<_>>());
 
-        let text = source.split(".text").nth(1).unwrap();
         let lines: Vec<_> = text
             .lines()
             .map(str::trim)
