@@ -1,6 +1,9 @@
 [workspace]
 resolver = "2"
 members = [
+    # Release-plz ignores vihaco-stdlib's dev-dependency on vihaco-sst when
+    # sorting. List vihaco-sst first so Cargo can resolve it when packaging stdlib.
+    "crates/vihaco-sst",
     "crates/vihaco",
     "crates/vihaco-abi",
     "crates/vihaco-abi-derive",
@@ -12,7 +15,6 @@ members = [
     "crates/vihaco-parser-derive",
     "crates/vihaco-runtime",
     "crates/vihaco-runtime-derive",
-    "crates/vihaco-sst",
     "crates/vihaco-stdlib",
     "crates/vihaco-syntax",
 ]
