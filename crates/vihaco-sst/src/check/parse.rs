@@ -64,18 +64,29 @@ pub fn parse_declarations<'src, D>(
 where
     D: Parse<'src> + 'src,
 {
+    let errors_before = out.error_count();
+    let declarations = parse_declarations_recovering(block, out);
+    (out.error_count() == errors_before).then_some(declarations)
+}
+
+/// Parse a header and return successfully parsed declarations even when some
+/// statements are malformed.
+pub(crate) fn parse_declarations_recovering<'src, D>(
+    block: &Block<'src>,
+    out: &mut Diagnostics<'_>,
+) -> Vec<Spanned<D>>
+where
+    D: Parse<'src> + 'src,
+{
     let first_line = out.source().location(block.span().start).line;
     let parsed = vihaco_syntax::parse_declarations_at::<D>(block.text(), first_line);
-    let ok = parsed.errors.is_empty();
     report(block, parsed.errors, out);
     let base = block.span().start;
-    ok.then(|| {
-        parsed
-            .declarations
-            .into_iter()
-            .map(|item| shift(base, item))
-            .collect()
-    })
+    parsed
+        .declarations
+        .into_iter()
+        .map(|item| shift(base, item))
+        .collect()
 }
 
 /// Parse a header with any [`SSTHeader`]. Its parser reports no positions, so

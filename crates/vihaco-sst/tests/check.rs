@@ -106,6 +106,19 @@ fn header_syntax_errors_are_all_reported() {
 }
 
 #[test]
+fn malformed_header_declarations_do_not_hide_undefined_labels() {
+    let text = "sst v2\n.section main\n.header\n.func @main(), locals 0\n.fnc @x(), locals 0\n\
+                .entry @main\n.text\n@main: t.br @missing\n";
+    assert_eq!(
+        check(text),
+        [
+            "5:1: unknown directive `.fnc`",
+            "8:13: undefined symbol `@missing`",
+        ]
+    );
+}
+
+#[test]
 fn text_syntax_errors_are_all_reported() {
     let text = program(
         &["main"],
@@ -195,6 +208,19 @@ fn header_directive_errors_are_all_reported() {
         .map(|label| source.location(label.span.start).to_string())
         .collect();
     assert_eq!(secondary, ["5:7", "7:1", "12:16"]);
+}
+
+#[test]
+fn an_invalid_local_count_preserves_the_declared_function_for_lowering() {
+    let text = "sst v2\n.section main\n.header\n.func @main(x: u64), locals 0\n\
+                .entry @main\n.const fn @main\n.text\n@main: t.call 0, @main\n  t.br @missing\n";
+    assert_eq!(
+        check(text),
+        [
+            "4:22: `@main` reserves 0 local slots but has 1 parameters",
+            "9:8: undefined symbol `@missing`",
+        ]
+    );
 }
 
 #[test]

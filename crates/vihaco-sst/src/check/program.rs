@@ -9,17 +9,17 @@ use vihaco_abi::Lower;
 use vihaco_bytecode::{NoContext, SSTGlobalContext};
 use vihaco_module::loader::MetadataLoweringContext;
 use vihaco_module::module::{
-    ConstantValue, NoInfo, ProgramDirective, ProgramHeader, ProgramMetadata, StandardDirective,
-    Symbol,
+    ConstantValue, Focus, HeaderError, NoInfo, ProgramDirective, ProgramHeader, ProgramMetadata,
+    StandardDirective, Symbol,
 };
 use vihaco_parser::Parse;
 use vihaco_runtime::HasInstructionSet;
 use vihaco_syntax::Spanned;
 
 use super::metadata;
+use super::parse::parse_declarations_recovering;
 use super::{
-    Framing, Section, SectionChecker, check_file, check_global_context, parse_declarations,
-    parse_instructions,
+    Framing, Section, SectionChecker, check_file, check_global_context, parse_instructions,
 };
 use crate::diagnostic::{Diagnostics, Report};
 use crate::source::{SourceFile, Span};
@@ -75,7 +75,10 @@ where
     type Type = D::Type;
 
     fn parse(section: &Section<'_>, out: &mut Diagnostics<'_>) -> Option<Self> {
-        parse_declarations::<D>(section.header(), out).map(Declarations)
+        Some(Declarations(parse_declarations_recovering(
+            section.header(),
+            out,
+        )))
     }
 
     fn metadata(
@@ -92,17 +95,28 @@ where
                 Some((Span::from(declaration.span.clone()), directive))
             })
             .collect();
-        let assemble = |skip: &[usize]| {
+        let assemble = |errors: &[HeaderError]| {
             let mut functions = Vec::new();
             let mut header = ProgramHeader::new();
             for (position, (span, directive)) in standard.iter().enumerate() {
-                if skip.contains(&position) {
+                if errors
+                    .iter()
+                    .any(|error| error.directive == position && error.focus != Focus::Locals)
+                {
                     continue;
                 }
-                if matches!(directive, ProgramDirective::Function(_)) {
+                let mut directive = (*directive).clone();
+                if let ProgramDirective::Function(function) = &mut directive {
                     functions.push(*span);
+                    // Keep the function available to entries, constants, and
+                    // instructions when only its local count is invalid.
+                    if !errors.is_empty()
+                        && let Ok(minimum) = u32::try_from(function.params.len())
+                    {
+                        function.locals = function.locals.max(minimum);
+                    }
                 }
-                header.push((*directive).clone());
+                header.push(directive);
             }
             header.assemble(NoInfo).map(|metadata| CheckedMetadata {
                 metadata,
@@ -114,10 +128,8 @@ where
             Err(errors) => {
                 let spans: Vec<Span> = standard.iter().map(|(span, _)| *span).collect();
                 metadata::report_header_errors(&errors, &spans, out);
-                // Keep checking `.text` against the directives that were
-                // fine, so one bad directive does not hide other problems.
-                let bad: Vec<usize> = errors.iter().map(|error| error.directive).collect();
-                assemble(&bad).ok()
+                // Use recovered metadata only for further diagnostics.
+                assemble(&errors).ok()
             }
         }
     }
