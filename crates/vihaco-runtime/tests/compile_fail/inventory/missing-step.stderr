@@ -10,10 +10,16 @@ help: the trait `vihaco_runtime::Step<cpu, arithmetic::Add>` is not implemented 
  8 | #[composite] struct Machine { #[device(1)] cpu: Cpu }
    |              ^^^^^^^^^^^^^^
 help: the trait `Dispatch<__VihacoExecutionContext>` is conditionally implemented for `Machine`
-  --> tests/compile_fail/inventory/missing-step.rs:8:1
+  --> tests/compile_fail/inventory/missing-step.rs:2:1
    |
+ 2 | #[dialect] mod arithmetic { #[instruction] pub struct Add(pub i64); }
+   | ^^^^^^^^^^
+...
  8 | #[composite] struct Machine { #[device(1)] cpu: Cpu }
-   | ^^^^^^^^^^^^ unsatisfied requirement introduced here: `Machine: vihaco_runtime::Step<cpu, <__vihaco_inventory_Machine::Provider as vihaco_runtime::__private::LeafAt<0>>::Instruction>`
+   | ------------
+   | |
+   | unsatisfied requirement introduced here: `Machine: vihaco_runtime::Step<cpu, <__vihaco_inventory_Machine::Provider as vihaco_runtime::__private::LeafAt<0>>::Instruction>`
+   | in this attribute macro expansion
 note: required for `Machine` to implement `Dispatch`
   --> tests/compile_fail/inventory/missing-step.rs:8:1
    |

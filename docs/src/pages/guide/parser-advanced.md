@@ -20,16 +20,18 @@ machine, then pair the result with the machine when it's ready.
 
 ## Read a section
 
-Start with `SstFile<C>::from_text(source)`. The type `C` interprets the file's
-global context; use `NoContext` when you have no global data. From `root()`,
-`child(name)` and `children()` let you pick sections for independently loaded
-programs. These section names describe the file structure, rather than routes
-to instruction destinations.
+Start with `SSTFile<C>::from_text(source)`. The type `C` interprets the file's
+global context; use `NoContext` when you have no global data. A file holds a
+flat list of named sections: `section(name)` picks one and `sections()` lists
+them in file order. Each section is an independently loaded program. Section
+names are only for selecting a section; execution uses instruction addresses,
+and any mapping from addresses to names belongs in the header metadata.
 
 A section view gives you the header and source body. Pass it to
-`ParsedModule::<SourceInstruction, Type, Header>::parse_section(section)`, using
-your composite's syntax instruction type as `SourceInstruction`. You'll get
-header declarations and functions with typed instruction bodies.
+`ParsedModule::<SourceInstruction, Header>::parse_section(section)`, using
+your composite's syntax instruction type as `SourceInstruction`. You'll get the
+header declarations, the section's flat code stream, and its symbol table: one
+`Symbol { name, address }` for each `@name:` definition in `.text`.
 
 ## Collect declarations before lowering
 
@@ -42,8 +44,8 @@ the file.
 
 `ProgramMetadata` supplies every non-code field:
 
-- Functions, with their signatures, reserved local counts, and instruction ranges.
-- Labels, strings, constants, and source symbols.
+- Function declarations, with their signatures and reserved local counts.
+- Strings, constants, and source symbols.
 - The entry function, if there is one.
 - Your application's `extra` metadata.
 
@@ -51,22 +53,24 @@ The order of each table determines its indices. Function names, parameter names,
 and filenames refer into the string table. `main_function` selects an entry in
 the function table; it isn't an instruction address.
 
-Function ranges count decoded instructions and use an exclusive end address.
-A function's local count includes its parameters. The producer supplies any
+A declaration doesn't say where its function is. Loading binds it to the
+`@name:` symbol with the same name and derives the range from there to the next
+function symbol, so there are no addresses to keep in sync. A function's local
+count includes its parameters. The producer supplies any
 extra locals; the loader doesn't infer them from instructions.
 
 ## Prepare capabilities and lower
 
-`MetadataLoweringContext::new(&metadata)` prepares the standard function, label,
-and string capabilities. If custom instructions need more lookup services, you
+`MetadataLoweringContext::new(&metadata, &symbols)` prepares the standard symbol,
+function, and string capabilities. If custom instructions need more lookup services, you
 can extend it or use your own context.
 
-Call `lower_functions_with_metadata(functions, &metadata, &mut context)` to check
-the declarations and tables, then lower the bodies. Before lowering each
-function, the driver prepares its full local label scope. That's how a branch
-can refer to a label farther down the function.
+Call `lower_code_with_metadata(code, &symbols, &metadata, &mut context)` to check
+the declarations, symbols, and tables, then lower the code. The context knows the
+whole symbol table before the first instruction is lowered. That's how a branch
+or call can refer to a symbol farther down the section.
 
-Assemble the result with `metadata.into_module(code)`. It keeps your table order
+Assemble the result with `metadata.into_module(code, symbols)`. It keeps your table order
 and checks standard value references. If your declarations need a different
 runtime metadata type, use `map_extra`. You can then wrap the module in an Image
 and pair it with a machine in a Loadable.
@@ -80,8 +84,8 @@ The repository's
 [Loadable example](https://github.com/QuEraComputing/vihaco/blob/main/crates/vihaco-stdlib/examples/loadable.rs)
 and its
 [SST file](https://github.com/QuEraComputing/vihaco/blob/main/crates/vihaco-stdlib/examples/loadable.sst)
-put the whole sequence together. They include an application header, tables in a
-different order from the function bodies, a helper call, and a forward branch.
+put the whole sequence together. They include an application header, a function
+table in a different order from the code, a helper call, and a forward branch.
 
 Run it from a checkout:
 

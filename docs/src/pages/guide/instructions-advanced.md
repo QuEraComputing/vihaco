@@ -16,12 +16,13 @@ need to construct a runnable image from its contents.
 
 ## Container and section data
 
-`BytecodeFile<C>::from_bytes(bytes)` reads the container and gives you a root
-section. Your `C` implements `BytecodeGlobalContext` to read global data and
-`SectionNameResolver` to look up child-section names stored as indices.
-Use `child(name)` or `children()` to choose independently loaded units.
+`BytecodeFile<C>::from_bytes(bytes)` reads the container: a global context
+followed by a flat section table. Your `C` implements `BytecodeGlobalContext` to
+read global data and `SectionNameResolver` to look up section names stored as
+indices. Use `section(name)` or `sections()` to choose independently loaded
+units.
 
-Section views expose header bytes, instruction bytes, and child sections.
+Section views expose the section name, header bytes, and instruction bytes.
 Read your header representation with `decode_header::<H>()`. If `I` implements
 the required bytecode traits, `decode_instructions::<I>()` can decode its
 instruction stream.
@@ -45,7 +46,7 @@ and step behavior.
 ## Preserve the whole program
 
 Code is only part of what a program needs. Keep its function signatures and
-ranges, reserved locals, entry selection, labels, constants, strings, source
+ranges, reserved locals, entry selection, symbols, constants, strings, source
 symbols, and application configuration too. Check references and table bounds
 before pairing the decoded result with a machine. An instruction round trip
 alone doesn't show that the decoded program will behave the same way.

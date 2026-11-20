@@ -27,9 +27,8 @@
 //! For explicit metadata, [`vihaco_module::loader::MetadataLoweringContext`] implements
 //! all three lookup capabilities and rejects strings absent from the supplied
 //! table. It works with `ParsedModule::lower_with_metadata` in `vihaco-syntax`.
-//! `label @name` is retained in the parsed function's label metadata without an
-//! executable slot. Labels, `function_start`, and `function_end` have no runtime
-//! instruction leaves.
+//! `@name:` symbol definitions in `.text` occupy no executable slot. Symbols,
+//! `function_start`, and `function_end` have no runtime instruction leaves.
 //! Composite source uses `device::dialect::mnemonic`, for example
 //! `host::cpu::const_i64 -42`. Generated aggregate bytecode codecs are separate work.
 //!

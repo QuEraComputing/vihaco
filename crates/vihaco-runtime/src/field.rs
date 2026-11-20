@@ -9,8 +9,6 @@
 /// The child is the exact authored field type in the parent declaration scope.
 /// Imported aliases and associated/generic child types retain Rust identity.
 /// Ordinary state fields do not participate in field routes or capability lifting.
-/// Without `program-image-execution`, legacy `#[loadable]` fields also stop route
-/// traversal and capability lifting; their sections are loaded separately.
 ///
 /// Use this trait in bounds on consumers of field routes. Implementations are
 /// supplied by [`crate::composite`] and the generated route traversal.

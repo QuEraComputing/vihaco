@@ -9,7 +9,8 @@ pub use crate::program_metadata::ProgramMetadata;
 pub struct LocalModule<I, V, Ty, Info = NoInfo> {
     pub code: Vec<I>,
     pub functions: Vec<FunctionInfo<Ty>>,
-    pub labels: Vec<LabelInfo>,
+    /// The section's symbol table: every `@name:` definition and its address.
+    pub symbols: Vec<Symbol>,
     pub constants: Vec<V>,
     pub strings: Vec<String>,
     pub main_function: Option<u32>,
@@ -25,7 +26,7 @@ where
         Self {
             code: Vec::new(),
             functions: Vec::new(),
-            labels: Vec::new(),
+            symbols: Vec::new(),
             constants: Vec::new(),
             strings: Vec::new(),
             main_function: None,
@@ -42,15 +43,33 @@ pub struct SourceSymbolInfo {
     pub name: String,
 }
 
-#[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
-#[syntax_class(metadata, open = "{", close = "}")]
+/// A function's runtime record: its declaration plus the executable range
+/// resolved from the section's symbol table.
+#[derive(Debug, Clone, PartialEq)]
 pub struct FunctionInfo<Type> {
     pub name: u32, // index into the string interner
     pub signature: Signature<Type>,
     /// Reserved local slots, including parameters, for this function.
     pub local_count: u32,
-    pub start_address: u32, // corresponds to a label noop
-    pub end_address: u32,   // corresponds to a label noop
+    /// Address of the function's symbol definition.
+    pub start_address: u32,
+    /// Exclusive end: the next function symbol's address, or the code length.
+    pub end_address: u32,
+    pub file: u32,
+}
+
+/// A function declaration in a section header.
+///
+/// It carries everything about a function except where it is: the executable
+/// range comes from the `@name:` symbol definition with the same name in the
+/// section's `.text`.
+#[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
+#[syntax_class(metadata, open = "{", close = "}")]
+pub struct FunctionDecl<Type> {
+    pub name: u32, // index into the string interner
+    pub signature: Signature<Type>,
+    /// Reserved local slots, including parameters, for this function.
+    pub local_count: u32,
     pub file: u32,
 }
 
@@ -68,11 +87,15 @@ pub struct Parameter<Ty> {
     pub ty: Ty,
 }
 
-#[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
-#[syntax_class(metadata, open = "{", close = "}")]
-pub struct LabelInfo {
+/// One symbol table entry: a name bound to an instruction address.
+///
+/// Symbols are defined in `.text` as `@name:` and occupy no instruction slot;
+/// `address` is the index of the next instruction (possibly the code length).
+/// References such as `@name` in operands are resolved through this table.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Symbol {
+    pub name: String,
     pub address: u32,
-    pub name: u32, // index into the string interner
 }
 
 #[derive(Debug, Clone, PartialEq, Default, vihaco_parser_derive::Parse)]

@@ -5,7 +5,7 @@
 
 use chumsky::prelude::*;
 use vihaco_abi::traits::FromText;
-use vihaco_bytecode::SstHeader;
+use vihaco_bytecode::SSTHeader;
 use vihaco_parser::Parse;
 
 /// Semicolon-terminated declarations parsed from one section header.
@@ -38,7 +38,7 @@ where
     }
 }
 
-impl<D> SstHeader for HeaderDeclarations<D> where for<'src> D: Parse<'src> {}
+impl<D> SSTHeader for HeaderDeclarations<D> where for<'src> D: Parse<'src> {}
 
 impl<D> IntoIterator for HeaderDeclarations<D> {
     type Item = D;

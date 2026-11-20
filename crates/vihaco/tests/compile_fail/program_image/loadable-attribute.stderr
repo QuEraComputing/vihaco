@@ -1,5 +1,5 @@
-error: cannot find attribute `loadable` in this scope
- --> tests/compile_fail/program_image/loadable-attribute.rs:5:7
+error: #[loadable] was removed: sections are flat; construct an image from `file.section(name)` and pair it with `Loadable`
+ --> tests/compile_fail/program_image/loadable-attribute.rs:5:5
   |
 5 |     #[loadable]
-  |       ^^^^^^^^
+  |     ^^^^^^^^^^^

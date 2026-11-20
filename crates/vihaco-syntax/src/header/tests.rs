@@ -3,8 +3,7 @@
 
 use super::*;
 use crate::ParsedModule;
-use vihaco_abi::Type;
-use vihaco_bytecode::{NoContext, SstFile};
+use vihaco_bytecode::{NoContext, SSTFile};
 
 // No Clone implementation: parsing and iteration must not require one.
 #[derive(Debug, PartialEq, vihaco_parser_derive::Parse)]
@@ -58,14 +57,14 @@ fn collections_are_parsed_through_the_section_header_interface() -> eyre::Result
         Halt,
     }
 
-    let file = SstFile::<NoContext>::from_text(
-        "sst v1\n.section(root):\n.header(root):\ndevice gain 2;\n.header(root).\n\
-         .text(root):\nfn @main() { example.halt }\n.text(root).\n.section(root).\n",
+    let file = SSTFile::<NoContext>::from_text(
+        "sst v2\n.section main\n.header\ndevice gain 2;\n.text\n@main: example.halt\n",
     )?;
-    let parsed = ParsedModule::<Instruction, Type, HeaderDeclarations<Declaration>>::parse_section(
-        file.root(),
+    let parsed = ParsedModule::<Instruction, HeaderDeclarations<Declaration>>::parse_section(
+        file.section("main").expect("main section"),
     )?;
     assert_eq!(parsed.header.0, [Declaration::Gain(2)]);
-    assert_eq!(parsed.functions[0].body.len(), 1);
+    assert_eq!(parsed.code.len(), 1);
+    assert_eq!(parsed.symbols[0].name, "main");
     Ok(())
 }

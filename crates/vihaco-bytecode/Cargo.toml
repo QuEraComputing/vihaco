@@ -9,6 +9,5 @@ authors.workspace = true
 
 [dependencies]
 byteorder = { workspace = true }
-chumsky = { workspace = true }
 eyre = { workspace = true }
 vihaco-abi = { workspace = true }

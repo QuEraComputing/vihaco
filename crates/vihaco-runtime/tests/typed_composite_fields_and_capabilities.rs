@@ -83,21 +83,6 @@ struct Inner<'a, const N: usize = 2> {
     Δ: Imported<'a, N>,
 }
 
-#[cfg(not(feature = "program-image-execution"))]
-#[composite]
-#[vihaco(crate = framework)]
-struct Outer<'a, const N: usize = 2> {
-    #[device(1, alias = "ctl")]
-    left: Inner<'a, N>,
-    #[device(2, alias = "core", alias = "core-v2")]
-    right: Cpu<'a, N>,
-    // No capability or instruction-set contract on a section boundary.
-    #[device(42, alias = "program")]
-    #[loadable("code")]
-    image: Image,
-}
-
-#[cfg(feature = "program-image-execution")]
 #[composite]
 #[vihaco(crate = framework)]
 struct Outer<'a, const N: usize = 2> {
@@ -179,16 +164,6 @@ where
     }
 }
 
-#[cfg(not(feature = "program-image-execution"))]
-#[composite]
-#[vihaco(crate = framework)]
-struct LoadOnly {
-    #[device(0)]
-    #[loadable]
-    image: Image,
-}
-
-#[cfg(feature = "program-image-execution")]
 #[composite]
 #[vihaco(crate = framework)]
 struct LoadOnly {
@@ -217,60 +192,7 @@ struct AlsoDisabled {
     unavailable: Missing,
 }
 
-#[derive(Default)]
-struct Image {
-    calls: Vec<String>,
-}
-
-#[cfg(not(feature = "program-image-execution"))]
-impl framework::loader::LoadBytecodeSection<()> for Image {
-    type Output = ();
-
-    fn load_bytecode_section<'bc>(
-        &mut self,
-        section: framework::BytecodeSectionView<'bc, ()>,
-    ) -> eyre::Result<()> {
-        self.calls.push(section.display_path().to_string());
-        Ok(())
-    }
-}
-
-#[cfg(not(feature = "program-image-execution"))]
-impl framework::loader::LoadSstSection<()> for Image {
-    type Output = ();
-
-    fn load_sst_section<'bc>(
-        &mut self,
-        section: framework::SstSectionView<'bc, ()>,
-    ) -> eyre::Result<()> {
-        self.calls.push(section.display_path().to_string());
-        Ok(())
-    }
-}
-
-#[cfg(not(feature = "program-image-execution"))]
-impl framework::loader::LoadOwnBytecodeSection<()> for LoadOnly {
-    type Output = ();
-
-    fn load_own_bytecode_section<'bc>(
-        &mut self,
-        _: framework::BytecodeSectionView<'bc, ()>,
-    ) -> eyre::Result<()> {
-        Ok(())
-    }
-}
-
-#[cfg(not(feature = "program-image-execution"))]
-impl framework::loader::LoadOwnSstSection<()> for LoadOnly {
-    type Output = ();
-
-    fn load_own_sst_section<'bc>(
-        &mut self,
-        _: framework::SstSectionView<'bc, ()>,
-    ) -> eyre::Result<()> {
-        Ok(())
-    }
-}
+struct Image;
 
 fn exact_types<'a, const N: usize>(_: &'a [u8; N]) {
     fn same<T>(_: std::marker::PhantomData<T>, _: std::marker::PhantomData<T>) {}
@@ -305,7 +227,7 @@ fn typed_composite_fields_and_capabilities() {
             Δ: Cpu(&initial),
         },
         right: Cpu(&initial),
-        image: Image::default(),
+        image: Image,
     };
     assert!(std::ptr::eq(
         <Outer<'_> as Field<field!(Outer<'_>::left)>>::get(&machine),
@@ -337,17 +259,7 @@ fn typed_composite_fields_and_capabilities() {
     assert_eq!(rows.len(), 8);
     let devices = <Outer<'static> as CompositeSpec>::DEVICES;
     assert_eq!(devices[0].code, 1);
-    #[cfg(feature = "program-image-execution")]
     assert_eq!(devices.len(), 2);
-    #[cfg(not(feature = "program-image-execution"))]
-    {
-        assert_eq!(devices.len(), 3);
-        assert_eq!(devices[0].section, None);
-        assert_eq!(devices[2].name, "image");
-        assert_eq!(devices[2].code, 42);
-        assert_eq!(devices[2].source, ["image", "program"]);
-        assert_eq!(devices[2].section, Some("code"));
-    }
     assert_eq!(<Inner<'static> as CompositeSpec>::DEVICES[1].code, 7);
     assert!(<State as CompositeSpec>::DEVICES.is_empty());
     let expected = [
@@ -362,15 +274,6 @@ fn typed_composite_fields_and_capabilities() {
         assert_eq!(pair[0].dialect, "control");
         assert_eq!(pair[0].instruction, "halt");
         assert_eq!(pair[1].instruction, "extra");
-    }
-
-    #[cfg(not(feature = "program-image-execution"))]
-    {
-        fn section_contracts<
-            T: framework::loader::LoadBytecodeSection<()> + framework::loader::LoadSstSection<()>,
-        >() {
-        }
-        section_contracts::<LoadOnly>();
     }
 
     #[composite]
@@ -407,12 +310,12 @@ fn typed_composites_reject_invalid_targets_and_capabilities() {
         .collect::<Vec<_>>();
     fixtures.sort();
     for fixture in fixtures {
-        let name = fixture.file_name().unwrap().to_str().unwrap();
+        // The removal hint differs under program-image execution; that
+        // configuration is pinned by vihaco's `program_image/loadable-attribute`.
         if cfg!(feature = "program-image-execution")
-            && matches!(
-                name,
-                "loadable-output.rs" | "loadable-target.rs" | "nested-loadable.rs"
-            )
+            && fixture
+                .file_name()
+                .is_some_and(|name| name == "removed-loadable.rs")
         {
             continue;
         }

@@ -10,10 +10,7 @@ use vihaco_runtime::{
 };
 
 #[cfg(not(feature = "program-image-execution"))]
-use vihaco_runtime::{
-    Dispatch,
-    loader::{LoadOwnSstSection, LoadSstSection},
-};
+use vihaco_runtime::{Dispatch, loader::LoadSSTSection};
 
 trait FunctionLookup {
     fn function_index(&self, name: &str) -> eyre::Result<u32>;
@@ -145,19 +142,19 @@ impl StringIntern for Loader {
 }
 
 #[cfg(not(feature = "program-image-execution"))]
-impl LoadOwnSstSection<vihaco_bytecode::NoContext> for Loader
+impl LoadSSTSection<vihaco_bytecode::NoContext> for Loader
 where
     Source: Lower<Self, Runtime = Runtime>,
 {
     type Output = ();
 
-    fn load_own_sst_section<'bc>(
+    fn load_sst_section<'bc>(
         &mut self,
-        section: vihaco_runtime::SstSectionView<'bc, vihaco_bytecode::NoContext>,
+        section: vihaco_runtime::SSTSectionView<'bc, vihaco_bytecode::NoContext>,
     ) -> eyre::Result<()> {
         // This fixture's section format is one qualified instruction per line.
         let source = section
-            .sst()
+            .text()
             .lines()
             .filter(|line| !line.trim().is_empty())
             .map(|line| {
@@ -174,23 +171,23 @@ where
 }
 
 #[cfg(not(feature = "program-image-execution"))]
-impl LoadOwnSstSection<vihaco_bytecode::NoContext> for Machine {
+impl LoadSSTSection<vihaco_bytecode::NoContext> for Machine {
     type Output = ();
 
-    fn load_own_sst_section<'bc>(
+    fn load_sst_section<'bc>(
         &mut self,
-        section: vihaco_runtime::SstSectionView<'bc, vihaco_bytecode::NoContext>,
+        section: vihaco_runtime::SSTSectionView<'bc, vihaco_bytecode::NoContext>,
     ) -> eyre::Result<()> {
-        self.loader.load_own_sst_section(section)
+        self.loader.load_sst_section(section)
     }
 }
 
 #[cfg(not(feature = "program-image-execution"))]
 #[test]
 fn section_loader_capabilities_enable_generated_composite_lowering() {
-    let file = vihaco_bytecode::SstFile::<vihaco_bytecode::NoContext>::from_text(&format!(
-        "sst v{}\n.section(root):\n.text(root):\nchild::host::symbolic::call entry, 2\nspare::symbolic::named \"hello\", entry\nspare::symbolic::load 42\nchild::cpu::symbolic::halt\n.text(root).\n.section(root).\n",
-        vihaco_bytecode::VERSION,
+    let file = vihaco_bytecode::SSTFile::<vihaco_bytecode::NoContext>::from_text(&format!(
+        "sst v{}\n.section main\n.text\nchild::host::symbolic::call entry, 2\nspare::symbolic::named \"hello\", entry\nspare::symbolic::load 42\nchild::cpu::symbolic::halt\n",
+        vihaco_bytecode::SST_VERSION,
     )).unwrap();
     let mut machine = Machine {
         child: Child { cpu: Cpu },
@@ -198,7 +195,9 @@ fn section_loader_capabilities_enable_generated_composite_lowering() {
         loader: Loader::default(),
         executed: 0,
     };
-    machine.load_sst_section(file.root()).unwrap();
+    machine
+        .load_sst_section(file.section("main").unwrap())
+        .unwrap();
     assert_eq!(machine.loader.strings, ["hello"]);
     assert_eq!(
         machine.loader.code,

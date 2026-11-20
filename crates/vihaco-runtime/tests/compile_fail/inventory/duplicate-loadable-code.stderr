@@ -1,5 +1,0 @@
-error: duplicate device code
- --> tests/compile_fail/inventory/duplicate-loadable-code.rs:4:31
-  |
-4 |     #[device(42)] #[loadable] image: (),
-  |                               ^^^^^

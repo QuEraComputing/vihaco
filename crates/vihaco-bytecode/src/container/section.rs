@@ -1,90 +1,41 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-use std::ops::Range;
+use std::{collections::BTreeSet, ops::Range};
 
-/// The fully resolved path for a parsed section.
+/// One entry of a file's flat section table.
 ///
-/// The root section has no components.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SectionPath {
-    components: Vec<String>,
-}
-
-impl SectionPath {
-    pub fn root() -> Self {
-        Self {
-            components: Vec::new(),
-        }
-    }
-
-    pub fn is_root(&self) -> bool {
-        self.components.is_empty()
-    }
-
-    pub fn components(&self) -> &[String] {
-        &self.components
-    }
-
-    pub fn local_name(&self) -> Option<&str> {
-        self.components.last().map(String::as_str)
-    }
-
-    pub(crate) fn child(&self, local_name: impl Into<String>) -> Self {
-        let mut components = self.components.clone();
-        components.push(local_name.into());
-        Self { components }
-    }
-}
-
-impl Default for SectionPath {
-    fn default() -> Self {
-        Self::root()
-    }
-}
-
-impl std::fmt::Display for SectionPath {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.is_root() {
-            return f.write_str("<root>");
-        }
-
-        for (index, component) in self.components.iter().enumerate() {
-            if index != 0 {
-                f.write_str("/")?;
-            }
-            f.write_str(component)?;
-        }
-        Ok(())
-    }
-}
-
-impl std::fmt::Debug for SectionPath {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(self, f)
-    }
-}
-
-/// The implementation-level representation of a parsed section.
+/// A section is a named, independently loadable unit: a header plus a code
+/// block. The name exists only to select a section; execution relies on
+/// addresses inside the code, and any address-to-name mapping belongs in the
+/// header metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SectionNode {
-    pub path: SectionPath,
-    pub section: Range<usize>,
+pub struct SectionEntry {
+    pub name: String,
     pub header: Range<usize>,
-    pub bytecode: Range<usize>,
-    pub children: Vec<SectionNode>,
+    pub code: Range<usize>,
 }
 
-pub(crate) fn validate_local_section_name(parent: &SectionPath, child: &str) -> eyre::Result<()> {
-    if child.is_empty() {
-        return Err(eyre::eyre!("section `{}` has an empty child name", parent));
+/// The container-level result of parsing a file: the global context range and
+/// the flat section table, in file order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedFile {
+    pub context: Range<usize>,
+    pub sections: Vec<SectionEntry>,
+}
+
+/// Validate a section name and record it, rejecting duplicates.
+pub(crate) fn claim_section_name(seen: &mut BTreeSet<String>, name: &str) -> eyre::Result<()> {
+    if name.is_empty() {
+        return Err(eyre::eyre!("section name cannot be empty"));
     }
-    if child.contains('/') {
+    if name.chars().any(char::is_whitespace) {
         return Err(eyre::eyre!(
-            "section `{}` child name `{}` must be a local name",
-            parent,
-            child
+            "section name `{name}` cannot contain whitespace"
         ));
+    }
+    if !seen.insert(name.to_owned()) {
+        return Err(eyre::eyre!("duplicate section `{name}`"));
     }
     Ok(())
 }

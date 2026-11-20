@@ -673,7 +673,6 @@ name = "vihaco-bytecode"
 version = "0.8.1"
 dependencies = [
  "byteorder",
- "chumsky",
  "eyre",
  "vihaco-abi",
 ]

@@ -17,7 +17,7 @@ There are three types involved in owning a program:
 
 | Type | What it holds |
 |---|---|
-| `LocalModule<I, V, Ty, Info>` | Runtime code, functions, labels, constants, strings, entry selection, source symbols, and application metadata |
+| `LocalModule<I, V, Ty, Info>` | Runtime code, functions, symbols, constants, strings, entry selection, source symbols, and application metadata |
 | `Image<I, V, Ty, Info>` | The module as owned program data |
 | `Loadable<Image<I, V, Ty, Info>, M>` | The image paired with composite `M`, with methods to run and manage it |
 
@@ -73,7 +73,8 @@ programs, put each Loadable in an ordinary Rust field in an outer runtime, and
 select their source sections when constructing them.
 
 You choose how one loaded machine calls another. That might be a method on the
-outer application or on a suitable component. Nesting sections in a file doesn't
-connect execution or forward effects between them.
+outer application or on a suitable component. Sections in a file are a flat
+list; putting two programs in one file doesn't connect their execution or
+forward effects between them.
 
 Next, [give your instructions a source spelling](/guide/parser).

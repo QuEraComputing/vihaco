@@ -10,10 +10,11 @@ use crate::{
 use vihaco_abi::{Lower, Syntax};
 use vihaco_module::loader::MetadataLoweringContext;
 
-/// Resolve labels in the function currently being lowered.
+/// Resolve `@name` branch targets through the section's symbol table.
 ///
-/// The loader prepares label addresses before lowering so forward references
-/// work. Addresses count executable instructions, excluding label declarations.
+/// The loader prepares the whole table before lowering so forward references
+/// work. Addresses count executable instructions; `@name:` definitions occupy
+/// no slot.
 pub trait LabelLookup {
     fn label_address(&self, name: &str) -> eyre::Result<u32>;
 }
@@ -139,8 +140,7 @@ lower_literal! {
 #[cfg(test)]
 mod metadata_context_tests {
     use super::*;
-    use vihaco_module::loader::FunctionScope;
-    use vihaco_module::module::{FunctionInfo, NoInfo, ProgramMetadata, Signature};
+    use vihaco_module::module::{FunctionDecl, NoInfo, ProgramMetadata, Signature, Symbol};
     use vihaco_parser::{Ident, QuotedString};
 
     #[test]
@@ -148,37 +148,35 @@ mod metadata_context_tests {
         let metadata: ProgramMetadata = ProgramMetadata {
             strings: vec!["helper".into(), "main".into(), "hello".into()],
             functions: vec![
-                FunctionInfo {
+                FunctionDecl {
                     name: 0,
                     signature: Signature {
                         params: vec![],
                         ret: vec![],
                     },
                     local_count: 0,
-                    start_address: 5,
-                    end_address: 8,
                     file: 0,
                 },
-                FunctionInfo {
+                FunctionDecl {
                     name: 1,
                     signature: Signature {
                         params: vec![],
                         ret: vec![],
                     },
                     local_count: 0,
-                    start_address: 0,
-                    end_address: 5,
                     file: 0,
                 },
             ],
-            labels: vec![],
             constants: vec![],
             main_function: Some(1),
             source_symbols: vec![],
             extra: NoInfo,
         };
-        let mut context = MetadataLoweringContext::new(&metadata)?;
-        context.enter_function("main", [("done", 4)])?;
+        let symbols = [("main", 0), ("done", 4), ("helper", 5)].map(|(name, address)| Symbol {
+            name: name.into(),
+            address,
+        });
+        let mut context = MetadataLoweringContext::new(&metadata, &symbols)?;
         let branch =
             cpu::Branch::<Syntax>(Target::Symbol(Ident("done".into()))).lower(&mut context)?;
         assert_eq!(branch, cpu::Branch(4));
