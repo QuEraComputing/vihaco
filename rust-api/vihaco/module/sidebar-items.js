@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["FunctionDecl","FunctionInfo","LocalModule","NoInfo","Parameter","ProgramMetadata","Signature","SourceSymbolInfo","Symbol"]};
+window.SIDEBAR_ITEMS = {"enum":["ConstantDirective","Focus","ProgramDirective"],"struct":["FunctionDecl","FunctionDirective","FunctionInfo","HeaderError","LocalModule","NoInfo","Parameter","ProgramHeader","ProgramMetadata","Signature","SourceSymbolInfo","Symbol"],"trait":["ConstantValue","StandardDirective"]};

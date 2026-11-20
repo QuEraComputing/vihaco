@@ -25,8 +25,8 @@
 <a href=#25 id=25 data-nosnippet>25</a>//! `lower::StringIntern` to resolve them. `vihaco_stdlib::ProgramImage` implements
 <a href=#26 id=26 data-nosnippet>26</a>//! string interning using its section string table. Heap references remain numeric.
 <a href=#27 id=27 data-nosnippet>27</a>//! For explicit metadata, [`vihaco_module::loader::MetadataLoweringContext`] implements
-<a href=#28 id=28 data-nosnippet>28</a>//! all three lookup capabilities and rejects strings absent from the supplied
-<a href=#29 id=29 data-nosnippet>29</a>//! table. It works with `ParsedModule::lower_with_metadata` in `vihaco-syntax`.
+<a href=#28 id=28 data-nosnippet>28</a>//! all three lookup capabilities and interns strings after the header's table.
+<a href=#29 id=29 data-nosnippet>29</a>//! It works with `ParsedModule::lower_with_metadata` in `vihaco-syntax`.
 <a href=#30 id=30 data-nosnippet>30</a>//! `@name:` symbol definitions in `.text` occupy no executable slot. Symbols,
 <a href=#31 id=31 data-nosnippet>31</a>//! `function_start`, and `function_end` have no runtime instruction leaves.
 <a href=#32 id=32 data-nosnippet>32</a>//! Composite source uses `device::dialect::mnemonic`, for example

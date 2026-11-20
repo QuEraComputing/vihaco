@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["MetadataLoweringContext"]};
+window.SIDEBAR_ITEMS = {"struct":["MetadataLoweringContext"],"trait":["InternedStrings"]};

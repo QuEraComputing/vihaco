@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="The SST file structure, instruction syntax, and metadata a compiler must produce."><title>Emitting SST from a compiler — vihaco</title><script>
+<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="The SST file structure, line rules, header directives, and instruction syntax a compiler must produce."><title>Emitting SST from a compiler — vihaco</title><script>
       (() => {
         // localStorage can throw when storage is blocked (hardened privacy
         // settings, sandboxed frames); fall back to "auto" so the theme still
@@ -18,41 +18,30 @@ The <a href="/vihaco/guide/instructions-advanced">binary format</a> is also curr
 this warning does not imply a stable replacement is already available.</p>
 </blockquote>
 <p>A compiler targeting SST needs both a target machine’s instruction vocabulary
-and the program metadata expected by its loader. SST provides section framing;
-the target supplies instruction, type, value, and header grammars. Keep the
-compiler and loader on the same vihaco revision and agree on application-specific
-declarations and lowering rules.</p>
+and the header directives expected by its loader. SST provides section framing
+and the standard program directives; the target supplies instruction, type, and
+value grammars and any application directives. Keep the compiler and loader on
+the same vihaco revision and agree on application-specific directives and
+lowering rules.</p>
 <h2 id="file-and-section-structure">File and section structure</h2>
 <p>SST is a line-based, assembly-style file. Emit <code>sst v2</code> first, then an optional
-<code>.global</code> block, then one or more named sections. Each directive sits on its own
-line and opens a block that runs until the next directive or the end of the
-file; there are no closing markers. This is a complete program for a machine
-with an <code>execution</code> device using the standard program dialect:</p>
+<code>.global</code> block, then one or more named sections. Each block directive sits on
+its own line and opens a block that runs until the next block directive or the
+end of the file; there are no closing markers. This is a complete program for a
+machine with an <code>execution</code> device using the standard program dialect:</p>
 <pre><code class="language-text">sst v2
 
 .section main
 .header
-    metadata {
-        strings: ["main", "output.sst"],
-        functions: [
-            {
-                name: 0,
-                signature: { params: [], ret: [u64] },
-                local_count: 0,
-                file: 1,
-            },
-        ],
-        constants: [],
-        main_function: 0,
-        source_symbols: [],
-        extra: {},
-    };
+    .file "output.sst"
+    .func @main() -> u64, locals 0
+    .entry @main
 .text
 @main:
     execution::program::const_u64 42
     execution::program::ret 1
 </code></pre>
-<p>The directives are:</p>
+<p>The block directives are:</p>
 
 
 
@@ -82,17 +71,40 @@ with an <code>execution</code> device using the standard program dialect:</p>
 
 
 
-<table><thead><tr><th>Directive</th><th>Meaning</th></tr></thead><tbody><tr><td><code>sst v2</code></td><td>Format version. Must be the first non-blank line.</td></tr><tr><td><code>.global</code></td><td>Optional global context in a consumer-defined grammar. Must come before any <code>.section</code>; omit it for loaders using <code>NoContext</code>.</td></tr><tr><td><code>.section &#x3C;name></code></td><td>Starts a new section. Names are required, unique within the file, and contain no whitespace.</td></tr><tr><td><code>.header</code></td><td>The current section’s header: declarations such as <code>metadata { ... };</code>.</td></tr><tr><td><code>.text</code></td><td>The current section’s code: a flat instruction stream with <code>@name:</code> symbol definitions.</td></tr></tbody></table>
+<table><thead><tr><th>Directive</th><th>Meaning</th></tr></thead><tbody><tr><td><code>sst v2</code></td><td>Format version. Must be the first non-blank line.</td></tr><tr><td><code>.global</code></td><td>Optional global context in a consumer-defined grammar. Must come before any <code>.section</code>; omit it for loaders using <code>NoContext</code>.</td></tr><tr><td><code>.section &#x3C;name></code></td><td>Starts a new section. Names are required, unique within the file, and contain no whitespace.</td></tr><tr><td><code>.header</code></td><td>The current section’s header: one directive per line, such as <code>.func @main() -> u64, locals 0</code>.</td></tr><tr><td><code>.text</code></td><td>The current section’s code: a flat instruction stream with <code>@name:</code> symbol definitions.</td></tr></tbody></table>
 <p>Sections are a flat list; there is no nesting and no implicit root. Each may
 contain at most one <code>.header</code> and one <code>.text</code>, in either order. An omitted block
 yields empty text to the consumer; a runnable program still needs the content
-its loader requires. Indentation is free-form, and directive lines may end with
-a <code>//</code> comment. Every other line belongs to the enclosing block and is passed to
-the target’s grammar unchanged.</p>
+its loader requires. Every other line belongs to the enclosing block and is
+passed to the target’s grammar unchanged; only these five directives are
+reserved, so header directives such as <code>.func</code> are block content.</p>
 <p>A section is an independently loadable unit. Its name exists only so a loader
 can select it with <code>file.section(name)</code>. Execution relies on instruction
 addresses, which are local to the section. Names for addresses within a
 section come from its symbol definitions, described below.</p>
+<h3 id="lines-and-comments">Lines and comments</h3>
+<p>SST reads like assembly: every statement (a directive in <code>.header</code>, a symbol
+definition or instruction in <code>.text</code>) ends at the end of its line. There is no
+statement terminator. A statement continues onto the next line only while a
+<code>(</code>, <code>[</code>, or <code>{</code> is open, as in Python; there is no <code>\</code> continuation. Two
+statements on one line, or an operand moved to the next line outside brackets,
+is an error. Indentation and spacing carry no meaning, and <code>\r\n</code> is a newline.
+A bracket left open at the end of a block is reported where it was opened, as
+<code>unclosed `[` opened at line N</code>, and the lines after it are checked normally.</p>
+<p>A comment runs from <code>;</code> to the end of the line. Comments may end any line,
+including block directive lines, and may stand on their own line anywhere in
+the file, even before <code>sst v2</code> or between <code>.section</code> and its first block. Inside a
+bracket-continued statement they may also end each continued line. A <code>;</code>
+inside a string literal is part of the string, so string literals cannot span
+lines (write <code>\n</code>). The <code>.global</code> block is consumer-defined and decides its own
+comment rules.</p>
+<p>A comment on its own line that starts with <code>;;</code> (but not <code>;;;</code>) is
+<em>generated</em>: tools such as the <a href="#formatting-sst-files">formatter</a> write it
+directly above the item it explains and replace it every time they run, so do
+not write such lines by hand. Every other comment is yours, including a
+trailing comment that starts with <code>;;</code> or contains it, such as
+<code>call 0, @helper  ; see ;; notes</code>, and <code>;;;</code> headings. Parsers treat both kinds
+as ordinary comments.</p>
 <h2 id="target-instruction-and-function-syntax">Target instruction and function syntax</h2>
 <p>The target composite’s <code>&#x3C;Machine as HasInstructionSet>::Syntax</code> determines which
 instructions the loader accepts. Emit the device route, dialect, and mnemonic,
@@ -108,8 +120,7 @@ address order, plus symbol definitions:</p>
     execution::program::call 0, @helper
     execution::program::br @done
     execution::program::const_u64 999
-@done:
-    execution::program::ret 1
+@done: execution::program::ret 1
 @helper:
     execution::program::const_u64 21
     execution::program::ret 1
@@ -121,30 +132,38 @@ address, and a symbol may follow the last instruction.</li>
 <li><code>@name</code> in an operand refers to a symbol. Lowering looks it up in the
 section’s symbol table, so forward references work. Each instruction decides
 what it needs from the entry: <code>br</code> and <code>call</code> take the symbol’s address,
-while a function-reference constant takes the function’s metadata index.</li>
+while a function-reference constant takes the function’s table index.</li>
 <li>Symbol names are unique within a section. There is no per-function scope; a
 compiler that reuses local label names should qualify them, for example
 <code>@main.done</code>.</li>
-<li>Layout and indentation carry no meaning. Instructions and symbol definitions
-are separated by whitespace or <code>//</code> comments, and may share a line.</li>
+<li>Each instruction and each symbol definition goes on its own line, except
+that one symbol definition may be followed by one instruction on its line,
+as in <code>@done: execution::program::ret 1</code>, like <code>label: mov</code> in assembly.</li>
 </ul>
-<p>A function is a symbol that has a declaration in the header’s <code>functions</code> table
-with the same name. Its signature and locals come only from that declaration.
-Its executable range runs from its symbol to the next function symbol, or to the
-end of the section; other symbols inside it, such as <code>@done</code>, do not end it.
-Nothing stops execution from running past the end of one function into the next.</p>
+<p>A function is a symbol that has a <code>.func</code> directive with the same name in the
+header. Its signature and locals come only from that directive. Its executable
+range runs from its symbol to the next function symbol, or to the end of the
+section; other symbols inside it, such as <code>@done</code>, do not end it. Nothing stops
+execution from running past the end of one function into the next.</p>
 <p>Each parsed instruction lowers to exactly one runtime instruction. Expand any
 compiler pseudo-instructions before emitting SST. Symbolic operands and their
 punctuation are dialect-specific; see the
 <a href="/vihaco/guide/parser-patterns">parser pattern reference</a>.</p>
-<h2 id="the-metadata-header">The metadata header</h2>
-<p>The standard loading path uses <code>HeaderDeclarations&#x3C;ProgramMetadata></code> or an
-application declaration enum containing <code>ProgramMetadata</code>. Declarations end in
-<code>;</code>. The first-machine loader requires exactly one <code>metadata { ... };</code> record;
-other loaders choose their own required declarations and duplicate policy.</p>
-<p>Emit every field below, including empty arrays. Records use named fields and
-comma-separated lists; trailing commas are accepted. The standard schema is
-<code>ProgramMetadata&#x3C;Value, Type, NoInfo></code>:</p>
+<h2 id="the-header">The header</h2>
+<p>The standard header is a list of flat directives, one per line, that name
+things by symbol. The loader builds every table and index from them; no index
+or string table is written by hand:</p>
+<pre><code class="language-text">.header
+    .file "loadable.sst"                  ; the file of the .func lines that follow
+    .func @helper(x: u64) -> u64, locals 1
+    .func @main() -> (u64, bool), locals 0
+    .entry @main
+    .const u64 42                         ; constants[0]
+    .const str "hello"                    ; a string constant, by its text
+    .const fn @helper                     ; a function reference, by name
+    .source_symbol 12 "user"
+    experiment.description "an example"   ; an application directive
+</code></pre>
 
 
 
@@ -174,72 +193,63 @@ comma-separated lists; trailing commas are accepted. The standard schema is
 
 
 
-
-
-
-
-<table><thead><tr><th>Field</th><th>What the compiler supplies</th></tr></thead><tbody><tr><td><code>strings</code></td><td>An ordered array of quoted strings, including function names, parameter names, filenames, and literals needed by lowering. String indices are zero-based. Plain symbols such as branch targets need no entry.</td></tr><tr><td><code>functions</code></td><td>An ordered array of function declarations, described below. Array position is the function index; this order may differ from address order.</td></tr><tr><td><code>constants</code></td><td>An ordered array of values parsed by the target’s value parser. Constant indices are array positions.</td></tr><tr><td><code>main_function</code></td><td>The entry function’s table index, or <code>null</code> when no entry is selected. It is not an instruction address.</td></tr><tr><td><code>source_symbols</code></td><td>Records <code>{ index: number, name: "symbol" }</code>. Indices must be unique; names are inline strings. Agree with the consumer on their meaning.</td></tr><tr><td><code>extra</code></td><td>Application metadata in the target’s chosen schema. With the default <code>NoInfo</code>, emit <code>{}</code>.</td></tr></tbody></table>
-<p>Each function record contains:</p>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>name</code></td><td>Index of the function name in <code>strings</code>, without the <code>@</code> prefix. It must match a <code>@name:</code> symbol in <code>.text</code>, and names must be unique.</td></tr><tr><td><code>signature</code></td><td><code>{ params: [{ name: string_index, ty: type }, ...], ret: [type, ...] }</code>. This is the only place a function’s signature is stated.</td></tr><tr><td><code>local_count</code></td><td>Total reserved local slots, including parameters. Must be at least the parameter count; the loader does not infer extra locals.</td></tr><tr><td><code>file</code></td><td>Index of the source filename in <code>strings</code>.</td></tr></tbody></table>
-<p>A declaration says <em>what</em> a function is; its symbol says <em>where</em> it is. There
-are no address fields to keep in sync. Addresses and table references use <code>u32</code>
-and count decoded instructions, not bytes, source lines, or symbol definitions.
-In the example, <code>main</code> covers <code>0..2</code>. Function-reference constants lower to
-metadata table indices, independently of address order.</p>
-<h2 id="constants-strings-and-symbol-resolution">Constants, strings, and symbol resolution</h2>
-<p>With standard <code>Value</code>, constants use typed literals such as <code>u64 42</code>, <code>i64 -1</code>,
-<code>bool true</code>, <code>string 0</code>, and <code>fn 0</code>. String values reference <code>strings</code>;
-function references select <code>functions</code>. The loader checks these references when
-assembling the module. Use <code>f32_bits</code> followed by a decimal <code>u32</code> or <code>f64_bits</code>
-followed by a decimal <code>u64</code> to preserve exact floating-point bits, including NaNs.
-Custom value types can define a different grammar.</p>
-<p>Populate strings before lowering. <code>MetadataLoweringContext</code> looks up strings
-without appending or reordering them; a missing literal is an error. Equal
-strings resolve to the first matching table entry. Function lookup preserves
-the supplied function indices. Symbol lookup uses the whole section’s table and
-returns absolute, section-local addresses.</p>
-<p>Application header directives can describe device configuration or add lowering
-capabilities. These require an explicit agreement with the consuming loader;
-the standard metadata record does not define their schema. See
+<table><thead><tr><th>Directive</th><th>Meaning</th></tr></thead><tbody><tr><td><code>.file "path"</code></td><td>The source file of the <code>.func</code> directives that follow, until the next <code>.file</code>. A <code>.func</code> before any <code>.file</code> belongs to the empty file <code>""</code>.</td></tr><tr><td><code>.func @name(param: type, ...) -> ret, locals N</code></td><td>Declares a function. The return is omitted (no results), one type (<code>-> u64</code>), or a parenthesized list (<code>-> (u64, bool)</code>). <code>locals N</code> is the total number of reserved local slots, including parameters, and must be at least the parameter count; the loader does not infer extra locals. The function table is in <code>.func</code> order, and each name must match a <code>@name:</code> symbol in <code>.text</code> and be unique.</td></tr><tr><td><code>.entry @name</code></td><td>Selects the entry function, by name. Optional; at most one.</td></tr><tr><td><code>.const &#x3C;value></code></td><td>Appends to the constant pool; the pool is in <code>.const</code> order. <code>.const str "text"</code> is a string constant and <code>.const fn @name</code> a reference to a declared function. Other values use the value type’s syntax: with standard <code>Value</code>, typed literals such as <code>u64 42</code>, <code>i64 -1</code>, <code>bool true</code>, <code>f64 -0.5</code>, or <code>f64_bits</code> followed by a decimal <code>u64</code> (and <code>f32_bits</code> with a <code>u32</code>) to preserve exact floating-point bits, including NaNs. A table index such as <code>str 3</code> or <code>fn 0</code> is rejected.</td></tr><tr><td><code>.source_symbol &#x3C;index> "&#x3C;name>"</code></td><td>A source-level symbol. Indices are unique; agree with the consumer on their meaning.</td></tr></tbody></table>
+<p>Directives may appear in any order; their relative order matters only within a
+kind (<code>.func</code> order, <code>.const</code> order, and which <code>.file</code> precedes a <code>.func</code>). The
+grammar leaves room for named constants (<code>.const @name &#x3C;value></code>) later.</p>
+<p>Parameter and symbol names contain no whitespace and none of
+<code>: @ , ; ( ) [ ] { } " ' `</code>. A long <code>.func</code> may be broken inside its
+parentheses.</p>
+<h3 id="derived-tables">Derived tables</h3>
+<p><code>ProgramHeader</code> assembles the directives into <code>ProgramMetadata</code>:</p>
+<ul>
+<li><strong>functions</strong>: one per <code>.func</code>, in order; <code>.entry</code> and <code>.const fn</code> resolve to
+these indices.</li>
+<li><strong>constants</strong>: one per <code>.const</code>, in order.</li>
+<li><strong>source symbols</strong>: one per <code>.source_symbol</code>, in order.</li>
+<li><strong>strings</strong>: each distinct string once, at its first occurrence, in this
+order: function names in <code>.func</code> order; then parameter names, by function and
+then by position; then file names in <code>.func</code> order; then <code>.const str</code>
+literals in <code>.const</code> order. Lowering then appends the string literals that
+<code>.text</code> instructions intern, in address order. The same file always yields
+the same table.</li>
+</ul>
+<p>For the example above, <code>strings</code> is <code>["helper", "main", "x", "loadable.sst", "hello"]</code>, <code>functions[0]</code> is <code>@helper</code>, <code>main_function</code> is <code>1</code>, and the
+constants are <code>[u64 42, str 4, fn 0]</code>.</p>
+<p>Addresses and table references use <code>u32</code> and count decoded instructions, not
+bytes, source lines, or symbol definitions. In the first example, <code>main</code>
+covers <code>0..2</code>. Function-reference constants lower to function-table indices,
+independently of address order.</p>
+<h3 id="application-directives">Application directives</h3>
+<p>A loader can accept its own directives in the same header, such as device
+configuration or <code>experiment.description</code> above. Its declaration enum holds a
+<code>ProgramDirective</code> variant (usually <code>#[pattern = "$0"]</code>) next to its own
+variants and implements <code>StandardDirective</code> to expose it; the loader pushes the
+standard directives into a <code>ProgramHeader</code> and handles the rest, then passes
+its own result as the metadata’s <code>extra</code>. These directives require an explicit
+agreement with the consuming loader. See
 <a href="/vihaco/guide/parser-advanced">loading SST programs</a> for declaration preparation and
 custom contexts.</p>
+<h2 id="constants-strings-and-symbol-resolution">Constants, strings, and symbol resolution</h2>
+<p><code>MetadataLoweringContext</code> resolves symbols through the whole section’s table
+and returns absolute, section-local addresses. Function lookup preserves the
+<code>.func</code> indices. Its string lookup interns: a string already in the table
+(including the header’s strings) keeps its index, and a new one is appended,
+so <code>.text</code> string literals need no header entry. Store the completed table with
+<code>metadata.strings = context.into_strings()</code> before assembling the module.</p>
 <h2 id="validate-compiler-output">Validate compiler output</h2>
 <p>Load emitted files through the same path as the target application:
-<code>SSTFile::from_text</code>, <code>ParsedModule::parse_section</code>, declaration preparation,
-<code>MetadataLoweringContext::new</code>, <code>lower_code_with_metadata</code>, then
-<code>metadata.into_module(code, symbols)</code>. This binds each function declaration to
-its symbol, rejects duplicate or missing symbols, derives instruction ranges,
-resolves symbolic operands, and checks standard constant references. Loading preserves table order and does
-not invent missing metadata or select an entry function for you.</p>
+<code>SSTFile::from_text</code>, <code>ParsedModule::parse_section</code>, assembling the directives
+with <code>ProgramHeader</code>, <code>MetadataLoweringContext::new</code>, <code>lower_code_with_metadata</code>,
+storing the interned strings, then <code>metadata.into_module(code, symbols)</code>. This
+binds each function to its symbol, rejects duplicate or missing symbols,
+derives instruction ranges, resolves symbolic operands, and checks standard
+constant references. Loading preserves directive order and does not invent
+missing declarations or select an entry function for you.</p>
 <p>For the minimal file above, this loader validates and assembles the program:</p>
 <pre><code class="language-rust">use vihaco::{HasInstructionSet, NoContext, SSTFile, composite};
 use vihaco::loader::MetadataLoweringContext;
-use vihaco::module::ProgramMetadata;
+use vihaco::module::{NoInfo, ProgramDirective, ProgramHeader};
 use vihaco::syntax::{HeaderDeclarations, ParsedModule, lower_code_with_metadata};
 
 #[composite]
@@ -259,28 +269,267 @@ fn validate(source: &#x26;str) -> eyre::Result&#x3C;()> {
         code,
         symbols,
     } = ParsedModule::&#x3C;
-        SourceInstruction, HeaderDeclarations&#x3C;ProgramMetadata>
+        SourceInstruction, HeaderDeclarations&#x3C;ProgramDirective>
     >::parse_section(section)?;
-    let mut declarations = header.into_iter();
-    let metadata = declarations.next().ok_or_else(|| eyre::eyre!("missing metadata"))?;
-    eyre::ensure!(declarations.next().is_none(), "duplicate metadata");
+    let mut metadata = header.into_iter().collect::&#x3C;ProgramHeader>().finish(NoInfo)?;
     let mut context = MetadataLoweringContext::new(&#x26;metadata, &#x26;symbols)?;
     let code = lower_code_with_metadata(code, &#x26;symbols, &#x26;metadata, &#x26;mut context)?;
+    metadata.strings = context.into_strings();
     let module = metadata.into_module(code, symbols)?;
     assert_eq!(module.code.len(), 2);
     assert_eq!(module.main_function, Some(0));
+    assert_eq!(module.strings, ["main", "output.sst"]);
     Ok(())
 }
 </code></pre>
 <p>Use <a href="/vihaco/guide/first-machine">your first machine</a> as a minimal consumer and the
-<a href="/vihaco/guide/parser-advanced#run-the-complete-example">Loadable example</a> for multiple
-sections, reordered function metadata, a helper call, and a forward branch.
-Test both accepted programs and malformed output: missing strings, missing
-or duplicate symbols, functions without a symbol, insufficient locals,
-unresolved symbolic operands, and invalid table references. Execute accepted
+<a href="/vihaco/guide/parser-advanced#run-the-complete-example">Loadable example</a> for
+an application directive, a function table in a different order from the code,
+a helper call, and a forward branch. Test both accepted programs and malformed
+output: duplicate or missing symbols, <code>.func</code> without a symbol, insufficient
+locals, an unknown <code>.entry</code>, and unresolved symbolic operands. Execute accepted
 programs to check behavior as well as syntax.</p>
+<h2 id="checking-sst-files">Checking SST files</h2>
+<p>The loading path stops at the first problem. To report every problem in a file
+at once, with its line and column, use the <code>vihaco-sst</code> crate. It checks a file
+against your machine’s instruction set without loading or executing anything:</p>
+<pre><code class="language-rust">use vihaco::{Execute, PopFromStack, PushToStack, component, composite, dialect};
+use vihaco_sst::{SourceFile, check_program};
+
+#[dialect]
+pub mod arithmetic {
+    #[instruction]
+    pub struct Add;
+}
+
+#[component]
+#[instructions { arithmetic }]
+#[derive(Default)]
+pub struct Calculator;
+
+impl Execute&#x3C;arithmetic::Add> for Calculator {
+    type Message = PopFromStack&#x3C;(u64, u64)>;
+    type Effect = PushToStack&#x3C;(u64,)>;
+    type Error = eyre::Report;
+
+    fn execute(&#x26;mut self, _: &#x26;arithmetic::Add, message: Self::Message) -> eyre::Result&#x3C;Self::Effect> {
+        let PopFromStack((lhs, rhs)) = message;
+        Ok(PushToStack((lhs + rhs,)))
+    }
+}
+
+#[composite]
+struct Machine {
+    #[device(0)]
+    #[program]
+    execution: vihaco_stdlib::ExecutionState,
+    #[device(1)]
+    calculator: Calculator,
+}
+
+fn main() {
+    let text = include_str!("first-machine.sst");
+    let source = SourceFile::new("first-machine.sst", text);
+    assert!(check_program::&#x3C;Machine>(&#x26;source).is_ok());
+
+    let broken = text
+        .replace(".entry @main", ".entry @start")
+        .replace("const_u64 22", "const_u64 x")
+        .replace("arithmetic::add", "arithmetic::sub");
+    let source = SourceFile::new("broken.sst", broken);
+    let report = check_program::&#x3C;Machine>(&#x26;source);
+    let messages: Vec&#x3C;String> = report.iter().map(ToString::to_string).collect();
+    assert_eq!(messages, [
+        "7:12: error: `.entry @start` names no `.func` directive",
+        "11:35: error: unexpected `x` in operands of `execution::program::const_u64`",
+        "12:5: error: expected an instruction, found `calculator::arithmetic::sub`",
+    ]);
+    eprint!("{}", report.render(&#x26;source));
+}
+</code></pre>
+<p>Each diagnostic carries a severity, a message, a file span with its line and
+column, and optional secondary labels and notes. <code>render</code> prints them in the
+style of rustc:</p>
+<pre><code class="language-text">error: unexpected `x` in operands of `execution::program::const_u64`
+   --> broken.sst:11:35
+   |
+11 |     execution::program::const_u64 x
+   |                                   ^ unexpected operand
+</code></pre>
+<p><code>check_program</code> checks every section with the standard directive header and
+<code>MetadataLoweringContext</code> lowering. It reports framing errors; header and
+<code>.text</code> syntax errors, one per bad line, including unknown directives, two
+statements on a line, and unclosed brackets; duplicate symbols; header
+directive problems (duplicate <code>.func</code> names, too few <code>locals</code>, more than one
+<code>.entry</code> or one naming no <code>.func</code>, a <code>.const fn</code> naming no <code>.func</code>, a constant
+written as a table index, duplicate <code>.source_symbol</code> indices), each pointing at
+the offending part of its line; <code>.func</code> directives without a <code>@name:</code> symbol;
+and instructions that fail to lower, such as an unresolved <code>@name</code>. A bad
+directive does not stop the <code>.text</code> checks: they run against the directives
+that were fine. Use <code>ProgramChecker</code> to select sections with
+<code>require_sections</code>, parse an application header with
+<code>with_header::&#x3C;Declarations&#x3C;YourDeclaration>>()</code> and check its application
+rules with <code>with_header_validation</code>, or lower with your own context.
+<code>check_framing</code> needs no machine, and <code>check_file</code> accepts any
+<code>SectionChecker</code> for other header or instruction grammars.</p>
+<h2 id="formatting-sst-files">Formatting SST files</h2>
+<p><code>vihaco-sst</code> also formats SST files into one canonical layout. Like the checker,
+the formatter is generic over your machine and never executes anything. It
+keeps your <code>;</code> comments and writes <code>;;</code> comments that spell out what indices
+and symbols refer to:</p>
+<pre><code class="language-rust">use vihaco_sst::{FormatOptions, SourceFile, check_program, format_program};
+
+fn main() {
+    let source = SourceFile::new("first-machine.sst", include_str!("first-machine.sst"));
+    let formatted = format_program::&#x3C;Machine>(&#x26;source, FormatOptions::default())
+        .unwrap_or_else(|report| panic!("{}", report.render(&#x26;source)));
+
+    // Formatting is idempotent and the result is still a valid program.
+    let again = SourceFile::new("first-machine.sst", formatted.as_str());
+    assert_eq!(format_program::&#x3C;Machine>(&#x26;again, FormatOptions::default()).unwrap(), formatted);
+    assert!(check_program::&#x3C;Machine>(&#x26;again).is_ok());
+
+    // Without generated comments, only the layout changes.
+    let plain = format_program::&#x3C;Machine>(&#x26;source, FormatOptions::without_generated_comments());
+    assert!(!plain.unwrap().lines().any(|line| line.trim_start().starts_with(";;")));
+}
+</code></pre>
+<p>For <a href="/vihaco/guide/first-machine"><code>first-machine.sst</code></a> the result is:</p>
+<pre><code class="language-text">sst v2
+
+.section main
+.header
+    .file "first-machine.sst"
+    ;; functions[0], @main = 0x0000..0x0004
+    .func @main() -> u64, locals 0
+    .entry @main
+.text
+;; fn main() -> u64, locals 0, functions[0]
+@main:
+    execution::program::const_u64 20
+    execution::program::const_u64 22
+    calculator::arithmetic::add
+    execution::program::ret 1
+</code></pre>
+<p>The file is checked first, with the same <code>ProgramChecker</code> as
+<a href="#checking-sst-files"><code>check_program</code></a>; if it has errors, <code>format_program</code>
+returns the <code>Report</code> instead. Instructions and header directives are
+re-spelled with their <code>Print</code> implementations, so operands, keywords, and
+punctuation take their canonical spelling. A value that has no spelling that
+parses back to itself is reported as an error rather than altered. Before
+returning, the formatter parses its own output and checks that every section
+has the same headers, code, symbols, and comments as the input.</p>
+<h3 id="layout">Layout</h3>
+<ul>
+<li>Block directives start at column 0, one per line; a directive’s comment
+follows it after two spaces. One blank line precedes <code>.global</code> and each
+<code>.section</code>, except that the first section after <code>.global</code> keeps its spacing.
+<code>.header</code> and <code>.text</code> follow without a blank line and keep their order.</li>
+<li>The consumer defines the grammar for the <code>.global</code> body. The formatter
+preserves every byte of the body, including whitespace before the next
+section.</li>
+<li>Header directives are indented four spaces under <code>.header</code>, like
+instructions under <code>.text</code>, one per line, in source order. Indentation is
+only layout: the parser ignores it.
+Their order is meaningful (<code>.func</code> and <code>.const</code> order define the tables, and
+<code>.file</code> applies to the <code>.func</code> lines after it), so the formatter never
+reorders them, and application directives stay where they are. A directive
+stays on one line; an application directive with a list or record that does
+not fit in <code>max_width</code> (80 columns by default), or that carries comments, is
+broken one item per line inside its brackets with a trailing comma, like
+rustfmt. Tuples and declarations whose pattern needs its punctuation on one
+line stay on one line when possible.</li>
+<li>In <code>.text</code>, each symbol definition and each instruction gets its own line:
+<code>@name:</code> at column 0 and instructions indented four spaces.</li>
+<li>Blank lines between items are kept, collapsed to at most one. Blank lines at
+the start of a block and inside a declaration are removed.</li>
+<li>Generated <code>;;</code> comments always sit on their own lines, directly above the
+item they describe and at its indentation, one line per note.</li>
+<li>Trailing user comments of a block are aligned to one column: two spaces past
+the longest commented line, but no further than <code>comment_column</code> (column 60
+by default). Longer lines put their comment two spaces after the code.</li>
+<li>Formatted lines have no trailing whitespace and use <code>\n</code> line endings. The
+formatter ends the file with a single newline when the final block is
+formatted.</li>
+</ul>
+<h3 id="comments">Comments</h3>
+<p>A <code>;</code> comment on its own line stays above the item that follows it. A trailing
+comment stays at the end of its item’s line; inside a bracket-continued
+declaration, the item is the list entry or record field, and it travels with
+that field when <code>Print</code> reorders fields. A comment never leaves the block it
+was written in: comments after the last item of a <code>.header</code> or <code>.text</code> stay at
+the end of that block, after a blank line if there was one. When one item had
+several trailing comments, the first stays trailing and the others move above
+the item. If a comment’s position inside a declaration cannot be matched to the
+printed declaration, it is moved above the declaration. A multiline
+declaration with an inline <code>;;</code> comment keeps its line breaks so the
+comment remains a user comment. A comment outside
+every block (before <code>sst v2</code>, before the first <code>.global</code> or <code>.section</code>, or
+between <code>.section</code> and its first block) stays directly above the directive
+that follows it.</p>
+<p>Generated comments are rewritten every time: every own-line <code>;;</code> comment is
+removed and fresh ones are written. Without them
+(<code>FormatOptions::without_generated_comments()</code>), existing own-line <code>;;</code>
+comments are still removed. Each note is written on the line above the item it
+describes. Directives that only restate their operand, <code>.entry</code> and <code>.file</code>,
+get none:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Item</th><th>Generated comment</th></tr></thead><tbody><tr><td><code>.func @main(...)</code></td><td><code>;; functions[1], @main = 0x0000..0x0006</code> (its index and range)</td></tr><tr><td><code>.const u64 42</code></td><td><code>;; constants[0]</code></td></tr><tr><td><code>.const str "hello"</code> / <code>.const fn @helper</code></td><td><code>;; constants[1] = strings[3]</code> / <code>;; constants[2] = functions[0]</code></td></tr><tr><td>Function symbol <code>@main:</code></td><td><code>;; fn main() -> u64, locals 0, functions[1]</code></td></tr><tr><td>Other symbol <code>@done:</code></td><td><code>;; 0x0005</code> (its address)</td></tr><tr><td>Instruction with an <code>@name</code> operand</td><td><code>;; @done = 0x0005</code>; functions add their index: <code>;; @helper = 0x0006 (functions[0])</code></td></tr><tr><td>Instruction with a string literal</td><td><code>;; "hi" = strings[3]</code></td></tr></tbody></table>
+<p>For example:</p>
+<pre><code class="language-text">;; fn main() -> u64, locals 0, functions[1]
+@main:
+    ;; @helper = 0x0006 (functions[0])
+    execution::program::call 0, @helper
+    execution::program::const_u64 999  ; never reached
+</code></pre>
+<p>Notes are looked up in the section’s assembled metadata and symbol table. The
+string indices of <code>.text</code> literals follow the <a href="#derived-tables">derived table</a>,
+assuming each string literal operand is interned as it lowers, as the standard
+dialects do. An item with several notes gets one <code>;;</code> line per note.
+Machine-specific notes can be added with <code>Formatter::with_annotator</code>, which
+receives each instruction with its address, the symbol table, and the string
+table. For an application header, use <code>Formatter::with_checker</code> with the same
+checker you would use for <code>ProgramChecker</code>, for example
+<code>ProgramChecker::&#x3C;Machine>::new().with_header::&#x3C;Declarations&#x3C;YourDeclaration>>()</code>.
+The standard directives inside an application header get the same notes.</p>
 <p>Continue with <a href="/vihaco/guide/instructions-advanced">binary formats</a> for encoded programs
-and compatibility planning.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/guide/parser-advanced" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Loading SST programs</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/guide/instructions-advanced" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Binary formats</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#file-and-section-structure" data-toc-link="#file-and-section-structure">File and section structure</a></li><li><a href="#target-instruction-and-function-syntax" data-toc-link="#target-instruction-and-function-syntax">Target instruction and function syntax</a></li><li><a href="#symbols" data-toc-link="#symbols">Symbols</a></li><li><a href="#the-metadata-header" data-toc-link="#the-metadata-header">The metadata header</a></li><li><a href="#constants-strings-and-symbol-resolution" data-toc-link="#constants-strings-and-symbol-resolution">Constants, strings, and symbol resolution</a></li><li><a href="#validate-compiler-output" data-toc-link="#validate-compiler-output">Validate compiler output</a></li> </ol> </details> </div> </main> <script>
+and compatibility planning.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/guide/parser-advanced" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Loading SST programs</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/guide/instructions-advanced" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Binary formats</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#file-and-section-structure" data-toc-link="#file-and-section-structure">File and section structure</a></li><li><a href="#target-instruction-and-function-syntax" data-toc-link="#target-instruction-and-function-syntax">Target instruction and function syntax</a></li><li><a href="#symbols" data-toc-link="#symbols">Symbols</a></li><li><a href="#the-header" data-toc-link="#the-header">The header</a></li><li><a href="#constants-strings-and-symbol-resolution" data-toc-link="#constants-strings-and-symbol-resolution">Constants, strings, and symbol resolution</a></li><li><a href="#validate-compiler-output" data-toc-link="#validate-compiler-output">Validate compiler output</a></li><li><a href="#checking-sst-files" data-toc-link="#checking-sst-files">Checking SST files</a></li><li><a href="#formatting-sst-files" data-toc-link="#formatting-sst-files">Formatting SST files</a></li> </ol> </details> </div> </main> <script>
         // Scroll-spy: mark the TOC link for the section currently in view.
         (() => {
           const links = Array.from(document.querySelectorAll(".page-toc [data-toc-link]"));

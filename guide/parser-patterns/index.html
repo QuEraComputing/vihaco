@@ -288,9 +288,93 @@ or newlines. Commas and at signs adjust one side of that boundary:</p>
 <p>Keywords and symbols match exactly. Ordinary pattern boundaries don’t consume
 indentation, line endings, or comments; the surrounding module or list parser
 handles those.</p>
-<p>The punctuation literals <code>:</code>, <code>;</code>, <code>{</code>, <code>}</code>, <code>[</code>, <code>]</code>, <code>(</code>, and <code>)</code> accept
-optional whitespace and line comments on either side. Delimited metadata
-records use these rules too. Commas and at signs keep the spacing rules above.</p>
+<p>The punctuation literals <code>:</code>, <code>{</code>, <code>}</code>, <code>[</code>, <code>]</code>, <code>(</code>, and <code>)</code> accept
+optional whitespace and <code>;</code> line comments on either side. Delimited metadata
+records use these rules too. Commas and at signs keep the spacing rules above.
+<code>;</code> is not a punctuation literal: it starts a comment in SST, so a pattern
+that contains it is rejected at compile time.</p>
+<h2 id="printing">Printing</h2>
+<p><code>#[derive(Parse)]</code> and <code>#[dialect]</code> also implement <code>Print</code>, the inverse of
+<code>Parse</code>. They’re generated from the same pattern, so for any value, parsing
+the printed text gives that value back. The output is canonical:</p>
+<ul>
+<li>An ordinary boundary prints as one space.</li>
+<li>A <code>`,`</code> prints as <code>, </code> and a <code>`@`</code> prints as <code> @</code>, so <code>$0 <code>,</code> <code>@</code> $1</code>
+prints as <code>1, @target</code>.</li>
+<li><code>:</code> is followed by a space. Other bracket and brace literals print
+without surrounding spaces, like <code>pair(1, 2)</code>. A binding followed by <code>:</code> gets a
+space before the colon, because an identifier would otherwise absorb it.</li>
+<li>An instruction <code>head</code> prints as <code>head.</code> and a metadata <code>head</code> as <code>head </code>.</li>
+<li>Lists print as <code>[a, b]</code>, tuples as <code>(a, b)</code>, <code>None</code> as <code>null</code>, and strings
+are quoted using the escapes the parser accepts.</li>
+<li>A printer never writes a newline, indentation, or comment. You can arrange
+printed pieces however you like.</li>
+</ul>
+<p>Delimited records print their keys in declaration order, as in
+<code>{ name: "rf", gain: 0.5 }</code>. An empty record prints as <code>{}</code>:</p>
+<pre><code class="language-rust">use chumsky::Parser as _;
+
+use vihaco_parser::{Parse as ParseTrait, Print};
+
+use vihaco_parser_derive::Parse;
+
+#[derive(Debug, PartialEq, Parse)]
+#[syntax_class(metadata, open = "{", close = "}")]
+struct Channel {
+    name: String,
+    gain: Option&#x3C;f64>,
+}
+
+let channel = Channel::parser()
+    .parse("{ gain: 0.5, ; trailing comment\n name: \"rf\", }")
+    .into_result()
+    .unwrap();
+assert_eq!(channel.to_source().unwrap(), r#"{ name: "rf", gain: 0.5 }"#);
+</code></pre>
+<p>Every captured field type must implement <code>Print</code>. Vihaco implements it for the
+types it parses, including integers, floats, <code>bool</code>, <code>String</code>, <code>Ident</code>,
+<code>BareToken</code>, <code>QuotedString</code>, <code>Vec&#x3C;T></code>, pairs, and <code>Option&#x3C;T></code>. If you write
+<code>Parse</code> by hand, write the matching <code>Print</code> too:</p>
+<pre><code class="language-rust">use std::fmt;
+
+use chumsky::{Parser, error::Simple, extra, prelude::*};
+
+use vihaco_parser::{Parse, Print};
+
+#[derive(Debug, PartialEq)]
+struct Register(u8);
+
+impl&#x3C;'src> Parse&#x3C;'src> for Register {
+    fn parser() -> impl Parser&#x3C;'src, &#x26;'src str, Self, extra::Err&#x3C;Simple&#x3C;'src, char>>> {
+        just('r').ignore_then(text::int(10)).try_map(|digits: &#x26;str, span| {
+            digits.parse().map(Register).map_err(|_| Simple::new(None, span))
+        })
+    }
+}
+
+impl Print for Register {
+    fn print(&#x26;self, out: &#x26;mut dyn fmt::Write) -> fmt::Result {
+        write!(out, "r{}", self.0)
+    }
+}
+
+assert_eq!(Register(7).to_source().unwrap(), "r7");
+assert_eq!(Register::parser().parse("r7").into_result(), Ok(Register(7)));
+</code></pre>
+<p>A printer returns an error rather than writing text that would parse
+differently. That happens when a value has no source spelling:</p>
+<ul>
+<li>a NaN or infinite <code>f64</code>/<code>f32</code> field (the standard <code>Value</code> instead prints
+these as <code>f64_bits</code>/<code>f32_bits</code>, keeping the exact bits),</li>
+<li>an <code>Ident</code> or <code>BareToken</code> that’s empty or contains characters the token
+parser rejects,</li>
+<li><code>Some(x)</code> where <code>x</code> itself prints as <code>null</code>.</li>
+</ul>
+<p>The derive can’t detect grammars that are ambiguous in themselves. Value and
+type alternatives are tried in declaration order. If an earlier alternative
+accepts a later one’s spelling, or a prefix of it, the printed text parses as
+the earlier variant. When you add overlapping alternatives, add a round-trip
+test.</p>
 <h2 id="delimited-metadata-records">Delimited metadata records</h2>
 <p>For a named struct, you can generate a key/value record parser without writing
 a pattern:</p>
@@ -313,7 +397,7 @@ they must be nonempty and different. This form requires a named struct and
 can’t also have a <code>#[pattern]</code>.</p>
 <p>Each Rust field becomes a bare or double-quoted key, followed by <code>:</code> and a value
 parsed with the field type’s <code>Parse</code> impl. Fields can appear in any order.
-Commas separate entries, and the parser accepts trailing commas and <code>//</code> comments.
+Commas separate entries, and the parser accepts trailing commas and <code>;</code> comments.
 Arrays use brackets and accept comments and trailing commas too.</p>
 <p>Unknown, duplicate, and missing keys are errors. That includes <code>Option&#x3C;T></code> fields:
 write <code>null</code> for <code>None</code>. Leaving the key out is still an error.</p>
@@ -400,7 +484,7 @@ needs attention:</p>
 
 <table><thead><tr><th>Stage</th><th>Examples of rejected input</th></tr></thead><tbody><tr><td>Pattern syntax</td><td>Empty patterns; leading, trailing, or repeated spaces; tabs; malformed bindings; unsupported symbols; unterminated literals; indices larger than <code>u32</code>.</td></tr><tr><td>Syntax class</td><td>Missing <code>#[syntax_class]</code> on a standalone value/type/metadata derive; an instruction pattern not beginning with <code>'name</code>; instruction tokens in value/type patterns; implicit type patterns; implicit multi-field value patterns.</td></tr><tr><td>Field mapping</td><td>Mixed binding styles; named bindings on tuple fields; indexed bindings on named fields; missing, duplicate, unknown, or out-of-bounds fields; bindings on unit forms.</td></tr><tr><td>Attribute placement</td><td>Instruction helpers outside a dialect’s marked structs; <code>#[pattern]</code> without its owning derive or declaration; <code>#[syntax_class]</code> on a variant or field instead of a value/type/metadata definition.</td></tr></tbody></table>
 <p>Rust’s type checker then checks that every captured field type implements
-<code>Parse&#x3C;'src></code>.</p>
+<code>Parse&#x3C;'src></code> and <code>Print</code>.</p>
 <h2 id="compose-nested-syntax">Compose nested syntax</h2>
 <p>Patterns let you keep exact mnemonics, keywords, typed field parsers, commas,
 and <code>@</code> in one string, checked against the Rust constructor.</p>
@@ -409,7 +493,7 @@ its own pattern derive. <code>Ident</code>, <code>BareToken</code>, and <code>Qu
 leaves; <code>Vec&#x3C;T></code> and tuples cover collections. Each binding uses its field’s
 parser, so the complete grammar stays typed and pattern-derived.</p>
 <p>For module parsing, symbol tables, resolution, and explicit source
-sugar, see <a href="/vihaco/guide/parser-advanced">loading SST programs</a>.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/guide/testing" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Testing and extending</span> </a> <span class="section-pager-link section-pager-next section-pager-empty" aria-hidden="true"></span> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#a-complete-instruction-example" data-toc-link="#a-complete-instruction-example">A complete instruction example</a></li><li><a href="#bindings-and-lowering" data-toc-link="#bindings-and-lowering">Bindings and lowering</a></li><li><a href="#syntax-classes" data-toc-link="#syntax-classes">Syntax classes</a></li><li><a href="#generated-patterns" data-toc-link="#generated-patterns">Generated patterns</a></li><li><a href="#pattern-grammar" data-toc-link="#pattern-grammar">Pattern grammar</a></li><li><a href="#whitespace-is-part-of-the-grammar" data-toc-link="#whitespace-is-part-of-the-grammar">Whitespace is part of the grammar</a></li><li><a href="#delimited-metadata-records" data-toc-link="#delimited-metadata-records">Delimited metadata records</a></li><li><a href="#field-shape-invariants" data-toc-link="#field-shape-invariants">Field-shape invariants</a></li><li><a href="#enums-structs-and-dispatch" data-toc-link="#enums-structs-and-dispatch">Enums, structs, and dispatch</a></li><li><a href="#compile-time-validation" data-toc-link="#compile-time-validation">Compile-time validation</a></li><li><a href="#compose-nested-syntax" data-toc-link="#compose-nested-syntax">Compose nested syntax</a></li> </ol> </details> </div> </main> <script>
+sugar, see <a href="/vihaco/guide/parser-advanced">loading SST programs</a>.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/guide/testing" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Testing and extending</span> </a> <span class="section-pager-link section-pager-next section-pager-empty" aria-hidden="true"></span> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#a-complete-instruction-example" data-toc-link="#a-complete-instruction-example">A complete instruction example</a></li><li><a href="#bindings-and-lowering" data-toc-link="#bindings-and-lowering">Bindings and lowering</a></li><li><a href="#syntax-classes" data-toc-link="#syntax-classes">Syntax classes</a></li><li><a href="#generated-patterns" data-toc-link="#generated-patterns">Generated patterns</a></li><li><a href="#pattern-grammar" data-toc-link="#pattern-grammar">Pattern grammar</a></li><li><a href="#whitespace-is-part-of-the-grammar" data-toc-link="#whitespace-is-part-of-the-grammar">Whitespace is part of the grammar</a></li><li><a href="#printing" data-toc-link="#printing">Printing</a></li><li><a href="#delimited-metadata-records" data-toc-link="#delimited-metadata-records">Delimited metadata records</a></li><li><a href="#field-shape-invariants" data-toc-link="#field-shape-invariants">Field-shape invariants</a></li><li><a href="#enums-structs-and-dispatch" data-toc-link="#enums-structs-and-dispatch">Enums, structs, and dispatch</a></li><li><a href="#compile-time-validation" data-toc-link="#compile-time-validation">Compile-time validation</a></li><li><a href="#compose-nested-syntax" data-toc-link="#compose-nested-syntax">Compose nested syntax</a></li> </ol> </details> </div> </main> <script>
         // Scroll-spy: mark the TOC link for the section currently in view.
         (() => {
           const links = Array.from(document.querySelectorAll(".page-toc [data-toc-link]"));

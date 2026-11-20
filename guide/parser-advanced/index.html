@@ -27,43 +27,77 @@ global context; use <code>NoContext</code> when you have no global data. A file 
 flat list of named sections: <code>section(name)</code> picks one and <code>sections()</code> lists
 them in file order. Each section is an independently loaded program. Section
 names are only for selecting a section; execution uses instruction addresses,
-and any mapping from addresses to names belongs in the header metadata.</p>
+and any mapping from addresses to names belongs in the header.</p>
 <p>A section view gives you the header and source body. Pass it to
 <code>ParsedModule::&#x3C;SourceInstruction, Header>::parse_section(section)</code>, using
 your composite’s syntax instruction type as <code>SourceInstruction</code>. You’ll get the
 header declarations, the section’s flat code stream, and its symbol table: one
 <code>Symbol { name, address }</code> for each <code>@name:</code> definition in <code>.text</code>.</p>
 <h2 id="collect-declarations-before-lowering">Collect declarations before lowering</h2>
-<p>Use <code>HeaderDeclarations&#x3C;Declaration></code> to parse the declarations individually.
-Your metadata-class enum can include <code>ProgramMetadata</code> alongside your own
-configuration declarations. Collect them into a state object you write, reject
-duplicates, and check required settings before building execution artifacts.
-You can prepare the declarations in a different order from how they appear in
-the file.</p>
-<p><code>ProgramMetadata</code> supplies every non-code field:</p>
+<p>Use <code>HeaderDeclarations&#x3C;Declaration></code> to parse the header one directive per
+line. The standard directives (<code>.file</code>, <code>.func</code>, <code>.entry</code>, <code>.const</code>,
+<code>.source_symbol</code>) are <code>ProgramDirective</code> values; an application enum adds its
+own directives next to them and implements <code>StandardDirective</code>, so the checker
+and formatter can find the standard ones:</p>
+<pre><code class="language-rust">use vihaco::module::{ProgramDirective, StandardDirective};
+
+#[derive(Debug, vihaco_parser_derive::Parse)]
+#[syntax_class(metadata)]
+enum Declaration {
+    #[pattern = "$0"]
+    Standard(ProgramDirective),
+    #[pattern = "experiment.description $0"]
+    Description(String),
+}
+
+impl StandardDirective for Declaration {
+    type Value = vihaco::Value;
+    type Type = vihaco::Type;
+
+    fn as_standard(&#x26;self) -> Option&#x3C;&#x26;ProgramDirective> {
+        match self {
+            Self::Standard(directive) => Some(directive),
+            Self::Description(_) => None,
+        }
+    }
+}
+</code></pre>
+<p>Push each standard directive into a <code>ProgramHeader</code>, in header order, and
+collect your own directives into a state object you write: reject duplicates
+and check required settings before building execution artifacts. Then call
+<code>header.finish(extra)</code> to assemble a <code>ProgramMetadata</code> whose <code>extra</code> is your
+application metadata. It supplies every non-code field:</p>
 <ul>
 <li>Function declarations, with their signatures and reserved local counts.</li>
 <li>Strings, constants, and source symbols.</li>
 <li>The entry function, if there is one.</li>
 <li>Your application’s <code>extra</code> metadata.</li>
 </ul>
-<p>The order of each table determines its indices. Function names, parameter names,
-and filenames refer into the string table. <code>main_function</code> selects an entry in
-the function table; it isn’t an instruction address.</p>
-<p>A declaration doesn’t say where its function is. Loading binds it to the
+<p>No index is written by hand. Function order is <code>.func</code> order and constant order
+is <code>.const</code> order; <code>.entry @name</code> and <code>.const fn @name</code> name functions; the
+string table is derived from the names, files, and <code>.const str</code> literals the
+header mentions (see the <a href="/vihaco/guide/sst-reference#the-header">SST reference</a> for
+the exact order). <code>finish</code> reports duplicate functions, a bad <code>.entry</code>, too few
+locals, and the other header rules; <code>assemble</code> returns every problem instead.</p>
+<p>A <code>.func</code> doesn’t say where its function is. Loading binds it to the
 <code>@name:</code> symbol with the same name and derives the range from there to the next
 function symbol, so there are no addresses to keep in sync. A function’s local
 count includes its parameters. The producer supplies any
 extra locals; the loader doesn’t infer them from instructions.</p>
 <h2 id="prepare-capabilities-and-lower">Prepare capabilities and lower</h2>
 <p><code>MetadataLoweringContext::new(&#x26;metadata, &#x26;symbols)</code> prepares the standard symbol,
-function, and string capabilities. If custom instructions need more lookup services, you
-can extend it or use your own context.</p>
+function, and string capabilities. Its string lookup interns: a literal already
+in the table keeps its index, and a new one is appended, so string operands in
+<code>.text</code> need no header entry. If custom instructions need more lookup services,
+you can extend it or use your own context.</p>
 <p>Call <code>lower_code_with_metadata(code, &#x26;symbols, &#x26;metadata, &#x26;mut context)</code> to check
 the declarations, symbols, and tables, then lower the code. The context knows the
 whole symbol table before the first instruction is lowered. That’s how a branch
 or call can refer to a symbol farther down the section.</p>
-<p>Assemble the result with <code>metadata.into_module(code, symbols)</code>. It keeps your table order
+<p>Store the completed string table with <code>metadata.strings = context.into_strings()</code>
+(contexts that wrap <code>MetadataLoweringContext</code> implement <code>InternedStrings</code> for
+<code>ParsedModule::lower_with_metadata</code>, which does this for you). Then assemble the
+result with <code>metadata.into_module(code, symbols)</code>. It keeps your table order
 and checks standard value references. If your declarations need a different
 runtime metadata type, use <code>map_extra</code>. You can then wrap the module in an Image
 and pair it with a machine in a Loadable.</p>

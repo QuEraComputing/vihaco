@@ -23,27 +23,16 @@ format plus a disassembler. It is not a promised long-term compiler target.
 See <a href="/vihaco/guide/sst-reference">emitting SST from a compiler</a> for the current contract.</p>
 </blockquote>
 <p>Save this as <code>src/first-machine.sst</code>. It has one section, <code>main</code>; its <code>.text</code>
-block contains our four instructions. The <code>.header</code> block describes the function
-and its tables so the loader can check the program before running it.</p>
+block contains our four instructions. The <code>.header</code> block declares the function
+and selects it as the entry, so the loader can check the program before running
+it.</p>
 <pre><code class="language-text">sst v2
 
 .section main
 .header
-    metadata {
-        strings: ["main", "first-machine.sst"],
-        functions: [
-            {
-                name: 0,
-                signature: { params: [], ret: [u64] },
-                local_count: 0,
-                file: 1,
-            },
-        ],
-        constants: [],
-        main_function: 0,
-        source_symbols: [],
-        extra: {},
-    };
+    .file "first-machine.sst"
+    .func @main() -> u64, locals 0
+    .entry @main
 .text
 @main:
     execution::program::const_u64 20
@@ -62,7 +51,7 @@ use vihaco::{
     Apply, BuildMessage, ReusableMessageRecipe, Execute, ExecutionState, HasInstructionSet, Image, Loadable, NoContext,
     PopFromStack, PushToStack, SSTFile, Step, Type, Value, component, composite, dialect, field,
     loader::MetadataLoweringContext,
-    module::{LocalModule, ProgramMetadata},
+    module::{LocalModule, NoInfo, ProgramDirective, ProgramHeader},
     syntax::{HeaderDeclarations, ParsedModule, lower_code_with_metadata},
 };
 
@@ -183,19 +172,13 @@ pub fn main() -> eyre::Result&#x3C;()> {
         symbols,
     } = ParsedModule::&#x3C;
         SourceInstruction,
-        HeaderDeclarations&#x3C;ProgramMetadata>,
+        HeaderDeclarations&#x3C;ProgramDirective>,
     >::parse_section(section)?;
 
-    let mut declarations = header.into_iter();
-    let metadata = declarations
-        .next()
-        .ok_or_else(|| eyre::eyre!("missing program metadata"))?;
-    eyre::ensure!(
-        declarations.next().is_none(),
-        "expected one metadata declaration"
-    );
+    let mut metadata = header.into_iter().collect::&#x3C;ProgramHeader>().finish(NoInfo)?;
     let mut context = MetadataLoweringContext::new(&#x26;metadata, &#x26;symbols)?;
     let code = lower_code_with_metadata(code, &#x26;symbols, &#x26;metadata, &#x26;mut context)?;
+    metadata.strings = context.into_strings();
     let module = metadata.into_module(code, symbols)?;
     let machine = Machine {
         execution: ExecutionState::new(),
@@ -229,20 +212,23 @@ delegate to reusable message recipes. Standard recipes move operands into
 <code>PopFromStack</code>, and <code>Apply</code> inserts the <code>PushToStack</code> result. The runner fetches instructions and
 moves to the next one; program instructions handle calls, branches, and returns.</p>
 <p><code>SSTFile</code> reads the file’s flat list of sections, and <code>section("main")</code> picks
-ours. <code>ParsedModule</code> then parses that section’s metadata declarations, its
+ours. <code>ParsedModule</code> then parses that section’s header directives, its
 instructions, and its <code>@main:</code> symbol, using the machine’s public syntax
 instruction type. That avoids relying on generated enum variant names.</p>
-<p>This example expects exactly one metadata declaration. Once it has that,
-<code>MetadataLoweringContext</code> prepares symbol lookup and
-<code>lower_code_with_metadata</code> checks the function declarations against the
-metadata and turns syntax instructions into executable ones.
+<p><code>ProgramHeader</code> assembles the directives into <code>ProgramMetadata</code>: the function
+table, the entry, and a string table derived from the names they mention.
+<code>MetadataLoweringContext</code> prepares symbol lookup and interns any string
+literals the instructions use, and <code>lower_code_with_metadata</code> checks the
+function declarations against the symbols and turns syntax instructions into
+executable ones. Storing <code>context.into_strings()</code> keeps those literals.
 <a href="/vihaco/guide/parser-advanced">Loading SST programs</a> builds on this with custom
 headers and multiple sections.</p>
 <h2 id="why-there-is-metadata">Why there is metadata</h2>
 <p>The metadata tells execution where the function is and what it expects.
-<code>main_function: 0</code> selects the first function-table entry. That function covers
-instructions <code>0..4</code>, returns one <code>u64</code>, and has no parameters or reserved locals.
-Its name and source filename refer into <code>strings</code>.
+<code>.func @main() -> u64, locals 0</code> declares the first function-table entry and
+<code>.entry @main</code> selects it. The function starts at the <code>@main:</code> symbol and covers
+instructions <code>0..4</code>; it returns one <code>u64</code> and has no parameters or reserved
+locals. Its name and source filename become entries of the string table.
 <code>ProgramMetadata::into_module</code> checks and assembles the tables and code.</p>
 <p>Finally, <code>Image::new</code> wraps the module, and <code>Loadable::new</code> pairs it with the
 machine. Calling <code>execute(&#x26;[])</code> enters the selected function with no host

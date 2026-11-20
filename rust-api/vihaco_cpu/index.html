@@ -18,8 +18,8 @@ Loaders supply <code>lower::LabelLookup</code>, <code>lower::FunctionLookup</cod
 <code>lower::StringIntern</code> to resolve them. <code>vihaco_stdlib::ProgramImage</code> implements
 string interning using its section string table. Heap references remain numeric.
 For explicit metadata, <a href="../vihaco_module/lowering/struct.MetadataLoweringContext.html" title="struct vihaco_module::lowering::MetadataLoweringContext"><code>vihaco_module::loader::MetadataLoweringContext</code></a> implements
-all three lookup capabilities and rejects strings absent from the supplied
-table. It works with <code>ParsedModule::lower_with_metadata</code> in <code>vihaco-syntax</code>.
+all three lookup capabilities and interns strings after the header’s table.
+It works with <code>ParsedModule::lower_with_metadata</code> in <code>vihaco-syntax</code>.
 <code>@name:</code> symbol definitions in <code>.text</code> occupy no executable slot. Symbols,
 <code>function_start</code>, and <code>function_end</code> have no runtime instruction leaves.
 Composite source uses <code>device::dialect::mnemonic</code>, for example
