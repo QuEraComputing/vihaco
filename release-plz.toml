@@ -13,6 +13,10 @@
 # single `v0.x.y`.
 
 [workspace]
+# Publish only after a release PR merges, when the dependency versions have
+# been bumped together. This also covers newly added crates on main.
+release_always = false
+
 # Catch accidental breaking changes before they ship (runs cargo-semver-checks).
 semver_check = true
 # This is a 0.x project: a breaking change bumps the minor (0.1 -> 0.2), a
@@ -144,6 +148,9 @@ version_group = "workspace"
 [[package]]
 name = "vihaco-sst"
 version_group = "workspace"
+# Release-plz looks up tags even when tag creation is disabled. The shared
+# v0.8.1 tag predates vihaco-sst and cannot serve as its release baseline.
+git_tag_name = "{{ package }}-v{{ version }}"
 
 [[package]]
 name = "vihaco-stdlib"
