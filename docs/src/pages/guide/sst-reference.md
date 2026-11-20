@@ -472,11 +472,12 @@ has the same headers, code, symbols, and comments as the input.
 ### Layout
 
 - Block directives start at column 0, one per line; a directive's comment
-  follows it after two spaces. One blank line precedes `.global` and every
-  `.section`. `.header` and `.text` follow without a blank line and keep their
-  order.
-- `.global` content is consumer-defined and kept verbatim, except that trailing
-  whitespace and trailing blank lines are removed.
+  follows it after two spaces. One blank line precedes `.global` and each
+  `.section`, except that the first section after `.global` keeps its spacing.
+  `.header` and `.text` follow without a blank line and keep their order.
+- The consumer defines the grammar for the `.global` body. The formatter
+  preserves every byte of the body, including whitespace before the next
+  section.
 - Header directives are indented four spaces under `.header`, like
   instructions under `.text`, one per line, in source order. Indentation is
   only layout: the parser ignores it.
@@ -497,8 +498,9 @@ has the same headers, code, symbols, and comments as the input.
 - Trailing user comments of a block are aligned to one column: two spaces past
   the longest commented line, but no further than `comment_column` (column 60
   by default). Longer lines put their comment two spaces after the code.
-- Lines have no trailing whitespace, line endings become `\n`, and the file
-  ends with a single newline.
+- Formatted lines have no trailing whitespace and use `\n` line endings. The
+  formatter ends the file with a single newline when the final block is
+  formatted.
 
 ### Comments
 

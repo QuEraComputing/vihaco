@@ -312,8 +312,8 @@ struct FileModel<I, D> {
     /// Own-line comments between `sst v2` and the first `.global` or
     /// `.section`.
     loose: Vec<String>,
-    /// The `.global` directive comment and normalized body, if declared.
-    global: Option<(Option<String>, Vec<String>)>,
+    /// The `.global` directive comment and raw body, if declared.
+    global: Option<(Option<String>, String)>,
     sections: Vec<SectionModel<I, D>>,
 }
 
@@ -359,19 +359,6 @@ fn loose_comments(text: &str, from: usize, to: usize) -> Vec<String> {
         }
     }
     comments
-}
-
-/// The `.global` body as lines without trailing whitespace or trailing blank
-/// lines.
-fn global_lines(body: &str) -> Vec<String> {
-    let mut lines: Vec<String> = body
-        .lines()
-        .map(|line| line.trim_end().to_owned())
-        .collect();
-    while lines.last().is_some_and(String::is_empty) {
-        lines.pop();
-    }
-    lines
 }
 
 /// Attach the comments of `body` to its parsed `items` (sorted by start).
@@ -489,7 +476,7 @@ where
     let global = framing.global.directive().map(|directive| {
         (
             directive_comment(text, directive),
-            global_lines(framing.global.text()),
+            framing.global.text().to_owned(),
         )
     });
     let mut sections = Vec::new();
@@ -616,7 +603,7 @@ type SectionSnapshot = (String, Vec<(bool, Vec<String>)>);
 /// multiset of user comments.
 #[derive(Debug, PartialEq, Eq)]
 struct Snapshot {
-    global: Option<Vec<String>>,
+    global: Option<String>,
     sections: Vec<SectionSnapshot>,
     comments: Vec<String>,
 }
@@ -675,7 +662,7 @@ fn snapshot<I: Print, D: Print>(model: &FileModel<I, D>) -> Snapshot {
     }
     comments.sort();
     Snapshot {
-        global: model.global.as_ref().map(|(_, lines)| lines.clone()),
+        global: model.global.as_ref().map(|(_, body)| body.clone()),
         sections,
         comments,
     }
@@ -781,21 +768,20 @@ where
         // Loose comments after `sst v2` sit directly above the directive
         // that follows them.
         let mut loose = model.loose.as_slice();
-        if let Some((comment, lines)) = &model.global {
+        if let Some((comment, body)) = &model.global {
             output.push('\n');
             push_lines(std::mem::take(&mut loose), &mut output);
             directive_line(".global", comment, &mut output);
-            for line in lines {
-                output.push_str(line);
-                output.push('\n');
-            }
+            output.push_str(body);
         }
         if model.sections.is_empty() && !loose.is_empty() {
             output.push('\n');
             push_lines(std::mem::take(&mut loose), &mut output);
         }
-        for section in &model.sections {
-            output.push('\n');
+        for (index, section) in model.sections.iter().enumerate() {
+            if index > 0 || model.global.is_none() {
+                output.push('\n');
+            }
             push_lines(std::mem::take(&mut loose), &mut output);
             directive_line(
                 &format!(".section {}", section.name),

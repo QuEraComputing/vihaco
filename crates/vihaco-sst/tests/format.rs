@@ -365,28 +365,39 @@ fn machine_specific_annotations_are_added_by_hooks() {
 
 #[test]
 fn the_global_block_is_kept_verbatim() {
-    struct AnyContext;
-    impl vihaco_bytecode::SSTGlobalContext for AnyContext {
-        fn from_text(_: &str) -> eyre::Result<Self> {
-            Ok(Self)
+    struct RawContext(String);
+    impl vihaco_bytecode::SSTGlobalContext for RawContext {
+        fn from_text(text: &str) -> eyre::Result<Self> {
+            Ok(Self(text.to_owned()))
         }
     }
-    let text = format!(
-        "sst v2\n.global ; context\n  device   a {{ x }}   \n\n  ; kept\n\n\n.section main\n.header{HEADER}\
-         .text\n@main: t.halt\n@helper: t.halt\n"
-    );
-    let formatted = Formatter::with_checker(
-        ProgramChecker::<Machine>::new().with_global_context::<AnyContext>(),
+    let mut formatter = Formatter::with_checker(
+        ProgramChecker::<Machine>::new().with_global_context::<RawContext>(),
     )
-    .options(FormatOptions::without_generated_comments())
-    .format(&source(&text))
-    .unwrap();
-    assert!(
-        formatted.starts_with(
-            "sst v2\n\n.global  ; context\n  device   a { x }\n\n  ; kept\n\n.section main\n"
-        ),
-        "{formatted}"
-    );
+    .options(FormatOptions::without_generated_comments());
+    for body in [
+        "device a\n",
+        "  device   a { x }   \r\n\r\n  ; kept\r\n\r\n\r\n",
+    ] {
+        let text = format!(
+            "sst v2\n.global ; context\n{body}.section main\n.header{HEADER}\
+             .text\n@main: t.halt\n@helper: t.halt\n"
+        );
+        let formatted = formatter.format(&source(&text)).unwrap();
+        assert!(
+            formatted.starts_with(&format!(
+                "sst v2\n\n.global  ; context\n{body}.section main\n"
+            )),
+            "{formatted}"
+        );
+        let original = vihaco_bytecode::SSTFile::<RawContext>::from_text(&text).unwrap();
+        let formatted_file = vihaco_bytecode::SSTFile::<RawContext>::from_text(&formatted).unwrap();
+        assert_eq!(
+            original.context_handle().0,
+            formatted_file.context_handle().0
+        );
+        assert_eq!(formatter.format(&source(&formatted)).unwrap(), formatted);
+    }
 }
 
 mod unprintable {
