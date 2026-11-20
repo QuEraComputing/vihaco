@@ -18,6 +18,14 @@ below the `## [Unreleased]` heading, so do not remove or reword that line.
 
 ## [Unreleased]
 
+## [0.9.0](https://github.com/QuEraComputing/vihaco/compare/v0.8.1...v0.9.0) - 2026-11-20
+
+### Added
+
+- [**breaking**] SST tooling: Print derive, checker, formatter, assembler-style syntax ([#192](https://github.com/QuEraComputing/vihaco/pull/192))
+- [**breaking**] flat SST sections and a flat `.text` stream with `@name:` symbols ([#177](https://github.com/QuEraComputing/vihaco/pull/177))
+- *(stdlib)* expose borrowed Loadable parts ([#210](https://github.com/QuEraComputing/vihaco/pull/210))
+
 ## [0.8.1](https://github.com/QuEraComputing/vihaco/compare/v0.8.0...v0.8.1) - 2026-11-18
 
 ### Added
