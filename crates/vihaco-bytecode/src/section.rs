@@ -140,6 +140,24 @@ impl<'bc, C> SSTSectionView<'bc, C> {
         &self.contents[self.entry.code.clone()]
     }
 
+    /// The byte range of [`header_text`](Self::header_text) within
+    /// [`file_text`](Self::file_text).
+    pub fn header_span(&self) -> std::ops::Range<usize> {
+        self.entry.header.clone()
+    }
+
+    /// The byte range of [`text`](Self::text) within
+    /// [`file_text`](Self::file_text).
+    pub fn text_span(&self) -> std::ops::Range<usize> {
+        self.entry.code.clone()
+    }
+
+    /// The complete text of the file this section belongs to, so block-relative
+    /// offsets can be reported as file lines and columns.
+    pub fn file_text(&self) -> &'bc str {
+        self.contents
+    }
+
     /// Parse the specified header from the section's header text.
     pub fn parse_header<H: SSTHeader>(&self) -> eyre::Result<H> {
         H::from_text(self.header_text())

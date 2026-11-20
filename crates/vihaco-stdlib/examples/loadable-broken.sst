@@ -1,0 +1,21 @@
+sst v2
+; loadable.sst with three mistakes, reported as four errors. Try:
+;   cargo run -p vihaco-stdlib --features program-image-execution --example loadable -- --check crates/vihaco-stdlib/examples/loadable-broken.sst
+.section controller
+.header
+    experiment.description "Loadable SST example: 21 * 2"
+    .file "loadable.sst"
+    .func @helper() -> u64, locals 0
+    .func @main() -> u64, locals 0
+    .entry @mian
+.text
+@main:
+    execution::program::call 0, @helper
+    execution::program::const_u64 2
+    cpu::cpu::mul_u64
+    execution::program::br @finish
+@done:
+    execution::program::ret 1
+@helpr:
+    execution::program::const_u64 21
+    execution::program::ret 1

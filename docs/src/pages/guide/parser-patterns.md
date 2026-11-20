@@ -233,9 +233,101 @@ Keywords and symbols match exactly. Ordinary pattern boundaries don't consume
 indentation, line endings, or comments; the surrounding module or list parser
 handles those.
 
-The punctuation literals `:`, `;`, `{`, `}`, `[`, `]`, `(`, and `)` accept
-optional whitespace and line comments on either side. Delimited metadata
+The punctuation literals `:`, `{`, `}`, `[`, `]`, `(`, and `)` accept
+optional whitespace and `;` line comments on either side. Delimited metadata
 records use these rules too. Commas and at signs keep the spacing rules above.
+`;` is not a punctuation literal: it starts a comment in SST, so a pattern
+that contains it is rejected at compile time.
+
+## Printing
+
+`#[derive(Parse)]` and `#[dialect]` also implement `Print`, the inverse of
+`Parse`. They're generated from the same pattern, so for any value, parsing
+the printed text gives that value back. The output is canonical:
+
+- An ordinary boundary prints as one space.
+- A `` `,` `` prints as `, ` and a `` `@` `` prints as ` @`, so <code>$0 `,` `@` $1</code>
+  prints as `1, @target`.
+- `:` is followed by a space. Other bracket and brace literals print
+  without surrounding spaces, like `pair(1, 2)`. A binding followed by `:` gets a
+  space before the colon, because an identifier would otherwise absorb it.
+- An instruction `head` prints as `head.` and a metadata `head` as `head `.
+- Lists print as `[a, b]`, tuples as `(a, b)`, `None` as `null`, and strings
+  are quoted using the escapes the parser accepts.
+- A printer never writes a newline, indentation, or comment. You can arrange
+  printed pieces however you like.
+
+Delimited records print their keys in declaration order, as in
+`{ name: "rf", gain: 0.5 }`. An empty record prints as `{}`:
+
+```rust
+use chumsky::Parser as _;
+
+use vihaco_parser::{Parse as ParseTrait, Print};
+
+use vihaco_parser_derive::Parse;
+
+#[derive(Debug, PartialEq, Parse)]
+#[syntax_class(metadata, open = "{", close = "}")]
+struct Channel {
+    name: String,
+    gain: Option<f64>,
+}
+
+let channel = Channel::parser()
+    .parse("{ gain: 0.5, ; trailing comment\n name: \"rf\", }")
+    .into_result()
+    .unwrap();
+assert_eq!(channel.to_source().unwrap(), r#"{ name: "rf", gain: 0.5 }"#);
+```
+
+Every captured field type must implement `Print`. Vihaco implements it for the
+types it parses, including integers, floats, `bool`, `String`, `Ident`,
+`BareToken`, `QuotedString`, `Vec<T>`, pairs, and `Option<T>`. If you write
+`Parse` by hand, write the matching `Print` too:
+
+```rust
+use std::fmt;
+
+use chumsky::{Parser, error::Simple, extra, prelude::*};
+
+use vihaco_parser::{Parse, Print};
+
+#[derive(Debug, PartialEq)]
+struct Register(u8);
+
+impl<'src> Parse<'src> for Register {
+    fn parser() -> impl Parser<'src, &'src str, Self, extra::Err<Simple<'src, char>>> {
+        just('r').ignore_then(text::int(10)).try_map(|digits: &str, span| {
+            digits.parse().map(Register).map_err(|_| Simple::new(None, span))
+        })
+    }
+}
+
+impl Print for Register {
+    fn print(&self, out: &mut dyn fmt::Write) -> fmt::Result {
+        write!(out, "r{}", self.0)
+    }
+}
+
+assert_eq!(Register(7).to_source().unwrap(), "r7");
+assert_eq!(Register::parser().parse("r7").into_result(), Ok(Register(7)));
+```
+
+A printer returns an error rather than writing text that would parse
+differently. That happens when a value has no source spelling:
+
+- a NaN or infinite `f64`/`f32` field (the standard `Value` instead prints
+  these as `f64_bits`/`f32_bits`, keeping the exact bits),
+- an `Ident` or `BareToken` that's empty or contains characters the token
+  parser rejects,
+- `Some(x)` where `x` itself prints as `null`.
+
+The derive can't detect grammars that are ambiguous in themselves. Value and
+type alternatives are tried in declaration order. If an earlier alternative
+accepts a later one's spelling, or a prefix of it, the printed text parses as
+the earlier variant. When you add overlapping alternatives, add a round-trip
+test.
 
 ## Delimited metadata records
 
@@ -264,7 +356,7 @@ can't also have a `#[pattern]`.
 
 Each Rust field becomes a bare or double-quoted key, followed by `:` and a value
 parsed with the field type's `Parse` impl. Fields can appear in any order.
-Commas separate entries, and the parser accepts trailing commas and `//` comments.
+Commas separate entries, and the parser accepts trailing commas and `;` comments.
 Arrays use brackets and accept comments and trailing commas too.
 
 Unknown, duplicate, and missing keys are errors. That includes `Option<T>` fields:
@@ -344,7 +436,7 @@ needs attention:
 | Attribute placement | Instruction helpers outside a dialect's marked structs; `#[pattern]` without its owning derive or declaration; `#[syntax_class]` on a variant or field instead of a value/type/metadata definition. |
 
 Rust's type checker then checks that every captured field type implements
-`Parse<'src>`.
+`Parse<'src>` and `Print`.
 
 ## Compose nested syntax
 

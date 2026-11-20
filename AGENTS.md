@@ -72,6 +72,7 @@ self-contained component you can use directly or copy as a starting point.
 | `vihaco-runtime-derive` | The proc macros behind `#[derive(Message/Machine)]` and `#[component]` / `#[composite]` / `#[observe]`. Consumed via `vihaco-runtime`. |
 | `vihaco-stdlib` | Standard-library components and observers, currently including `StdoutObserver`. |
 | `vihaco-syntax` | Typed SST parsing and module construction (`Resolve`). |
+| `vihaco-sst` | SST tooling: `Diagnostic`/`Report` (rendered via `codespan-reporting`) and the `check` layers — `check_framing`, pluggable `SectionChecker`/`check_file`, and the typed `ProgramChecker`/`check_program::<M>` for a composite machine. Future home of the SST pretty printer and formatter. |
 | `vihaco-parser` | The `Parse<'src>` and `SurfaceInstruction` traits plus lexical, primitive, and collection impls shared by the parser derive. |
 | `vihaco-parser-derive` | `#[derive(Parse)]` — turns instruction, value, and type enums or structs into [chumsky](https://github.com/zesterer/chumsky) parsers via `#[syntax_class]` and `#[pattern]` (see `attr.rs`/`codegen.rs`). |
 | `vihaco-doctests` | **Dev-only, not published.** `include!`s `docs/examples/*.rs` and runs every ` ```rust ` block in `docs/src/pages/guide/*.md` as a rustdoc doctest, so the public API and the docs can't drift. Editing the public API often requires updating these. |
@@ -109,7 +110,12 @@ self-contained component you can use directly or copy as a starting point.
 - **`syntax/`** — typed SST parsing and module construction. A section's
   `.text` is a flat instruction stream with `@name:` symbol definitions; the
   parser yields a `ParsedModule` with `code: Vec<I>` and a symbol table.
-  Function signatures live only in the header metadata.
+  SST is line-based like assembly: one statement per line (continued only
+  inside open brackets), `;` comments, generated `;;` notes. The standard
+  header is flat directives (`.file`, `.func`, `.entry`, `.const`,
+  `.source_symbol`, `vihaco_module::module::ProgramDirective`) that
+  `ProgramHeader` assembles into `ProgramMetadata`, deriving every table;
+  function signatures live only in `.func` directives.
   Pattern-derived instruction enums implement `SurfaceInstruction`
   automatically; consumers use `Resolve` to turn the typed parsed module into
   their runtime module.

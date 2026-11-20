@@ -72,6 +72,37 @@ Here the syntax keeps a `u64` until lowering checks whether it fits the runtime
 `u32`. Vihaco won't insert a Rust conversion implicitly. Write your lowering
 impl outside the dialect module, in the same crate.
 
+## Print source back
+
+Every generated parser has a matching printer. `Print` writes a parsed value
+in its canonical source spelling, and parsing that text gives you the same
+value back:
+
+```rust
+use vihaco::{Parse, Print, chumsky::Parser as _, dialect};
+
+#[dialect]
+pub mod memory {
+    #[instruction]
+    #[pattern = "'store $0 `,` $1"]
+    pub struct Store(pub u32, pub i64);
+}
+
+fn main() {
+    let parsed = memory::Store::parser()
+        .parse("store   7,    -2")
+        .into_result()
+        .unwrap();
+    assert_eq!(parsed.to_source().unwrap(), "store 7, -2");
+}
+```
+
+A composite's syntax value prints its full route, as in
+`calculator::arithmetic::add`. Routes always use field names, even if the
+source used an alias. The printer is generated from the same pattern as the
+parser, so the two can't drift apart. See
+[printing](/guide/parser-patterns#printing) for the spacing rules.
+
 ## Resolve symbolic input
 
 For a named branch target, keep the name in the syntax operand and ask the

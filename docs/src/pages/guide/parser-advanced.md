@@ -25,7 +25,7 @@ global context; use `NoContext` when you have no global data. A file holds a
 flat list of named sections: `section(name)` picks one and `sections()` lists
 them in file order. Each section is an independently loaded program. Section
 names are only for selecting a section; execution uses instruction addresses,
-and any mapping from addresses to names belongs in the header metadata.
+and any mapping from addresses to names belongs in the header.
 
 A section view gives you the header and source body. Pass it to
 `ParsedModule::<SourceInstruction, Header>::parse_section(section)`, using
@@ -35,25 +35,56 @@ header declarations, the section's flat code stream, and its symbol table: one
 
 ## Collect declarations before lowering
 
-Use `HeaderDeclarations<Declaration>` to parse the declarations individually.
-Your metadata-class enum can include `ProgramMetadata` alongside your own
-configuration declarations. Collect them into a state object you write, reject
-duplicates, and check required settings before building execution artifacts.
-You can prepare the declarations in a different order from how they appear in
-the file.
+Use `HeaderDeclarations<Declaration>` to parse the header one directive per
+line. The standard directives (`.file`, `.func`, `.entry`, `.const`,
+`.source_symbol`) are `ProgramDirective` values; an application enum adds its
+own directives next to them and implements `StandardDirective`, so the checker
+and formatter can find the standard ones:
 
-`ProgramMetadata` supplies every non-code field:
+```rust
+use vihaco::module::{ProgramDirective, StandardDirective};
+
+#[derive(Debug, vihaco_parser_derive::Parse)]
+#[syntax_class(metadata)]
+enum Declaration {
+    #[pattern = "$0"]
+    Standard(ProgramDirective),
+    #[pattern = "experiment.description $0"]
+    Description(String),
+}
+
+impl StandardDirective for Declaration {
+    type Value = vihaco::Value;
+    type Type = vihaco::Type;
+
+    fn as_standard(&self) -> Option<&ProgramDirective> {
+        match self {
+            Self::Standard(directive) => Some(directive),
+            Self::Description(_) => None,
+        }
+    }
+}
+```
+
+Push each standard directive into a `ProgramHeader`, in header order, and
+collect your own directives into a state object you write: reject duplicates
+and check required settings before building execution artifacts. Then call
+`header.finish(extra)` to assemble a `ProgramMetadata` whose `extra` is your
+application metadata. It supplies every non-code field:
 
 - Function declarations, with their signatures and reserved local counts.
 - Strings, constants, and source symbols.
 - The entry function, if there is one.
 - Your application's `extra` metadata.
 
-The order of each table determines its indices. Function names, parameter names,
-and filenames refer into the string table. `main_function` selects an entry in
-the function table; it isn't an instruction address.
+No index is written by hand. Function order is `.func` order and constant order
+is `.const` order; `.entry @name` and `.const fn @name` name functions; the
+string table is derived from the names, files, and `.const str` literals the
+header mentions (see the [SST reference](/guide/sst-reference#the-header) for
+the exact order). `finish` reports duplicate functions, a bad `.entry`, too few
+locals, and the other header rules; `assemble` returns every problem instead.
 
-A declaration doesn't say where its function is. Loading binds it to the
+A `.func` doesn't say where its function is. Loading binds it to the
 `@name:` symbol with the same name and derives the range from there to the next
 function symbol, so there are no addresses to keep in sync. A function's local
 count includes its parameters. The producer supplies any
@@ -62,15 +93,20 @@ extra locals; the loader doesn't infer them from instructions.
 ## Prepare capabilities and lower
 
 `MetadataLoweringContext::new(&metadata, &symbols)` prepares the standard symbol,
-function, and string capabilities. If custom instructions need more lookup services, you
-can extend it or use your own context.
+function, and string capabilities. Its string lookup interns: a literal already
+in the table keeps its index, and a new one is appended, so string operands in
+`.text` need no header entry. If custom instructions need more lookup services,
+you can extend it or use your own context.
 
 Call `lower_code_with_metadata(code, &symbols, &metadata, &mut context)` to check
 the declarations, symbols, and tables, then lower the code. The context knows the
 whole symbol table before the first instruction is lowered. That's how a branch
 or call can refer to a symbol farther down the section.
 
-Assemble the result with `metadata.into_module(code, symbols)`. It keeps your table order
+Store the completed string table with `metadata.strings = context.into_strings()`
+(contexts that wrap `MetadataLoweringContext` implement `InternedStrings` for
+`ParsedModule::lower_with_metadata`, which does this for you). Then assemble the
+result with `metadata.into_module(code, symbols)`. It keeps your table order
 and checks standard value references. If your declarations need a different
 runtime metadata type, use `map_extra`. You can then wrap the module in an Image
 and pair it with a machine in a Loadable.

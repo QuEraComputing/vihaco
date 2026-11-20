@@ -2,29 +2,12 @@ sst v2
 
 .section controller
 .header
-    experiment.description "Loadable SST example: 21 * 2";
-    metadata {
-        strings: ["main", "helper", "loadable.sst"],
-        // Table order is independent of executable function order.
-        functions: [
-            {
-                name: 1, // strings[1]: helper
-                signature: { params: [], ret: [u64] },
-                local_count: 0,
-                file: 2,
-            },
-            {
-                name: 0, // strings[0]: main
-                signature: { params: [], ret: [u64] },
-                local_count: 0,
-                file: 2,
-            },
-        ],
-        constants: [],
-        main_function: 1, // functions[1], not instruction address 1.
-        source_symbols: [],
-        extra: {},
-    };
+    experiment.description "Loadable SST example: 21 * 2"
+    .file "loadable.sst"
+    ; Function table order is independent of executable function order.
+    .func @helper() -> u64, locals 0
+    .func @main() -> u64, locals 0
+    .entry @main  ; a function, not an instruction address
 .text
 @main:
     execution::program::call 0, @helper

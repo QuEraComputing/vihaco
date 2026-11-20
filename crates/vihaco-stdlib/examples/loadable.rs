@@ -6,13 +6,19 @@
 //!
 //! Pass an SST file path as the final argument to load another source file.
 //! Without a path, this runs the adjacent `loadable.sst`, which computes 21 * 2.
+//!
+//! Instead of running, the file can be checked or formatted for this machine:
+//!
+//! - `--check`: report every problem, with line and column, and run nothing.
+//! - `--fmt`: print the canonical layout with generated `;;` notes.
+//! - `--fmt-plain`: the same, without generated notes.
 
 use vihaco_abi::{Type, Value};
 use vihaco_bytecode::{NoContext, SSTFile};
 use vihaco_cpu::CPU;
 use vihaco_module::{
     loader::MetadataLoweringContext,
-    module::{LocalModule, ProgramMetadata},
+    module::{LocalModule, ProgramDirective, ProgramHeader, StandardDirective},
 };
 use vihaco_runtime::{
     Apply, BuildMessage, Execute, HasInstructionSet, ReusableMessageRecipe, Step, composite, field,
@@ -107,45 +113,57 @@ struct ExperimentInfo {
     description: String,
 }
 
-type Metadata = ProgramMetadata<Value, Type>;
-
-// A header is a collection of declarations. Each entry is collected separately;
-// metadata can appear before or after other entries.
+// A header is a list of directives, one per line. The standard directives
+// (`.file`, `.func`, `.entry`, `.const`, `.source_symbol`) describe the
+// program; `experiment.description` is this application's own directive.
 #[derive(Debug, vihaco_parser_derive::Parse)]
 #[syntax_class(metadata)]
 enum HeaderDeclaration {
     #[pattern = "$0"]
-    Metadata(Metadata),
+    Standard(ProgramDirective<Value, Type>),
     #[pattern = "experiment.description $0"]
     Description(String),
 }
 
+// Lets the checker and formatter find the standard directives.
+impl StandardDirective for HeaderDeclaration {
+    type Value = Value;
+    type Type = Type;
+
+    fn as_standard(&self) -> Option<&ProgramDirective<Value, Type>> {
+        match self {
+            Self::Standard(directive) => Some(directive),
+            Self::Description(_) => None,
+        }
+    }
+}
+
 #[derive(Default)]
 struct HeaderDeclarationsState {
-    metadata: Option<Metadata>,
+    program: ProgramHeader<Value, Type>,
     description: Option<String>,
+}
+
+fn record_description<T: AsRef<str>>(seen: &mut Option<T>, description: T) -> eyre::Result<()> {
+    eyre::ensure!(seen.is_none(), "duplicate description declaration");
+    let empty = description.as_ref().is_empty();
+    // An empty declaration still counts when checking later declarations.
+    *seen = Some(description);
+    eyre::ensure!(!empty, "experiment.description must not be empty");
+    Ok(())
+}
+
+fn require_description<T>(description: Option<T>) -> eyre::Result<T> {
+    description.ok_or_else(|| eyre::eyre!("missing experiment.description"))
 }
 
 impl HeaderDeclaration {
     fn collect_into(self, declarations: &mut HeaderDeclarationsState) -> eyre::Result<()> {
         match self {
-            Self::Metadata(metadata) => {
-                eyre::ensure!(
-                    declarations.metadata.is_none(),
-                    "duplicate metadata declaration"
-                );
-                declarations.metadata = Some(metadata);
-            }
+            // Standard directives are assembled in header order.
+            Self::Standard(directive) => declarations.program.push(directive),
             Self::Description(description) => {
-                eyre::ensure!(
-                    declarations.description.is_none(),
-                    "duplicate description declaration"
-                );
-                eyre::ensure!(
-                    !description.is_empty(),
-                    "experiment.description must not be empty"
-                );
-                declarations.description = Some(description);
+                record_description(&mut declarations.description, description)?;
             }
         }
         Ok(())
@@ -153,14 +171,12 @@ impl HeaderDeclaration {
 }
 
 impl HeaderDeclarationsState {
-    fn finish_program(self) -> eyre::Result<(Metadata, ExperimentInfo)> {
-        let metadata = self
-            .metadata
-            .ok_or_else(|| eyre::eyre!("missing program metadata"))?;
-        let description = self
-            .description
-            .ok_or_else(|| eyre::eyre!("missing experiment.description"))?;
-        Ok((metadata, ExperimentInfo { description }))
+    /// Assemble the program tables, with the description as `extra` metadata.
+    fn finish_program(
+        self,
+    ) -> eyre::Result<vihaco_module::module::ProgramMetadata<Value, Type, ExperimentInfo>> {
+        let description = require_description(self.description)?;
+        self.program.finish(ExperimentInfo { description })
     }
 }
 
@@ -188,19 +204,21 @@ impl Runtime {
             HeaderDeclarations<HeaderDeclaration>,
         >::parse_section(section)?;
 
-        // 3. Collect declarations and reject duplicates, then check the required
-        // metadata and description for this program.
+        // 3. Collect declarations and reject duplicates, then assemble the
+        // program tables and require the description.
         let mut header_state = HeaderDeclarationsState::default();
         for declaration in header {
             declaration.collect_into(&mut header_state)?;
         }
-        let (metadata, info) = header_state.finish_program()?;
+        let mut metadata = header_state.finish_program()?;
 
         // 4. Build symbol capabilities from the metadata and the section's symbol
         // table, validate declarations/tables, and lower the code stream.
+        // Lowering interns string literals after the header's strings.
         let mut context = MetadataLoweringContext::new(&metadata, &symbols)?;
         let code = lower_code_with_metadata(code, &symbols, &metadata, &mut context)?;
-        let module = metadata.map_extra(|_| info).into_module(code, symbols)?;
+        metadata.strings = context.into_strings();
+        let module = metadata.into_module(code, symbols)?;
 
         // 5. Wrap the completed module and pair it with a fresh execution machine.
         let image = Image::new(module);
@@ -216,11 +234,97 @@ impl Runtime {
     }
 }
 
+/// What `main` does with the source file.
+enum Mode {
+    Run,
+    Check,
+    Format(vihaco_sst::FormatOptions),
+}
+
+fn validate_header(
+    header: &vihaco_sst::Declarations<HeaderDeclaration>,
+    section: &vihaco_sst::check::Section<'_>,
+    out: &mut vihaco_sst::Diagnostics<'_>,
+) {
+    let mut description = None;
+    for declaration in &header.0 {
+        if let HeaderDeclaration::Description(value) = &declaration.value
+            && let Err(error) = record_description(&mut description, value.as_str())
+        {
+            out.error(
+                declaration.span.clone(),
+                error.to_string(),
+                "in this declaration",
+            );
+        }
+    }
+    if let Err(error) = require_description(description) {
+        out.error(
+            section.block_anchor(section.header()),
+            error.to_string(),
+            "in this header",
+        );
+    }
+}
+
+fn checker() -> vihaco_sst::ProgramChecker<Machine, vihaco_sst::Declarations<HeaderDeclaration>> {
+    vihaco_sst::ProgramChecker::<Machine>::new()
+        .with_header::<vihaco_sst::Declarations<HeaderDeclaration>>()
+        .with_header_validation(validate_header)
+        .require_sections(["controller"])
+}
+
 fn main() -> eyre::Result<()> {
-    let source = match std::env::args_os().nth(1) {
-        Some(path) => std::fs::read_to_string(path)?,
-        None => include_str!("loadable.sst").to_owned(),
+    let mut mode = Mode::Run;
+    let mut path = None;
+    for arg in std::env::args().skip(1) {
+        match arg.as_str() {
+            "--check" => mode = Mode::Check,
+            "--fmt" => mode = Mode::Format(vihaco_sst::FormatOptions::default()),
+            "--fmt-plain" => {
+                mode = Mode::Format(vihaco_sst::FormatOptions::without_generated_comments())
+            }
+            flag if flag.starts_with("--") => return Err(eyre::eyre!("unknown flag `{flag}`")),
+            _ => path = Some(arg),
+        }
+    }
+    let (name, source) = match &path {
+        Some(path) => (path.clone(), std::fs::read_to_string(path)?),
+        None => (
+            "loadable.sst".to_owned(),
+            include_str!("loadable.sst").to_owned(),
+        ),
     };
+
+    match mode {
+        Mode::Run => {}
+        Mode::Check => {
+            let file = vihaco_sst::SourceFile::new(name, source);
+            let report = checker().check(&file);
+            if report.is_ok() {
+                eprintln!("no problems found");
+                return Ok(());
+            }
+            eprint!("{}", report.render(&file));
+            std::process::exit(1);
+        }
+        Mode::Format(options) => {
+            let file = vihaco_sst::SourceFile::new(name, source);
+            match vihaco_sst::Formatter::with_checker(checker())
+                .options(options)
+                .format(&file)
+            {
+                Ok(formatted) => {
+                    print!("{formatted}");
+                    return Ok(());
+                }
+                Err(report) => {
+                    eprint!("{}", report.render(&file));
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
     let mut runtime = Runtime::from_sst(&source)?;
     drop(source);
 
@@ -257,11 +361,173 @@ mod tests {
         Ok(())
     }
 
+    fn check(source: &str) -> Vec<String> {
+        let source = vihaco_sst::SourceFile::new("loadable.sst", source);
+        checker()
+            .check(&source)
+            .iter()
+            .map(ToString::to_string)
+            .collect()
+    }
+
+    /// `loadable.sst` in the formatter's canonical layout.
+    const FORMATTED: &str = r#"sst v2
+
+.section controller
+.header
+    experiment.description "Loadable SST example: 21 * 2"
+    .file "loadable.sst"
+    ; Function table order is independent of executable function order.
+    ;; functions[0], @helper = 0x0006..0x0008
+    .func @helper() -> u64, locals 0
+    ;; functions[1], @main = 0x0000..0x0006
+    .func @main() -> u64, locals 0
+    .entry @main  ; a function, not an instruction address
+.text
+;; fn main() -> u64, locals 0, functions[1]
+@main:
+    ;; @helper = 0x0006 (functions[0])
+    execution::program::call 0, @helper
+    execution::program::const_u64 2
+    cpu::cpu::mul_u64
+    ;; @done = 0x0005
+    execution::program::br @done
+    execution::program::const_u64 999
+;; 0x0005
+@done:
+    execution::program::ret 1
+;; fn helper() -> u64, locals 0, functions[0]
+@helper:
+    execution::program::const_u64 21
+    execution::program::ret 1
+"#;
+
+    fn format(text: &str, options: vihaco_sst::FormatOptions) -> String {
+        let source = vihaco_sst::SourceFile::new("loadable.sst", text);
+        vihaco_sst::Formatter::with_checker(checker())
+            .options(options)
+            .format(&source)
+            .unwrap_or_else(|report| panic!("{}", report.render(&source)))
+    }
+
+    #[test]
+    fn description_rules_match_when_loading_checking_and_formatting() {
+        let original = include_str!("loadable.sst");
+        let original_description = "    experiment.description \"Loadable SST example: 21 * 2\"";
+        for (replacement, location, message) in [
+            ("", "4:1", "missing experiment.description"),
+            (
+                "    experiment.description \"\"",
+                "5:5",
+                "experiment.description must not be empty",
+            ),
+            (
+                "    experiment.description \"first\"\n    experiment.description \"second\"",
+                "6:5",
+                "duplicate description declaration",
+            ),
+        ] {
+            let text = original.replacen(original_description, replacement, 1);
+            let load_error = Runtime::from_sst(&text).err().expect("invalid description");
+            assert_eq!(load_error.to_string(), message);
+            let source = vihaco_sst::SourceFile::new("loadable.sst", text);
+            let report = checker().check(&source);
+            assert_eq!(report.diagnostics.len(), 1);
+            assert_eq!(
+                report.diagnostics[0].to_string(),
+                format!("{location}: error: {message}")
+            );
+            for options in [
+                vihaco_sst::FormatOptions::default(),
+                vihaco_sst::FormatOptions::without_generated_comments(),
+            ] {
+                assert_eq!(
+                    vihaco_sst::Formatter::with_checker(checker())
+                        .options(options)
+                        .format(&source)
+                        .unwrap_err(),
+                    report
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_formatted_example_is_pinned_and_still_runs() -> eyre::Result<()> {
+        let formatted = format(include_str!("loadable.sst"), Default::default());
+        assert_eq!(formatted, FORMATTED);
+        assert_eq!(format(&formatted, Default::default()), formatted);
+        assert_eq!(check(&formatted), Vec::<String>::new());
+        let mut runtime = Runtime::from_sst(&formatted)?;
+        runtime.controller.execute(&[])?;
+        assert_eq!(runtime.controller.machine().execution.stack(), &[42]);
+
+        let plain = format(
+            &formatted,
+            vihaco_sst::FormatOptions::without_generated_comments(),
+        );
+        assert!(!plain.contains(";;"));
+        assert!(plain.contains("\n    .entry @main  ; a function, not an instruction address\n"));
+        let mut runtime = Runtime::from_sst(&plain)?;
+        runtime.controller.execute(&[])?;
+        assert_eq!(runtime.controller.machine().execution.stack(), &[42]);
+        Ok(())
+    }
+
+    #[test]
+    fn the_unformatted_example_formats_to_the_pinned_layout() {
+        let formatted = format(include_str!("loadable-unformatted.sst"), Default::default());
+        // Only the leading "Try:" comments differ from `loadable.sst`.
+        let (preamble, rest) = formatted.split_once(".section").unwrap();
+        assert!(
+            preamble.contains("; A hand-written, messy copy"),
+            "{formatted}"
+        );
+        assert_eq!(rest, FORMATTED.split_once(".section").unwrap().1);
+    }
+
+    #[test]
+    fn the_broken_example_reports_every_mistake() {
+        assert_eq!(
+            check(include_str!("loadable-broken.sst")),
+            [
+                "8:11: error: function `@helper` (functions[0]) has no `@helper:` symbol \
+                 definition",
+                "10:12: error: `.entry @mian` names no `.func` directive",
+                "13:33: error: function `@helper` has no `@helper:` symbol definition",
+                "16:28: error: undefined symbol `@finish`",
+            ]
+        );
+    }
+
+    #[test]
+    fn the_example_source_checks_clean_without_executing() {
+        assert_eq!(check(include_str!("loadable.sst")), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_checker_reports_every_problem_in_a_broken_source() {
+        let source = include_str!("loadable.sst")
+            .replace("@helper:", "@helpr:")
+            .replace("br @done", "br @finish")
+            .replace(".entry @main", ".entry @mian");
+        assert_eq!(
+            check(&source),
+            [
+                "8:11: error: function `@helper` (functions[0]) has no `@helper:` symbol \
+                 definition",
+                "10:12: error: `.entry @mian` names no `.func` directive",
+                "13:33: error: function `@helper` has no `@helper:` symbol definition",
+                "16:28: error: undefined symbol `@finish`",
+            ]
+        );
+    }
+
     #[test]
     fn duplicate_declarations_are_rejected_during_collection() {
         let source = include_str!("loadable.sst").replace(
-            "experiment.description \"Loadable SST example: 21 * 2\";",
-            "experiment.description \"first\"; experiment.description \"second\";",
+            "experiment.description \"Loadable SST example: 21 * 2\"",
+            "experiment.description \"first\"\nexperiment.description \"second\"",
         );
         let error = Runtime::from_sst(&source)
             .err()

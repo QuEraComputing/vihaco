@@ -35,6 +35,124 @@ mod ex_quickstart {
     fn runs() {
         main().expect("quickstart example should run");
     }
+
+    /// Printing is the inverse of parsing for the quick-start section.
+    #[test]
+    fn first_machine_sst_prints_back_to_its_source() {
+        use vihaco::chumsky::Parser as _;
+        use vihaco::{Parse, Print};
+
+        let source = include_str!("../../../docs/examples/first-machine.sst");
+        let file = SSTFile::<NoContext>::from_text(source).unwrap();
+        let section = file.section("main").unwrap();
+        let header = section.header_text();
+        let text = section.text();
+        let parsed =
+            ParsedModule::<SourceInstruction, HeaderDeclarations<ProgramDirective>>::parse_section(
+                section,
+            )
+            .unwrap();
+
+        let printed: Vec<_> = parsed
+            .header
+            .0
+            .iter()
+            .map(|directive| {
+                let printed = directive.to_source().unwrap();
+                let reparsed = ProgramDirective::parser()
+                    .parse(printed.as_str())
+                    .into_result()
+                    .unwrap();
+                assert_eq!(&reparsed, directive, "{printed}");
+                printed
+            })
+            .collect();
+        assert_eq!(printed, header.lines().map(str::trim).collect::<Vec<_>>());
+
+        let lines: Vec<_> = text
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('@'))
+            .collect();
+        let printed: Vec<_> = parsed
+            .code
+            .iter()
+            .map(|instruction| {
+                let printed = instruction.to_source().unwrap();
+                let reparsed = SourceInstruction::parser()
+                    .parse(printed.as_str())
+                    .into_result()
+                    .unwrap();
+                assert_eq!(&reparsed, instruction, "{printed}");
+                printed
+            })
+            .collect();
+        assert_eq!(printed, lines);
+    }
+
+    /// `first-machine.sst` in the formatter's canonical layout.
+    const FORMATTED: &str = "\
+sst v2
+
+.section main
+.header
+    .file \"first-machine.sst\"
+    ;; functions[0], @main = 0x0000..0x0004
+    .func @main() -> u64, locals 0
+    .entry @main
+.text
+;; fn main() -> u64, locals 0, functions[0]
+@main:
+    execution::program::const_u64 20
+    execution::program::const_u64 22
+    calculator::arithmetic::add
+    execution::program::ret 1
+";
+
+    /// Load and run the `main` section of `source`, returning the stack.
+    fn run(source: &str) -> eyre::Result<Vec<u64>> {
+        let file = SSTFile::<NoContext>::from_text(source)?;
+        let section = file
+            .section("main")
+            .ok_or_else(|| eyre::eyre!("missing main section"))?;
+        let ParsedModule {
+            header,
+            code,
+            symbols,
+        } = ParsedModule::<SourceInstruction, HeaderDeclarations<ProgramDirective>>::parse_section(
+            section,
+        )?;
+        let mut metadata = header
+            .into_iter()
+            .collect::<ProgramHeader>()
+            .finish(NoInfo)?;
+        let mut context = MetadataLoweringContext::new(&metadata, &symbols)?;
+        let code = lower_code_with_metadata(code, &symbols, &metadata, &mut context)?;
+        metadata.strings = context.into_strings();
+        let module = metadata.into_module(code, symbols)?;
+        let machine = Machine {
+            execution: ExecutionState::new(),
+            calculator: Calculator::default(),
+        };
+        let mut loaded = Loadable::new(Image::new(module), machine);
+        loaded.execute(&[])?;
+        Ok(loaded.machine().execution.stack().to_vec())
+    }
+
+    #[test]
+    fn first_machine_sst_formats_to_a_pinned_layout_that_still_runs() {
+        use vihaco_sst::{FormatOptions, SourceFile, format_program};
+
+        let format = |text: &str| {
+            let source = SourceFile::new("first-machine.sst", text);
+            format_program::<Machine>(&source, FormatOptions::default())
+                .unwrap_or_else(|report| panic!("{}", report.render(&source)))
+        };
+        let formatted = format(include_str!("../../../docs/examples/first-machine.sst"));
+        assert_eq!(formatted, FORMATTED);
+        assert_eq!(format(&formatted), formatted);
+        assert_eq!(run(&formatted).unwrap(), [42]);
+    }
 }
 
 #[cfg(feature = "program-image-execution")]

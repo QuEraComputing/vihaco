@@ -8,4 +8,4 @@ error[E0599]: the method `execute` exists for struct `Loadable<Image<u64>, Machi
    |            ^^^^^^^ method cannot be called on `Loadable<Image<u64>, Machine>` due to unsatisfied trait bounds
    |
    = note: the following trait bounds were not satisfied:
-           `<Machine as Dispatch<LocalModule<u64, Value, vihaco::Type>>>::Instruction = u64`
+           `<Machine as Dispatch<LocalModule<u64, vihaco::Value, vihaco::Type>>>::Instruction = u64`

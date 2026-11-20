@@ -1,35 +1,32 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Standard program-header schema and section-local metadata validation.
+//! Section-local program metadata and its validation against `.text`.
 //!
-//! Every table is supplied by the header, even when empty. Array order defines
-//! table indices; names and files are explicit string-table indices. Loading
-//! never interns strings, invents signatures, or infers an entrypoint.
+//! [`ProgramMetadata`] holds the tables a header describes, with table
+//! indices resolved. It is assembled from the header's directives by
+//! [`ProgramHeader`](crate::module::ProgramHeader), which derives the string
+//! table; lowering then interns the string literals of `.text`
+//! (`MetadataLoweringContext`). Loading never invents signatures or infers an
+//! entrypoint.
 //!
 //! The header says *what* each function is; the section's symbol table says
 //! *where* it is. A function declaration is bound to the `@name:` symbol with
 //! the same name, and its executable range runs from that symbol to the next
 //! function symbol (or the end of the code).
-//!
-//! Constants use their type's ordinary `Parse` implementation. Standard `Value`
-//! constants use typed SST literals such as `u64 42` or `string 0`; `f32_bits`
-//! and `f64_bits` followed by unsigned integers preserve all IEEE-754 encodings.
-//! Custom extra records use the same delimited metadata derive as the header.
 
 use std::collections::{BTreeMap, HashMap};
 
 use crate::module::{FunctionDecl, FunctionInfo, LocalModule, NoInfo, SourceSymbolInfo, Symbol};
 use vihaco_abi::{Type, Value};
 
-/// All non-code fields of a `LocalModule` that a section header supplies.
-/// The ordinary metadata derive owns object parsing, including nested records.
-#[derive(Debug, Clone, PartialEq, vihaco_parser_derive::Parse)]
-#[syntax_class(metadata, head = "metadata", open = "{", close = "}")]
+/// All non-code fields of a `LocalModule` that a section header supplies, with
+/// every name resolved to a table index.
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProgramMetadata<V = Value, Ty = Type, Info = NoInfo> {
+    pub strings: Vec<String>,
     pub functions: Vec<FunctionDecl<Ty>>,
     pub constants: Vec<V>,
-    pub strings: Vec<String>,
     pub main_function: Option<u32>,
     pub source_symbols: Vec<SourceSymbolInfo>,
     pub extra: Info,

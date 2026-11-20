@@ -144,7 +144,8 @@ program's image.
 
 The complete [Loadable example](crates/vihaco-stdlib/examples/loadable.rs) and its
 [SST source](crates/vihaco-stdlib/examples/loadable.sst) show section selection,
-individual header-declaration preparation, metadata validation, symbolic function/label lowering,
+standard header directives (`.func`, `.entry`, …) composed with an application directive,
+metadata validation, symbolic function/label lowering,
 image construction, authored Steps, and execution. Run it from the repository root:
 
 ```sh
@@ -228,6 +229,7 @@ needs; there is no umbrella crate.
 | [`vihaco-runtime-derive`](crates/vihaco-runtime-derive) | `#[derive(Message)]`, `component!`, `#[composite]`, `#[observe]`, re-exported through `vihaco-runtime`'s `derive` feature. |
 | [`vihaco-stdlib`](crates/vihaco-stdlib) | Standard-library components and observers, including `ProgramImage` and `StdoutObserver`. |
 | [`vihaco-syntax`](crates/vihaco-syntax) | Typed SST parsing and module construction (`Resolve`). |
+| [`vihaco-sst`](crates/vihaco-sst) | SST tooling: located diagnostics with a rustc-style renderer, and a checker generic over your machine that reports every framing, syntax, symbol, metadata, and lowering problem in a file without executing it. |
 | [`vihaco-cpu`](crates/vihaco-cpu) | A ready-made CPU/host component — a small stack machine (constants, arithmetic, branches, halt, …) with a `StepOutcome` control-flow effect. Use directly, or as a reference for writing your own. |
 | [`vihaco-parser`](crates/vihaco-parser) | The `Parse<'src>` and `SurfaceInstruction` traits plus lexical, primitive, and collection implementations shared by the parser derive. |
 | [`vihaco-parser-derive`](crates/vihaco-parser-derive) | `#[derive(Parse)]` — turns instruction, value, and type enums or structs into [chumsky](https://github.com/zesterer/chumsky) parsers via `#[syntax_class]` and `#[pattern]`. |

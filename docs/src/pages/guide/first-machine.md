@@ -21,29 +21,18 @@ Use the [dependency setup](/guide). You'll need two files: the program in
 > See [emitting SST from a compiler](/guide/sst-reference) for the current contract.
 
 Save this as `src/first-machine.sst`. It has one section, `main`; its `.text`
-block contains our four instructions. The `.header` block describes the function
-and its tables so the loader can check the program before running it.
+block contains our four instructions. The `.header` block declares the function
+and selects it as the entry, so the loader can check the program before running
+it.
 
 ```text
 sst v2
 
 .section main
 .header
-    metadata {
-        strings: ["main", "first-machine.sst"],
-        functions: [
-            {
-                name: 0,
-                signature: { params: [], ret: [u64] },
-                local_count: 0,
-                file: 1,
-            },
-        ],
-        constants: [],
-        main_function: 0,
-        source_symbols: [],
-        extra: {},
-    };
+    .file "first-machine.sst"
+    .func @main() -> u64, locals 0
+    .entry @main
 .text
 @main:
     execution::program::const_u64 20
@@ -72,7 +61,7 @@ use vihaco::{
     Apply, BuildMessage, ReusableMessageRecipe, Execute, ExecutionState, HasInstructionSet, Image, Loadable, NoContext,
     PopFromStack, PushToStack, SSTFile, Step, Type, Value, component, composite, dialect, field,
     loader::MetadataLoweringContext,
-    module::{LocalModule, ProgramMetadata},
+    module::{LocalModule, NoInfo, ProgramDirective, ProgramHeader},
     syntax::{HeaderDeclarations, ParsedModule, lower_code_with_metadata},
 };
 
@@ -193,19 +182,13 @@ pub fn main() -> eyre::Result<()> {
         symbols,
     } = ParsedModule::<
         SourceInstruction,
-        HeaderDeclarations<ProgramMetadata>,
+        HeaderDeclarations<ProgramDirective>,
     >::parse_section(section)?;
 
-    let mut declarations = header.into_iter();
-    let metadata = declarations
-        .next()
-        .ok_or_else(|| eyre::eyre!("missing program metadata"))?;
-    eyre::ensure!(
-        declarations.next().is_none(),
-        "expected one metadata declaration"
-    );
+    let mut metadata = header.into_iter().collect::<ProgramHeader>().finish(NoInfo)?;
     let mut context = MetadataLoweringContext::new(&metadata, &symbols)?;
     let code = lower_code_with_metadata(code, &symbols, &metadata, &mut context)?;
+    metadata.strings = context.into_strings();
     let module = metadata.into_module(code, symbols)?;
     let machine = Machine {
         execution: ExecutionState::new(),
@@ -247,23 +230,26 @@ delegate to reusable message recipes. Standard recipes move operands into
 moves to the next one; program instructions handle calls, branches, and returns.
 
 `SSTFile` reads the file's flat list of sections, and `section("main")` picks
-ours. `ParsedModule` then parses that section's metadata declarations, its
+ours. `ParsedModule` then parses that section's header directives, its
 instructions, and its `@main:` symbol, using the machine's public syntax
 instruction type. That avoids relying on generated enum variant names.
 
-This example expects exactly one metadata declaration. Once it has that,
-`MetadataLoweringContext` prepares symbol lookup and
-`lower_code_with_metadata` checks the function declarations against the
-metadata and turns syntax instructions into executable ones.
+`ProgramHeader` assembles the directives into `ProgramMetadata`: the function
+table, the entry, and a string table derived from the names they mention.
+`MetadataLoweringContext` prepares symbol lookup and interns any string
+literals the instructions use, and `lower_code_with_metadata` checks the
+function declarations against the symbols and turns syntax instructions into
+executable ones. Storing `context.into_strings()` keeps those literals.
 [Loading SST programs](/guide/parser-advanced) builds on this with custom
 headers and multiple sections.
 
 ## Why there is metadata
 
 The metadata tells execution where the function is and what it expects.
-`main_function: 0` selects the first function-table entry. That function covers
-instructions `0..4`, returns one `u64`, and has no parameters or reserved locals.
-Its name and source filename refer into `strings`.
+`.func @main() -> u64, locals 0` declares the first function-table entry and
+`.entry @main` selects it. The function starts at the `@main:` symbol and covers
+instructions `0..4`; it returns one `u64` and has no parameters or reserved
+locals. Its name and source filename become entries of the string table.
 `ProgramMetadata::into_module` checks and assembles the tables and code.
 
 Finally, `Image::new` wraps the module, and `Loadable::new` pairs it with the
