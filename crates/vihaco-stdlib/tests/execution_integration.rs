@@ -368,17 +368,6 @@ fn heap_transfers_use_program_operands_and_preserve_device_state() {
     vm.cpu.reset();
     vm.program.reset();
     assert!(execute(&module, &mut vm, &[]).is_err()); // CPU reset clears it.
-    let (module, mut raw) = machine(&[
-        "program::program::const_u64 1",
-        "cpu::cpu::heap_reserve",
-        "program::program::store_u64 0",
-        "program::program::const_u64 4294967296",
-        "program::program::const_u64 7",
-        "cpu::cpu::heap_push",
-        "program::program::ret 1",
-    ]);
-    execute(&module, &mut raw, &[]).unwrap();
-    assert_eq!(raw.program.stack(), &[1_u64 << 32]); // Decode the id without rewriting the reference.
     for operation in ["heap_alloc 2", "heap_push"] {
         let operation = format!("cpu::cpu::{operation}");
         let (module, mut vm) = machine(&["program::program::const_u64 7", &operation]);
@@ -402,6 +391,65 @@ fn heap_transfers_use_program_operands_and_preserve_device_state() {
     assert!(error.to_string().contains("deallocated"));
     assert_eq!(vm.program.stack(), &[2]);
     assert_eq!(vm.program.pc(), 9);
+}
+
+#[test]
+fn heap_instructions_reject_out_of_range_handles_without_changing_the_live_object() {
+    use vihaco_runtime::PushToStack;
+
+    let (allocate, mut vm) = machine(&[
+        "program::program::const_u64 2",
+        "cpu::cpu::heap_reserve",
+        "program::program::const_u64 18446744073709551615",
+        "cpu::cpu::heap_push",
+        "program::program::ret 1",
+    ]);
+    execute(&allocate, &mut vm, &[]).unwrap();
+    let handle = encode_heap_ref(0);
+    assert_eq!(vm.program.stack(), &[handle]);
+    let out_of_range = u64::from(u32::MAX) + 1;
+    let (readback, _) = machine(&[
+        "program::program::const_heap_ref 0",
+        "cpu::cpu::heap_len",
+        "program::program::const_heap_ref 0",
+        "program::program::const_u64 0",
+        "cpu::cpu::get_item",
+        "program::program::ret 2",
+    ]);
+
+    for (operation, operand) in [
+        ("get_item", Some(0_u64)),
+        ("heap_len", None),
+        ("heap_push", Some(23)),
+        ("heap_dealloc", None),
+    ] {
+        let (module, _) = machine(&[&format!("cpu::cpu::{operation}"), "program::program::halt"]);
+        vm.program.reset();
+        vm.program.start(&module, &[]).unwrap();
+        vm.program.apply(PushToStack((out_of_range,)));
+        if let Some(operand) = operand {
+            vm.program.apply(PushToStack((operand,)));
+        }
+        let error = resume(&module, &mut vm).unwrap_err();
+        assert!(
+            error.to_string().contains("heap handle"),
+            "{operation}: {error}"
+        );
+        assert_eq!(vm.program.pc(), 0);
+        assert_eq!(vm.program.stack(), &[0]);
+
+        vm.program.reset();
+        execute(&readback, &mut vm, &[]).unwrap();
+        assert_eq!(vm.program.stack(), &[1, u64::MAX], "{operation}");
+    }
+
+    let (module, _) = machine(&["cpu::cpu::get_item", "program::program::ret 1"]);
+    vm.program.reset();
+    vm.program.start(&module, &[]).unwrap();
+    vm.program.apply(PushToStack((handle, out_of_range)));
+    assert!(resume(&module, &mut vm).is_err());
+    assert_eq!(vm.program.pc(), 0);
+    assert_eq!(vm.program.stack(), &[0]);
 }
 
 #[vihaco_runtime::dialect]
