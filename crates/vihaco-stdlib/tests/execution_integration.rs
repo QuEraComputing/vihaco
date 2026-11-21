@@ -355,6 +355,8 @@ fn heap_transfers_use_program_operands_and_preserve_device_state() {
     ]);
     execute(&module, &mut vm, &[]).unwrap();
     assert_eq!(vm.program.stack(), &[9]);
+    assert_eq!(vm.cpu.heap_object(0).unwrap(), &[7, 9]);
+    assert!(vm.cpu.heap_object(u32::MAX).is_err());
     let (readback, _) = machine(&[
         "program::program::const_heap_ref 0",
         "program::program::const_u64 0",
@@ -400,6 +402,7 @@ fn heap_transfers_use_program_operands_and_preserve_device_state() {
     ]);
     let error = execute(&module, &mut vm, &[]).unwrap_err();
     assert!(error.to_string().contains("deallocated"));
+    assert!(vm.cpu.heap_object(0).is_err());
     assert_eq!(vm.program.stack(), &[2]);
     assert_eq!(vm.program.pc(), 9);
 }
