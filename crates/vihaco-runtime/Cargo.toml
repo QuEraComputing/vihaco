@@ -31,3 +31,7 @@ typed-declarations = ["derive", "vihaco-runtime-derive/typed-declarations"]
 
 [dev-dependencies]
 trybuild = "1.0"
+
+[[example]]
+name = "static_graph_routes"
+required-features = ["typed-declarations"]
