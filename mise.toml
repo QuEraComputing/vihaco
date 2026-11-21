@@ -1,6 +1,6 @@
 # mise-en-place: dev toolchain + tasks for vihaco.
 # Quick start:
-#   mise install        # install rust, node, prek, hawkeye
+#   mise install        # install rust, node, prek, hawkeye, nextest
 #   mise run setup      # install the git pre-commit hooks
 #   mise run test       # run the test suite
 # Docs: https://mise.jdx.dev
@@ -11,14 +11,15 @@ node = "lts"                # docs/ is an Astro site (needs Node >= 20)
 prek = "latest"             # aqua:j178/prek — fast pre-commit runner
 "cargo:hawkeye" = "latest"  # SPDX license-header tool (reads licenserc.toml)
 release-plz = "latest"      # dry-run the release locally (see `mise run release-preview`)
+"cargo:cargo-nextest" = "0.9"  # test runner (`mise run test`); config in .config/nextest.toml
 
 [tasks.setup]
 description = "Install the git pre-commit hooks (prek)"
 run = "prek install"
 
 [tasks.test]
-description = "Run the workspace test suite (excludes doctests)"
-run = "cargo test --workspace --all-targets"
+description = "Run the workspace test suite with nextest (excludes doctests)"
+run = "cargo nextest run --workspace --all-targets"
 
 [tasks.doctest]
 description = "Run the guide / doc tests"

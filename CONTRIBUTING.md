@@ -43,7 +43,7 @@ If you do not agree to those terms, please do not open a pull request.
 
   | Task | Command |
   |---|---|
-  | `mise run test` | `cargo test --workspace --all-targets` |
+  | `mise run test` | `cargo nextest run --workspace --all-targets` (install with `mise install` or `cargo install cargo-nextest`) |
   | `mise run doctest` | `cargo test --workspace --doc` — compiles the guide/example code |
   | `mise run fmt` | `cargo fmt --all` |
   | `mise run lint` | `cargo clippy --workspace --all-targets -- -D warnings` |
