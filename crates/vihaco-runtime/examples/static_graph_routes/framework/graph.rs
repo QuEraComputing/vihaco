@@ -5,8 +5,8 @@
 //! interpret those same descriptions independently.
 
 use super::{
+    async_execution::{AsyncExecuteAt, AsyncInstructionAt},
     operations::{ExecuteAt, InstructionAt, Operation},
-    runtime::{Done, Driver},
 };
 use eyre::Result;
 use std::{
@@ -250,6 +250,14 @@ impl<I, P> Step<I, P, Before> {
         self.then_execute_via(edge(), site)
     }
 
+    /// Declares a designated async instruction on the selected field.
+    pub(crate) fn then_execute_async<F, A>(
+        self,
+        _: Plan<Node<AsyncInstructionAt<F>, A>>,
+    ) -> ExtendedStep<I, P, Unannotated, Node<AsyncExecuteAt<F>, A>, After> {
+        Step(PhantomData)
+    }
+
     /// Adds the instruction execution node through the supplied edge.
     pub(crate) fn then_execute_via<E, F, A>(
         self,
@@ -283,76 +291,90 @@ impl<I, P> Route<I, P> {
         topology
     }
 
-    /// Starts a new invocation and reports its terminal result to the driver.
-    pub(crate) fn start<M: 'static>(&self, machine: &mut M, driver: &Driver<M>, instruction: I)
-    where
-        P: Run<M, I, Output = ()>,
+    /// Starts an invocation and reports its terminal result to its caller.
+    pub(crate) fn start_with<M, D>(
+        &self,
+        machine: &mut M,
+        driver: &D,
+        instruction: I,
+        done: impl FnOnce(&mut M, &D, Result<P::Output>) + 'static,
+    ) where
+        P: Run<M, I, D>,
     {
-        P::run(
-            machine,
-            driver,
-            instruction,
-            Box::new(|_, driver, result| driver.complete(result)),
-        );
+        P::run(machine, driver, instruction, done);
     }
 }
 
 /// Executes a path with a typed input and reports its result through a one-shot callback.
-pub(crate) trait Run<M, I> {
-    /// The owned value passed to the next path when this path succeeds.
+pub(crate) trait Run<M, I, D> {
+    /// The owned value passed to the next path when it succeeds.
     type Output: 'static;
 
-    /// Starts the path and leaves any parked continuation with the driver.
-    fn run(machine: &mut M, driver: &Driver<M>, input: I, done: Done<M, Self::Output>);
+    fn run(
+        machine: &mut M,
+        driver: &D,
+        input: I,
+        done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
+    );
 }
 
-// Delegates a single node to its operation implementation.
-impl<M, I, N: Operation<M, I>, A> Run<M, I> for Node<N, A> {
+impl<M, I, D, N: Operation<M, I, D>, A> Run<M, I, D> for Node<N, A> {
     type Output = N::Output;
 
-    fn run(machine: &mut M, driver: &Driver<M>, input: I, done: Done<M, Self::Output>) {
+    fn run(
+        machine: &mut M,
+        driver: &D,
+        input: I,
+        done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
+    ) {
         N::start(machine, driver, input, done);
     }
 }
 
 // Starts the right path with the left output or propagates the left failure.
-impl<M: 'static, I, L, E, R> Run<M, I> for Sequence<L, E, R>
+impl<M, I, D, L, E, R> Run<M, I, D> for Sequence<L, E, R>
 where
-    L: Run<M, I>,
-    R: Run<M, L::Output>,
+    L: Run<M, I, D>,
+    R: Run<M, L::Output, D>,
 {
     type Output = R::Output;
 
-    fn run(machine: &mut M, driver: &Driver<M>, input: I, done: Done<M, Self::Output>) {
+    fn run(
+        machine: &mut M,
+        driver: &D,
+        input: I,
+        done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
+    ) {
         L::run(
             machine,
             driver,
             input,
-            Box::new(move |machine, driver, result| match result {
+            move |machine, driver, result| match result {
                 Ok(output) => R::run(machine, driver, output, done),
                 Err(error) => done(machine, driver, Err(error)),
-            }),
+            },
         );
     }
 }
 
 /// Stores the branch outputs and continuation for one fork invocation.
-struct Join<M, L, R> {
+struct Join<L, R, C> {
     left: Option<L>,
     right: Option<R>,
-    done: Option<Done<M, (L, R)>>,
+    done: Option<C>,
 }
 
-// Resolves the shared runtime state as each arm completes.
-impl<M, L, R> Join<M, L, R> {
-    /// Records a branch result and releases the continuation when both succeed or either fails.
-    fn arrive<T>(
+impl<L, R, C> Join<L, R, C> {
+    /// Records a result and releases the continuation once.
+    fn arrive<M, D, T>(
         state: &RefCell<Self>,
         machine: &mut M,
-        driver: &Driver<M>,
+        driver: &D,
         result: Result<T>,
         store: impl FnOnce(&mut Self, T),
-    ) {
+    ) where
+        C: FnOnce(&mut M, &D, Result<(L, R)>),
+    {
         let (done, outcome) = {
             let mut state = state.borrow_mut();
             if state.done.is_none() {
@@ -381,58 +403,48 @@ impl<M, L, R> Join<M, L, R> {
     }
 }
 
-// Runs the split and gives each arm ownership of its input and completion callback.
-impl<M: 'static, I, LI: 'static, RI: 'static, S, L, R, A> Run<M, I> for ForkJoin<S, L, R, A>
+// Runs the split and gives each arm ownership of its input and callback.
+impl<M, I, D, LI: 'static, RI: 'static, S, L, R, A> Run<M, I, D> for ForkJoin<S, L, R, A>
 where
-    S: Run<M, I, Output = (LI, RI)>,
+    S: Run<M, I, D, Output = (LI, RI)>,
     L: ForkArm,
     R: ForkArm,
-    L::Path: Run<M, LI>,
-    R::Path: Run<M, RI>,
+    L::Path: Run<M, LI, D>,
+    R::Path: Run<M, RI, D>,
 {
     type Output = (
-        <L::Path as Run<M, LI>>::Output,
-        <R::Path as Run<M, RI>>::Output,
+        <L::Path as Run<M, LI, D>>::Output,
+        <R::Path as Run<M, RI, D>>::Output,
     );
 
-    fn run(machine: &mut M, driver: &Driver<M>, input: I, done: Done<M, Self::Output>) {
-        S::run(
-            machine,
-            driver,
-            input,
-            Box::new(move |machine, driver, result| {
-                let (left, right) = match result {
-                    Ok(inputs) => inputs,
-                    Err(error) => return done(machine, driver, Err(error)),
-                };
-                let join = Rc::new(RefCell::new(Join {
-                    left: None,
-                    right: None,
-                    done: Some(done),
-                }));
-                let left_join = Rc::clone(&join);
-                L::Path::run(
-                    machine,
-                    driver,
-                    left,
-                    Box::new(move |machine, driver, result| {
-                        Join::arrive(&left_join, machine, driver, result, |join, value| {
-                            join.left = Some(value)
-                        });
-                    }),
-                );
-                R::Path::run(
-                    machine,
-                    driver,
-                    right,
-                    Box::new(move |machine, driver, result| {
-                        Join::arrive(&join, machine, driver, result, |join, value| {
-                            join.right = Some(value)
-                        });
-                    }),
-                );
-            }),
-        );
+    fn run(
+        machine: &mut M,
+        driver: &D,
+        input: I,
+        done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
+    ) {
+        S::run(machine, driver, input, move |machine, driver, result| {
+            let (left, right) = match result {
+                Ok(inputs) => inputs,
+                Err(error) => return done(machine, driver, Err(error)),
+            };
+            let join = Rc::new(RefCell::new(Join {
+                left: None,
+                right: None,
+                done: Some(done),
+            }));
+            let left_join = Rc::clone(&join);
+            L::Path::run(machine, driver, left, move |machine, driver, result| {
+                Join::arrive(&left_join, machine, driver, result, |join, value| {
+                    join.left = Some(value)
+                });
+            });
+            R::Path::run(machine, driver, right, move |machine, driver, result| {
+                Join::arrive(&join, machine, driver, result, |join, value| {
+                    join.right = Some(value)
+                });
+            });
+        });
     }
 }
 

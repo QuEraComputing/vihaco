@@ -12,7 +12,9 @@ use std::marker::PhantomData;
 use vihaco_abi::{Type, Value};
 use vihaco_cpu::{CPU, cpu};
 use vihaco_module::module::{FunctionInfo, LocalModule, Parameter, Signature};
-use vihaco_runtime::{Apply, BuildMessage, Execute, HasInstructionSet, Step, composite, field};
+use vihaco_runtime::{
+    Apply, BuildMessage, Execute, HasInstructionSet, ReusableMessageRecipe, Step, composite, field,
+};
 use vihaco_stdlib::{ExecutionState, Image, Loadable, program::program};
 
 #[composite]
@@ -28,6 +30,26 @@ type Instruction = <Machine as HasInstructionSet>::Runtime;
 type Program = LocalModule<Instruction, Value, Type>;
 type ExecutionField = field!(Machine::execution);
 type CpuField = field!(Machine::cpu);
+
+impl<I, Message> BuildMessage<ExecutionField, I, Program, Message> for Machine
+where
+    ExecutionState: Execute<I, Message = Message>,
+    Message: ReusableMessageRecipe<Self, ExecutionField, I, Program>,
+{
+    fn build_message(&mut self, instruction: &I, program: &Program) -> Result<Message> {
+        Message::prepare(self, instruction, program)
+    }
+}
+
+impl<I, Message> BuildMessage<CpuField, I, Program, Message> for Machine
+where
+    CPU: Execute<I, Message = Message>,
+    Message: ReusableMessageRecipe<Self, CpuField, I, Program>,
+{
+    fn build_message(&mut self, instruction: &I, program: &Program) -> Result<Message> {
+        Message::prepare(self, instruction, program)
+    }
+}
 
 fn execution_route<I>()
 -> Route<I, impl for<'a> RunSync<Machine, (&'a I, &'a Program), Output = ()> + Describe>

@@ -3,7 +3,7 @@
 The [static_graph_routes](../crates/vihaco-runtime/examples/static_graph_routes.rs)
 example implements this design. Its [framework](../crates/vihaco-runtime/examples/static_graph_routes/framework/mod.rs)
 is local to the example. The [machines](../crates/vihaco-runtime/examples/static_graph_routes/machines/mod.rs)
-module contains three consumers of the same framework.
+module contains consumers of the same framework.
 
 ## Route and invocation
 
@@ -62,7 +62,7 @@ step_graph::<ops::Capture>()
     .then(fork_join(
         compute::<SplitCapture>(),
         spawn_task::<PredictResponse>().then(await_task::<PredictResponse>()),
-        await_device_completion()
+        await_work()
             .then(spawn_task::<AnalyzeCapture>())
             .then(await_task::<AnalyzeCapture>()),
     ))
@@ -87,12 +87,12 @@ represents a path as `Plan<P>`. Its type composes `Node<N, A>`,
 `Route<I, P>` containing only a phantom marker for the instruction and path
 types. Metadata values live in the annotation types' associated constants.
 
-`Run<M, Input>` provides the execution interpretation. For a sequence, the
-left path must run with `Input` and the right path must run with the left
-path's associated output. For a fork/join, the split produces the pair of arm
-inputs and each arm has its own output type. Cloning a payload is a choice
-made by the split operation. The route entry point requires a terminal
-`()` output.
+`Run<M, Input, D>` provides the execution interpretation for driver type
+`D`. For a sequence, the left path must run with `Input` and the right path
+must run with the left path's associated output. A fork/join splits its input
+into two owned values and gives each arm its own output type. Cloning a payload
+is a choice made by the split operation. The caller receives the typed result of
+the whole route.
 
 `Describe` provides the inspection interpretation. `route.topology()`
 projects node occurrences, selected field markers, edge endpoints, and metadata
@@ -155,20 +155,28 @@ per-invocation scheduling overrides belong to interpreter state.
 
 ## Execution and ownership
 
-`Route::start(&self, machine, driver, instruction)` starts a fresh invocation
-of the static path. `BuildMessage` prepares the input and the designated
-`Execute` node invokes the component. Auxiliary computations and receivers use
+`Route::start_with(machine, driver, instruction, done)` starts a fresh
+invocation and calls `done` with its terminal result. `BuildMessage` prepares
+the input and the designated `Execute` node invokes the component. Auxiliary computations and receivers use
 their own contracts. Forwarding an effect to a receiver can be an immediate
 handoff in this driver. The declared edge still identifies the dependency and
 provides a place for metadata.
 
-The [example driver](../crates/vihaco-runtime/examples/static_graph_routes/framework/runtime.rs)
-keeps a queue of parked callbacks and a separate queue of terminal outcomes.
-It borrows the machine to start or resume ready work. A parked wait owns its
-handle and continuation, and the machine borrow ends when the current call
-returns. Worker threads receive owned `Send + 'static` inputs and publish
-owned results to the driver. They use completion channels, while the driver
-applies downstream effects to the machine.
+An operation declares the driver capabilities it uses. The `await_work()`
+node uses `Await<M, Work>` to receive the result associated with a work
+handle. Inline operations such as `compute` need no driver capabilities.
+Sequences and forks pass the same driver through their continuations.
+A parked wait owns its handle and continuation, and the machine borrow ends
+when the current call returns.
+
+The [channel driver](../crates/vihaco-runtime/examples/static_graph_routes/framework/runtime.rs)
+stores parked callbacks and queues terminal outcomes for callers that opt into
+that policy. Worker threads receive owned `Send + 'static` inputs and publish
+their results through completion channels. The
+[simulation driver](../crates/vihaco-runtime/examples/static_graph_routes/machines/simulation.rs)
+can await timestamped results in a time-ordered queue. Both drivers can also
+poll Rust futures for async execution nodes. The driver provides a fresh
+machine borrow when it delivers a result.
 
 The capture route demonstrates two kinds of wait:
 
@@ -197,6 +205,31 @@ runtime storage. The example still allocates boxed callbacks at runtime, and
 workers use channels and threads. An interpreter can choose another work
 representation. Code-generation and performance comparisons against
 handwritten steps remain open.
+
+### Async execution on a component
+
+The [async digitizer](../crates/vihaco-runtime/examples/static_graph_routes/machines/async_capture.rs)
+implements `AsyncExecute<Capture>` with an `async fn execute(&mut self, ...)`.
+Its future waits for an acquisition header and then the samples. The route
+node leases the digitizer exclusively, and the driver polls the pinned
+future on wakeup. The lease returns the digitizer to its slot before the
+next node receives the effect, including when execution fails. Dropping a
+parked route also returns the component.
+
+The [composed routes](../crates/vihaco-runtime/examples/static_graph_routes/machines/async_capture/composed.rs)
+reuse the same async execution node. One joins an independently delivered
+calibration offset with a computed sample peak. The other submits the
+capture to an archive and waits for acknowledgment. The same archive route
+accepts either a channel acknowledgment or a simulated event, and the
+[warehouse example](../crates/vihaco-runtime/examples/static_graph_routes/machines/warehouse.rs)
+uses a scheduled event to deliver a label without polling a Rust future.
+The capture example's single-instruction runner retires after the entire
+route succeeds. An
+archive rejection leaves the PC at the capture and preserves the
+submission already made.
+
+The async example declares its field route by hand because the current
+composite macro checks for synchronous `Execute` coverage.
 
 ## Integration with program execution
 
@@ -252,6 +285,8 @@ target the original invocation and its unchanged module.
 | [Counter](../crates/vihaco-runtime/examples/static_graph_routes/machines/counter.rs) | A linear `Add` step through generated dispatch, with metadata on the instruction node and its incoming edge. |
 | [Waveform](../crates/vihaco-runtime/examples/static_graph_routes/machines/waveform.rs) | Repeated clamp occurrences, distinct DAC and monitor transfers, multiple tags on one edge, and a join. The DAC receives clamped samples and the monitor receives the original. |
 | [Capture](../crates/vihaco-runtime/examples/static_graph_routes/machines/capture.rs) | An arm wait, worker spawn and completion, device completion, and a join. Two invocations reuse the same route with different signals and inputs. |
+| [Async digitizer](../crates/vihaco-runtime/examples/static_graph_routes/machines/async_capture.rs) | A component-owned async execution with two wakeups, calibration and archive routes, and retirement after route completion. |
+| [Warehouse](../crates/vihaco-runtime/examples/static_graph_routes/machines/warehouse.rs) | A printer returns a timed completion handle. The simulation driver delivers the label and calls the terminal callback at the scheduled tick. |
 | [ExecutionState and CPU](../crates/vihaco-runtime/examples/static_graph_routes/machines/execution_state.rs) | Sequential dispatch through branch, call, arithmetic, and return. An invalid branch reports a preparation error at the originating PC. |
 
 Each demo checks that its route occupies zero bytes and inspects the topology

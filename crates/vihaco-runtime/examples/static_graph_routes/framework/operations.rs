@@ -5,19 +5,24 @@
 
 use super::{
     graph::{Label, NodePlan, node},
-    runtime::{Done, Driver, Wait},
+    runtime::{Await, SpawnWorker},
 };
 use eyre::Result;
 use std::{any::type_name, marker::PhantomData};
 use vihaco_runtime::{BuildMessage, Execute, Field};
 
 /// Interprets a static operation type for a machine and a typed input.
-pub(crate) trait Operation<M, I> {
+pub(crate) trait Operation<M, I, D> {
     /// The owned value passed to the continuation.
     type Output: 'static;
 
     /// Starts the operation and either completes inline or parks the callback with the driver.
-    fn start(machine: &mut M, driver: &Driver<M>, input: I, done: Done<M, Self::Output>);
+    fn start(
+        machine: &mut M,
+        driver: &D,
+        input: I,
+        done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
+    );
 }
 
 /// Owns an instruction and its prepared message for one invocation.
@@ -46,14 +51,19 @@ impl<F> Label for BuildAt<F> {
 }
 
 // Calls BuildMessage and forwards the prepared snapshot with the instruction.
-impl<M, F, I: 'static, Message: 'static> Operation<M, I> for BuildAt<F>
+impl<M, D, F, I: 'static, Message: 'static> Operation<M, I, D> for BuildAt<F>
 where
     M: BuildMessage<F, I, (), Message>,
     M::Child: Execute<I, Message = Message>,
 {
     type Output = Prepared<I, Message>;
 
-    fn start(machine: &mut M, driver: &Driver<M>, instruction: I, done: Done<M, Self::Output>) {
+    fn start(
+        machine: &mut M,
+        driver: &D,
+        instruction: I,
+        done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
+    ) {
         let result = machine
             .build_message(&instruction, &())
             .map(|message| Prepared {
@@ -85,7 +95,7 @@ impl<F> Label for ExecuteAt<F> {
 }
 
 // Executes the prepared instruction once on the selected component and forwards its effect.
-impl<M, F, I, Message> Operation<M, Prepared<I, Message>> for ExecuteAt<F>
+impl<M, D, F, I, Message> Operation<M, Prepared<I, Message>, D> for ExecuteAt<F>
 where
     M: Field<F>,
     M::Child: Execute<I, Message = Message, Effect: 'static, Error: Into<eyre::Report>>,
@@ -94,9 +104,9 @@ where
 
     fn start(
         machine: &mut M,
-        driver: &Driver<M>,
+        driver: &D,
         input: Prepared<I, Message>,
-        done: Done<M, Self::Output>,
+        done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
     ) {
         let result = machine
             .get_mut()
@@ -130,13 +140,18 @@ impl<F> Label for ReceiveAt<F> {
 }
 
 // Borrows the receiving component, delivers the effect, and reports completion.
-impl<M: Field<F>, F, I> Operation<M, I> for ReceiveAt<F>
+impl<M: Field<F>, D, F, I> Operation<M, I, D> for ReceiveAt<F>
 where
     M::Child: Receive<I>,
 {
     type Output = ();
 
-    fn start(machine: &mut M, driver: &Driver<M>, input: I, done: Done<M, ()>) {
+    fn start(
+        machine: &mut M,
+        driver: &D,
+        input: I,
+        done: impl FnOnce(&mut M, &D, Result<()>) + 'static,
+    ) {
         let result = machine.get_mut().receive(input);
         done(machine, driver, result);
     }
@@ -173,14 +188,14 @@ impl<C: Compute> Label for ComputeNode<C> {
 }
 
 // Applies the computation on the driver thread and forwards its result.
-impl<C: Compute> Operation<C::Machine, C::Input> for ComputeNode<C> {
+impl<D, C: Compute> Operation<C::Machine, C::Input, D> for ComputeNode<C> {
     type Output = C::Output;
 
     fn start(
         machine: &mut C::Machine,
-        driver: &Driver<C::Machine>,
+        driver: &D,
         input: C::Input,
-        done: Done<C::Machine, C::Output>,
+        done: impl FnOnce(&mut C::Machine, &D, Result<C::Output>) + 'static,
     ) {
         let result = C::apply(machine, input);
         done(machine, driver, result);
@@ -191,12 +206,14 @@ impl<C: Compute> Operation<C::Machine, C::Input> for ComputeNode<C> {
 pub(crate) trait SignalInput {
     /// The invocation input that owns the signal handle.
     type Input: 'static;
+    /// The handle the selected driver can await.
+    type Signal;
 
     /// The name displayed for this wait during inspection.
     const NAME: &'static str;
 
     /// Extracts the wait handle from the current invocation’s input.
-    fn take_signal(input: &mut Self::Input) -> Result<Wait<()>>;
+    fn take_signal(input: &mut Self::Input) -> Result<Self::Signal>;
 }
 
 /// Identifies the signal selection used by a wait node.
@@ -213,41 +230,51 @@ impl<S: SignalInput> Label for WaitForSignal<S> {
 }
 
 // Parks with the input and resumes it when the selected signal completes.
-impl<M: 'static, S: SignalInput> Operation<M, S::Input> for WaitForSignal<S> {
+impl<M, D, S: SignalInput> Operation<M, S::Input, D> for WaitForSignal<S>
+where
+    D: Await<M, S::Signal, Output = ()>,
+{
     type Output = S::Input;
 
-    fn start(machine: &mut M, driver: &Driver<M>, mut input: S::Input, done: Done<M, S::Input>) {
+    fn start(
+        machine: &mut M,
+        driver: &D,
+        mut input: S::Input,
+        done: impl FnOnce(&mut M, &D, Result<S::Input>) + 'static,
+    ) {
         match S::take_signal(&mut input) {
-            Ok(signal) => driver.park(
-                signal,
-                Box::new(move |machine, driver, result| {
-                    done(machine, driver, result.map(|()| input));
-                }),
-            ),
+            Ok(signal) => driver.wait(machine, signal, move |machine, driver, result| {
+                done(machine, driver, result.map(|()| input));
+            }),
             Err(error) => done(machine, driver, Err(error)),
         }
     }
 }
 
-/// Marks the point where a device result becomes available to the route.
-pub(crate) struct AwaitDevice;
+/// Awaits work supplied by the preceding node using the selected driver.
+pub(crate) struct AwaitWork;
 
-/// Describes waiting on a device handle supplied by the preceding node.
-pub(crate) fn await_device_completion() -> NodePlan<AwaitDevice> {
+pub(crate) fn await_work() -> NodePlan<AwaitWork> {
     node()
 }
 
-// Names the device-completion boundary for inspection.
-impl Label for AwaitDevice {
-    const LABEL: &'static str = "await device completion";
+impl Label for AwaitWork {
+    const LABEL: &'static str = "await completion";
 }
 
-// Parks on the incoming device handle and forwards its completion value.
-impl<M: 'static, T: 'static> Operation<M, Wait<T>> for AwaitDevice {
-    type Output = T;
+impl<M, D, H> Operation<M, H, D> for AwaitWork
+where
+    D: Await<M, H>,
+{
+    type Output = D::Output;
 
-    fn start(_: &mut M, driver: &Driver<M>, input: Wait<T>, done: Done<M, T>) {
-        driver.park(input, done);
+    fn start(
+        machine: &mut M,
+        driver: &D,
+        input: H,
+        done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
+    ) {
+        driver.wait(machine, input, done);
     }
 }
 
@@ -267,7 +294,7 @@ pub(crate) trait Worker {
 }
 
 /// Carries the runtime completion handle for a particular worker type.
-pub(crate) struct Task<W: Worker>(Wait<W::Output>);
+pub(crate) struct Task<W, H>(H, PhantomData<fn() -> W>);
 
 /// Identifies the worker implementation to launch.
 pub(crate) struct Spawn<W>(PhantomData<fn() -> W>);
@@ -283,11 +310,22 @@ impl<W: Worker> Label for Spawn<W> {
 }
 
 // Submits work to the driver and forwards the worker handle.
-impl<M: 'static, W: Worker + 'static> Operation<M, W::Input> for Spawn<W> {
-    type Output = Task<W>;
+impl<M, D: SpawnWorker, W: Worker + 'static> Operation<M, W::Input, D> for Spawn<W> {
+    type Output = Task<W, D::Work<W::Output>>;
 
-    fn start(machine: &mut M, driver: &Driver<M>, input: W::Input, done: Done<M, Self::Output>) {
-        done(machine, driver, driver.spawn(W::run, input).map(Task));
+    fn start(
+        machine: &mut M,
+        driver: &D,
+        input: W::Input,
+        done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
+    ) {
+        done(
+            machine,
+            driver,
+            driver
+                .spawn(W::run, input)
+                .map(|work| Task(work, PhantomData)),
+        );
     }
 }
 
@@ -299,16 +337,22 @@ pub(crate) fn await_task<W: Worker>() -> NodePlan<AwaitTask<W>> {
     node()
 }
 
-// Names the worker-result boundary for inspection.
 impl<W> Label for AwaitTask<W> {
     const LABEL: &'static str = "await worker result";
 }
 
-// Parks on the worker handle until its result is ready.
-impl<M: 'static, W: Worker> Operation<M, Task<W>> for AwaitTask<W> {
+impl<M, D, W: Worker, H> Operation<M, Task<W, H>, D> for AwaitTask<W>
+where
+    D: Await<M, H, Output = W::Output>,
+{
     type Output = W::Output;
 
-    fn start(_: &mut M, driver: &Driver<M>, input: Task<W>, done: Done<M, Self::Output>) {
-        driver.park(input.0, done);
+    fn start(
+        machine: &mut M,
+        driver: &D,
+        input: Task<W, H>,
+        done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
+    ) {
+        driver.wait(machine, input.0, done);
     }
 }

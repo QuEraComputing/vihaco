@@ -4,10 +4,13 @@
 //! A linear control step with no effect receivers or asynchronous work.
 
 use crate::framework::{
-    Annotation, Describe, Driver, Route, Run, build_message_at, edge, instruction_at, step_graph,
+    Annotation, ChannelDriver, Describe, Route, Run, build_message_at, edge, instruction_at,
+    step_graph,
 };
 use eyre::{Result, eyre};
-use vihaco_runtime::{Dispatch, Execute, NoMessage, Step, component, composite, dialect, field};
+use vihaco_runtime::{
+    BuildMessage, Dispatch, Execute, NoMessage, Step, component, composite, dialect, field,
+};
 
 #[dialect]
 #[vihaco(crate = ::vihaco_runtime)]
@@ -55,7 +58,14 @@ impl Annotation for ConnectionKind {
     const VALUE: &'static &str = &"local register bus";
 }
 
-fn route() -> Route<ops::Add, impl Run<Machine, ops::Add, Output = ()> + Describe> {
+impl BuildMessage<CounterField, ops::Add, (), NoMessage> for Machine {
+    fn build_message(&mut self, _: &ops::Add, _: &()) -> Result<NoMessage> {
+        Ok(NoMessage::new())
+    }
+}
+
+fn route()
+-> Route<ops::Add, impl Run<Machine, ops::Add, ChannelDriver<Machine>, Output = ()> + Describe> {
     step_graph::<ops::Add>()
         .begin(build_message_at::<CounterField>())
         .then_execute_via(
@@ -65,9 +75,9 @@ fn route() -> Route<ops::Add, impl Run<Machine, ops::Add, Output = ()> + Describ
         .finish()
 }
 
-impl Step<CounterField, ops::Add, Driver<Self>> for Machine {
-    fn step(&mut self, instruction: &ops::Add, driver: &Driver<Self>) -> Result<()> {
-        route().start(self, driver, ops::Add(instruction.0));
+impl Step<CounterField, ops::Add, ChannelDriver<Self>> for Machine {
+    fn step(&mut self, instruction: &ops::Add, driver: &ChannelDriver<Self>) -> Result<()> {
+        driver.start(self, &route(), ops::Add(instruction.0));
         Ok(())
     }
 }
@@ -84,7 +94,7 @@ pub(crate) fn demo() -> Result<()> {
     topology.print("Counter / Add");
 
     let mut machine = Machine::default();
-    let driver = Driver::new();
+    let driver = ChannelDriver::new();
     machine.dispatch(
         &__vihaco_MachineInstruction::V_counter__ops__Add(ops::Add(5)),
         &driver,

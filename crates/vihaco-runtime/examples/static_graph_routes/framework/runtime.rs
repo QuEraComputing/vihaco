@@ -3,20 +3,75 @@
 
 //! The driver keeps all per-invocation state, including parked continuations.
 
+use super::graph::{Route, Run};
 use eyre::{Result, eyre};
 use std::{
     cell::RefCell,
     collections::VecDeque,
+    future::Future,
     sync::mpsc::{self, Receiver, Sender, TryRecvError},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    task::{Context, Poll as TaskPoll, Wake, Waker},
     thread,
     time::Duration,
 };
 
-/// A one-shot continuation that receives a node or path result.
-pub(crate) type Done<M, T> = Box<dyn FnOnce(&mut M, &Driver<M>, Result<T>)>;
+/// Waits for driver-specific work and delivers its typed result once.
+pub(crate) trait Await<M, H> {
+    type Output: 'static;
 
-/// Checks one parked continuation and reports whether it completed.
-type Poll<M> = Box<dyn FnMut(&mut M, &Driver<M>) -> bool>;
+    fn wait(
+        &self,
+        machine: &mut M,
+        handle: H,
+        done: impl FnOnce(&mut M, &Self, Result<Self::Output>) + 'static,
+    );
+}
+
+/// Submits a worker and returns the driver's own completion handle.
+pub(crate) trait SpawnWorker {
+    type Work<T: Send + 'static>: 'static;
+
+    fn spawn<I, O>(&self, work: fn(I) -> Result<O>, input: I) -> Result<Self::Work<O>>
+    where
+        I: Send + 'static,
+        O: Send + 'static;
+}
+
+/// Lets an async route node submit the opaque future returned by async Rust.
+pub(crate) trait FutureDriver<M> {
+    fn run_future<T: 'static>(
+        &self,
+        machine: &mut M,
+        future: impl Future<Output = Result<T>> + 'static,
+        done: impl FnOnce(&mut M, &Self, Result<T>) + 'static,
+    );
+}
+
+pub(crate) struct RustFuture<F>(pub(crate) F);
+
+impl<M, D, F, T: 'static> Await<M, RustFuture<F>> for D
+where
+    D: FutureDriver<M>,
+    F: Future<Output = Result<T>> + 'static,
+{
+    type Output = T;
+
+    fn wait(
+        &self,
+        machine: &mut M,
+        RustFuture(future): RustFuture<F>,
+        done: impl FnOnce(&mut M, &Self, Result<T>) + 'static,
+    ) {
+        self.run_future(machine, future, done);
+    }
+}
+
+// The example drivers erase future poll jobs when they need to store them.
+pub(crate) type PollJob<M, D> = Box<dyn FnMut(&mut M, &D) -> bool>;
 
 /// The receiving half of a one-shot completion channel.
 pub(crate) struct Wait<T>(Receiver<Result<T>>);
@@ -48,16 +103,35 @@ impl<T> Drop for Signal<T> {
     }
 }
 
+struct FutureWake {
+    ready: AtomicBool,
+    notify: Option<Sender<()>>,
+}
+
+impl Wake for FutureWake {
+    fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        if !self.ready.swap(true, Ordering::AcqRel)
+            && let Some(notify) = &self.notify
+        {
+            let _ = notify.send(());
+        }
+    }
+}
+
 /// Owns the parked continuations, wake channel, and terminal outcomes.
-pub(crate) struct Driver<M> {
+pub(crate) struct ChannelDriver<M> {
     wake: Receiver<()>,
     sender: Sender<()>,
-    pending: RefCell<Vec<Poll<M>>>,
+    pending: RefCell<Vec<PollJob<M, Self>>>,
     finished: RefCell<VecDeque<Result<()>>>,
 }
 
 // Runs ready callbacks on the driver thread with a fresh borrow of the machine.
-impl<M: 'static> Driver<M> {
+impl<M: 'static> ChannelDriver<M> {
     /// Creates an empty driver with its own wake channel.
     pub(crate) fn new() -> Self {
         let (sender, wake) = mpsc::channel();
@@ -81,33 +155,14 @@ impl<M: 'static> Driver<M> {
         )
     }
 
-    /// Runs the supplied work on a standard-library thread.
-    pub(crate) fn spawn<I, O>(&self, work: fn(I) -> Result<O>, input: I) -> Result<Wait<O>>
+    /// Starts a route and queues its terminal result for the example caller.
+    pub(crate) fn start<I, P>(&self, machine: &mut M, route: &Route<I, P>, instruction: I)
     where
-        I: Send + 'static,
-        O: Send + 'static,
+        P: Run<M, I, Self, Output = ()>,
     {
-        let (signal, wait) = self.signal();
-        thread::Builder::new().spawn(move || signal.complete(work(input)))?;
-        Ok(wait)
-    }
-
-    /// Retains a callback and wait endpoint until a result is available.
-    pub(crate) fn park<T: 'static>(&self, wait: Wait<T>, done: Done<M, T>) {
-        let mut done = Some(done);
-        self.pending
-            .borrow_mut()
-            .push(Box::new(move |machine, driver| {
-                let result = match wait.0.try_recv() {
-                    Ok(result) => result,
-                    Err(TryRecvError::Empty) => return false,
-                    Err(TryRecvError::Disconnected) => {
-                        Err(eyre!("signal closed before completion"))
-                    }
-                };
-                done.take().expect("pending work completes once")(machine, driver, result);
-                true
-            }));
+        route.start_with(machine, self, instruction, |_, driver, result| {
+            driver.complete(result)
+        });
     }
 
     /// Resumes ready callbacks from the current queue and returns their count.
@@ -145,5 +200,92 @@ impl<M: 'static> Driver<M> {
                 self.wake.recv_timeout(Duration::from_secs(5))?;
             }
         }
+    }
+}
+
+impl<M: 'static> SpawnWorker for ChannelDriver<M> {
+    type Work<T: Send + 'static> = Wait<T>;
+
+    fn spawn<I, O>(&self, work: fn(I) -> Result<O>, input: I) -> Result<Wait<O>>
+    where
+        I: Send + 'static,
+        O: Send + 'static,
+    {
+        let (signal, wait) = self.signal();
+        thread::Builder::new().spawn(move || signal.complete(work(input)))?;
+        Ok(wait)
+    }
+}
+
+impl<M: 'static, T: 'static> Await<M, Wait<T>> for ChannelDriver<M> {
+    type Output = T;
+
+    fn wait(
+        &self,
+        _: &mut M,
+        wait: Wait<T>,
+        done: impl FnOnce(&mut M, &Self, Result<T>) + 'static,
+    ) {
+        let mut done = Some(done);
+        self.pending
+            .borrow_mut()
+            .push(Box::new(move |machine, driver| {
+                let result = match wait.0.try_recv() {
+                    Ok(result) => result,
+                    Err(TryRecvError::Empty) => return false,
+                    Err(TryRecvError::Disconnected) => {
+                        Err(eyre!("signal closed before completion"))
+                    }
+                };
+                done.take().expect("pending work completes once")(machine, driver, result);
+                true
+            }));
+    }
+}
+
+impl<M: 'static> FutureDriver<M> for ChannelDriver<M> {
+    fn run_future<T: 'static>(
+        &self,
+        machine: &mut M,
+        future: impl Future<Output = Result<T>> + 'static,
+        done: impl FnOnce(&mut M, &Self, Result<T>) + 'static,
+    ) {
+        if let Some(job) = poll_future(machine, self, Some(self.sender.clone()), future, done) {
+            self.pending.borrow_mut().push(job);
+        }
+    }
+}
+
+/// Polls once and returns a job only if the future still needs its driver.
+pub(crate) fn poll_future<M, D, T: 'static>(
+    machine: &mut M,
+    driver: &D,
+    notify: Option<Sender<()>>,
+    future: impl Future<Output = Result<T>> + 'static,
+    done: impl FnOnce(&mut M, &D, Result<T>) + 'static,
+) -> Option<PollJob<M, D>> {
+    let wake = Arc::new(FutureWake {
+        ready: AtomicBool::new(true),
+        notify,
+    });
+    let waker = Waker::from(Arc::clone(&wake));
+    let mut future = Box::pin(future);
+    let mut done = Some(done);
+    let mut job = move |machine: &mut M, driver: &D| {
+        if !wake.ready.swap(false, Ordering::AcqRel) {
+            return false;
+        }
+        match future.as_mut().poll(&mut Context::from_waker(&waker)) {
+            TaskPoll::Pending => false,
+            TaskPoll::Ready(result) => {
+                done.take().expect("future completes once")(machine, driver, result);
+                true
+            }
+        }
+    };
+    if job(machine, driver) {
+        None
+    } else {
+        Some(Box::new(job))
     }
 }

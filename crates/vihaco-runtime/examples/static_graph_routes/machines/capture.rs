@@ -6,9 +6,9 @@
 mod processing;
 
 use crate::framework::{
-    Annotation, Describe, Driver, Prepared, Receive, Route, Run, SignalInput, Wait,
-    await_device_completion, await_task, build_message_at, compute, edge, fork_join,
-    instruction_at, receive_effect_at, spawn_task, step_graph, wait_for_signal,
+    Annotation, ChannelDriver, Describe, Prepared, Receive, Route, Run, SignalInput, Wait,
+    await_task, await_work, build_message_at, compute, edge, fork_join, instruction_at,
+    receive_effect_at, spawn_task, step_graph, wait_for_signal,
 };
 use eyre::{Result, eyre};
 use processing::{AnalyzeCapture, CompareResults, PredictResponse, SplitCapture};
@@ -98,6 +98,7 @@ impl BuildMessage<DigitizerField, ops::Capture, (), Inputs> for Machine {
 struct ArmSignal;
 impl SignalInput for ArmSignal {
     type Input = Prepared<ops::Capture, Inputs>;
+    type Signal = Wait<()>;
     const NAME: &'static str = "wait for arm";
 
     fn take_signal(input: &mut Self::Input) -> Result<Wait<()>> {
@@ -120,7 +121,10 @@ impl Annotation for ResultSink {
     const VALUE: &'static bool = &true;
 }
 
-fn route() -> Route<ops::Capture, impl Run<Machine, ops::Capture, Output = ()> + Describe> {
+fn route() -> Route<
+    ops::Capture,
+    impl Run<Machine, ops::Capture, ChannelDriver<Machine>, Output = ()> + Describe,
+> {
     step_graph::<ops::Capture>()
         .begin(build_message_at::<DigitizerField>())
         .then(wait_for_signal::<ArmSignal>())
@@ -128,7 +132,7 @@ fn route() -> Route<ops::Capture, impl Run<Machine, ops::Capture, Output = ()> +
         .then(fork_join(
             compute::<SplitCapture>(),
             spawn_task::<PredictResponse>().then(await_task::<PredictResponse>()),
-            await_device_completion()
+            await_work()
                 .then(spawn_task::<AnalyzeCapture>())
                 .then(await_task::<AnalyzeCapture>()),
         ))
@@ -140,9 +144,9 @@ fn route() -> Route<ops::Capture, impl Run<Machine, ops::Capture, Output = ()> +
         .finish()
 }
 
-impl Step<DigitizerField, ops::Capture, Driver<Self>> for Machine {
-    fn step(&mut self, instruction: &ops::Capture, driver: &Driver<Self>) -> Result<()> {
-        route().start(self, driver, ops::Capture(instruction.0));
+impl Step<DigitizerField, ops::Capture, ChannelDriver<Self>> for Machine {
+    fn step(&mut self, instruction: &ops::Capture, driver: &ChannelDriver<Self>) -> Result<()> {
+        driver.start(self, &route(), ops::Capture(instruction.0));
         Ok(())
     }
 }
@@ -161,12 +165,12 @@ pub(crate) fn demo() -> Result<()> {
     topology.print("Digitizer / Capture");
 
     let mut machine = Machine::default();
-    let driver = Driver::new();
+    let driver = ChannelDriver::new();
     for (index, (expected, measured)) in [(8, 10), (30, 27)].into_iter().enumerate() {
         let (arm, armed) = driver.signal();
         let (device, finished) = driver.signal();
         machine.next_inputs = Some((armed, finished));
-        route.start(&mut machine, &driver, ops::Capture(expected));
+        driver.start(&mut machine, &route, ops::Capture(expected));
         assert_eq!(machine.digitizer.0, index);
         assert_eq!(driver.poll_ready(&mut machine), 0);
 

@@ -3,6 +3,9 @@
 
 //! Static route descriptions and the driver that interprets them.
 
+// A parked async instruction can hold an exclusive component lease.
+mod async_execution;
+
 // Static graph composition, metadata, and topology inspection.
 mod graph;
 
@@ -17,14 +20,16 @@ mod runtime;
 #[allow(dead_code)]
 pub(crate) mod synchronous;
 
+pub(crate) use async_execution::{AsyncExecute, AsyncSlot, async_instruction_at};
+
 // The graph builder and the bounds used in route signatures.
 pub(crate) use graph::{Annotation, Describe, Route, Run, edge, fork_join, step_graph};
 
 // Built-in constructors and application extension points.
 pub(crate) use operations::{
-    Compute, Prepared, Receive, SignalInput, Worker, await_device_completion, await_task,
-    build_message_at, compute, instruction_at, receive_effect_at, spawn_task, wait_for_signal,
+    Compute, Prepared, Receive, SignalInput, Worker, await_task, await_work, build_message_at,
+    compute, instruction_at, receive_effect_at, spawn_task, wait_for_signal,
 };
 
 // The runtime driver and the owned wait handle used by asynchronous nodes.
-pub(crate) use runtime::{Driver, Wait};
+pub(crate) use runtime::{Await, ChannelDriver, FutureDriver, PollJob, Wait, poll_future};

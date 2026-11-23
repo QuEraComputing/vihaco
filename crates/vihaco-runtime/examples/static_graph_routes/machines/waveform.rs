@@ -6,12 +6,14 @@
 mod metadata;
 
 use crate::framework::{
-    Compute, Describe, Driver, Receive, Route, Run, build_message_at, compute, edge, fork_join,
-    instruction_at, receive_effect_at, step_graph,
+    ChannelDriver, Compute, Describe, Receive, Route, Run, build_message_at, compute, edge,
+    fork_join, instruction_at, receive_effect_at, step_graph,
 };
 use eyre::{Result, ensure};
 use metadata::{AuditBus, Bus, Critical, DacBus, JoinLabel};
-use vihaco_runtime::{Execute, Field, NoMessage, Step, component, composite, dialect, field};
+use vihaco_runtime::{
+    BuildMessage, Execute, Field, NoMessage, Step, component, composite, dialect, field,
+};
 
 #[dialect]
 #[vihaco(crate = ::vihaco_runtime)]
@@ -116,7 +118,14 @@ impl Compute for RecordDelivery {
     }
 }
 
-fn route() -> Route<ops::Fire, impl Run<Machine, ops::Fire, Output = ()> + Describe> {
+impl BuildMessage<SourceField, ops::Fire, (), NoMessage> for Machine {
+    fn build_message(&mut self, _: &ops::Fire, _: &()) -> Result<NoMessage> {
+        Ok(NoMessage::new())
+    }
+}
+
+fn route()
+-> Route<ops::Fire, impl Run<Machine, ops::Fire, ChannelDriver<Machine>, Output = ()> + Describe> {
     step_graph::<ops::Fire>()
         .begin(build_message_at::<SourceField>())
         .then_execute(instruction_at::<SourceField>())
@@ -135,9 +144,9 @@ fn route() -> Route<ops::Fire, impl Run<Machine, ops::Fire, Output = ()> + Descr
         .finish()
 }
 
-impl Step<SourceField, ops::Fire, Driver<Self>> for Machine {
-    fn step(&mut self, instruction: &ops::Fire, driver: &Driver<Self>) -> Result<()> {
-        route().start(self, driver, ops::Fire(instruction.0));
+impl Step<SourceField, ops::Fire, ChannelDriver<Self>> for Machine {
+    fn step(&mut self, instruction: &ops::Fire, driver: &ChannelDriver<Self>) -> Result<()> {
+        driver.start(self, &route(), ops::Fire(instruction.0));
         Ok(())
     }
 }
@@ -172,8 +181,8 @@ pub(crate) fn demo() -> Result<()> {
     topology.print("Waveform / Fire");
 
     let mut machine = Machine::default();
-    let driver = Driver::new();
-    route.start(&mut machine, &driver, ops::Fire(10));
+    let driver = ChannelDriver::new();
+    driver.start(&mut machine, &route, ops::Fire(10));
     driver.run_until_complete(&mut machine)?;
     assert_eq!(machine.dac.0, [[-4, 0, 4]]);
     assert_eq!(machine.monitor.0, [[-10, 0, 10]]);

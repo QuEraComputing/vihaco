@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Three machines built from static, inspectable route descriptions.
+//! Machines built from static, inspectable route descriptions.
 //!
 //! cargo run -p vihaco-runtime --example static_graph_routes --features typed-declarations
 
@@ -13,12 +13,19 @@ mod machines;
 fn main() -> eyre::Result<()> {
     machines::counter::demo()?;
     machines::waveform::demo()?;
-    machines::capture::demo()
+    machines::capture::demo()?;
+    machines::async_capture::demo()?;
+    machines::warehouse::demo()
 }
 
 #[cfg(test)]
 mod tests {
     use super::machines;
+
+    #[test]
+    fn simulated_printer_completes_at_scheduled_tick() -> eyre::Result<()> {
+        machines::warehouse::demo()
+    }
 
     #[test]
     fn linear_counter_step() -> eyre::Result<()> {
