@@ -368,8 +368,9 @@ and instructions that fail to lower, such as an unresolved <code>@name</code>. A
 directive does not stop the <code>.text</code> checks: they run against the directives
 that were fine. Use <code>ProgramChecker</code> to select sections with
 <code>require_sections</code>, parse an application header with
-<code>with_header::&#x3C;Declarations&#x3C;YourDeclaration>>()</code>, or lower with your own
-context. <code>check_framing</code> needs no machine, and <code>check_file</code> accepts any
+<code>with_header::&#x3C;Declarations&#x3C;YourDeclaration>>()</code> and check its application
+rules with <code>with_header_validation</code>, or lower with your own context.
+<code>check_framing</code> needs no machine, and <code>check_file</code> accepts any
 <code>SectionChecker</code> for other header or instruction grammars.</p>
 <h2 id="formatting-sst-files">Formatting SST files</h2>
 <p><code>vihaco-sst</code> also formats SST files into one canonical layout. Like the checker,
@@ -421,11 +422,12 @@ has the same headers, code, symbols, and comments as the input.</p>
 <h3 id="layout">Layout</h3>
 <ul>
 <li>Block directives start at column 0, one per line; a directive’s comment
-follows it after two spaces. One blank line precedes <code>.global</code> and every
-<code>.section</code>. <code>.header</code> and <code>.text</code> follow without a blank line and keep their
-order.</li>
-<li><code>.global</code> content is consumer-defined and kept verbatim, except that trailing
-whitespace and trailing blank lines are removed.</li>
+follows it after two spaces. One blank line precedes <code>.global</code> and each
+<code>.section</code>, except that the first section after <code>.global</code> keeps its spacing.
+<code>.header</code> and <code>.text</code> follow without a blank line and keep their order.</li>
+<li>The consumer defines the grammar for the <code>.global</code> body. The formatter
+preserves every byte of the body, including whitespace before the next
+section.</li>
 <li>Header directives are indented four spaces under <code>.header</code>, like
 instructions under <code>.text</code>, one per line, in source order. Indentation is
 only layout: the parser ignores it.
@@ -436,7 +438,7 @@ stays on one line; an application directive with a list or record that does
 not fit in <code>max_width</code> (80 columns by default), or that carries comments, is
 broken one item per line inside its brackets with a trailing comma, like
 rustfmt. Tuples and declarations whose pattern needs its punctuation on one
-line are never broken.</li>
+line stay on one line when possible.</li>
 <li>In <code>.text</code>, each symbol definition and each instruction gets its own line:
 <code>@name:</code> at column 0 and instructions indented four spaces.</li>
 <li>Blank lines between items are kept, collapsed to at most one. Blank lines at
@@ -446,8 +448,9 @@ item they describe and at its indentation, one line per note.</li>
 <li>Trailing user comments of a block are aligned to one column: two spaces past
 the longest commented line, but no further than <code>comment_column</code> (column 60
 by default). Longer lines put their comment two spaces after the code.</li>
-<li>Lines have no trailing whitespace, line endings become <code>\n</code>, and the file
-ends with a single newline.</li>
+<li>Formatted lines have no trailing whitespace and use <code>\n</code> line endings. The
+formatter ends the file with a single newline when the final block is
+formatted.</li>
 </ul>
 <h3 id="comments">Comments</h3>
 <p>A <code>;</code> comment on its own line stays above the item that follows it. A trailing
@@ -458,7 +461,9 @@ was written in: comments after the last item of a <code>.header</code> or <code>
 the end of that block, after a blank line if there was one. When one item had
 several trailing comments, the first stays trailing and the others move above
 the item. If a comment’s position inside a declaration cannot be matched to the
-printed declaration, it is moved above the declaration. A comment outside
+printed declaration, it is moved above the declaration. A multiline
+declaration with an inline <code>;;</code> comment keeps its line breaks so the
+comment remains a user comment. A comment outside
 every block (before <code>sst v2</code>, before the first <code>.global</code> or <code>.section</code>, or
 between <code>.section</code> and its first block) stays directly above the directive
 that follows it.</p>
@@ -754,7 +759,7 @@ and compatibility planning.</p> </article>  <nav class="section-pager" aria-labe
           mqNav.addEventListener("change", () => setOpen(false));
         }
       })();
-    </script><script>
+    </script> <script>
       // Inject a copy button into every <pre> block.
       (() => {
         const COPY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
@@ -799,7 +804,7 @@ and compatibility planning.</p> </article>  <nav class="section-pager" aria-labe
           });
         }
       })();
-    </script><script>
+    </script> <script>
       // Theme switcher: light / dark / auto, persisted in localStorage.
       (() => {
         const root = document.documentElement;
@@ -825,7 +830,7 @@ and compatibility planning.</p> </article>  <nav class="section-pager" aria-labe
           if (readPref() === "auto") apply("auto");
         });
       })();
-    </script><button type="button" class="back-to-top" aria-label="Back to top" hidden> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M12 19V5"></path> <path d="m5 12 7-7 7 7"></path> </svg> </button> <script>
+    </script> <button type="button" class="back-to-top" aria-label="Back to top" hidden> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"> <path d="M12 19V5"></path> <path d="m5 12 7-7 7 7"></path> </svg> </button> <script>
       (() => {
         const btn = document.querySelector(".back-to-top");
         if (!btn) return;
@@ -842,12 +847,12 @@ and compatibility planning.</p> </article>  <nav class="section-pager" aria-labe
         window.addEventListener("resize", sync);
         sync();
       })();
-    </script><footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-11-15</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script><script>
+    </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
+          documentation generated <time>2026-11-23</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {
           hljs.highlightElement(el);
         }
       })();
-    </script></body> </html>
+    </script> </body> </html>
