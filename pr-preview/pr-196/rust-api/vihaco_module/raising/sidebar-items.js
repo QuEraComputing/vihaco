@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["decode_canonical","header_directives"],"struct":["RaiseContext"],"trait":["ExtraDirectives","FunctionNames","LabelNames","StringTable"]};
