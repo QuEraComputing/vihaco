@@ -114,6 +114,12 @@ table in a different order from the code, a helper call, and a forward branch.</
 <pre><code class="language-sh">cargo run -p vihaco-stdlib --features program-image-execution --example loadable
 </code></pre>
 <p>The result is <code>[42]</code>. To try another file, pass its source path after <code>--</code>.
+Instead of running, <code>--check</code> reports every problem in the file, <code>--fmt</code> (or
+<code>--fmt-plain</code>, without generated notes) prints it formatted, and <code>--disasm</code>
+loads it and prints the loaded program
+<a href="/vihaco/guide/sst-reference#disassembling-programs">disassembled</a> back to SST. The
+<code>heterogeneous</code> example in the same directory loads a file whose two sections
+target different machines.
 Once construction finishes, the loader drops the file view and source. The image
 owns the runtime instructions and metadata it needs.</p>
 <p><a href="/vihaco/guide/instructions-advanced">Binary formats</a> covers loading encoded programs.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/guide/parser" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Parsing source</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/guide/sst-reference" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Emitting SST from a compiler</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#read-a-section" data-toc-link="#read-a-section">Read a section</a></li><li><a href="#collect-declarations-before-lowering" data-toc-link="#collect-declarations-before-lowering">Collect declarations before lowering</a></li><li><a href="#prepare-capabilities-and-lower" data-toc-link="#prepare-capabilities-and-lower">Prepare capabilities and lower</a></li><li><a href="#run-the-complete-example" data-toc-link="#run-the-complete-example">Run the complete example</a></li> </ol> </details> </div> </main> <script>
@@ -268,7 +274,7 @@ owns the runtime instructions and metadata it needs.</p>
         sync();
       })();
     </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-11-20</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
+          documentation generated <time>2026-11-23</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

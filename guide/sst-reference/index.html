@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="The SST file structure, line rules, header directives, and instruction syntax a compiler must produce."><title>Emitting SST from a compiler — vihaco</title><script>
+<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="The SST file structure, line rules, header directives, and instruction syntax a compiler must produce, and the checker, formatter, and disassembler."><title>Emitting SST from a compiler — vihaco</title><script>
       (() => {
         // localStorage can throw when storage is blocked (hardened privacy
         // settings, sandboxed frames); fall back to "auto" so the theme still
@@ -528,8 +528,175 @@ table. For an application header, use <code>Formatter::with_checker</code> with 
 checker you would use for <code>ProgramChecker</code>, for example
 <code>ProgramChecker::&#x3C;Machine>::new().with_header::&#x3C;Declarations&#x3C;YourDeclaration>>()</code>.
 The standard directives inside an application header get the same notes.</p>
+<h3 id="sections-for-different-machines">Sections for different machines</h3>
+<p>Sections are loaded independently, so one file can hold programs for
+different machines, such as a controller and an FPGA. <code>check_program::&#x3C;M></code> and
+<code>format_program::&#x3C;M></code> apply one machine to every section; for a mixed file,
+register a machine per section name with <code>FileChecker</code> and <code>FileFormatter</code>:</p>
+<pre><code class="language-rust">use vihaco_sst::{FileChecker, FileFormatter, SourceFile};
+
+/// The second machine: program control and a pulse generator.
+#[composite]
+struct Fpga {
+    #[device(0)]
+    #[program]
+    execution: vihaco_stdlib::ExecutionState,
+    #[device(1)]
+    pulser: Pulser,
+}
+
+fn main() {
+    let text = "sst v2\n\
+        .section main\n.header\n.func @main() -> u64, locals 0\n.text\n@main:\n\
+        execution::program::const_u64 1\ncalculator::arithmetic::add\n\
+        .section fpga\n.header\n.func @play(), locals 0\n.text\n@play:\npulser::pulse::wait 10\n";
+    let source = SourceFile::new("two.sst", text);
+    let mut checker = FileChecker::new().section::&#x3C;Machine>("main").section::&#x3C;Fpga>("fpga");
+    assert!(checker.check(&#x26;source).is_ok());
+
+    let formatted = FileFormatter::new()
+        .section::&#x3C;Machine>("main")
+        .section::&#x3C;Fpga>("fpga")
+        .format(&#x26;source)
+        .unwrap();
+    assert!(formatted.contains("\n@play:\n    pulser::pulse::wait 10\n"));
+
+    // Each section is checked against its own machine only.
+    let mixed = SourceFile::new("two.sst", text.replace("wait 10", "wait 10\ncalculator::arithmetic::add"));
+    let messages: Vec&#x3C;String> = checker.check(&#x26;mixed).iter().map(ToString::to_string).collect();
+    assert_eq!(messages, ["15:1: error: expected an instruction, found `calculator::arithmetic::add`"]);
+}
+</code></pre>
+<p>A section is checked and formatted by the machine registered for its name,
+or by the default set with <code>default_section::&#x3C;M>()</code>; a section with neither is
+an error (<code>no machine is registered for section `dsp` </code>), and so is a
+registered section the file lacks. <code>section_with</code> and <code>default_with</code> accept a
+configured <code>ProgramChecker</code> or <code>Formatter</code>, for example one with an
+application header. The <code>.global</code> block belongs to the file: set its grammar
+with <code>with_global_context::&#x3C;C>()</code> on the <code>FileChecker</code> or <code>FileFormatter</code>.</p>
+<h2 id="disassembling-programs">Disassembling programs</h2>
+<p>A disassembler goes the other way: from loaded programs back to SST. Each
+loaded <code>LocalModule</code> becomes one section. Its header is rebuilt from the
+module’s tables and its instructions are raised back to source syntax, the
+inverse of lowering. The output goes through the formatter’s writer, so it has
+the same layout and <code>;;</code> notes as <code>format_program</code>:</p>
+<pre><code class="language-rust">use vihaco::{HasInstructionSet, NoContext, SSTFile, Type, Value};
+use vihaco::loader::MetadataLoweringContext;
+use vihaco::module::{LocalModule, NoInfo, ProgramDirective, ProgramHeader};
+use vihaco::syntax::{HeaderDeclarations, ParsedModule, lower_code_with_metadata};
+use vihaco_sst::{Disassembler, FormatOptions, SourceFile, format_program};
+
+type Program = LocalModule&#x3C;&#x3C;Machine as HasInstructionSet>::Runtime, Value, Type>;
+
+/// Load the `main` section, as in "Validate compiler output".
+fn load(source: &#x26;str) -> eyre::Result&#x3C;Program> {
+    let file = SSTFile::&#x3C;NoContext>::from_text(source)?;
+    let section = file.section("main").ok_or_else(|| eyre::eyre!("missing main section"))?;
+    let ParsedModule { header, code, symbols } = ParsedModule::&#x3C;
+        &#x3C;Machine as HasInstructionSet>::Syntax, HeaderDeclarations&#x3C;ProgramDirective>
+    >::parse_section(section)?;
+    let mut metadata = header.into_iter().collect::&#x3C;ProgramHeader>().finish(NoInfo)?;
+    let mut context = MetadataLoweringContext::new(&#x26;metadata, &#x26;symbols)?;
+    let code = lower_code_with_metadata(code, &#x26;symbols, &#x26;metadata, &#x26;mut context)?;
+    metadata.strings = context.into_strings();
+    metadata.into_module(code, symbols)
+}
+
+fn main() -> eyre::Result&#x3C;()> {
+    let module = load(include_str!("first-machine.sst"))?;
+    let text = Disassembler::new()
+        .section::&#x3C;Machine>("main", &#x26;module)
+        .finish(FormatOptions::default())?;
+
+    // The disassembly loads back to the same program...
+    assert_eq!(load(&#x26;text)?, module);
+    // ...and is exactly the formatted source, which has no user comments.
+    let source = SourceFile::new("first-machine.sst", include_str!("first-machine.sst"));
+    assert_eq!(format_program::&#x3C;Machine>(&#x26;source, FormatOptions::default()).unwrap(), text);
+    Ok(())
+}
+</code></pre>
+<p>Add one section per program, in output order, each with its own machine:
+<code>.section::&#x3C;Controller>("controller", &#x26;controller).section::&#x3C;Fpga>("fpga", &#x26;fpga)</code>. <code>section</code> writes the standard header; <code>section_with::&#x3C;M, D></code> writes an
+application header of declarations <code>D</code>, and <code>section_with_formatter</code> takes a
+configured <code>Formatter</code> (for annotators or a custom lowering context).</p>
+<h3 id="what-a-disassembly-contains">What a disassembly contains</h3>
+<ul>
+<li><strong>Header.</strong> First the application directives for the module’s <code>extra</code>
+metadata, from its <code>ExtraDirectives&#x3C;D></code> implementation (<code>NoInfo</code> has none).
+For the <a href="/vihaco/guide/parser-advanced#run-the-complete-example">loadable example</a>,
+<code>ExperimentInfo</code> returns its <code>experiment.description</code>, and the declaration
+enum implements <code>From&#x3C;ProgramDirective></code> so the standard directives can be
+wrapped. Then the standard directives, from
+<code>vihaco::raising::header_directives</code>: one <code>.file</code> before each run of
+<code>.func</code>s that share a file (none for a leading run in the empty file <code>""</code>),
+every <code>.func</code> in table order with its signature and <code>locals</code>, the <code>.entry</code>,
+every <code>.const</code> (string constants as <code>.const str "text"</code>, function references
+as <code>.const fn @name</code>), and every <code>.source_symbol</code>.</li>
+<li><strong>Text.</strong> Every symbol in the module’s symbol table and every instruction,
+in address order; symbols at one address keep their table order. A function
+without a symbol gets <code>@name:</code> at its start address. A branch target without
+a symbol gets a synthesized label: <code>@L</code> and the address in at least four
+lowercase hex digits, such as <code>@L0006:</code>, or <code>@L0006_1</code> if that name is
+taken.</li>
+</ul>
+<p>Loading the output gives back the same code, functions, constants, entry
+function, and source symbols, and the symbol table plus any synthesized
+symbols. String operands resolve to the same text; for a module loaded from
+SST, the string table is identical too. The disassembler checks its output
+with each section’s checker and reads it back before returning it.</p>
+<p>A program that SST cannot express exactly is an error, not a different
+program: a call to an address where no function starts, a function whose
+range does not end where the next function starts, a word that no literal
+lowers to (such as a <code>const_bool</code> word other than <code>0</code> or <code>1</code>), or a value with
+no faithful spelling, such as a NaN <code>f64</code> operand.</p>
+<h3 id="raising-instructions">Raising instructions</h3>
+<p>Raising is the inverse of lowering: <code>Raise&#x3C;C></code> turns a runtime instruction
+back into its syntax form, looking up names through capabilities on the
+context <code>C</code>, as <code>Lower&#x3C;C></code> does. Dialect leaves whose syntax and runtime
+operands are the same get an identity <code>Raise</code> from <code>#[dialect]</code>, and
+<code>#[composite]</code> raises its instruction enum through its devices. A leaf with
+<code>$0:Target</code>-style operands needs a hand-written <code>Raise</code> next to its <code>Lower</code>;
+<code>vihaco-cpu</code> and the standard <code>program</code> dialect ship theirs. The
+capabilities, in <code>vihaco::raising</code>, mirror the lowering ones:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Lowering capability</th><th>Raising capability</th><th><code>RaiseContext</code> answer</th></tr></thead><tbody><tr><td><code>LabelLookup::label_address(name)</code></td><td><code>LabelNames::label_name(address)</code></td><td>the first symbol at the address</td></tr><tr><td><code>FunctionLookup::function_address(name)</code></td><td><code>FunctionNames::function_at(address)</code></td><td>the function that starts there</td></tr><tr><td><code>FunctionLookup::function_index(name)</code></td><td><code>FunctionNames::function_name(index)</code></td><td>the function’s name</td></tr><tr><td><code>StringIntern::intern_string(text)</code></td><td><code>StringTable::string(index)</code></td><td>the string’s text</td></tr></tbody></table>
+<p>A raise only looks names up and never invents one: <code>RaiseContext</code> records each
+address it was asked to name but has no symbol for, and the disassembler
+names those addresses and raises again. <code>vihaco::raising::decode_canonical</code>
+decodes a literal word and rejects words that encoding the decoded value would
+not reproduce.</p>
 <p>Continue with <a href="/vihaco/guide/instructions-advanced">binary formats</a> for encoded programs
-and compatibility planning.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/guide/parser-advanced" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Loading SST programs</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/guide/instructions-advanced" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Binary formats</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#file-and-section-structure" data-toc-link="#file-and-section-structure">File and section structure</a></li><li><a href="#target-instruction-and-function-syntax" data-toc-link="#target-instruction-and-function-syntax">Target instruction and function syntax</a></li><li><a href="#symbols" data-toc-link="#symbols">Symbols</a></li><li><a href="#the-header" data-toc-link="#the-header">The header</a></li><li><a href="#constants-strings-and-symbol-resolution" data-toc-link="#constants-strings-and-symbol-resolution">Constants, strings, and symbol resolution</a></li><li><a href="#validate-compiler-output" data-toc-link="#validate-compiler-output">Validate compiler output</a></li><li><a href="#checking-sst-files" data-toc-link="#checking-sst-files">Checking SST files</a></li><li><a href="#formatting-sst-files" data-toc-link="#formatting-sst-files">Formatting SST files</a></li> </ol> </details> </div> </main> <script>
+and compatibility planning.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/guide/parser-advanced" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Loading SST programs</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/guide/instructions-advanced" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Binary formats</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#file-and-section-structure" data-toc-link="#file-and-section-structure">File and section structure</a></li><li><a href="#target-instruction-and-function-syntax" data-toc-link="#target-instruction-and-function-syntax">Target instruction and function syntax</a></li><li><a href="#symbols" data-toc-link="#symbols">Symbols</a></li><li><a href="#the-header" data-toc-link="#the-header">The header</a></li><li><a href="#constants-strings-and-symbol-resolution" data-toc-link="#constants-strings-and-symbol-resolution">Constants, strings, and symbol resolution</a></li><li><a href="#validate-compiler-output" data-toc-link="#validate-compiler-output">Validate compiler output</a></li><li><a href="#checking-sst-files" data-toc-link="#checking-sst-files">Checking SST files</a></li><li><a href="#formatting-sst-files" data-toc-link="#formatting-sst-files">Formatting SST files</a></li><li><a href="#disassembling-programs" data-toc-link="#disassembling-programs">Disassembling programs</a></li> </ol> </details> </div> </main> <script>
         // Scroll-spy: mark the TOC link for the section currently in view.
         (() => {
           const links = Array.from(document.querySelectorAll(".page-toc [data-toc-link]"));
@@ -681,7 +848,7 @@ and compatibility planning.</p> </article>  <nav class="section-pager" aria-labe
         sync();
       })();
     </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-11-20</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
+          documentation generated <time>2026-11-23</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

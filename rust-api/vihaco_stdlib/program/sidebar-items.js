@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["lower","operand","program"],"struct":["ProgramImage"]};
+window.SIDEBAR_ITEMS = {"mod":["lower","operand","program","raise"],"struct":["ProgramImage"]};
