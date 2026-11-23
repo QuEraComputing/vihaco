@@ -18,14 +18,19 @@
 //!   and (by default) lowering with `MetadataLoweringContext`. The
 //!   conveniences [`check_program`] and [`check_machine`] run it over every
 //!   section. Nothing is executed.
+//! - [`FileChecker`] checks a file whose sections target different machines:
+//!   each section with the checker registered for its name, or a default.
 //!
 //! [`Diagnostic`]: crate::Diagnostic
 
+mod file;
 mod framing;
 mod metadata;
 mod parse;
 mod program;
 
+pub use file::FileChecker;
+pub(crate) use file::{AsSectionChecker, Routed, Routes};
 pub use framing::{Block, Framing, Section, check_framing, scan};
 pub use parse::{
     check_global_context, parse_declarations, parse_instructions, parse_opaque_header,
@@ -71,7 +76,7 @@ where
 }
 
 /// Check framing, then every section with `checker`, and report everything.
-pub fn check_file(source: &SourceFile, checker: &mut impl SectionChecker) -> Report {
+pub fn check_file(source: &SourceFile, checker: &mut (impl SectionChecker + ?Sized)) -> Report {
     let mut out = Diagnostics::new(source);
     let framing = scan(source, &mut out);
     checker.check_global(&framing.global, &mut out);

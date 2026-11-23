@@ -48,3 +48,7 @@ required-features = ["program-image-execution"]
 [[example]]
 name = "debugger"
 required-features = ["program-image-execution"]
+
+[[example]]
+name = "heterogeneous"
+required-features = ["program-image-execution"]

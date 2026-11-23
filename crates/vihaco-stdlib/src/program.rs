@@ -37,6 +37,9 @@ pub mod lower;
 #[cfg(feature = "program-image-execution")]
 pub mod operand;
 
+#[cfg(feature = "program-image-execution")]
+pub mod raise;
+
 use vihaco_abi::{Type, Value};
 use vihaco_bytecode::{ConstantId, ContextHandle};
 use vihaco_module::{

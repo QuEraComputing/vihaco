@@ -72,7 +72,7 @@ self-contained component you can use directly or copy as a starting point.
 | `vihaco-runtime-derive` | The proc macros behind `#[derive(Message/Machine)]` and `#[component]` / `#[composite]` / `#[observe]`. Consumed via `vihaco-runtime`. |
 | `vihaco-stdlib` | Standard-library components and observers, currently including `StdoutObserver`. |
 | `vihaco-syntax` | Typed SST parsing and module construction (`Resolve`). |
-| `vihaco-sst` | SST tooling: `Diagnostic`/`Report` (rendered via `codespan-reporting`) and the `check` layers — `check_framing`, pluggable `SectionChecker`/`check_file`, and the typed `ProgramChecker`/`check_program::<M>` for a composite machine. Future home of the SST pretty printer and formatter. |
+| `vihaco-sst` | SST tooling: `Diagnostic`/`Report` (rendered via `codespan-reporting`); the `check` layers — `check_framing`, pluggable `SectionChecker`/`check_file`, the typed `ProgramChecker`/`check_program::<M>` for a composite machine, and `FileChecker` for one machine per section; the `Formatter`/`FileFormatter`; and the `Disassembler` (loaded `LocalModule`s back to SST via `Raise`). |
 | `vihaco-parser` | The `Parse<'src>` and `SurfaceInstruction` traits plus lexical, primitive, and collection impls shared by the parser derive. |
 | `vihaco-parser-derive` | `#[derive(Parse)]` — turns instruction, value, and type enums or structs into [chumsky](https://github.com/zesterer/chumsky) parsers via `#[syntax_class]` and `#[pattern]` (see `attr.rs`/`codegen.rs`). |
 | `vihaco-doctests` | **Dev-only, not published.** `include!`s `docs/examples/*.rs` and runs every ` ```rust ` block in `docs/src/pages/guide/*.md` as a rustdoc doctest, so the public API and the docs can't drift. Editing the public API often requires updating these. |

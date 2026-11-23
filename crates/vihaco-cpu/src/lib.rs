@@ -94,6 +94,12 @@ pub mod message;
     feature = "typed-declarations",
     not(feature = "program-image-execution")
 ))]
+pub mod raise;
+
+#[cfg(all(
+    feature = "typed-declarations",
+    not(feature = "program-image-execution")
+))]
 pub mod operand;
 
 #[cfg(feature = "typed-declarations")]
