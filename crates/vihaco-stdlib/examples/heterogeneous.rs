@@ -192,14 +192,10 @@ mod tests {
 
     #[test]
     fn each_section_is_checked_with_its_own_machine() {
+        // Replace the controller's CPU instruction before inserting it in the FPGA section.
         let source = include_str!("heterogeneous.sst")
-            // A pulse in the controller, and a CPU instruction in the FPGA
-            // section.
-            .replace("pulser::pulse::wait 10", "cpu::cpu::mul_u64")
-            .replace(
-                "cpu::cpu::mul_u64\n    execution::program::ret",
-                "pulser::pulse::wait 1\n    execution::program::ret",
-            );
+            .replace("cpu::cpu::mul_u64", "pulser::pulse::wait 1")
+            .replace("pulser::pulse::wait 10", "cpu::cpu::mul_u64");
         let source = SourceFile::new("heterogeneous.sst", source);
         let messages: Vec<String> = checker()
             .check(&source)
