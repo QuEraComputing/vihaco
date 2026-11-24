@@ -104,18 +104,25 @@ jobs:
           # Compile-fail snapshots include standard-library source excerpts.
           components: rust-src
       - uses: Swatinem/rust-cache@v2
-      # `--all-targets` excludes doctests; the `doctest` job below covers those.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      # Tests run with cargo-nextest (profile `ci` in .config/nextest.toml).
+      # nextest does not run doctests; the `doctest` job below covers those.
       # This also compiles the `docs/examples/*.rs` files (via the
       # `vihaco-doctests` crate) and runs the runnable ones.
-      - run: cargo test --workspace --all-targets
-      - run: cargo test --workspace --exclude vihaco-doctests --all-targets --features vihaco/typed-declarations
-      - run: cargo test --workspace --exclude vihaco-doctests --all-targets --features vihaco/program-image-execution
-      - run: cargo test -p vihaco-doctests --all-targets --features program-image-execution
-      - run: cargo test --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-off
-      - run: cargo test --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-on -p cpu-direct
-      - run: cargo test --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-indirect
-      - run: cargo test --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-program-image
-      - run: cargo test --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-program-image-direct
+      - run: cargo nextest run --profile ci --workspace --all-targets
+      - run: cargo nextest run --profile ci --workspace --exclude vihaco-doctests --all-targets --features vihaco/typed-declarations
+      - run: cargo nextest run --profile ci --workspace --exclude vihaco-doctests --all-targets --features vihaco/program-image-execution
+      - run: cargo nextest run --profile ci -p vihaco-doctests --all-targets --features program-image-execution
+      - run: cargo nextest run --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-off
+      - run: cargo nextest run --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-on -p cpu-direct
+      - run: cargo nextest run --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-indirect
+      # The CPU feature fixtures are a separate workspace, so they use nextest's
+      # default profile. These two only check that the feature combination
+      # builds; they contain no tests, which nextest otherwise treats as an error.
+      - run: cargo nextest run --no-tests=pass --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-program-image
+      - run: cargo nextest run --no-tests=pass --manifest-path crates/vihaco-cpu/tests/fixtures/features/Cargo.toml -p cpu-program-image-direct
 
   doctest:
     name: Doc tests

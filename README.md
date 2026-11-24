@@ -254,9 +254,9 @@ To work **in** the repository, the toolchain and common tasks are managed with
 [mise](https://mise.jdx.dev):
 
 ```bash
-mise install      # rust, node (docs), prek, hawkeye
+mise install      # rust, node (docs), prek, hawkeye, nextest
 mise run setup    # install the git pre-commit hooks
-mise run test     # cargo test --workspace --all-targets
+mise run test     # cargo nextest run --workspace --all-targets
 ```
 
 No mise? A stable Rust 2024 toolchain is enough — `cargo test --workspace

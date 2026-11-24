@@ -1,0 +1,20 @@
+# cargo-nextest configuration: https://nexte.st/docs/configuration/
+#
+# nextest runs unit, integration, and example tests (`--all-targets`). It does
+# not run doctests; those still run with `cargo test --doc`.
+
+[profile.default]
+# Flag tests still running after a minute. The compile-fail (trybuild) tests
+# compile many fixtures and are the slowest.
+slow-timeout = { period = "60s" }
+
+[profile.ci]
+# Run every test after a failure, so one CI run reports all of them.
+fail-fast = false
+# Retry a failing test once; tests that pass only on retry are reported as
+# FLAKY in the summary rather than failing the job.
+retries = 1
+# Repeat failure output at the end of the run, where CI logs are read.
+failure-output = "immediate-final"
+# Kill a hung test after ten minutes instead of blocking the job.
+slow-timeout = { period = "60s", terminate-after = 10 }
