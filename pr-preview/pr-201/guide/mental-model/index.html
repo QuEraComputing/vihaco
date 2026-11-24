@@ -71,7 +71,7 @@ the numbers.</p>
 
 
 
-<table><thead><tr><th>Concept</th><th>What it does</th></tr></thead><tbody><tr><td>Dialect</td><td>Defines a vocabulary of named instructions and what they mean</td></tr><tr><td>Instruction</td><td>Describes an operation and any operands encoded in the program</td></tr><tr><td>Component</td><td>Owns device state and implements instructions through <code>Execute&#x3C;I></code></td></tr><tr><td>Message</td><td>Supplies input when an instruction runs</td></tr><tr><td>Effect</td><td>Carries a successful execution result back to the caller</td></tr><tr><td>Composite</td><td>Owns devices and connects their execution through steps you write</td></tr><tr><td>Module</td><td>Holds code and tables such as functions, strings, and labels</td></tr><tr><td>Image</td><td>Owns a module as program data</td></tr><tr><td>ExecutionState</td><td>Holds one invocation’s operands, locals, frames, and control state</td></tr><tr><td>Loadable</td><td>Pairs an image with the composite that executes it</td></tr></tbody></table>
+<table><thead><tr><th>Concept</th><th>What it does</th></tr></thead><tbody><tr><td>Dialect</td><td>Defines a vocabulary of named instructions and what they mean</td></tr><tr><td>Instruction</td><td>Describes an operation and any operands encoded in the program</td></tr><tr><td>Component</td><td>Owns device state and implements instructions through <code>Execute&#x3C;I></code></td></tr><tr><td>Message</td><td>Supplies input when an instruction runs</td></tr><tr><td>Effect</td><td>Carries a successful execution result back to the caller</td></tr><tr><td>Composite</td><td>Owns devices and connects their execution through steps you write</td></tr><tr><td>Module</td><td>Holds code and tables such as functions, strings, and symbols</td></tr><tr><td>Image</td><td>Owns a module as program data</td></tr><tr><td>ExecutionState</td><td>Holds one invocation’s operands, locals, frames, and control state</td></tr><tr><td>Loadable</td><td>Pairs an image with the composite that executes it</td></tr></tbody></table>
 <h2 id="from-source-to-program-data">From source to program data</h2>
 <p>Before a program can run, its source becomes an image:</p>
 <pre><code class="language-text">source text
@@ -260,7 +260,7 @@ state too. Resetting an invocation and resetting a device are separate operation
         sync();
       })();
     </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-11-18</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
+          documentation generated <time>2026-11-24</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {

@@ -3,21 +3,20 @@
 from their declared dialects to a hidden flat runtime enum exposed through
 <a href="trait.HasInstructionSet.html" title="trait vihaco_runtime::HasInstructionSet"><code>HasInstructionSet</code></a>. Its syntax parser uses
 <code>field::nested_field::dialect::instruction</code> prefixes and accepts device aliases.
-Implement <a href="trait.Step.html" title="trait vihaco_runtime::Step"><code>Step</code></a> for every destination/leaf pair. With <code>program-image-execution</code>,
+Implement <code>Step</code> for every destination/leaf pair. With <code>program-image-execution</code>,
 a <code>#[program]</code> device selects program access and operand-storage wiring; Steps
 and effect handling remain authored.
-The generated <a href="trait.Dispatch.html" title="trait vihaco_runtime::Dispatch"><code>Dispatch</code></a> implementation requires complete <a href="trait.Step.html" title="trait vihaco_runtime::Step"><code>Step</code></a> coverage
+The generated <code>Dispatch</code> implementation requires complete <code>Step</code> coverage
 for the selected context when a <code>Dispatch&lt;Context&gt;</code> bound is required or dispatch
 is called. Declaring a composite alone does not check Step coverage.
 Generic declarations retain their original bounds.
 Every device needs an explicit u8 code, unique within its parent. Ordinary
 state is excluded from parent instruction sets.
-Without <code>program-image-execution</code>, <code>#[loadable]</code> devices form section boundaries
-and are excluded from parent instruction sets. The macro generates legacy
-section-loading implementations in that configuration. With the feature
-enabled, construct images explicitly and pair them with stdlib <code>Loadable</code>;
-<code>#[loadable]</code> helpers and generated section loading are unavailable.
-<a href="trait.Field.html#tymethod.get" title="method vihaco_runtime::Field::get"><code>Field::get</code></a> and <a href="trait.Field.html#tymethod.get_mut" title="method vihaco_runtime::Field::get_mut"><code>Field::get_mut</code></a> borrow eligible devices through direct or
+Composites do not generate section loading: file sections are flat, so
+select one by name and load it explicitly (<code>LoadSSTSection</code> /
+<code>LoadBytecodeSection</code>, or, with <code>program-image-execution</code>, construct an
+image and pair it with stdlib <code>Loadable</code>).
+<code>Field::get</code> and <code>Field::get_mut</code> borrow eligible devices through direct or
 nested field routes, including devices that contain borrowed data.
 Named generic children are supported; bare type parameters and associated
 child types cannot supply an inferred inventory companion. Renamed child

@@ -65,6 +65,32 @@ assert!(source.lower(&#x26;mut ()).is_err());
 <p>Here the syntax keeps a <code>u64</code> until lowering checks whether it fits the runtime
 <code>u32</code>. Vihaco won’t insert a Rust conversion implicitly. Write your lowering
 impl outside the dialect module, in the same crate.</p>
+<h2 id="print-source-back">Print source back</h2>
+<p>Every generated parser has a matching printer. <code>Print</code> writes a parsed value
+in its canonical source spelling, and parsing that text gives you the same
+value back:</p>
+<pre><code class="language-rust">use vihaco::{Parse, Print, chumsky::Parser as _, dialect};
+
+#[dialect]
+pub mod memory {
+    #[instruction]
+    #[pattern = "'store $0 `,` $1"]
+    pub struct Store(pub u32, pub i64);
+}
+
+fn main() {
+    let parsed = memory::Store::parser()
+        .parse("store   7,    -2")
+        .into_result()
+        .unwrap();
+    assert_eq!(parsed.to_source().unwrap(), "store 7, -2");
+}
+</code></pre>
+<p>A composite’s syntax value prints its full route, as in
+<code>calculator::arithmetic::add</code>. Routes always use field names, even if the
+source used an alias. The printer is generated from the same pattern as the
+parser, so the two can’t drift apart. See
+<a href="/vihaco/pr-preview/pr-201/guide/parser-patterns#printing">printing</a> for the spacing rules.</p>
 <h2 id="resolve-symbolic-input">Resolve symbolic input</h2>
 <p>For a named branch target, keep the name in the syntax operand and ask the
 context for label lookup during lowering. For a quoted string, ask it for
@@ -73,14 +99,14 @@ encode it as a word while preserving its bits.</p>
 <p>The generated aggregate requires the lowering capabilities of all its included
 instructions. You’ll need to supply those even if one program only uses numeric
 operands.</p>
-<p>Each parsed instruction lowers to one runtime instruction. Function-local source
-labels become metadata, so they don’t add instructions. If you want instruction
+<p>Each parsed instruction lowers to one runtime instruction. <code>@name:</code> symbol
+definitions go into the section’s symbol table, so they don’t add instructions. If you want instruction
 expansion, do that in a producer before this pipeline.</p>
 <p>The <a href="/vihaco/pr-preview/pr-201/guide/parser-patterns">pattern parser reference</a> covers dialect instruction
 patterns and parsers for metadata, values, and types, with delimiter rules and
 diagnostics.
 <a href="/vihaco/pr-preview/pr-201/guide/parser-advanced">Loading SST programs</a> uses these parsers with complete
-programs.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/pr-preview/pr-201/guide/loadables" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Images and Loadables</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/pr-preview/pr-201/guide/parser-advanced" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Loading SST programs</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#parse-a-leaf-instruction" data-toc-link="#parse-a-leaf-instruction">Parse a leaf instruction</a></li><li><a href="#define-a-source-pattern" data-toc-link="#define-a-source-pattern">Define a source pattern</a></li><li><a href="#resolve-symbolic-input" data-toc-link="#resolve-symbolic-input">Resolve symbolic input</a></li> </ol> </details> </div> </main> <script>
+programs.</p> </article>  <nav class="section-pager" aria-label="Section navigation"> <a class="section-pager-link section-pager-prev" href="/vihaco/pr-preview/pr-201/guide/loadables" rel="prev"> <span class="section-pager-dir">← Previous</span> <span class="section-pager-label">Images and Loadables</span> </a> <a class="section-pager-link section-pager-next" href="/vihaco/pr-preview/pr-201/guide/parser-advanced" rel="next"> <span class="section-pager-dir">Next →</span> <span class="section-pager-label">Loading SST programs</span> </a> </nav> </div> <details class="page-toc page-toc--right side-nav" aria-label="On this page"> <summary class="page-toc-label">On this page</summary> <ol> <li><a href="#parse-a-leaf-instruction" data-toc-link="#parse-a-leaf-instruction">Parse a leaf instruction</a></li><li><a href="#define-a-source-pattern" data-toc-link="#define-a-source-pattern">Define a source pattern</a></li><li><a href="#print-source-back" data-toc-link="#print-source-back">Print source back</a></li><li><a href="#resolve-symbolic-input" data-toc-link="#resolve-symbolic-input">Resolve symbolic input</a></li> </ol> </details> </div> </main> <script>
         // Scroll-spy: mark the TOC link for the section currently in view.
         (() => {
           const links = Array.from(document.querySelectorAll(".page-toc [data-toc-link]"));
@@ -232,7 +258,7 @@ programs.</p> </article>  <nav class="section-pager" aria-label="Section navigat
         sync();
       })();
     </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-11-18</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
+          documentation generated <time>2026-11-24</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {
