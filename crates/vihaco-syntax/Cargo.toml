@@ -1,7 +1,7 @@
 [package]
 name = "vihaco-syntax"
 edition = "2024"
-description = "Typed SST parsing, Parsed* module shapes, and the Resolve trait for vihaco source text."
+description = "Typed SST parsing, parsed modules, and metadata-aware instruction lowering for vihaco source text."
 version.workspace = true
 license.workspace = true
 repository.workspace = true
