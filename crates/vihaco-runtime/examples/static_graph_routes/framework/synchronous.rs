@@ -1,14 +1,24 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Inline execution of static paths with borrowed instructions and context.
+//! # Borrowed inline execution
+//!
+//! The CPU runner lends a module and current instruction to
+//! `Route::run_synchronously`. The same `build_message_at` descriptor used
+//! by callback routes now reads the borrowed context through `BuildMessage`.
+//! `Execute` borrows the original instruction. The final CPU computation
+//! applies the effect to the operand stack before the runner fetches again.
+//!
+//! `RunSync` interprets nodes and sequences and returns results on the call
+//! stack. Its current operations are message preparation, instruction
+//! execution, and computation. Metadata remains inspectable. The inline
+//! interpreter has no driver hooks, waits, or fork/join.
 
 use super::{
-    graph::{Label, Node, NodePlan, Route, Sequence, node},
-    operations::{Compute, ComputeNode, ExecuteAt, Prepared},
+    graph::{Node, Route, Sequence},
+    operations::{BuildAt, Compute, ComputeNode, ExecuteAt, Prepared},
 };
 use eyre::Result;
-use std::{any::type_name, marker::PhantomData};
 use vihaco_runtime::{BuildMessage, Execute, Field};
 
 /// Runs a static path to completion on the calling thread.
@@ -68,26 +78,8 @@ impl<I, P> Route<I, P> {
     }
 }
 
-/// Describes message preparation for a field and a context type.
-pub(crate) struct BuildWith<F, C: ?Sized>(PhantomData<fn(&C) -> F>);
-
-/// Selects an operation that reads the supplied context when it prepares a message.
-pub(crate) fn build_message_with<F, C: ?Sized>() -> NodePlan<BuildWith<F, C>> {
-    node()
-}
-
-// Inspection uses the static field type.
-impl<F, C: ?Sized> Label for BuildWith<F, C> {
-    const LABEL: &'static str = "build message";
-
-    fn field() -> Option<&'static str> {
-        Some(type_name::<F>())
-    }
-}
-
 // The entry node reads the borrowed context and passes on the prepared message.
-impl<'input, M, F, I, C: ?Sized, Message> SyncOperation<M, (&'input I, &'input C)>
-    for BuildWith<F, C>
+impl<'input, M, F, I, C: ?Sized, Message> SyncOperation<M, (&'input I, &'input C)> for BuildAt<F>
 where
     M: BuildMessage<F, I, C, Message>,
     M::Child: Execute<I, Message = Message>,

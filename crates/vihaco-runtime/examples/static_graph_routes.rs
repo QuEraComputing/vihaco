@@ -3,17 +3,19 @@
 
 //! Machines built from static, inspectable route descriptions.
 //!
+//! mise run static-graph-routes
 //! cargo run -p vihaco-runtime --example static_graph_routes --features typed-declarations
 
 #[path = "static_graph_routes/framework/mod.rs"]
 mod framework;
 #[path = "static_graph_routes/machines/mod.rs"]
 mod machines;
+#[path = "static_graph_routes/simulation.rs"]
+mod simulation;
 
 fn main() -> eyre::Result<()> {
-    machines::counter::demo()?;
     machines::waveform::demo()?;
-    machines::capture::demo()?;
+    machines::device_completion::demo()?;
     machines::async_capture::demo()?;
     machines::warehouse::demo()
 }
@@ -23,22 +25,17 @@ mod tests {
     use super::machines;
 
     #[test]
-    fn simulated_printer_completes_at_scheduled_tick() -> eyre::Result<()> {
-        machines::warehouse::demo()
-    }
-
-    #[test]
-    fn linear_counter_step() -> eyre::Result<()> {
-        machines::counter::demo()
-    }
-
-    #[test]
-    fn annotated_waveform_delivery() -> eyre::Result<()> {
+    fn waveform_routes_clamped_and_original_samples() -> eyre::Result<()> {
         machines::waveform::demo()
     }
 
     #[test]
-    fn reuse_capture_topology_with_fresh_signals() -> eyre::Result<()> {
-        machines::capture::demo()
+    fn device_wait_resumes_without_reissuing_capture() -> eyre::Result<()> {
+        machines::device_completion::demo()
+    }
+
+    #[test]
+    fn warehouse_waits_for_each_label_before_verifying_it() -> eyre::Result<()> {
+        machines::warehouse::demo()
     }
 }

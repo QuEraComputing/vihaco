@@ -1,12 +1,25 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Async instructions that borrow an exclusively leased component.
+//! # Async instructions and component leases
+//!
+//! An `AsyncExecute` future holds a mutable borrow of its component across
+//! suspension. The async node takes the component out of its `AsyncSlot` and
+//! places it in an exclusive lease. The future owns the lease, instruction,
+//! and message. The machine keeps the slot and stays available between
+//! polls. An instruction that tries to lease the same occupied field while
+//! it is pending receives an error.
+//!
+//! When the future finishes, it drops the lease before forwarding success
+//! or failure. The next node can use the restored field, as the digitizer's
+//! same-field receive demonstrates. Dropping a pending future also restores
+//! the component. This is local ownership recovery. Cancellation policy for
+//! external work belongs to the backend or machine owner.
 
 use super::{
     graph::{Label, NodePlan, node},
     operations::{Operation, Receive},
-    runtime::{Await, FutureDriver, RustFuture},
+    runtime::FutureDriver,
 };
 use eyre::{Result, eyre};
 use std::{any::type_name, cell::RefCell, marker::PhantomData, rc::Rc};
@@ -115,7 +128,7 @@ where
                     drop(lease);
                     result.map_err(Into::into)
                 };
-                driver.wait(machine, RustFuture(future), done);
+                driver.run_future(machine, future, done);
             }
             Err(error) => done(machine, driver, Err(error)),
         }

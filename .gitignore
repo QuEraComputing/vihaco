@@ -44,3 +44,8 @@ CLAUDE.md
 # docs
 node_modules
 .pnpm-store
+
+# Track the annotated step routes RFC while keeping other design drafts ignored.
+!/design/
+/design/*
+!/design/annotated-step-routes/

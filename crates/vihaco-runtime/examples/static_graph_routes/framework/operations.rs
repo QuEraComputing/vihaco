@@ -1,11 +1,29 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Operation descriptors and their execution contracts.
+//! # Operations and their payloads
+//!
+//! A builder function selects an operation type. `Operation::start` interprets
+//! an occurrence of that type for a machine, input, and driver. Its output
+//! becomes the next node's input. A reported error ends the current path.
+//!
+//! | Constructor | Input | Output or continuation |
+//! | --- | --- | --- |
+//! | `build_message_at::<F>()` | Owned instruction for `Run`, or borrowed instruction and context for `RunSync` | `Prepared` instruction and message |
+//! | `instruction_at::<F>()` | `Prepared` instruction and message | Effect from `Execute` on field `F` |
+//! | `receive_effect_at::<F>()` | Effect | `()` after fallible delivery to field `F` |
+//! | `compute::<C>()` | Application-defined value | Result of `Compute::apply` |
+//! | `await_work()` | Backend-specific work handle | Typed result delivered through `Await` |
+//!
+//! The callback interpreter calls `BuildMessage` with a unit context.
+//! The borrowed interpreter lends it the program context. Field markers
+//! select the component and identify the site in the topology. The async
+//! example uses a `Compute` preparation node because `BuildMessage` requires
+//! a field that implements synchronous `Execute`.
 
 use super::{
     graph::{Label, NodePlan, node},
-    runtime::{Await, SpawnWorker},
+    runtime::Await,
 };
 use eyre::Result;
 use std::{any::type_name, marker::PhantomData};
@@ -25,12 +43,12 @@ pub(crate) trait Operation<M, I, D> {
     );
 }
 
-/// Owns an instruction and its prepared message for one invocation.
+/// Carries an owned or borrowed instruction alongside its prepared message.
 pub(crate) struct Prepared<I, Message> {
     /// The instruction that the execution node will borrow.
     pub(super) instruction: I,
     /// The prepared snapshot, including any runtime bindings needed by this invocation.
-    pub(crate) message: Message,
+    pub(super) message: Message,
 }
 
 /// Identifies the field that needs an instruction message.
@@ -202,55 +220,6 @@ impl<D, C: Compute> Operation<C::Machine, C::Input, D> for ComputeNode<C> {
     }
 }
 
-/// Selects a one-shot signal from the invocation’s input.
-pub(crate) trait SignalInput {
-    /// The invocation input that owns the signal handle.
-    type Input: 'static;
-    /// The handle the selected driver can await.
-    type Signal;
-
-    /// The name displayed for this wait during inspection.
-    const NAME: &'static str;
-
-    /// Extracts the wait handle from the current invocation’s input.
-    fn take_signal(input: &mut Self::Input) -> Result<Self::Signal>;
-}
-
-/// Identifies the signal selection used by a wait node.
-pub(crate) struct WaitForSignal<S>(PhantomData<fn() -> S>);
-
-/// Describes a wait that forwards its input when the signal arrives.
-pub(crate) fn wait_for_signal<S: SignalInput>() -> NodePlan<WaitForSignal<S>> {
-    node()
-}
-
-// Uses the signal selection’s declared name for the wait node.
-impl<S: SignalInput> Label for WaitForSignal<S> {
-    const LABEL: &'static str = S::NAME;
-}
-
-// Parks with the input and resumes it when the selected signal completes.
-impl<M, D, S: SignalInput> Operation<M, S::Input, D> for WaitForSignal<S>
-where
-    D: Await<M, S::Signal, Output = ()>,
-{
-    type Output = S::Input;
-
-    fn start(
-        machine: &mut M,
-        driver: &D,
-        mut input: S::Input,
-        done: impl FnOnce(&mut M, &D, Result<S::Input>) + 'static,
-    ) {
-        match S::take_signal(&mut input) {
-            Ok(signal) => driver.wait(machine, signal, move |machine, driver, result| {
-                done(machine, driver, result.map(|()| input));
-            }),
-            Err(error) => done(machine, driver, Err(error)),
-        }
-    }
-}
-
 /// Awaits work supplied by the preceding node using the selected driver.
 pub(crate) struct AwaitWork;
 
@@ -275,84 +244,5 @@ where
         done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
     ) {
         driver.wait(machine, input, done);
-    }
-}
-
-/// Defines work that runs on a separate thread with an owned input and output.
-pub(crate) trait Worker {
-    /// The owned payload handed to the worker thread.
-    type Input: Send + 'static;
-
-    /// The owned result sent back to the driver.
-    type Output: Send + 'static;
-
-    /// The name displayed for the worker’s spawn node.
-    const NAME: &'static str;
-
-    /// Runs on a worker thread with the owned input.
-    fn run(input: Self::Input) -> Result<Self::Output>;
-}
-
-/// Carries the runtime completion handle for a particular worker type.
-pub(crate) struct Task<W, H>(H, PhantomData<fn() -> W>);
-
-/// Identifies the worker implementation to launch.
-pub(crate) struct Spawn<W>(PhantomData<fn() -> W>);
-
-/// Describes launching an owned payload on a worker and producing a typed handle.
-pub(crate) fn spawn_task<W: Worker>() -> NodePlan<Spawn<W>> {
-    node()
-}
-
-// Names the spawn node using the worker’s declared name.
-impl<W: Worker> Label for Spawn<W> {
-    const LABEL: &'static str = W::NAME;
-}
-
-// Submits work to the driver and forwards the worker handle.
-impl<M, D: SpawnWorker, W: Worker + 'static> Operation<M, W::Input, D> for Spawn<W> {
-    type Output = Task<W, D::Work<W::Output>>;
-
-    fn start(
-        machine: &mut M,
-        driver: &D,
-        input: W::Input,
-        done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
-    ) {
-        done(
-            machine,
-            driver,
-            driver
-                .spawn(W::run, input)
-                .map(|work| Task(work, PhantomData)),
-        );
-    }
-}
-
-/// Identifies the worker whose result this node accepts.
-pub(crate) struct AwaitTask<W>(PhantomData<fn() -> W>);
-
-/// Describes waiting for the result of a worker of type W.
-pub(crate) fn await_task<W: Worker>() -> NodePlan<AwaitTask<W>> {
-    node()
-}
-
-impl<W> Label for AwaitTask<W> {
-    const LABEL: &'static str = "await worker result";
-}
-
-impl<M, D, W: Worker, H> Operation<M, Task<W, H>, D> for AwaitTask<W>
-where
-    D: Await<M, H, Output = W::Output>,
-{
-    type Output = W::Output;
-
-    fn start(
-        machine: &mut M,
-        driver: &D,
-        input: Task<W, H>,
-        done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
-    ) {
-        driver.wait(machine, input.0, done);
     }
 }

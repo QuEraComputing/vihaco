@@ -18,21 +18,8 @@ impl Annotation for DacBus {
         lanes: 4,
     };
 }
-pub(super) struct AuditBus;
-impl Annotation for AuditBus {
-    type Value = Bus;
-    const VALUE: &'static Bus = &Bus {
-        name: "audit",
-        lanes: 1,
-    };
-}
 pub(super) struct Critical;
 impl Annotation for Critical {
     type Value = bool;
     const VALUE: &'static bool = &true;
-}
-pub(super) struct JoinLabel;
-impl Annotation for JoinLabel {
-    type Value = &'static str;
-    const VALUE: &'static &str = &"both receivers completed";
 }

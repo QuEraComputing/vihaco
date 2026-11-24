@@ -30,6 +30,7 @@ derive = ["dep:vihaco-runtime-derive", "dep:vihaco-parser-derive", "vihaco-abi/d
 typed-declarations = ["derive", "vihaco-runtime-derive/typed-declarations"]
 
 [dev-dependencies]
+tokio = { version = "1", features = ["rt", "sync", "time"] }
 trybuild = "1.0"
 
 [[example]]

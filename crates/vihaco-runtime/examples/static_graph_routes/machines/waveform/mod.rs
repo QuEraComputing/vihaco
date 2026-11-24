@@ -10,9 +10,9 @@ use crate::framework::{
     fork_join, instruction_at, receive_effect_at, step_graph,
 };
 use eyre::{Result, ensure};
-use metadata::{AuditBus, Bus, Critical, DacBus, JoinLabel};
+use metadata::{Bus, Critical, DacBus};
 use vihaco_runtime::{
-    BuildMessage, Execute, Field, NoMessage, Step, component, composite, dialect, field,
+    BuildMessage, Execute, Field, NoMessage, component, composite, dialect, field,
 };
 
 #[dialect]
@@ -129,36 +129,31 @@ fn route()
     step_graph::<ops::Fire>()
         .begin(build_message_at::<SourceField>())
         .then_execute(instruction_at::<SourceField>())
-        .then(
-            fork_join(
-                compute::<Duplicate>(),
-                compute::<Clamp<8>>().then(compute::<Clamp<4>>()).then_via(
-                    edge().annotate::<DacBus>().annotate::<Critical>(),
-                    receive_effect_at::<Dac>().annotate::<Critical>(),
-                ),
-                receive_effect_at::<Monitor>().fork_edges(edge().annotate::<AuditBus>(), edge()),
-            )
-            .annotate_join::<JoinLabel>(),
-        )
+        .then(fork_join(
+            compute::<Duplicate>(),
+            // The DAC gets the clamped copy. The monitor gets the original.
+            compute::<Clamp<4>>().then_via(
+                edge().annotate::<DacBus>().annotate::<Critical>(),
+                receive_effect_at::<Dac>(),
+            ),
+            receive_effect_at::<Monitor>(),
+        ))
+        // The join releases this node after both receivers have accepted their samples.
         .then(compute::<RecordDelivery>())
         .finish()
-}
-
-impl Step<SourceField, ops::Fire, ChannelDriver<Self>> for Machine {
-    fn step(&mut self, instruction: &ops::Fire, driver: &ChannelDriver<Self>) -> Result<()> {
-        driver.start(self, &route(), ops::Fire(instruction.0));
-        Ok(())
-    }
 }
 
 pub(crate) fn demo() -> Result<()> {
     let route = route();
     assert_eq!(std::mem::size_of_val(&route), 0);
     let topology = route.topology();
-    assert_eq!(topology.nodes[3].name, "clamp waveform");
-    assert_eq!(topology.nodes[4].name, "clamp waveform");
-    let dac = &topology.edges[4];
-    assert_eq!((dac.from, dac.to), (4, 5));
+    // Inspect the transfer before constructing the machine or running the route.
+    let dac = &topology.edges[3];
+    assert_eq!(topology.nodes[dac.from].name, "clamp waveform");
+    assert_eq!(
+        topology.nodes[dac.to].field,
+        Some(std::any::type_name::<Dac>())
+    );
     assert_eq!(
         dac.metadata.get::<DacBus>(),
         Some(&Bus {
@@ -167,17 +162,6 @@ pub(crate) fn demo() -> Result<()> {
         })
     );
     assert_eq!(dac.metadata.get::<Critical>(), Some(&true));
-    assert_eq!(
-        topology.edges[5]
-            .metadata
-            .get::<AuditBus>()
-            .map(|bus| bus.lanes),
-        Some(1)
-    );
-    assert_eq!(
-        topology.nodes[7].metadata.get::<JoinLabel>(),
-        Some(&"both receivers completed")
-    );
     topology.print("Waveform / Fire");
 
     let mut machine = Machine::default();

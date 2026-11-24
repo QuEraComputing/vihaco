@@ -2,18 +2,38 @@
 // SPDX-License-Identifier: MIT
 
 //! Deterministic time and event delivery for the route examples.
+//!
+//! Events are ordered by tick and then by insertion order. An event scheduled
+//! for a past tick becomes eligible at the current tick. `advance_next`
+//! advances to the next event tick. `advance_to` delivers events through
+//! its target and polls woken local futures along the way.
+//!
+//! `MinExecution<N>` lets an operation start at the current tick and holds
+//! successful delivery until at least `N` ticks have elapsed. Operations
+//! can mutate the machine at start. Errors propagate as soon as the
+//! operation reports them.
 
-use crate::framework::{Await, FutureDriver, PollJob, poll_future};
-use eyre::{Result, ensure};
+use crate::framework::{
+    AnnotatedDriver, Annotation, Await, FutureDriver, Metadata, Operation, PollJob, poll_future,
+};
+use eyre::{Result, ensure, eyre};
 use std::{
     cell::{Cell, RefCell},
     collections::BTreeMap,
     future::Future,
 };
 
-pub(crate) struct Scheduled<T> {
-    pub(super) tick: u64,
-    pub(super) result: Result<T>,
+struct Scheduled<T> {
+    tick: u64,
+    result: Result<T>,
+}
+
+pub(super) struct MinExecution<const TICKS: u64>;
+pub(super) struct ExecutionTicks(u64);
+
+impl<const TICKS: u64> Annotation for MinExecution<TICKS> {
+    type Value = ExecutionTicks;
+    const VALUE: &'static ExecutionTicks = &ExecutionTicks(TICKS);
 }
 
 type Event<M> = Box<dyn FnOnce(&mut M, &SimDriver<M>)>;
@@ -40,7 +60,18 @@ impl<M> SimDriver<M> {
         self.now.get()
     }
 
-    pub(super) fn poll_ready(&self, machine: &mut M) {
+    pub(super) fn advance_next(&self, machine: &mut M) -> Result<u64> {
+        let tick = self
+            .events
+            .borrow()
+            .first_key_value()
+            .map(|(&(tick, _), _)| tick)
+            .ok_or_else(|| eyre!("program is waiting with no scheduled event"))?;
+        self.advance_to(machine, tick)?;
+        Ok(tick)
+    }
+
+    fn poll_ready(&self, machine: &mut M) {
         let jobs = std::mem::take(&mut *self.futures.borrow_mut());
         for mut job in jobs {
             if !job(machine, self) {
@@ -94,6 +125,39 @@ impl<M: 'static, T: 'static> Await<M, Scheduled<T>> for SimDriver<M> {
             Box::new(move |machine, driver| {
                 done(machine, driver, work.result);
             }),
+        );
+    }
+}
+
+impl<M: 'static> AnnotatedDriver<M> for SimDriver<M> {
+    fn run_annotated<I, N: Operation<M, I, Self>>(
+        &self,
+        machine: &mut M,
+        metadata: &Metadata,
+        input: I,
+        done: impl FnOnce(&mut M, &Self, Result<N::Output>) + 'static,
+    ) {
+        let ticks = metadata
+            .get_value::<ExecutionTicks>()
+            .map_or(0, |time| time.0);
+        let Some(ready_at) = self.now().checked_add(ticks) else {
+            return done(machine, self, Err(eyre!("simulation node time overflow")));
+        };
+        N::start(
+            machine,
+            self,
+            input,
+            move |machine, driver, result| match result {
+                Ok(value) if driver.now() < ready_at => driver.wait(
+                    machine,
+                    Scheduled {
+                        tick: ready_at,
+                        result: Ok(value),
+                    },
+                    done,
+                ),
+                result => done(machine, driver, result),
+            },
         );
     }
 }

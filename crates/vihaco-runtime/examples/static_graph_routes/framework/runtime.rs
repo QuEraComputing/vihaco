@@ -1,9 +1,50 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! The driver keeps all per-invocation state, including parked continuations.
+//! # Driver capabilities and channel backend
+//!
+//! `Await<M, H>` consumes a work handle supplied by a previous operation.
+//! `FutureDriver<M>` runs a component-owned Rust future. Each accepts an owned
+//! one-shot continuation that may finish inline or park. When it calls the
+//! continuation, the backend supplies a fresh mutable machine borrow and a
+//! shared driver reference. This permits the continuation to start another
+//! operation or park again.
+//!
+//! `AnnotatedDriver` lives in the graph executor. It lets a backend inspect
+//! metadata before invoking an annotated operation. The simulator overrides
+//! the hook to delay a successful result. Unannotated operations require
+//! only the capabilities they use.
+//!
+//! ## Channel driver
+//!
+//! `signal` creates a one-shot pair. Sending the result or dropping the
+//! sender also notifies the driver. The notification is a readiness hint.
+//! A pending job still checks its own receiver. Disconnecting the receiver's
+//! producer delivers a route error.
+//!
+//! `start` puts terminal results from unit-output routes in a FIFO. Use
+//! `take_completion` to inspect that queue or `run_until_complete` to pump
+//! pending work and wait for an outcome. The five-second timeout applies to
+//! one idle receive. These are demo conveniences. The queue reports
+//! completion order and carries no invocation IDs. Warehouse supplies its
+//! own per-instruction completion slot through `Route::start_with`.
+//!
+//! ## Local futures
+//!
+//! The channel driver and simulator use `poll_future` to pin a future and
+//! poll it once immediately. A pending poll job owns the future and its
+//! continuation. Its waker can be used across threads and only marks the
+//! job ready. The driver polls and delivers results on the machine's
+//! thread. It clears the ready flag before polling so a wake during the poll
+//! can request another pass. The driver releases its queue borrow before
+//! running jobs so callbacks can add work.
+//!
+//! The simulator drives this polling explicitly when advancing its clock.
+//! The async digitizer's Tokio test driver uses a current-thread executor
+//! and queues completed callbacks for host delivery. Its first poll happens
+//! when the executor runs.
 
-use super::graph::{Route, Run};
+use super::graph::{AnnotatedDriver, Route, Run};
 use eyre::{Result, eyre};
 use std::{
     cell::RefCell,
@@ -15,7 +56,6 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     task::{Context, Poll as TaskPoll, Wake, Waker},
-    thread,
     time::Duration,
 };
 
@@ -31,16 +71,6 @@ pub(crate) trait Await<M, H> {
     );
 }
 
-/// Submits a worker and returns the driver's own completion handle.
-pub(crate) trait SpawnWorker {
-    type Work<T: Send + 'static>: 'static;
-
-    fn spawn<I, O>(&self, work: fn(I) -> Result<O>, input: I) -> Result<Self::Work<O>>
-    where
-        I: Send + 'static,
-        O: Send + 'static;
-}
-
 /// Lets an async route node submit the opaque future returned by async Rust.
 pub(crate) trait FutureDriver<M> {
     fn run_future<T: 'static>(
@@ -49,25 +79,6 @@ pub(crate) trait FutureDriver<M> {
         future: impl Future<Output = Result<T>> + 'static,
         done: impl FnOnce(&mut M, &Self, Result<T>) + 'static,
     );
-}
-
-pub(crate) struct RustFuture<F>(pub(crate) F);
-
-impl<M, D, F, T: 'static> Await<M, RustFuture<F>> for D
-where
-    D: FutureDriver<M>,
-    F: Future<Output = Result<T>> + 'static,
-{
-    type Output = T;
-
-    fn wait(
-        &self,
-        machine: &mut M,
-        RustFuture(future): RustFuture<F>,
-        done: impl FnOnce(&mut M, &Self, Result<T>) + 'static,
-    ) {
-        self.run_future(machine, future, done);
-    }
 }
 
 // The example drivers erase future poll jobs when they need to store them.
@@ -130,6 +141,8 @@ pub(crate) struct ChannelDriver<M> {
     finished: RefCell<VecDeque<Result<()>>>,
 }
 
+impl<M> AnnotatedDriver<M> for ChannelDriver<M> {}
+
 // Runs ready callbacks on the driver thread with a fresh borrow of the machine.
 impl<M: 'static> ChannelDriver<M> {
     /// Creates an empty driver with its own wake channel.
@@ -166,7 +179,7 @@ impl<M: 'static> ChannelDriver<M> {
     }
 
     /// Resumes ready callbacks from the current queue and returns their count.
-    pub(crate) fn poll_ready(&self, machine: &mut M) -> usize {
+    fn poll_ready(&self, machine: &mut M) -> usize {
         let mut ready = 0;
         let pending = std::mem::take(&mut *self.pending.borrow_mut());
         // Ready callbacks may park more work. The queue is free for them to use.
@@ -181,7 +194,7 @@ impl<M: 'static> ChannelDriver<M> {
     }
 
     /// Records a terminal route result for its caller.
-    pub(crate) fn complete(&self, result: Result<()>) {
+    fn complete(&self, result: Result<()>) {
         self.finished.borrow_mut().push_back(result);
     }
 
@@ -200,20 +213,6 @@ impl<M: 'static> ChannelDriver<M> {
                 self.wake.recv_timeout(Duration::from_secs(5))?;
             }
         }
-    }
-}
-
-impl<M: 'static> SpawnWorker for ChannelDriver<M> {
-    type Work<T: Send + 'static> = Wait<T>;
-
-    fn spawn<I, O>(&self, work: fn(I) -> Result<O>, input: I) -> Result<Wait<O>>
-    where
-        I: Send + 'static,
-        O: Send + 'static,
-    {
-        let (signal, wait) = self.signal();
-        thread::Builder::new().spawn(move || signal.complete(work(input)))?;
-        Ok(wait)
     }
 }
 

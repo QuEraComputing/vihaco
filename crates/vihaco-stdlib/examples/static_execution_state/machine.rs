@@ -4,14 +4,14 @@
 //! A program machine that finishes each static route before the next fetch.
 
 use crate::framework::{
-    Compute, Describe, Route, compute, instruction_at, step_graph,
-    synchronous::{RunSync, build_message_with},
+    Compute, Describe, Route, build_message_at, compute, instruction_at, step_graph,
+    synchronous::RunSync,
 };
 use eyre::Result;
 use std::marker::PhantomData;
 use vihaco_abi::{Type, Value};
 use vihaco_cpu::{CPU, cpu};
-use vihaco_module::module::{FunctionInfo, LocalModule, Parameter, Signature};
+use vihaco_module::module::{FunctionInfo, LocalModule, Signature};
 use vihaco_runtime::{
     Apply, BuildMessage, Execute, HasInstructionSet, ReusableMessageRecipe, Step, composite, field,
 };
@@ -58,7 +58,7 @@ where
     Machine: BuildMessage<ExecutionField, I, Program>,
 {
     step_graph::<I>()
-        .begin(build_message_with::<ExecutionField, Program>())
+        .begin(build_message_at::<ExecutionField>())
         .then_execute(instruction_at::<ExecutionField>())
         .finish()
 }
@@ -87,7 +87,7 @@ where
     ExecutionState: Apply<<CPU as Execute<I>>::Effect>,
 {
     step_graph::<I>()
-        .begin(build_message_with::<CpuField, Program>())
+        .begin(build_message_at::<CpuField>())
         .then_execute(instruction_at::<CpuField>())
         .then(compute::<ApplyCpuEffect<<CPU as Execute<I>>::Effect>>())
         .finish()
@@ -119,48 +119,26 @@ where
 fn program() -> Program {
     Program {
         code: vec![
-            // main: skip the halt, call increment(20), multiply by 2, and return.
+            // Branch skips the early halt. The CPU route leaves 6 * 7 on the stack.
             Instruction::V_execution__program__Branch(program::Branch(2)),
             Instruction::V_execution__program__Halt(program::Halt),
-            Instruction::V_execution__program__ConstU64(program::ConstU64(20)),
-            Instruction::V_execution__program__Call(program::Call(1, 7)),
-            Instruction::V_execution__program__ConstU64(program::ConstU64(2)),
+            Instruction::V_execution__program__ConstU64(program::ConstU64(6)),
+            Instruction::V_execution__program__ConstU64(program::ConstU64(7)),
             Instruction::V_cpu__cpu__MulU64(cpu::MulU64),
             Instruction::V_execution__program__Return(program::Return(1)),
-            // increment(value): return value + 1.
-            Instruction::V_execution__program__LoadU64(program::LoadU64(0)),
-            Instruction::V_execution__program__ConstU64(program::ConstU64(1)),
-            Instruction::V_cpu__cpu__AddU64(cpu::AddU64),
-            Instruction::V_execution__program__Return(program::Return(1)),
         ],
-        functions: vec![
-            FunctionInfo {
-                name: 0,
-                signature: Signature {
-                    params: vec![],
-                    ret: vec![Type::U64],
-                },
-                local_count: 0,
-                start_address: 0,
-                end_address: 7,
-                file: 0,
+        functions: vec![FunctionInfo {
+            name: 0,
+            signature: Signature {
+                params: vec![],
+                ret: vec![Type::U64],
             },
-            FunctionInfo {
-                name: 1,
-                signature: Signature {
-                    params: vec![Parameter {
-                        name: 2,
-                        ty: Type::U64,
-                    }],
-                    ret: vec![Type::U64],
-                },
-                local_count: 1,
-                start_address: 7,
-                end_address: 11,
-                file: 0,
-            },
-        ],
-        strings: vec!["main".into(), "increment".into(), "value".into()],
+            local_count: 0,
+            start_address: 0,
+            end_address: 6,
+            file: 0,
+        }],
+        strings: vec!["main".into()],
         main_function: Some(0),
         ..Default::default()
     }
@@ -177,11 +155,11 @@ fn load(module: Program) -> Loadable<Image<Instruction>, Machine> {
 }
 
 pub(crate) fn demo() -> Result<()> {
-    let control = execution_route::<program::Call>();
+    let control = execution_route::<program::Branch>();
     let arithmetic = cpu_route::<cpu::MulU64>();
     assert_eq!(std::mem::size_of_val(&control), 0);
     assert_eq!(std::mem::size_of_val(&arithmetic), 0);
-    control.topology().print("Call");
+    control.topology().print("Branch");
     arithmetic.topology().print("MulU64");
 
     let mut loaded = load(program());
@@ -190,7 +168,7 @@ pub(crate) fn demo() -> Result<()> {
     assert_eq!(execution.stack(), &[42]);
     assert!(execution.frames().is_empty());
     assert!(execution.is_halted());
-    assert_eq!(execution.pc(), 6);
+    assert_eq!(execution.pc(), 5);
     println!("Result stack: {:?}", execution.stack());
     Ok(())
 }
