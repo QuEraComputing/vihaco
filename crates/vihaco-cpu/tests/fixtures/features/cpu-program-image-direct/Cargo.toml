@@ -5,5 +5,5 @@ edition = "2024"
 publish = false
 
 [dependencies]
-host = { workspace = true, features = ["program-image-execution"] }
+host = { workspace = true }
 rt = { workspace = true }

@@ -1,16 +1,13 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-#![cfg(feature = "typed-declarations")]
+#![cfg(feature = "derive")]
 
 use std::collections::HashMap;
 use vihaco_runtime::{
-    Execute, HasInstructionSet, Lower, Parse, Step, Syntax, chumsky::Parser, component, composite,
-    dialect, field,
+    Dispatch, Execute, HasInstructionSet, Lower, Parse, Step, Syntax, chumsky::Parser, component,
+    composite, dialect, field,
 };
-
-#[cfg(not(feature = "program-image-execution"))]
-use vihaco_runtime::{Dispatch, loader::LoadSSTSection};
 
 trait FunctionLookup {
     fn function_index(&self, name: &str) -> eyre::Result<u32>;
@@ -92,8 +89,6 @@ struct Machine {
     child: Child,
     #[device(3)]
     spare: Cpu,
-    #[cfg(not(feature = "program-image-execution"))]
-    loader: Loader,
     executed: usize,
 }
 
@@ -141,66 +136,36 @@ impl StringIntern for Loader {
     }
 }
 
-#[cfg(not(feature = "program-image-execution"))]
-impl LoadSSTSection<vihaco_bytecode::NoContext> for Loader
-where
-    Source: Lower<Self, Runtime = Runtime>,
-{
-    type Output = ();
-
-    fn load_sst_section<'bc>(
-        &mut self,
-        section: vihaco_runtime::SSTSectionView<'bc, vihaco_bytecode::NoContext>,
-    ) -> eyre::Result<()> {
-        // This fixture's section format is one qualified instruction per line.
-        let source = section
-            .text()
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .map(|line| {
-                Source::parser()
-                    .parse(line.trim())
-                    .into_result()
-                    .map_err(|errors| eyre::eyre!("{errors:?}"))
-            })
-            .collect::<eyre::Result<Vec<_>>>()?;
-        self.functions.insert("entry".to_owned(), 7);
-        self.code = self.lower_instructions(source)?;
-        Ok(())
-    }
-}
-
-#[cfg(not(feature = "program-image-execution"))]
-impl LoadSSTSection<vihaco_bytecode::NoContext> for Machine {
-    type Output = ();
-
-    fn load_sst_section<'bc>(
-        &mut self,
-        section: vihaco_runtime::SSTSectionView<'bc, vihaco_bytecode::NoContext>,
-    ) -> eyre::Result<()> {
-        self.loader.load_sst_section(section)
-    }
-}
-
-#[cfg(not(feature = "program-image-execution"))]
 #[test]
-fn section_loader_capabilities_enable_generated_composite_lowering() {
-    let file = vihaco_bytecode::SSTFile::<vihaco_bytecode::NoContext>::from_text(&format!(
-        "sst v{}\n.section main\n.text\nchild::host::symbolic::call entry, 2\nspare::symbolic::named \"hello\", entry\nspare::symbolic::load 42\nchild::cpu::symbolic::halt\n",
-        vihaco_bytecode::SST_VERSION,
-    )).unwrap();
+fn custom_context_lowers_aliased_and_nested_instructions() {
+    let mut loader = Loader {
+        functions: HashMap::from([("entry".to_owned(), 7)]),
+        ..Loader::default()
+    };
     let mut machine = Machine {
         child: Child { cpu: Cpu },
         spare: Cpu,
-        loader: Loader::default(),
         executed: 0,
     };
-    machine
-        .load_sst_section(file.section("main").unwrap())
-        .unwrap();
-    assert_eq!(machine.loader.strings, ["hello"]);
+    let source = [
+        "child::host::symbolic::call entry, 2",
+        "spare::symbolic::named \"hello\", entry",
+        "spare::symbolic::load 42",
+        "child::cpu::symbolic::halt",
+    ];
+
+    let code = source.map(|line| {
+        Source::parser()
+            .parse(line)
+            .into_result()
+            .unwrap()
+            .lower(&mut loader)
+            .unwrap()
+    });
+
+    assert_eq!(loader.strings, ["hello"]);
     assert_eq!(
-        machine.loader.code,
+        code,
         [
             __vihaco_MachineInstruction::V_child__cpu__symbolic__Call(symbolic::Call(7, 2)),
             __vihaco_MachineInstruction::V_spare__symbolic__Named(symbolic::Named(7, 0)),
@@ -208,8 +173,8 @@ fn section_loader_capabilities_enable_generated_composite_lowering() {
             __vihaco_MachineInstruction::V_child__cpu__symbolic__Halt(symbolic::Halt),
         ]
     );
-    for instruction in std::mem::take(&mut machine.loader.code) {
-        machine.dispatch(&instruction, &()).unwrap();
+    for instruction in &code {
+        machine.dispatch(instruction, &()).unwrap();
     }
     assert_eq!(machine.executed, 22);
 }
@@ -245,9 +210,7 @@ fn syntax_is_retained_and_lowering_errors_do_not_replace_loaded_code() {
     assert_eq!(symbolic::Halt.lower(&mut ()).unwrap(), symbolic::Halt);
 }
 
-#[cfg(not(feature = "program-image-execution"))]
 #[test]
 fn lowering_capability_diagnostics() {
-    let cases = trybuild::TestCases::new();
-    cases.compile_fail("tests/compile_fail/lowering/*.rs");
+    trybuild::TestCases::new().compile_fail("tests/compile_fail/lowering/*.rs");
 }

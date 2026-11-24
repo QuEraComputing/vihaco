@@ -10,7 +10,7 @@
 //!   (`docs/examples/*.rs`) are `include!`d below, so they are compiled exactly
 //!   as the site shows them (and the runnable ones are executed by `#[test]`).
 //! - Every fenced ` ```rust ` block in the guide markdown is a rustdoc doctest;
-//!   run them with `cargo test --doc -p vihaco-doctests --features program-image-execution`.
+//!   run them with `cargo test --doc -p vihaco-doctests`.
 //!   Blocks that are
 //!   genuinely illustrative (trait reproductions, runtime pseudocode that calls
 //!   helpers a real consumer would write) are marked `ignore`; blocks that
@@ -22,12 +22,10 @@
 
 // ── Landing / quick-start example files (compiled as shown on the site) ──
 
-#[cfg(feature = "program-image-execution")]
 mod ex_counter {
     include!("../../../docs/examples/counter.rs");
 }
 
-#[cfg(feature = "program-image-execution")]
 mod ex_quickstart {
     include!("../../../docs/examples/quickstart.rs");
 
@@ -175,7 +173,6 @@ sst v2
     }
 }
 
-#[cfg(feature = "program-image-execution")]
 mod ex_patterns {
     include!("../../../docs/examples/patterns.rs");
 
@@ -185,7 +182,6 @@ mod ex_patterns {
     }
 }
 
-#[cfg(feature = "program-image-execution")]
 mod ex_quickstart_parse {
     include!("../../../docs/examples/quickstart_parse.rs");
 
@@ -197,7 +193,6 @@ mod ex_quickstart_parse {
 
 // ── Guide tutorials (every ```rust block is a rustdoc doctest) ──
 
-#[cfg(feature = "program-image-execution")]
 mod authors {
     #[doc = include_str!("../../../docs/src/pages/guide/mental-model.md")]
     mod mental_model {}

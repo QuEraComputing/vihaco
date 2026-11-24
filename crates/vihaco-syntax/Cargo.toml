@@ -7,10 +7,6 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
-[features]
-typed-declarations = []
-program-image-execution = ["typed-declarations"]
-
 [dependencies]
 vihaco-abi = { workspace = true }
 vihaco-module = { workspace = true }

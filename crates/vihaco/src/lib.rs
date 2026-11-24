@@ -50,9 +50,6 @@ pub use instruction_syntax::{
 
 pub use loader::ProgramImage;
 
-#[cfg(not(feature = "program-image-execution"))]
-pub use loader::{LoadBytecodeSection, LoadSSTSection};
-
 pub use macros::{Instruction, Message, component, composite, dispatch, observe};
 pub use program::{Type, Value};
 pub use runtime::{
@@ -69,23 +66,18 @@ pub use vihaco_parser::SurfaceInstruction;
 pub use vihaco_parser::trivia;
 pub use vihaco_parser_derive::Parse;
 
-#[cfg(feature = "typed-declarations")]
 #[doc(hidden)]
 pub use runtime::__private;
 
-#[cfg(feature = "typed-declarations")]
 pub use runtime::{BuildMessage, Dispatch, Execute, Field, ReusableMessageRecipe, Step};
 
 /// Name a composite field or nested route. See [`runtime::field`].
-#[cfg(feature = "typed-declarations")]
 pub use runtime::field;
 
-/// Declare instruction leaves with phase-aware parsers under `typed-declarations`.
+/// Declare instruction leaves with phase-aware parsers.
 /// See [`runtime::dialect`] for the `#[vihaco(crate = path)]` framework-root override.
 ///
 /// ```
-/// # #[cfg(feature = "typed-declarations")]
-/// # {
 /// use vihaco::{dialect, Parse, chumsky::Parser};
 /// #[dialect]
 /// # #[vihaco(crate = ::vihaco)]
@@ -95,21 +87,16 @@ pub use runtime::field;
 /// }
 /// assert_eq!(arithmetic::Add::parser().parse("add 2")
 ///     .into_result().unwrap().0, 2);
-/// # }
 /// ```
-#[cfg(feature = "typed-declarations")]
 pub use runtime::dialect;
 
-#[cfg(feature = "program-image-execution")]
 pub use runtime::{
     Apply, HasOperandStack, InputCount, PopFromStack, PopStack, PushStack, PushToStack, StackBatch,
     StackBatchIntoIter, StackInputCount, StackValue,
 };
 
-#[cfg(feature = "program-image-execution")]
 pub use vihaco_runtime::HasProgram;
 
-#[cfg(feature = "program-image-execution")]
 pub use vihaco_stdlib::{
     ExecutionState, Image, Loadable,
     execution_state::{execute, resume},
@@ -125,9 +112,6 @@ mod public_api_tests {
         module::FunctionInfo,
         observer::stdio::StdoutEffect,
     };
-
-    #[cfg(not(feature = "program-image-execution"))]
-    use crate::LoadBytecodeSection;
 
     struct PublicReset;
 
@@ -155,19 +139,6 @@ mod public_api_tests {
         }
     }
 
-    #[cfg(not(feature = "program-image-execution"))]
-    impl LoadBytecodeSection<PublicContext> for PublicReset {
-        type Output = ();
-
-        fn load_bytecode_section<'bc>(
-            &mut self,
-            section: crate::BytecodeSectionView<'bc, PublicContext>,
-        ) -> eyre::Result<()> {
-            let _ = section.name();
-            Ok(())
-        }
-    }
-
     struct PublicSstHeader;
 
     impl crate::traits::FromText for PublicSstHeader {
@@ -190,8 +161,6 @@ mod public_api_tests {
         fn require_bytecode_global_context<T: BytecodeGlobalContext>() {}
         fn require_sst_global_context<T: SSTGlobalContext>() {}
         fn require_global_context<T: GlobalContext>() {}
-        #[cfg(not(feature = "program-image-execution"))]
-        fn require_load_bytecode_section<T: LoadBytecodeSection<PublicContext>>() {}
         fn require_stdout_effect(_effect: StdoutEffect) {}
         fn require_metadata(_metadata: crate::CompositeMetadata) {}
 
@@ -206,8 +175,6 @@ mod public_api_tests {
         require_sst_global_context::<PublicContext>();
         require_sst_global_context::<crate::NoContext>();
         require_global_context::<PublicContext>();
-        #[cfg(not(feature = "program-image-execution"))]
-        require_load_bytecode_section::<PublicReset>();
         let _constant = ConstantId(0);
         let _function: Option<FunctionInfo<crate::Type>> = None;
         require_stdout_effect(StdoutEffect(String::new()));

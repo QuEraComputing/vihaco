@@ -7,11 +7,6 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
-[features]
-default = []
-typed-declarations = ["vihaco-runtime/typed-declarations"]
-program-image-execution = ["typed-declarations", "vihaco-runtime/program-image-execution"]
-
 [dependencies]
 chumsky = { workspace = true }
 codespan = "0.13.1"

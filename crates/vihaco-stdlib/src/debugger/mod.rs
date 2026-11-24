@@ -25,7 +25,7 @@
 //! Run the complete wiring, stepping, replacement, and reuse example with:
 //!
 //! ```text
-//! cargo run -p vihaco-stdlib --features program-image-execution --example debugger
+//! cargo run -p vihaco-stdlib --example debugger
 //! ```
 
 pub mod dialect;

@@ -20,7 +20,7 @@ impl rt::Execute<local::Halt> for Cpu {
 }
 
 #[test]
-fn indirect_feature_enables_complete_contract() {
+fn cross_crate_dialects_share_the_runtime_contract() {
     use rt::{Parse, chumsky::Parser};
     assert!(local::Halt::parser().parse("halt").has_output());
     rt::__private::require_available::<Cpu, local::Halt>();

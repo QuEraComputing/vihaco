@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 //! Run with:
-//! `cargo run -p vihaco-stdlib --features program-image-execution --example debugger`
+//! `cargo run -p vihaco-stdlib --example debugger`
 
 use vihaco_abi::{Type, Value};
 use vihaco_module::module::{FunctionInfo, LocalModule, Signature};

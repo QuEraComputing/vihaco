@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-#![cfg(feature = "typed-declarations")]
+#![cfg(feature = "derive")]
 #![allow(dead_code)]
 
 use vihaco_runtime::__private::{LeafAt, RouteAt};
@@ -247,20 +247,8 @@ declarations!(two);
 #[test]
 fn inventory_and_step_contract_diagnostics() {
     let cases = trybuild::TestCases::new();
-    let mut fixtures = std::fs::read_dir("tests/compile_fail/inventory")
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
-        .collect::<Vec<_>>();
-    fixtures.sort();
-    for fixture in fixtures {
-        let name = fixture.file_name().unwrap().to_str().unwrap();
-        if cfg!(feature = "program-image-execution") && name == "missing-step.rs" {
-            cases.compile_fail("tests/compile_fail/program_image_inventory/missing-step.rs");
-            continue;
-        }
-        cases.compile_fail(fixture);
-    }
+    cases.compile_fail("tests/compile_fail/inventory/*.rs");
+    cases.compile_fail("tests/compile_fail/program_image_inventory/missing-step.rs");
 }
 
 mod readable_names {

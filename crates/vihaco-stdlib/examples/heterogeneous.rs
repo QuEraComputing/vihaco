@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 //! Run with:
-//! `cargo run -p vihaco-stdlib --features program-image-execution --example heterogeneous`
+//! `cargo run -p vihaco-stdlib --example heterogeneous`
 //!
 //! One SST file, two machines: the `controller` section targets a CPU-style
 //! machine and the `fpga` section a pulse-generator machine with its own

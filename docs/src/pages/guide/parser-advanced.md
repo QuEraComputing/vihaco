@@ -126,7 +126,7 @@ table in a different order from the code, a helper call, and a forward branch.
 Run it from a checkout:
 
 ```sh
-cargo run -p vihaco-stdlib --features program-image-execution --example loadable
+cargo run -p vihaco-stdlib --example loadable
 ```
 
 The result is `[42]`. To try another file, pass its source path after `--`.

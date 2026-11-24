@@ -112,12 +112,6 @@ fn parse(mut item: ItemStruct) -> Result<Composite> {
         let mut program = false;
         for attr in &field.attrs {
             if attr.path().is_ident("program") {
-                if !cfg!(feature = "program-image-execution") {
-                    return Err(syn::Error::new_spanned(
-                        attr,
-                        "program execution helpers require program-image-execution",
-                    ));
-                }
                 if !matches!(attr.meta, Meta::Path(_)) {
                     return Err(syn::Error::new_spanned(
                         attr,
@@ -150,14 +144,9 @@ fn parse(mut item: ItemStruct) -> Result<Composite> {
                 });
             }
             if attr.path().is_ident("loadable") {
-                let hint = if cfg!(feature = "program-image-execution") {
-                    "construct an image from `file.section(name)` and pair it with `Loadable`"
-                } else {
-                    "implement LoadSSTSection/LoadBytecodeSection and select a section by name"
-                };
                 return Err(syn::Error::new_spanned(
                     attr,
-                    format!("#[loadable] was removed: sections are flat; {hint}"),
+                    "#[loadable] was removed: sections are flat; construct an image from `file.section(name)` and pair it with `Loadable`",
                 ));
             }
         }

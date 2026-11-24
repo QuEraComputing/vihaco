@@ -5,6 +5,6 @@ edition = "2024"
 publish = false
 
 [dependencies]
-host = { workspace = true, default-features = false }
-vm = { workspace = true, features = ["program-image-execution"] }
-rt = { workspace = true, default-features = false }
+host = { workspace = true }
+vm = { workspace = true }
+rt = { workspace = true }

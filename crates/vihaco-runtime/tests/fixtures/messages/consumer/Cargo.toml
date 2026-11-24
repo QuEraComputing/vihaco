@@ -6,5 +6,5 @@ publish = false
 
 [dependencies]
 message-author = { path = "../author" }
-vihaco = { path = "../../../../../vihaco", features = ["program-image-execution"] }
-vihaco-stdlib = { path = "../../../../../vihaco-stdlib", features = ["program-image-execution"] }
+vihaco = { path = "../../../../../vihaco" }
+vihaco-stdlib = { path = "../../../../../vihaco-stdlib" }

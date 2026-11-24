@@ -52,7 +52,7 @@ where
 
 /// Validate supplied metadata and lower a code stream without consuming it.
 ///
-/// Available with `program-image-execution`. The caller prepares the metadata
+/// The caller prepares the metadata
 /// and context independently, for example by processing individual header
 /// declarations. The context may borrow prepared configuration or the metadata
 /// itself; neither is moved or cloned by this function.
@@ -68,7 +68,6 @@ where
 /// # Errors
 /// Returns declaration, symbol, table, or instruction-lowering errors. No
 /// partial code is returned; earlier context mutations are not rolled back.
-#[cfg(feature = "program-image-execution")]
 pub fn lower_code_with_metadata<I, Ty, V, Info, C>(
     code: Vec<I>,
     symbols: &[Symbol],

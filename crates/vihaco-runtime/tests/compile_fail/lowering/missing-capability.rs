@@ -23,15 +23,7 @@ impl<I> vihaco_runtime::Step<vihaco_runtime::field!(Machine::cpu), I> for Machin
     fn step(&mut self, _: &I, _: &()) -> vihaco_runtime::eyre::Result<()> { Ok(()) }
 }
 struct Loader;
-impl vihaco_runtime::loader::LoadSSTSection<()> for Loader {
-    type Output = ();
-
-    fn load_sst_section<'bc>(
-        &mut self, _: vihaco_runtime::SSTSectionView<'bc, ()>,
-    ) -> eyre::Result<()> { Ok(()) }
-}
 fn main() {
-    use vihaco_runtime::loader::LoadSSTSection;
     let source = __vihaco_MachineInstruction::<Syntax>::V_cpu__control__Call(control::Call(7));
-    let _ = Loader.lower_instructions([source]);
+    let _ = source.lower(&mut Loader);
 }

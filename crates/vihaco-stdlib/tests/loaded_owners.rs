@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-#![cfg(feature = "program-image-execution")]
-
 use std::ops::ControlFlow;
 use vihaco_abi::{Type, Value, traits::FromText};
 use vihaco_bytecode::{NoContext, SSTFile, SSTHeader, SSTSectionView};

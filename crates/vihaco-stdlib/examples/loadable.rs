@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 //! Run with:
-//! `cargo run -p vihaco-stdlib --features program-image-execution --example loadable`
+//! `cargo run -p vihaco-stdlib --example loadable`
 //!
 //! Pass an SST file path as the final argument to load another source file.
 //! Without a path, this runs the adjacent `loadable.sst`, which computes 21 * 2.

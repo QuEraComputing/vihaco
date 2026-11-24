@@ -1,43 +1,18 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Loaded program state and host access to section-local code and metadata.
-//!
-//! Equal string contents reuse the same section-local index:
-//!
-//! ```
-//! # #[cfg(all(feature = "typed-declarations", not(feature = "program-image-execution")))]
-//! # {
-//! use vihaco_runtime::{Lower, Parse, Syntax, chumsky::Parser as _};
-//! use vihaco_bytecode::NoContext;
-//! use vihaco_stdlib::ProgramImage;
-//! use vihaco_cpu::cpu;
-//! let mut image = ProgramImage::<(), NoContext>::default();
-//! for _ in 0..2 {
-//!     let source = cpu::ConstString::<Syntax>::parser().parse("const_string \"hello\"")
-//!         .into_result().unwrap();
-//!     assert_eq!(source.lower(&mut image).unwrap(), cpu::ConstString(0));
-//! }
-//! assert_eq!(image.module.strings, ["hello"]);
-//! # }
-//! ```
+//! Standard program instruction dialect and legacy section data.
 
-#[cfg(feature = "program-image-execution")]
 mod dialect;
 
-#[cfg(feature = "program-image-execution")]
 pub use dialect::program;
 
-#[cfg(feature = "program-image-execution")]
 mod literal;
 
-#[cfg(feature = "program-image-execution")]
 pub mod lower;
 
-#[cfg(feature = "program-image-execution")]
 pub mod operand;
 
-#[cfg(feature = "program-image-execution")]
 pub mod raise;
 
 use vihaco_abi::{Type, Value};
@@ -158,25 +133,5 @@ where
                 self.module.constants.len()
             ))
         })
-    }
-}
-
-#[cfg(all(
-    feature = "typed-declarations",
-    not(feature = "program-image-execution")
-))]
-impl<I, C, V, Ty, Info> vihaco_cpu::lower::StringIntern for ProgramImage<I, C, V, Ty, Info> {
-    fn intern_string(&mut self, value: &str) -> eyre::Result<u32> {
-        if let Some(index) = self
-            .module
-            .strings
-            .iter()
-            .position(|existing| existing == value)
-        {
-            return Ok(u32::try_from(index)?);
-        }
-        let index = u32::try_from(self.module.strings.len())?;
-        self.module.strings.push(value.to_owned());
-        Ok(index)
     }
 }

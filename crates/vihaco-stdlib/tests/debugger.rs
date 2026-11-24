@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-#![cfg(feature = "program-image-execution")]
-
 use vihaco_module::module::{FunctionInfo, LocalModule, Signature};
 use vihaco_runtime::{
     Apply, BuildMessage, Execute, HasInstructionSet, ReusableMessageRecipe, Step, composite, field,

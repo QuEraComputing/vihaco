@@ -3,7 +3,6 @@
 
 use proc_macro_crate::{FoundCrate, crate_name};
 use proc_macro2::Span;
-#[cfg(feature = "typed-declarations")]
 use syn::{Attribute, Meta, Token, punctuated::Punctuated};
 use syn::{Ident, Path, parse_quote};
 
@@ -98,7 +97,6 @@ fn crate_override(attrs: &[syn::Attribute]) -> syn::Result<Option<syn::Path>> {
 }
 
 /// Extract only conditional existence attributes for generated companion items.
-#[cfg(feature = "typed-declarations")]
 // Only conditional item existence propagates to generated items. An authored
 // cfg_attr may also contain derive/repr attributes that cannot apply to a const.
 pub(crate) fn gates(attrs: &[Attribute]) -> Vec<Meta> {
@@ -124,7 +122,6 @@ pub(crate) fn gates(attrs: &[Attribute]) -> Vec<Meta> {
 }
 
 /// Preserve an authored framework root when emitted one module below its scope.
-#[cfg(feature = "typed-declarations")]
 pub(crate) fn root_in_child_module(root: &Path) -> Path {
     let mut path = root.clone();
     if path.leading_colon.is_none() {

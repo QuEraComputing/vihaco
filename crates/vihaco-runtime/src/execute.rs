@@ -5,7 +5,7 @@ use crate::Component;
 
 /// Execute one instruction type with runtime-supplied input.
 ///
-/// Available with the experimental `typed-declarations` feature. Each impl
+/// Each impl
 /// chooses its message, result, and error types independently.
 /// Implementing this trait alone does not declare dialect availability.
 ///

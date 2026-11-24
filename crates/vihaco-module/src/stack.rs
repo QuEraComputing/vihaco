@@ -4,7 +4,7 @@
 //! Typed access to individual logical stack values.
 //!
 //! These traits describe storage access, independently of a CPU, composite, or
-//! backing representation. Available with `program-image-execution`.
+//! backing representation.
 //!
 //! These are storage extension contracts for the framework, not requirements
 //! for ordinary component/composite authors. `vihaco_stdlib::ExecutionState`

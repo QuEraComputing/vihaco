@@ -20,7 +20,9 @@ pub use crate::inspection::{
     InspectInstruction, InspectOperands, InstructionOperand, InstructionView,
 };
 
+#[cfg(feature = "derive")]
 pub use vihaco_parser_derive::__dialect_parsers;
+#[cfg(feature = "derive")]
 pub use vihaco_runtime_derive::__inventory_collect;
 
 /// Indexed instruction types; slots are not bytecode identities.

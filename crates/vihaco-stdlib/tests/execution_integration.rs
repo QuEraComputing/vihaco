@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-#![cfg(feature = "program-image-execution")]
-
 use vihaco_abi::{traits::Reset, word::*};
 use vihaco_cpu::CPU;
 use vihaco_module::module::LocalModule;

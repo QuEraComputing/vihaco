@@ -1,8 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Separate Cargo graphs prove macro discovery with renamed dependencies and
-//! keep feature-off checks independent from feature unification in this crate.
+//! Separate Cargo graphs prove macro discovery with renamed dependencies.
 
 #[test]
 fn isolated_dialect_dependency_graphs() {
@@ -10,8 +9,7 @@ fn isolated_dialect_dependency_graphs() {
     let manifest = package.join("tests/fixtures/dialects/Cargo.toml");
     let target = package.join("../../target/dialect-fixtures");
     for packages in [
-        &["dialect-feature-off"][..],
-        &["dialect-producer", "dialect-consumer"],
+        &["dialect-producer", "dialect-consumer"][..],
         &["dialect-facade"],
         &["dialect-indirect"],
     ] {

@@ -5,4 +5,4 @@ edition = "2024"
 publish = false
 
 [dependencies]
-vihaco-runtime = { path = "../../../..", features = ["program-image-execution"] }
+vihaco-runtime = { path = "../../../.." }

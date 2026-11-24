@@ -22,8 +22,7 @@ pub struct InstructionCapability {
 
 /// Internal reporting of a component or composite's validated capabilities.
 ///
-/// Generated support under `__private`, not a user-facing API. Available with
-/// `typed-declarations`. The declaration macros supply the
+/// The declaration macros supply the
 /// hidden bound; manual description implementations are unsupported.
 /// Instruction sets do not filter this report, and source aliases do not
 /// duplicate entries. Traversal is lazy and retains declaration order.

@@ -56,8 +56,8 @@ reset as separate choices.
 From a vihaco checkout, run the guide's Rust blocks and examples with:
 
 ```sh
-cargo test -p vihaco-doctests --features program-image-execution --all-targets
-cargo test -p vihaco-doctests --features program-image-execution --doc
+cargo test -p vihaco-doctests --all-targets
+cargo test -p vihaco-doctests --doc
 ```
 
 Make complete examples runnable. For a smaller excerpt, you can hide setup lines

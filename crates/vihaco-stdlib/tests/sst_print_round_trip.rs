@@ -4,8 +4,6 @@
 //! Section-level round trip of `examples/loadable.sst`: every header
 //! declaration and instruction prints, reparses, and compares equal.
 
-#![cfg(feature = "program-image-execution")]
-
 use vihaco_abi::{Type, Value};
 use vihaco_bytecode::{NoContext, SSTFile};
 use vihaco_module::module::ProgramDirective;

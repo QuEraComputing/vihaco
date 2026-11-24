@@ -1,6 +1,6 @@
 sst v2
 ; loadable.sst with three mistakes, reported as four errors. Try:
-;   cargo run -p vihaco-stdlib --features program-image-execution --example loadable -- --check crates/vihaco-stdlib/examples/loadable-broken.sst
+;   cargo run -p vihaco-stdlib --example loadable -- --check crates/vihaco-stdlib/examples/loadable-broken.sst
 .section controller
 .header
     experiment.description "Loadable SST example: 21 * 2"

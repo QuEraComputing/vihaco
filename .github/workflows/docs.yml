@@ -87,7 +87,6 @@ jobs:
         # `doctest` job in ci.yml.
         run: >-
           cargo doc --no-deps
-          --features vihaco/program-image-execution
           -p vihaco
           -p vihaco-cpu
           -p vihaco-stdlib

@@ -10,11 +10,6 @@ authors.workspace = true
 [lib]
 proc-macro = true
 
-[features]
-default = []
-typed-declarations = []
-program-image-execution = ["typed-declarations"]
-
 [dependencies]
 convert_case = "0.6"
 proc-macro2 = "1.0"

@@ -5,4 +5,4 @@ edition = "2024"
 publish = false
 
 [dependencies]
-rt = { package = "vihaco-runtime", path = "../../../..", default-features = false, features = ["typed-declarations"] }
+rt = { package = "vihaco-runtime", path = "../../../.." }

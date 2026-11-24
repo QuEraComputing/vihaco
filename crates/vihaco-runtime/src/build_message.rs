@@ -5,7 +5,7 @@ use crate::{Execute, Field, NoMessage};
 
 /// Build execution input for one composite field route and instruction type.
 ///
-/// Available with the experimental `typed-declarations` feature. The selected
+/// The selected
 /// child's [`Execute<I>`] implementation determines the message type. The `M`
 /// parameter defaults to that associated type. `Context` defaults to `()`;
 /// runners can instead supply immutable runtime data such as a borrowed module.
@@ -75,7 +75,7 @@ pub trait BuildMessage<
 /// body of their own `BuildMessage::build_message` implementation, or construct
 /// the message using machine-specific logic instead.
 ///
-/// Available with the experimental `typed-declarations` feature. "Reusable"
+/// "Reusable"
 /// describes the intended use; implementations may also name a concrete parent.
 pub trait ReusableMessageRecipe<Parent, Route, I, Context: ?Sized>: Sized {
     /// Construct the message from the parent's capabilities and runtime inputs.
