@@ -75,7 +75,7 @@ application starts it and handles its output. Keep invocation reset and device
 reset as separate choices.</p>
 <h2 id="keep-documentation-executable">Keep documentation executable</h2>
 <p>From a vihaco checkout, run the guide’s Rust blocks and examples with:</p>
-<pre><code class="language-sh">cargo test -p vihaco-doctests --features program-image-execution --all-targets
+<pre><code class="language-sh">cargo nextest run -p vihaco-doctests --features program-image-execution --all-targets
 cargo test -p vihaco-doctests --features program-image-execution --doc
 </code></pre>
 <p>Make complete examples runnable. For a smaller excerpt, you can hide setup lines
@@ -233,7 +233,7 @@ when you need an exact trait or method signature.</p> </article>  <nav class="se
         sync();
       })();
     </script> <footer class="foot"> <div class="foot-inner"> <span>vihaco · QuEra Computing · open source, MIT License</span> <span> <a href="https://github.com/QuEraComputing/vihaco">source</a> ·
-          documentation generated <time>2026-11-23</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
+          documentation generated <time>2026-11-24</time> </span> </div> </footer>  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.10.0/highlight.min.js"></script> <script>
       (() => {
         if (typeof hljs === "undefined") return;
         for (const el of document.querySelectorAll("pre code[class*='language-']")) {
