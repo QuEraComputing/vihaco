@@ -9,11 +9,7 @@ use vihaco_bytecode as binary;
 pub use vihaco_abi::{effect, frame, instruction_syntax, metadata, program, word};
 pub use vihaco_module::{color, module, raising, show, show_instruction};
 
-/// Program loading interfaces and the standard program image.
-pub mod loader {
-    pub use vihaco_module::loader::*;
-    pub use vihaco_stdlib::ProgramImage;
-}
+pub use vihaco_module::loader;
 
 pub use vihaco_syntax as syntax;
 // The runtime layer and standard-library observers now live in their focused
@@ -22,7 +18,6 @@ pub use vihaco_runtime as runtime;
 pub use vihaco_stdlib::observer;
 
 pub mod instruction;
-pub mod machine;
 pub mod macros;
 
 #[doc(hidden)]
@@ -48,19 +43,14 @@ pub use instruction_syntax::{
     InstructionSugarVariantSyntax, OperandKind, SugarOperandKind,
 };
 
-pub use loader::ProgramImage;
-
-#[cfg(not(feature = "program-image-execution"))]
-pub use loader::{LoadBytecodeSection, LoadSSTSection};
-
-pub use macros::{Instruction, Message, component, composite, dispatch, observe};
+pub use macros::{Instruction, Message, component, composite, observe};
 pub use program::{Type, Value};
 pub use runtime::{
-    Component, Composite, CompositeMetadata, EffectSink, GeneratedComponent, HasInstructionSet,
-    MemberOf, Message as MessageMarker, NoMessage, Observe, expect_exactly_one_effect,
+    Component, Composite, CompositeMetadata, EffectSink, HasInstructionSet, MemberOf,
+    Message as MessageMarker, NoMessage, Observe, expect_exactly_one_effect,
 };
 
-pub use traits::{FromBytes, FromText, GetProgramInfo, Reset};
+pub use traits::{FromBytes, FromText, Reset};
 pub use vihaco_abi::{Lower, Raise, Runtime, Syntax};
 pub use vihaco_parser::Parse;
 pub use vihaco_parser::Print;
@@ -69,23 +59,18 @@ pub use vihaco_parser::SurfaceInstruction;
 pub use vihaco_parser::trivia;
 pub use vihaco_parser_derive::Parse;
 
-#[cfg(feature = "typed-declarations")]
 #[doc(hidden)]
 pub use runtime::__private;
 
-#[cfg(feature = "typed-declarations")]
 pub use runtime::{BuildMessage, Dispatch, Execute, Field, ReusableMessageRecipe, Step};
 
 /// Name a composite field or nested route. See [`runtime::field`].
-#[cfg(feature = "typed-declarations")]
 pub use runtime::field;
 
-/// Declare instruction leaves with phase-aware parsers under `typed-declarations`.
+/// Declare instruction leaves with phase-aware parsers.
 /// See [`runtime::dialect`] for the `#[vihaco(crate = path)]` framework-root override.
 ///
 /// ```
-/// # #[cfg(feature = "typed-declarations")]
-/// # {
 /// use vihaco::{dialect, Parse, chumsky::Parser};
 /// #[dialect]
 /// # #[vihaco(crate = ::vihaco)]
@@ -95,21 +80,16 @@ pub use runtime::field;
 /// }
 /// assert_eq!(arithmetic::Add::parser().parse("add 2")
 ///     .into_result().unwrap().0, 2);
-/// # }
 /// ```
-#[cfg(feature = "typed-declarations")]
 pub use runtime::dialect;
 
-#[cfg(feature = "program-image-execution")]
 pub use runtime::{
     Apply, HasOperandStack, InputCount, PopFromStack, PopStack, PushStack, PushToStack, StackBatch,
     StackBatchIntoIter, StackInputCount, StackValue,
 };
 
-#[cfg(feature = "program-image-execution")]
 pub use vihaco_runtime::HasProgram;
 
-#[cfg(feature = "program-image-execution")]
 pub use vihaco_stdlib::{
     ExecutionState, Image, Loadable,
     execution_state::{execute, resume},
@@ -118,16 +98,12 @@ pub use vihaco_stdlib::{
 #[cfg(test)]
 mod public_api_tests {
     use crate::{
-        BytecodeGlobalContext, BytecodeHeader, ConstantId, EffectSink, Effects, GeneratedComponent,
-        GlobalContext, Reset, SSTGlobalContext, SSTHeader, SectionNameResolver,
-        WriteBytecodeHeader,
+        BytecodeGlobalContext, BytecodeHeader, ConstantId, EffectSink, GlobalContext, Reset,
+        SSTGlobalContext, SSTHeader, SectionNameResolver, WriteBytecodeHeader,
         instruction::{FromBytes, OpCode, WriteBytes},
         module::FunctionInfo,
         observer::stdio::StdoutEffect,
     };
-
-    #[cfg(not(feature = "program-image-execution"))]
-    use crate::LoadBytecodeSection;
 
     struct PublicReset;
 
@@ -155,19 +131,6 @@ mod public_api_tests {
         }
     }
 
-    #[cfg(not(feature = "program-image-execution"))]
-    impl LoadBytecodeSection<PublicContext> for PublicReset {
-        type Output = ();
-
-        fn load_bytecode_section<'bc>(
-            &mut self,
-            section: crate::BytecodeSectionView<'bc, PublicContext>,
-        ) -> eyre::Result<()> {
-            let _ = section.name();
-            Ok(())
-        }
-    }
-
     struct PublicSstHeader;
 
     impl crate::traits::FromText for PublicSstHeader {
@@ -190,8 +153,6 @@ mod public_api_tests {
         fn require_bytecode_global_context<T: BytecodeGlobalContext>() {}
         fn require_sst_global_context<T: SSTGlobalContext>() {}
         fn require_global_context<T: GlobalContext>() {}
-        #[cfg(not(feature = "program-image-execution"))]
-        fn require_load_bytecode_section<T: LoadBytecodeSection<PublicContext>>() {}
         fn require_stdout_effect(_effect: StdoutEffect) {}
         fn require_metadata(_metadata: crate::CompositeMetadata) {}
 
@@ -206,8 +167,6 @@ mod public_api_tests {
         require_sst_global_context::<PublicContext>();
         require_sst_global_context::<crate::NoContext>();
         require_global_context::<PublicContext>();
-        #[cfg(not(feature = "program-image-execution"))]
-        require_load_bytecode_section::<PublicReset>();
         let _constant = ConstantId(0);
         let _function: Option<FunctionInfo<crate::Type>> = None;
         require_stdout_effect(StdoutEffect(String::new()));
@@ -215,31 +174,5 @@ mod public_api_tests {
             devices: &[],
             source_symbol_aliases: &[],
         });
-    }
-
-    #[derive(Clone, Copy)]
-    struct DemoComponent;
-
-    impl GeneratedComponent for DemoComponent {
-        type Instruction = ();
-        type Message = ();
-        type Effect = u8;
-
-        fn execute_generated(
-            &mut self,
-            _inst: &Self::Instruction,
-            _msg: Self::Message,
-        ) -> eyre::Result<Effects<Self::Effect>> {
-            Ok(Effects::one(7))
-        }
-    }
-
-    #[test]
-    fn generated_component_executes_without_exec_context() {
-        let mut component = DemoComponent;
-        let effects = GeneratedComponent::execute_generated(&mut component, &(), ()).unwrap();
-
-        assert_eq!(effects, Effects::one(7));
-        assert_eq!(crate::expect_exactly_one_effect(effects).unwrap(), 7);
     }
 }

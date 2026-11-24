@@ -3,29 +3,19 @@
 
 //! Component execution, composite metadata, and observation machinery.
 //!
-//! The nondefault `typed-declarations` feature enables experimental typed
-//! execution and capability contracts, including derive support. It decouples
-//! the Component/Composite markers from HasInstructionSet; Cargo unification
-//! selects that contract for the shared runtime package instance. Declaration
-//! macros provide complete dialect/component capabilities and typed composite
-//! fields. Feature-off execution retains the existing declarations. The two
-//! declaration modes require separate Cargo feature graphs.
+//! Declaration macros provide typed instruction sets for components and
+//! composites. A `#[program]` device supplies program access and operand
+//! storage. Composites implement Steps and choose how to handle effects.
+//! The standard execution loop lives in `vihaco-stdlib`.
 //!
-//! The nondefault `program-image-execution` feature implies `typed-declarations`
-//! and adds `PopFromStack`, `PushToStack`, typed stack access, and capability-
-//! gated message preparation. A `#[program]` device supplies program access and
-//! operand-storage wiring. Composite authors implement Steps and choose effect
-//! handling; program execution lives in stdlib.
-//!
-//! With `typed-declarations`, `#[dialect]` gives public runtime instruction
-//! structs syntax parsers. Operand types retain their authored scope. Only
+//! The `#[dialect]` macro gives public runtime instruction structs syntax parsers. Operand types retain their authored scope. Only
 //! immediate marked nongeneric unit/tuple structs belong to a dialect. Differing
 //! annotated operands generate a phase parameter defaulting to [`Runtime`].
 //! Composite syntax aggregates lower through instruction-owned [`Lower`]
 //! implementations; unchanged instructions receive identity lowering.
 //!
 //! ```
-//! # #[cfg(feature = "typed-declarations")]
+//! # #[cfg(feature = "derive")]
 //! # {
 //! use vihaco_runtime::{dialect, Parse, chumsky::Parser};
 //!
@@ -69,43 +59,31 @@ mod no_message;
 
 mod observe;
 
-#[cfg(feature = "typed-declarations")]
 mod build_message;
 
-#[cfg(feature = "typed-declarations")]
 mod capability;
 
-#[cfg(feature = "typed-declarations")]
 mod dispatch;
 
-#[cfg(feature = "typed-declarations")]
 mod execute;
 
-#[cfg(feature = "typed-declarations")]
 mod field;
 
-#[cfg(feature = "typed-declarations")]
 mod step;
 
 /// Generated declaration contracts. Manual implementations are unsupported.
-#[cfg(feature = "typed-declarations")]
 #[doc(hidden)]
 #[path = "declarations.rs"]
 pub mod __private;
 
-#[cfg(feature = "typed-declarations")]
 pub use build_message::{BuildMessage, ReusableMessageRecipe};
 
-#[cfg(feature = "typed-declarations")]
 pub use dispatch::Dispatch;
 
-#[cfg(feature = "typed-declarations")]
 pub use execute::Execute;
 
-#[cfg(feature = "typed-declarations")]
 pub use field::Field;
 
-#[cfg(feature = "typed-declarations")]
 pub use step::Step;
 
 // Re-export the sub-paths the runtime derive (`vihaco-runtime-derive`) emits so
@@ -124,16 +102,13 @@ pub use vihaco_parser::trivia;
 pub use vihaco_parser::{Parse, Print, SurfaceInstruction};
 
 pub use generated::{
-    Component, Composite, CompositeMetadata, GeneratedComponent, HasInstructionSet,
-    expect_exactly_one_effect,
+    Component, Composite, CompositeMetadata, HasInstructionSet, expect_exactly_one_effect,
 };
 
 pub use marker::Message;
 pub use member_of::MemberOf;
 
-#[cfg(feature = "typed-declarations")]
 mod inspection;
-#[cfg(feature = "typed-declarations")]
 pub use inspection::{InspectInstruction, InstructionOperand, InstructionView};
 pub use no_message::NoMessage;
 pub use observe::Observe;
@@ -151,27 +126,23 @@ pub use vihaco_abi::Instruction;
 
 // Re-export the runtime derives behind the `derive` feature (serde convention).
 #[cfg(feature = "derive")]
-pub use vihaco_runtime_derive::{Message, dispatch, machine, observe};
+pub use vihaco_runtime_derive::{Message, observe};
 
 /// Declare device fields and complete child capabilities.
 ///
-/// With `typed-declarations`, named device declarations contribute every leaf
-/// from their declared dialects to a hidden flat runtime enum exposed through
-/// [`HasInstructionSet`]. Its syntax parser uses
+/// Named devices contribute every leaf from their declared dialects to a
+/// runtime enum exposed through [`HasInstructionSet`]. The syntax parser uses
 /// `field::nested_field::dialect::instruction` prefixes and accepts device aliases.
-/// Implement `Step` for every destination/leaf pair. With `program-image-execution`,
-/// a `#[program]` device selects program access and operand-storage wiring; Steps
-/// and effect handling remain authored.
+/// Implement `Step` for every destination and instruction. A `#[program]` device
+/// selects program access and operand storage.
 /// The generated `Dispatch` implementation requires complete `Step` coverage
 /// for the selected context when a `Dispatch<Context>` bound is required or dispatch
 /// is called. Declaring a composite alone does not check Step coverage.
 /// Generic declarations retain their original bounds.
 /// Every device needs an explicit u8 code, unique within its parent. Ordinary
 /// state is excluded from parent instruction sets.
-/// Composites do not generate section loading: file sections are flat, so
-/// select one by name and load it explicitly (`LoadSSTSection` /
-/// `LoadBytecodeSection`, or, with `program-image-execution`, construct an
-/// image and pair it with stdlib `Loadable`).
+/// Select a file section by name, construct an image, and pair it with the
+/// machine using `vihaco_stdlib::Loadable`.
 /// `Field::get` and `Field::get_mut` borrow eligible devices through direct or
 /// nested field routes, including devices that contain borrowed data.
 /// Named generic children are supported; bare type parameters and associated
@@ -180,7 +151,6 @@ pub use vihaco_runtime_derive::{Message, dispatch, machine, observe};
 /// companion reexports. Inventory slots and variant names are not bytecode IDs.
 ///
 /// ```
-/// # #[cfg(feature = "typed-declarations")]
 /// # mod example {
 /// use vihaco_runtime::{Execute, NoMessage, Step, field, component, composite, dialect};
 /// #[dialect]
@@ -210,24 +180,16 @@ pub use vihaco_runtime_derive::{Message, dispatch, machine, observe};
 /// # }
 /// # fn main() {}
 /// ```
-///
-/// Without `typed-declarations`, this retains the legacy composite expansion.
 #[cfg(feature = "derive")]
 pub use vihaco_runtime_derive::composite;
-
-#[cfg(all(feature = "derive", not(feature = "typed-declarations")))]
-pub use vihaco_runtime_derive::component_macro;
-
-#[cfg(all(feature = "derive", not(feature = "typed-declarations")))]
-pub use vihaco_runtime_derive::component_macro as component;
 
 #[cfg(feature = "derive")]
 pub use vihaco_parser_derive::Parse;
 
 /// Declare instructions with retained syntax operands and capability-based lowering.
 ///
-/// Available with `typed-declarations`. The framework dependency is discovered
-/// automatically, including renamed dependencies. To use a module reexporting
+/// The macro discovers the framework dependency automatically, including
+/// renamed dependencies. To use a module reexporting
 /// the framework API, apply `#[vihaco(crate = path)]` to the dialect module.
 /// The path is resolved in the annotated module's parent scope; `self`, `super`,
 /// `crate`, and absolute paths are supported. Operand types retain their
@@ -283,12 +245,12 @@ pub use vihaco_parser_derive::Parse;
 /// assert_eq!(source.0, 4294967296);
 /// assert!(source.lower(&mut ()).is_err());
 /// ```
-#[cfg(feature = "typed-declarations")]
+#[cfg(feature = "derive")]
 pub use vihaco_runtime_derive::dialect;
 
 /// Declare a component's complete dialect capabilities.
 ///
-/// Available with `typed-declarations`. Apply to any struct with exactly one
+/// Apply to any struct with exactly one
 /// nonempty `#[instructions { dialect_paths, ... }]` helper. Paths name whole
 /// dialect modules, including imported aliases. Implement [`Execute`] for every
 /// instruction in every listed dialect under the struct's original bounds.
@@ -319,7 +281,7 @@ pub use vihaco_runtime_derive::dialect;
 ///     }
 /// }
 /// ```
-#[cfg(feature = "typed-declarations")]
+#[cfg(feature = "derive")]
 pub use vihaco_runtime_derive::component;
 
 /// Name a composite field or nested route as a marker type.
@@ -358,26 +320,19 @@ pub use vihaco_runtime_derive::component;
 ///     let _: Child = Leaf { state: 0 };
 /// }
 /// ```
-#[cfg(feature = "typed-declarations")]
+#[cfg(feature = "derive")]
 pub use vihaco_runtime_derive::field;
 
-#[cfg(feature = "program-image-execution")]
 mod stack;
 
-#[cfg(feature = "program-image-execution")]
 pub use stack::{Apply, HasOperandStack, InputCount, PopFromStack, PushToStack, StackInputCount};
 
-#[cfg(feature = "program-image-execution")]
 mod stack_batch;
 
-#[cfg(feature = "program-image-execution")]
 pub use stack_batch::{StackBatch, StackBatchIntoIter};
 
-#[cfg(feature = "program-image-execution")]
 pub use vihaco_module::{PopStack, PushStack, StackValue};
 
-#[cfg(feature = "program-image-execution")]
 mod execution;
 
-#[cfg(feature = "program-image-execution")]
 pub use execution::HasProgram;

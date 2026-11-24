@@ -46,7 +46,7 @@ Publishable crates (released together):
 
 - `vihaco`, `vihaco-abi`, `vihaco-abi-derive`, `vihaco-bytecode`, `vihaco-cpu`,
   `vihaco-module`, `vihaco-parser`, `vihaco-parser-derive`, `vihaco-runtime`,
-  `vihaco-runtime-derive`, `vihaco-stdlib`, `vihaco-syntax`
+  `vihaco-runtime-derive`, `vihaco-sst`, `vihaco-stdlib`, `vihaco-syntax`
 
 `vihaco-doctests` is `publish = false`, so release-plz skips it automatically.
 
@@ -78,8 +78,8 @@ tags and twelve GitHub Releases for one workspace version. Because GitHub's
 | `changelog_path = "CHANGELOG.md"` | `[[package]] vihaco` | One changelog at the repo root. Relative to the root `Cargo.toml`, and **cannot** be set in `[workspace]` — it is a package-only field. |
 | `changelog_include = [...]` | `[[package]] vihaco` | Makes the release body *complete*. See below. |
 
-**`vihaco` is the tag owner.** It is also 11th of 12 in publish order, so the tag
-lands after nearly every crates.io publish has already succeeded.
+**`vihaco` is the tag owner.** It publishes last, so the shared tag lands after
+all publishable workspace crates have been published.
 
 ### Why `changelog_include` is not optional
 
@@ -208,13 +208,14 @@ patch release that repoints the dependents — exactly what the normal flow does
 
 If you ever need to release without the workflow, bump the version in the root
 `Cargo.toml` (`[workspace.package]` and the `[workspace.dependencies]`
-requirements), then publish in dependency order — each crate must be on the
-index before the crates that depend on it:
+requirements), then publish in dependency order. Publish `vihaco-cpu` and
+`vihaco-sst` before `vihaco-stdlib` so Cargo can resolve its versioned
+development dependencies during packaging.
 
 ```text
-vihaco-abi-derive → vihaco-abi → vihaco-bytecode → vihaco-module →
-vihaco-runtime-derive → vihaco-runtime → vihaco-parser → vihaco-parser-derive →
-vihaco-stdlib → vihaco-syntax → vihaco → vihaco-cpu
+vihaco-abi-derive → vihaco-parser → vihaco-abi → vihaco-bytecode →
+vihaco-parser-derive → vihaco-module → vihaco-runtime-derive → vihaco-runtime →
+vihaco-syntax → vihaco-sst → vihaco-cpu → vihaco-stdlib → vihaco
 ```
 
 ```bash

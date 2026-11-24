@@ -56,15 +56,12 @@ The code shown on the site is compiled (and, where runnable, executed) by the
   The quick-start machine loads its companion `docs/examples/first-machine.sst`
   with `include_str!`, so those tests also parse, lower, and execute the SST file.
 - Every fenced ` ```rust ` block in `docs/src/pages/guide/*.md` is a rustdoc
-  doctest. The author guide and its examples use the program-image configuration:
+  doctest. Run the examples and doctests from the repository root.
 
   ```sh
-  cargo test -p vihaco-doctests --all-targets --features program-image-execution
-  cargo test -p vihaco-doctests --doc --features program-image-execution
+  cargo test -p vihaco-doctests --all-targets
+  cargo test -p vihaco-doctests --doc
   ```
-
-  CI runs both commands separately from the workspace's other configurations.
-  Hosted rustdoc is built with the same protocols enabled.
 
 - The guide starts at `guide/index.md`. Keep `src/guides.ts`, chapter links, and
   the `include_str!` modules in `vihaco-doctests/src/lib.rs` in sync when adding

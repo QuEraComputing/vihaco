@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-#![cfg(feature = "typed-declarations")]
+#![cfg(feature = "derive")]
 #![allow(dead_code, non_snake_case)]
 use framework::__private::{CompositeSpec, capabilities};
 use framework::{Execute, Field, HasInstructionSet, component, dialect};
@@ -303,24 +303,7 @@ impl<const N: usize> Inner<'_, N> {
 #[test]
 fn typed_composites_reject_invalid_targets_and_capabilities() {
     let cases = trybuild::TestCases::new();
-    let mut fixtures = std::fs::read_dir("tests/compile_fail/composites")
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
-        .collect::<Vec<_>>();
-    fixtures.sort();
-    for fixture in fixtures {
-        // The removal hint differs under program-image execution; that
-        // configuration is pinned by vihaco's `program_image/loadable-attribute`.
-        if cfg!(feature = "program-image-execution")
-            && fixture
-                .file_name()
-                .is_some_and(|name| name == "removed-loadable.rs")
-        {
-            continue;
-        }
-        cases.compile_fail(fixture);
-    }
+    cases.compile_fail("tests/compile_fail/composites/*.rs");
 }
 
 #[test]

@@ -63,15 +63,15 @@ self-contained component you can use directly or copy as a starting point.
 | Crate | Role |
 |---|---|
 | `vihaco` | The framework. Core types + the `module` / `syntax` / `runtime` layers. Re-exports the derives, so most code depends only on this crate. |
-| `vihaco-cpu` | A ready-made CPU/host component: a stack machine with a `StepOutcome` control-flow effect. Use directly or as a reference component. |
+| `vihaco-cpu` | Standard computation and heap component. Use directly or as a reference component. |
 | `vihaco-abi` | ISA vocabulary: `Instruction`/`Effects`, `Value`/`Type`, encoding + host-VM traits. Re-exports `#[derive(Instruction)]` via its `derive` feature. |
 | `vihaco-abi-derive` | `#[derive(Instruction)]`. Consumed via `vihaco-abi`. |
 | `vihaco-bytecode` | Binary/SST container format: headers, sections, instruction (de)coding, the `container/` codec. |
-| `vihaco-module` | Loadable `Module` model, `ProgramLoader`, host-VM traits (`ProgramCounter`, …), assembly-style `Display`. |
-| `vihaco-runtime` | Component/machine runtime: `GeneratedComponent`, `Effects` sinks, observation machinery, `CompositeMetadata`. Re-exports its derives via its `derive` feature. |
-| `vihaco-runtime-derive` | The proc macros behind `#[derive(Message/Machine)]` and `#[component]` / `#[composite]` / `#[observe]`. Consumed via `vihaco-runtime`. |
-| `vihaco-stdlib` | Standard-library components and observers, currently including `StdoutObserver`. |
-| `vihaco-syntax` | Typed SST parsing and module construction (`Resolve`). |
+| `vihaco-module` | `LocalModule`, program metadata, lowering contexts, and assembly-style `Display`. |
+| `vihaco-runtime` | Component and composite contracts, typed dispatch, stack protocols, and effect observation. Re-exports its derives via its `derive` feature. |
+| `vihaco-runtime-derive` | The proc macros behind `#[derive(Message)]`, `#[dialect]`, `#[component]`, `#[composite]`, and `#[observe]`. Consumed via `vihaco-runtime`. |
+| `vihaco-stdlib` | Program images, execution state, standard instructions, debugger, and observers. |
+| `vihaco-syntax` | Typed SST parsing and module construction through lowering. |
 | `vihaco-sst` | SST tooling: `Diagnostic`/`Report` (rendered via `codespan-reporting`); the `check` layers — `check_framing`, pluggable `SectionChecker`/`check_file`, the typed `ProgramChecker`/`check_program::<M>` for a composite machine, and `FileChecker` for one machine per section; the `Formatter`/`FileFormatter`; and the `Disassembler` (loaded `LocalModule`s back to SST via `Raise`). |
 | `vihaco-parser` | The `Parse<'src>` and `SurfaceInstruction` traits plus lexical, primitive, and collection impls shared by the parser derive. |
 | `vihaco-parser-derive` | `#[derive(Parse)]` — turns instruction, value, and type enums or structs into [chumsky](https://github.com/zesterer/chumsky) parsers via `#[syntax_class]` and `#[pattern]` (see `attr.rs`/`codegen.rs`). |
@@ -91,22 +91,20 @@ self-contained component you can use directly or copy as a starting point.
 - **Effects<T>** (`effect.rs`): `None | One | Many(SmallVec)` — what `execute`
   returns. Composable via `append`/`extend`/`map`/`flat_map`;
   `expect_exactly_one_effect` is the common extractor.
-- **Dispatch** (`#[dispatch(instruction=, message=, effect=, outcome=)]`):
-  wraps an `impl` block with an `execute(&mut self, inst, msg)` method into an
-  impl of the `GeneratedComponent` trait (`runtime/generated.rs`).
-- **Composite / Machine** (`#[composite]`, which is `#[derive(Machine)]` plus
-  field-attr stripping): a struct of devices. Each `#[device(code, alias=...)]`
-  field becomes a variant of generated runtime and syntax instruction enums;
-  one field may be `#[program]` to delegate `ProgramCounter`. See
-  `vihaco-runtime-derive/src/attr_composite.rs`.
+- **Dialect and component** (`#[dialect]`, `#[component]`): a dialect declares
+  instruction leaves and their syntax. A component declares the dialects it
+  supports and implements `Execute<I>` for their leaves.
+- **Composite** (`#[composite]`): a struct with `#[device]` fields. The macro
+  generates runtime and syntax instruction aggregates and routes dispatch
+  through the composite's authored `Step` implementations. A `#[program]`
+  device supplies program execution state.
 
 ### Layers inside `vihaco`
 
-- **`module.rs`** — `Module<I, V, Ty, Info>`, the loadable program: `code`,
-  `functions`, `symbols`, `constants`, `strings`, `source_symbols`, plus
-  pluggable `extra` metadata. Its `Display` prints an assembly-style dump
-  (`.text`/`.const`/`.string`/`.machine`/`.feature`). `loader.rs` wraps a
-  `Module` + program counter as a `ProgramLoader`.
+- **Program data and execution** — `LocalModule` holds code and metadata,
+  including functions, symbols, constants, strings, and source symbols.
+  `Image` wraps the module. `Loadable` pairs it with a machine whose
+  `ExecutionState` owns the program counter, locals, operands, and frames.
 - **`syntax/`** — typed SST parsing and module construction. A section's
   `.text` is a flat instruction stream with `@name:` symbol definitions; the
   parser yields a `ParsedModule` with `code: Vec<I>` and a symbol table.
@@ -117,13 +115,12 @@ self-contained component you can use directly or copy as a starting point.
   `ProgramHeader` assembles into `ProgramMetadata`, deriving every table;
   function signatures live only in `.func` directives.
   Pattern-derived instruction enums implement `SurfaceInstruction`
-  automatically; consumers use `Resolve` to turn the typed parsed module into
-  their runtime module.
-- **`runtime/` + `traits/`** — the host-VM interfaces a CPU-like component
-  implements: `ProgramCounter`, `StackMemory`, `StackFrame`, `FrameMemory`,
-  `GetProgramInfo`, `Stdout` (`traits/machine.rs`), plus `Reset` and the
-  `EffectSink` / `Observe` machinery (`#[observe]`). Standard-library observers
-  live in `vihaco-stdlib`.
+  automatically. Consumers lower the parsed code against the prepared
+  metadata and instruction context to build a runtime module.
+- **Runtime contracts** — `Execute` defines instruction behavior and `Step`
+  handles message preparation and effects at the composite boundary.
+  `BuildMessage` selects a message recipe. `EffectSink` and `Observe` support
+  effect handling, including the standard observers in `vihaco-stdlib`.
 - **`value.rs`** — the runtime `Value` enum (`I64`/`U64`/`F64`/`Bool`/
   `FunctionRef`/`HeapRef`/interned `String`…) and `Type`.
 

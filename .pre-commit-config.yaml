@@ -15,14 +15,6 @@ repos:
         types: [rust]
         pass_filenames: false
 
-      # Legacy guide examples use a separate feature-off graph.
-      - id: cargo-clippy-typed
-        name: cargo clippy (typed declarations)
-        entry: cargo clippy --workspace --exclude vihaco-doctests --all-targets --features vihaco/typed-declarations -- -D warnings
-        language: system
-        types: [rust]
-        pass_filenames: false
-
       # SPDX license headers. `mise exec` makes hawkeye available even when
       # the shell isn't mise-activated; install it with `mise install`.
       - id: license-header

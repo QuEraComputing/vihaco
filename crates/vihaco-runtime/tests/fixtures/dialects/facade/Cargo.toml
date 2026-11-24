@@ -5,4 +5,4 @@ edition = "2024"
 publish = false
 
 [dependencies]
-vm = { package = "vihaco", path = "../../../../../vihaco", features = ["typed-declarations"] }
+vm = { package = "vihaco", path = "../../../../../vihaco" }

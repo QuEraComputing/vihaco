@@ -49,8 +49,8 @@ changelog_update   = false
 # guarantees it: every published crate releases together, so `vihaco` is always
 # in the released set.
 #
-# `vihaco` is also 11th of 12 in publish order, so the tag lands after nearly
-# every crates.io publish has already succeeded.
+# `vihaco` publishes last, so the shared tag lands after all publishable
+# workspace crates have been published.
 [[package]]
 name = "vihaco"
 git_tag_enable     = true

@@ -4,11 +4,13 @@ members = [
     # Release-plz ignores vihaco-stdlib's dev-dependency on vihaco-sst when
     # sorting. List vihaco-sst first so Cargo can resolve it when packaging stdlib.
     "crates/vihaco-sst",
+    # The same applies to vihaco-cpu. List it before the facade, which pulls in
+    # stdlib during release sorting and creates the shared tag after publishing.
+    "crates/vihaco-cpu",
     "crates/vihaco",
     "crates/vihaco-abi",
     "crates/vihaco-abi-derive",
     "crates/vihaco-bytecode",
-    "crates/vihaco-cpu",
     "crates/vihaco-doctests",
     "crates/vihaco-module",
     "crates/vihaco-parser",

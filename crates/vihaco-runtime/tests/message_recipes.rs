@@ -19,7 +19,7 @@ fn cross_crate_message_recipes_and_custom_builders() {
     );
 }
 
-#[cfg(feature = "typed-declarations")]
+#[cfg(feature = "derive")]
 #[test]
 fn a_recipe_does_not_automatically_supply_a_composite_builder() {
     trybuild::TestCases::new().compile_fail("tests/compile_fail/messages/*.rs");

@@ -11,9 +11,8 @@ This guide shows you how to build a virtual machine with vihaco. You'll define
 its instructions, write the devices that execute them, and connect those devices
 into a machine. Then you'll load a program and run it.
 
-**Version:** these docs cover the new program-image protocols in the current
-vihaco source. Use the setup below for the examples, and keep all vihaco
-dependencies on the same revision.
+The examples use the current vihaco source. Keep all vihaco dependencies on
+the same revision.
 
 ```toml
 [package]
@@ -22,8 +21,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-vihaco = { git = "https://github.com/QuEraComputing/vihaco", features = ["program-image-execution"] }
-vihaco-stdlib = { git = "https://github.com/QuEraComputing/vihaco", features = ["program-image-execution"] }
+vihaco = { git = "https://github.com/QuEraComputing/vihaco" }
+vihaco-stdlib = { git = "https://github.com/QuEraComputing/vihaco" }
 eyre = "0.6"
 ```
 

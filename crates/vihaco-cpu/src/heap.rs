@@ -114,11 +114,6 @@ impl Heap {
         self.slots.clear();
         self.free_list.clear();
     }
-
-    #[cfg(all(test, not(feature = "program-image-execution")))]
-    pub fn is_empty(&self) -> bool {
-        self.slots.is_empty()
-    }
 }
 
 #[cfg(test)]

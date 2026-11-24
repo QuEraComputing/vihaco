@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-#![cfg(feature = "typed-declarations")]
+#![cfg(feature = "derive")]
 #![allow(dead_code)]
 
 use vihaco_runtime::__private::{Coverage, DialectSpec, InstructionSpec, require_coverage};

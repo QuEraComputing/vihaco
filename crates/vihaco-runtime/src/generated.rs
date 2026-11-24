@@ -5,18 +5,6 @@ use eyre::Result;
 
 use crate::Effects;
 
-pub trait GeneratedComponent {
-    type Instruction;
-    type Message;
-    type Effect;
-
-    fn execute_generated(
-        &mut self,
-        inst: &Self::Instruction,
-        msg: Self::Message,
-    ) -> Result<Effects<Self::Effect>>;
-}
-
 /// The instruction types exposed by a device to its two execution layers.
 pub trait HasInstructionSet {
     /// The instruction consumed by the runtime device.
@@ -26,23 +14,10 @@ pub trait HasInstructionSet {
     type Syntax;
 }
 
-/// A device that executes instructions.
-///
-/// With `typed-declarations`, capabilities are independent of an executable
-/// instruction set. Without it, components retain their instruction-set bound.
-#[cfg(not(feature = "typed-declarations"))]
-pub trait Component: HasInstructionSet {}
-
 /// An execution-capable device, independent of its executable instruction set.
-#[cfg(feature = "typed-declarations")]
 pub trait Component {}
 
-/// A machine assembled from device fields, with an executable instruction set.
-#[cfg(not(feature = "typed-declarations"))]
-pub trait Composite: HasInstructionSet {}
-
 /// A machine assembled from device fields, independent of executable selection.
-#[cfg(feature = "typed-declarations")]
 pub trait Composite {}
 
 pub fn expect_exactly_one_effect<E>(effects: Effects<E>) -> Result<E> {

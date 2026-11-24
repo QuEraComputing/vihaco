@@ -32,7 +32,7 @@
 //! `vihaco_module::loader::MetadataLoweringContext` directly or wrap it to add
 //! consumer capabilities.
 //!
-//! With `program-image-execution`, `HeaderDeclarations<D>` parses a collection
+//! `HeaderDeclarations<D>` parses a collection
 //! of declarations, one per line. The standard directives
 //! (`vihaco_module::module::ProgramDirective`: `.file`, `.func`, `.entry`,
 //! `.const`, `.source_symbol`) are pushed into a
@@ -44,26 +44,20 @@
 //!
 //! See `vihaco-stdlib/examples/loadable.rs` for standard and application
 //! directives in one header, metadata validation, and execution using dialect
-//! instructions consumed by components. Feature-off consumers retain the
-//! separate `Resolve` bridge.
+//! instructions consumed by components.
 
 mod lower;
 mod types;
 
 pub use lower::lower_code;
 
-#[cfg(feature = "program-image-execution")]
 mod header;
 
-#[cfg(feature = "program-image-execution")]
 pub use header::HeaderDeclarations;
 
-#[cfg(feature = "program-image-execution")]
 pub use lower::lower_code_with_metadata;
 
 pub mod parse;
-#[cfg(not(feature = "typed-declarations"))]
-pub mod resolve;
 pub mod spanned;
 pub mod statements;
 
@@ -71,8 +65,6 @@ pub use types::{ParsedModule, Symbol};
 pub use vihaco_parser::SurfaceInstruction;
 
 pub use parse::{block_i64_flat, block_i64_pairs, skip, symbol_definition};
-#[cfg(not(feature = "typed-declarations"))]
-pub use resolve::Resolve;
 pub use spanned::{
     ParsedDeclarations, ParsedText, Spanned, SyntaxError, parse_declarations,
     parse_declarations_at, parse_text, parse_text_at,

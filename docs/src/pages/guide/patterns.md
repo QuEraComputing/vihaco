@@ -824,7 +824,7 @@ entry point without changing the shared execution machinery.
 
 See the [debugger runner source](https://github.com/QuEraComputing/vihaco/blob/main/crates/vihaco-stdlib/src/debugger/runner.rs)
 for the breakpoint policy, and run the complete integration example with
-`cargo run -p vihaco-stdlib --features program-image-execution --example debugger`.
+`cargo run -p vihaco-stdlib --example debugger`.
 
 ## Typed interactive execution
 

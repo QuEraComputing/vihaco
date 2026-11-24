@@ -2,52 +2,17 @@
 // SPDX-License-Identifier: MIT
 
 use eyre::Result;
-use vihaco::{Component, Effects, GeneratedComponent, Instruction, Observe, dispatch, observe};
+use vihaco::{Effects, Message, MessageMarker, Observe, observe};
 
 mod test_root {
     pub use ::vihaco::*;
 }
 
-#[derive(Debug, Clone, Instruction)]
-enum TestInstruction {
-    Run,
-}
-
+#[derive(Message)]
+#[vihaco(crate = crate::test_root)]
 struct TestMessage;
 
 struct TestEffect;
-
-#[cfg(not(feature = "typed-declarations"))]
-#[derive(Debug, Clone, PartialEq, vihaco::Parse)]
-#[syntax_class(instruction, head = "legacy")]
-enum LegacySyntax {
-    #[pattern = "'noop"]
-    Noop,
-}
-
-struct TestComponent;
-
-impl vihaco::HasInstructionSet for TestComponent {
-    type Runtime = TestInstruction;
-    #[cfg(not(feature = "typed-declarations"))]
-    type Syntax = LegacySyntax;
-    #[cfg(feature = "typed-declarations")]
-    type Syntax = TestInstruction;
-}
-
-impl Component for TestComponent {}
-
-#[dispatch(instruction = TestInstruction, message = TestMessage, effect = TestEffect)]
-#[vihaco(crate = crate::test_root)]
-impl TestComponent {
-    fn execute(
-        &mut self,
-        _instruction: &TestInstruction,
-        _message: TestMessage,
-    ) -> Result<Effects<TestEffect>> {
-        Ok(Effects::one(TestEffect))
-    }
-}
 
 #[derive(Default)]
 struct TestObserver {
@@ -65,11 +30,8 @@ impl TestObserver {
 
 #[test]
 fn runtime_macros_honor_explicit_crate_override() {
-    let mut component = TestComponent;
-    let effects = component
-        .execute_generated(&TestInstruction::Run, TestMessage)
-        .unwrap();
-    assert_eq!(effects.into_iter().count(), 1);
+    fn assert_message<T: MessageMarker>() {}
+    assert_message::<TestMessage>();
 
     let mut observer = TestObserver::default();
     Observe::<TestEffect>::observe(&mut observer, &TestEffect)

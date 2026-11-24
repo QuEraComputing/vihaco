@@ -1,7 +1,7 @@
 [package]
 name = "vihaco-runtime-derive"
 edition = "2024"
-description = "Runtime procedural macros (#[derive(Message)], #[component], #[composite]/#[derive(Machine)], #[observe]) for the vihaco-runtime crate."
+description = "Runtime procedural macros (#[derive(Message)], #[component], #[composite], #[observe]) for the vihaco-runtime crate."
 version.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -9,11 +9,6 @@ authors.workspace = true
 
 [lib]
 proc-macro = true
-
-[features]
-default = []
-typed-declarations = []
-program-image-execution = ["typed-declarations"]
 
 [dependencies]
 convert_case = "0.6"

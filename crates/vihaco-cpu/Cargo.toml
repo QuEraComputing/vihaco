@@ -1,27 +1,13 @@
 [package]
 name = "vihaco-cpu"
 edition = "2024"
-description = "CPU/host component implementation for vihaco machines."
+description = "CPU computation and heap component for vihaco machines."
 version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
-[features]
-default = []
-typed-declarations = ["vihaco-runtime/typed-declarations"]
-program-image-execution = ["typed-declarations", "vihaco-runtime/program-image-execution"]
-
 [dependencies]
-chumsky = { workspace = true }
-codespan = "0.13.1"
 eyre = { workspace = true }
-log = "0.4.29"
 vihaco-abi = { workspace = true }
-vihaco-module = { workspace = true }
 vihaco-runtime = { workspace = true }
-vihaco-parser = { workspace = true }
-vihaco-parser-derive = { workspace = true }
-
-[dev-dependencies]
-trybuild = "1.0"

@@ -3,21 +3,16 @@
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Frame {
-    /// base pointer to the bottom of the frame in the stack
+    /// Index of the first local slot in the stack.
     pub base: usize,
 
     /// Number of reserved local slots, including parameters.
     pub local_count: usize,
 
-    /// source information (file, start, end)
-    pub span: (u32, u32, u32),
-
-    /// function index in the function table
-    /// None if this frame is not associated with a function
-    /// (e.g., the top-level frame, or a frame created by a direct call)
+    /// Index of the function associated with this frame, if present.
     pub function: Option<usize>,
 
-    /// The PC to return to after this frame completes.
+    /// Program counter to restore after this frame completes.
     pub ret_pc: u32,
 }
 

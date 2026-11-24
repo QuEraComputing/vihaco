@@ -20,8 +20,7 @@ use vihaco_module::module::{LocalModule, NoInfo};
 /// Code and metadata for one independently loadable unit.
 ///
 /// The outer owner controls replacement. This type contains no PC, stack,
-/// invocation state, or instruction inventory. `ProgramImage` remains the
-/// separate legacy loader/host API.
+/// invocation state, or instruction inventory.
 #[derive(Debug, Clone)]
 pub struct Image<I, V = Value, Ty = Type, Info = NoInfo> {
     pub module: LocalModule<I, V, Ty, Info>,

@@ -5,7 +5,7 @@ use crate::Composite;
 
 /// Dispatch a composite instruction to its destination's [`crate::Step`].
 ///
-/// Available with the experimental `typed-declarations` feature. Implementations
+/// Implementations
 /// select a field route and leaf instruction type from the aggregate instruction
 /// and forward the shared context to its authored Step. `Context` defaults to `()`.
 pub trait Dispatch<Context: ?Sized = ()>: Composite {

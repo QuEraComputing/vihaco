@@ -64,9 +64,6 @@ impl<S> ExecutionState<S> {
         self.frames.push(Frame {
             base: 0,
             local_count: locals,
-            // Frame's shared record retains this legacy field; this path does
-            // not track source spans or implement a Span instruction.
-            span: (0, 0, 0),
             function: Some(function as usize),
             ret_pc: 0,
         });

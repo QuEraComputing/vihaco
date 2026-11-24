@@ -1,6 +1,6 @@
 sst v2
 ; A hand-written, messy copy of loadable.sst. Try:
-;   cargo run -p vihaco-stdlib --features program-image-execution --example loadable -- --fmt crates/vihaco-stdlib/examples/loadable-unformatted.sst
+;   cargo run -p vihaco-stdlib --example loadable -- --fmt crates/vihaco-stdlib/examples/loadable-unformatted.sst
 .section    controller
 .header
 experiment.description     "Loadable SST example: 21 * 2"

@@ -70,7 +70,6 @@ fn standard_loading_derives_function_ranges_from_symbols() -> eyre::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "program-image-execution")]
 mod borrowed_metadata {
     use super::*;
 
