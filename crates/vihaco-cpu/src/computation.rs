@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Computational and heap operations; operands belong to ProgramImage.
+//! Computation and heap instructions for the CPU.
 
 #[vihaco_runtime::dialect]
 pub mod cpu {

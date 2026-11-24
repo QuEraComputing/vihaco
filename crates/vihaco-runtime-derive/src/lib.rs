@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-mod attr_component;
-
 mod attr_observe;
 
 mod attr_typed_composite;
@@ -17,18 +15,6 @@ use proc_macro::TokenStream;
 #[proc_macro_derive(Message, attributes(vihaco))]
 pub fn derive_message(input: TokenStream) -> TokenStream {
     derive_message::expand(input)
-}
-
-/// Adapt an authored execute method to the generated component runtime interface.
-#[proc_macro_attribute]
-pub fn dispatch(attr: TokenStream, item: TokenStream) -> TokenStream {
-    attr_component::expand(attr, item)
-}
-
-/// Preserve the annotated item as the compatibility machine marker.
-#[proc_macro_attribute]
-pub fn machine(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    item
 }
 
 /// Generate effect observer implementations from the annotated methods.

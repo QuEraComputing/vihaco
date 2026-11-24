@@ -8,14 +8,8 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-byteorder = { workspace = true }
 chumsky = { workspace = true }
-codespan = "0.13.1"
-colored = "3.0.0"
-env_logger = "0.11.8"
 eyre = { workspace = true }
-log = "0.4.29"
-smallvec = { workspace = true }
 vihaco-abi = { workspace = true }
 vihaco-bytecode = { workspace = true }
 vihaco-module = { workspace = true }

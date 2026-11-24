@@ -3,8 +3,6 @@
 
 pub mod program;
 
-pub use program::ProgramImage;
-
 pub mod clock;
 pub mod observer;
 

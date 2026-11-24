@@ -5,18 +5,6 @@ use eyre::Result;
 
 use crate::Effects;
 
-pub trait GeneratedComponent {
-    type Instruction;
-    type Message;
-    type Effect;
-
-    fn execute_generated(
-        &mut self,
-        inst: &Self::Instruction,
-        msg: Self::Message,
-    ) -> Result<Effects<Self::Effect>>;
-}
-
 /// The instruction types exposed by a device to its two execution layers.
 pub trait HasInstructionSet {
     /// The instruction consumed by the runtime device.

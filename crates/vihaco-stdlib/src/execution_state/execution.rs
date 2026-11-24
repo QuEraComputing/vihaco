@@ -42,7 +42,6 @@ impl<S> ExecutionState<S> {
         self.frames.push(vihaco_abi::frame::Frame {
             base,
             local_count: locals,
-            span: (0, 0, 0),
             function: Some(function),
             ret_pc,
         });

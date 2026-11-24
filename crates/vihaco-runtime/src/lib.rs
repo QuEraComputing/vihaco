@@ -102,8 +102,7 @@ pub use vihaco_parser::trivia;
 pub use vihaco_parser::{Parse, Print, SurfaceInstruction};
 
 pub use generated::{
-    Component, Composite, CompositeMetadata, GeneratedComponent, HasInstructionSet,
-    expect_exactly_one_effect,
+    Component, Composite, CompositeMetadata, HasInstructionSet, expect_exactly_one_effect,
 };
 
 pub use marker::Message;
@@ -127,7 +126,7 @@ pub use vihaco_abi::Instruction;
 
 // Re-export the runtime derives behind the `derive` feature (serde convention).
 #[cfg(feature = "derive")]
-pub use vihaco_runtime_derive::{Message, dispatch, machine, observe};
+pub use vihaco_runtime_derive::{Message, observe};
 
 /// Declare device fields and complete child capabilities.
 ///

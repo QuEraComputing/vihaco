@@ -9,11 +9,7 @@ use vihaco_bytecode as binary;
 pub use vihaco_abi::{effect, frame, instruction_syntax, metadata, program, word};
 pub use vihaco_module::{color, module, raising, show, show_instruction};
 
-/// Program loading interfaces and the standard program image.
-pub mod loader {
-    pub use vihaco_module::loader::*;
-    pub use vihaco_stdlib::ProgramImage;
-}
+pub use vihaco_module::loader;
 
 pub use vihaco_syntax as syntax;
 // The runtime layer and standard-library observers now live in their focused
@@ -22,7 +18,6 @@ pub use vihaco_runtime as runtime;
 pub use vihaco_stdlib::observer;
 
 pub mod instruction;
-pub mod machine;
 pub mod macros;
 
 #[doc(hidden)]
@@ -48,16 +43,14 @@ pub use instruction_syntax::{
     InstructionSugarVariantSyntax, OperandKind, SugarOperandKind,
 };
 
-pub use loader::ProgramImage;
-
-pub use macros::{Instruction, Message, component, composite, dispatch, observe};
+pub use macros::{Instruction, Message, component, composite, observe};
 pub use program::{Type, Value};
 pub use runtime::{
-    Component, Composite, CompositeMetadata, EffectSink, GeneratedComponent, HasInstructionSet,
-    MemberOf, Message as MessageMarker, NoMessage, Observe, expect_exactly_one_effect,
+    Component, Composite, CompositeMetadata, EffectSink, HasInstructionSet, MemberOf,
+    Message as MessageMarker, NoMessage, Observe, expect_exactly_one_effect,
 };
 
-pub use traits::{FromBytes, FromText, GetProgramInfo, Reset};
+pub use traits::{FromBytes, FromText, Reset};
 pub use vihaco_abi::{Lower, Raise, Runtime, Syntax};
 pub use vihaco_parser::Parse;
 pub use vihaco_parser::Print;
@@ -105,9 +98,8 @@ pub use vihaco_stdlib::{
 #[cfg(test)]
 mod public_api_tests {
     use crate::{
-        BytecodeGlobalContext, BytecodeHeader, ConstantId, EffectSink, Effects, GeneratedComponent,
-        GlobalContext, Reset, SSTGlobalContext, SSTHeader, SectionNameResolver,
-        WriteBytecodeHeader,
+        BytecodeGlobalContext, BytecodeHeader, ConstantId, EffectSink, GlobalContext, Reset,
+        SSTGlobalContext, SSTHeader, SectionNameResolver, WriteBytecodeHeader,
         instruction::{FromBytes, OpCode, WriteBytes},
         module::FunctionInfo,
         observer::stdio::StdoutEffect,
@@ -182,31 +174,5 @@ mod public_api_tests {
             devices: &[],
             source_symbol_aliases: &[],
         });
-    }
-
-    #[derive(Clone, Copy)]
-    struct DemoComponent;
-
-    impl GeneratedComponent for DemoComponent {
-        type Instruction = ();
-        type Message = ();
-        type Effect = u8;
-
-        fn execute_generated(
-            &mut self,
-            _inst: &Self::Instruction,
-            _msg: Self::Message,
-        ) -> eyre::Result<Effects<Self::Effect>> {
-            Ok(Effects::one(7))
-        }
-    }
-
-    #[test]
-    fn generated_component_executes_without_exec_context() {
-        let mut component = DemoComponent;
-        let effects = GeneratedComponent::execute_generated(&mut component, &(), ()).unwrap();
-
-        assert_eq!(effects, Effects::one(7));
-        assert_eq!(crate::expect_exactly_one_effect(effects).unwrap(), 7);
     }
 }
