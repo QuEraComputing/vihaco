@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["NoCustomState","RunState"],"fn":["execute","execute_instruction","resume","run"],"struct":["ExecutionState"]};
+window.SIDEBAR_ITEMS = {"enum":["NoCustomState","RunState"],"fn":["execute","execute_instruction","execute_instruction_with_context","resume","run"],"struct":["ExecutionState"]};
