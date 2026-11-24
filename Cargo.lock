@@ -808,6 +808,7 @@ version = "0.8.1"
 dependencies = [
  "chumsky",
  "eyre",
+ "tokio",
  "vihaco-abi",
  "vihaco-bytecode",
  "vihaco-cpu",

@@ -61,8 +61,13 @@ use std::{
 
 /// Waits for driver-specific work and delivers its typed result once.
 pub(crate) trait Await<M, H> {
+    /// The payload produced by completing a handle of type `H`.
     type Output: 'static;
 
+    /// Consumes the handle and delivers its outcome inline or on a later driver turn.
+    ///
+    /// A parked continuation owns its captures. The driver supplies the machine
+    /// borrow when it delivers the outcome.
     fn wait(
         &self,
         machine: &mut M,
@@ -71,8 +76,12 @@ pub(crate) trait Await<M, H> {
     );
 }
 
-/// Lets an async route node submit the opaque future returned by async Rust.
+/// Drives component-owned futures and hands their results back to the route.
 pub(crate) trait FutureDriver<M> {
+    /// Drives the owned future and calls `done` once when it resolves.
+    ///
+    /// The future may be local to the machine's thread. The driver controls
+    /// when the first poll happens and when the result reaches the route.
     fn run_future<T: 'static>(
         &self,
         machine: &mut M,
@@ -81,21 +90,26 @@ pub(crate) trait FutureDriver<M> {
     );
 }
 
-// The example drivers erase future poll jobs when they need to store them.
+/// A type-erased attempt to advance one pending operation.
+///
+/// `true` means the job delivered its result and should be discarded.
+/// `false` means it is still pending and can be tried again.
 pub(crate) type PollJob<M, D> = Box<dyn FnMut(&mut M, &D) -> bool>;
 
-/// The receiving half of a one-shot completion channel.
+/// A device-completion handle consumed by the channel driver's `Await` implementation.
 pub(crate) struct Wait<T>(Receiver<Result<T>>);
 
-/// Publishes a completion result and notifies the driver.
+/// The producer half of a one-shot completion channel.
+///
+/// Publishing a result or dropping the producer wakes the driver so it can
+/// check the matching `Wait`.
 pub(crate) struct Signal<T> {
     result: Option<Sender<Result<T>>>,
     wake: Sender<()>,
 }
 
-// Publishes the result before sending a wake notification.
 impl<T> Signal<T> {
-    /// Consumes the signal and publishes its completion result.
+    /// Publishes a success or error before notifying the driver.
     pub(crate) fn complete(mut self, result: Result<T>) {
         if let Some(sender) = self.result.take() {
             let _ = sender.send(result);
@@ -104,7 +118,7 @@ impl<T> Signal<T> {
     }
 }
 
-// Wakes the driver if the producer closes its channel before publishing a result.
+/// Wakes the driver on disconnect so the waiting route can receive an error.
 impl<T> Drop for Signal<T> {
     fn drop(&mut self) {
         if let Some(sender) = self.result.take() {
@@ -114,11 +128,16 @@ impl<T> Drop for Signal<T> {
     }
 }
 
+/// Tracks whether a local future can be polled again.
+///
+/// A wake can arrive from another thread. It marks readiness and optionally
+/// notifies the driver without borrowing the machine or polling the future.
 struct FutureWake {
     ready: AtomicBool,
     notify: Option<Sender<()>>,
 }
 
+/// Coalesces repeated wakes until the driver takes the ready flag.
 impl Wake for FutureWake {
     fn wake(self: Arc<Self>) {
         self.wake_by_ref();
@@ -133,7 +152,10 @@ impl Wake for FutureWake {
     }
 }
 
-/// Owns the parked continuations, wake channel, and terminal outcomes.
+/// Runs example routes using channel results and local futures.
+///
+/// The driver owns pending jobs and wake notifications. Its terminal result
+/// queue is a convenience for callers that start routes through `start`.
 pub(crate) struct ChannelDriver<M> {
     wake: Receiver<()>,
     sender: Sender<()>,
@@ -141,9 +163,9 @@ pub(crate) struct ChannelDriver<M> {
     finished: RefCell<VecDeque<Result<()>>>,
 }
 
+/// Uses the default annotation policy and delivers operation results without a timing delay.
 impl<M> AnnotatedDriver<M> for ChannelDriver<M> {}
 
-// Runs ready callbacks on the driver thread with a fresh borrow of the machine.
 impl<M: 'static> ChannelDriver<M> {
     /// Creates an empty driver with its own wake channel.
     pub(crate) fn new() -> Self {
@@ -178,8 +200,10 @@ impl<M: 'static> ChannelDriver<M> {
         });
     }
 
-    /// Resumes ready callbacks from the current queue and returns their count.
-    fn poll_ready(&self, machine: &mut M) -> usize {
+    /// Resumes ready callbacks from the queue snapshot and returns their count.
+    ///
+    /// Work registered by those callbacks is eligible on a later pass.
+    pub(crate) fn poll_ready(&self, machine: &mut M) -> usize {
         let mut ready = 0;
         let pending = std::mem::take(&mut *self.pending.borrow_mut());
         // Ready callbacks may park more work. The queue is free for them to use.
@@ -203,7 +227,9 @@ impl<M: 'static> ChannelDriver<M> {
         self.finished.borrow_mut().pop_front()
     }
 
-    /// Polls pending work and waits for a wakeup until a route completes or the wait times out.
+    /// Pumps pending jobs until a terminal result is available.
+    ///
+    /// Returns a timeout after five seconds of waiting for a wake notification.
     pub(crate) fn run_until_complete(&self, machine: &mut M) -> Result<()> {
         loop {
             if let Some(result) = self.take_completion() {
@@ -216,6 +242,7 @@ impl<M: 'static> ChannelDriver<M> {
     }
 }
 
+/// Parks the receiver and continuation until a result or disconnect is observed.
 impl<M: 'static, T: 'static> Await<M, Wait<T>> for ChannelDriver<M> {
     type Output = T;
 
@@ -242,6 +269,7 @@ impl<M: 'static, T: 'static> Await<M, Wait<T>> for ChannelDriver<M> {
     }
 }
 
+/// Polls the future eagerly and enqueues it if it still needs a wake.
 impl<M: 'static> FutureDriver<M> for ChannelDriver<M> {
     fn run_future<T: 'static>(
         &self,
@@ -255,7 +283,10 @@ impl<M: 'static> FutureDriver<M> for ChannelDriver<M> {
     }
 }
 
-/// Polls once and returns a job only if the future still needs its driver.
+/// Polls a local future once and returns a job if it is still pending.
+///
+/// A pending job owns the pinned future and continuation. Its waker marks it
+/// ready for another poll and sends an optional notification to a waiting driver.
 pub(crate) fn poll_future<M, D, T: 'static>(
     machine: &mut M,
     driver: &D,

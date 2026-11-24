@@ -116,7 +116,7 @@ mod messages;
 pub(crate) mod runner;
 mod storage;
 
-pub use runner::{execute, execute_instruction, resume, run};
+pub use runner::{execute, execute_instruction, execute_instruction_with_context, resume, run};
 
 /// No custom execution state is available. By using this for the
 /// default in [`RunState`], we can get exhaustive pattern matching

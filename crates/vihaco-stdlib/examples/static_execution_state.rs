@@ -11,6 +11,10 @@
 #[path = "../../vihaco-runtime/examples/static_graph_routes/framework/mod.rs"]
 mod framework;
 
+#[allow(dead_code)]
+#[path = "program_drivers/checked.rs"]
+mod checked;
+
 #[path = "static_execution_state/machine.rs"]
 mod machine;
 

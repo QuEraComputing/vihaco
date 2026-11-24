@@ -10,14 +10,16 @@ and completion handles.
 
 | Example | What to read for |
 | --- | --- |
-| [Synchronous CPU](../../crates/vihaco-stdlib/examples/static_execution_state/machine.rs) | Borrow the current instruction and module to prepare a message. Apply the CPU effect to the operand stack before the next fetch. |
+| [Synchronous CPU](../../crates/vihaco-stdlib/examples/static_execution_state/machine.rs) | Borrow the current instruction and module to prepare a message. Run borrowed routes inline through the checked program driver and apply CPU effects before the next fetch. |
 | [Waveform fan-out](../../crates/vihaco-runtime/examples/static_graph_routes/machines/waveform/mod.rs) | Inspect the annotated DAC transfer. Follow the clamped and original samples down separate paths and join after both deliveries. |
 | [Device completion](../../crates/vihaco-runtime/examples/static_graph_routes/machines/device_completion.rs) | Start an acquisition with synchronous `Execute`. Park at a separate node on the handle the instruction returned. |
 | [Async digitizer](../../crates/vihaco-runtime/examples/static_graph_routes/machines/async_capture/mod.rs) | Let the component's own `async fn execute` wait for a sample. Return the leased component before delivering the result back to that field. |
-| [Warehouse bytecode](../../crates/vihaco-runtime/examples/static_graph_routes/machines/warehouse/mod.rs) | Print a label and then verify it. Simulation delays the label's delivery by 12 ticks. The same bytecode completes inline with the channel driver. |
+| [Warehouse bytecode](../../crates/vihaco-stdlib/examples/program_drivers/warehouse/mod.rs) | Print a label and then verify it. Simulation delays the label's delivery by 12 ticks. The same bytecode completes inline with the channel driver. |
 
-Run the examples with `mise run static-graph-routes` and
-`mise run static-execution-state`.
+Run the route-only examples with `mise run static-graph-routes`. Run the
+CPU and Warehouse programs plus the debugger, channel, and Tokio
+scenarios with `mise run program-drivers`. The CPU program is also
+available on its own through `mise run static-execution-state`.
 
 ## Declaring and inspecting a route
 
@@ -41,11 +43,13 @@ ordinary Rust function. The builder requires exactly one designated
 instruction node, selected with `then_execute` or `then_execute_async`.
 
 The zero-sized `Route<I, P>` supports inspection and two execution paths.
-`Describe` projects the nodes, field markers, directed edges, and metadata. Repeated uses of the
-same operation get distinct occurrence indices within the projection.
+`Describe` projects the nodes, field markers, directed edges, and
+metadata. Repeated uses of the same operation get distinct occurrence
+indices within the projection.
 `Run` checks that each operation accepts its predecessor's output and that
 the driver supplies the capabilities it needs. The synchronous
-interpretation, `RunSync`, returns directly and can borrow program context.
+interpreter, `RunSync`, runs its supported nodes and sequences inline with
+borrowed program context.
 [Framework guide and Warehouse walkthrough](framework-guide.md)
 
 Applications attach typed static annotations to nodes and edges. Inspection
@@ -63,6 +67,11 @@ its result after both arms succeed. If one arm fails, the terminal callback
 reports the error once. Any already-started work can still complete, and
 prior mutations and effects are retained.
 
-The example framework lives under `examples/`. The companion plan describes
-how the prototype's continuation model would connect to scheduling,
-retirement, and debugger commands. [Route drivers](route-drivers.md)
+The prototype framework lives under `examples/`. The RFC specifies
+`Await`, `FutureDriver`, and `AnnotatedDriver` as public extension traits
+that downstream crates can implement. Program examples put a checked
+program driver above the route backend. That driver uses
+`HasProgram` to read the machine's `ExecutionState`, fetches and
+dispatches instructions, and stops fetching while a route is pending.
+The companion design explains the driver API, retirement, and debugger
+commands. [Route drivers](route-drivers.md)

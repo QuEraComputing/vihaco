@@ -7,11 +7,25 @@ path can finish inline or hand a continuation to a driver.
 
 ## Warehouse label printing walkthrough
 
-The Warehouse program contains `PrintLabel(42)` followed by `VerifyLabel(42)`.
-The example's simulated clock starts at tick 5.
-[Warehouse route](../../crates/vihaco-runtime/examples/static_graph_routes/machines/warehouse/mod.rs) · [Program loop](../../crates/vihaco-runtime/examples/static_graph_routes/machines/warehouse/program_driver.rs)
+The program prints a barcode for parcel 42, then looks up that parcel to
+verify the label was recorded. The printer accepts the submission at tick 5.
+The parcel records receive the label at tick 17, and only then does the
+program dispatch verification. Run the walkthrough with
+`mise run program-drivers`. [Warehouse example](../../crates/vihaco-stdlib/examples/program_drivers/warehouse/mod.rs)
 
-### 1. Declare the route
+The caller supplies a `Loadable` that pairs the machine with its decoded
+image, then lets the checked driver run the program to completion.
+
+```rust,ignore
+let mut vm = CheckedDriver::new(loaded_warehouse()?, SimDriver::starting_at(5));
+vm.execute(&[])?;
+```
+
+The walkthrough follows the checked issue and delivery operations
+inside `execute`. The pending-state test exercises that lower-level
+interface directly so it can inspect the machine between those operations.
+
+### 1. Declare the print route
 
 ```rust,ignore
 step_graph::<ops::PrintLabel>()
@@ -21,57 +35,154 @@ step_graph::<ops::PrintLabel>()
     .finish()
 ```
 
-`begin` sets the entry. `then_execute` selects the designated instruction
-site and changes the builder state so `finish` becomes available. The
-resulting path is a sequence of three statically typed nodes.
+`PrinterField` and `ParcelField` identify fields of the same `Warehouse`
+machine. The printer implements `Execute<ops::PrintLabel>`. The parcel
+records implement `Receive<LabelPrinted>` and, separately,
+`Execute<records::VerifyLabel>`. Receipt is the last operation of the
+print route. Verification is a later instruction with its own route.
+[Warehouse components and routes](../../crates/vihaco-stdlib/examples/program_drivers/warehouse/mod.rs)
 
-| Node | Input | Output |
+| Print route node | Input | Output |
 | --- | --- | --- |
-| Prepare at `PrinterField` | `PrintLabel(42)` | Instruction and `NoMessage` |
-| Execute at `PrinterField` | Prepared instruction and message | `LabelPrinted` |
-| Receive at `ParcelField` | `LabelPrinted` | `()` |
+| Prepare at `PrinterField` | `PrintLabel(42)` | `Prepared { instruction: PrintLabel(42), message: NoMessage }` |
+| Execute at `PrinterField` | The prepared instruction and message | `LabelPrinted { parcel: 42, barcode: "BX-0042" }` |
+| Receive at `ParcelField` | The owned `LabelPrinted` effect | `()` after storing the barcode |
 
-### 2. Inspect the topology
+`begin` installs the preparation node in a step builder whose state is
+`Before`. `then_execute` replaces the field selector with an execution
+node, preserves its annotation, and moves the builder to `After`.
+`then` appends the receiver. `finish` is available only in `After`, so
+the resulting `Route<I, P>` has one designated instruction site.
+`I` is `ops::PrintLabel`, and `P` is the nested sequence of node and edge
+types. The execution bounds check that each node accepts its predecessor's
+payload. [Builder](../../crates/vihaco-runtime/examples/static_graph_routes/framework/graph/builder.rs) · [Operations](../../crates/vihaco-runtime/examples/static_graph_routes/framework/operations.rs)
 
-`route.topology()` walks the path via `Describe`. It emits three node
-occurrences and edges `0 → 1` and `1 → 2`. Nodes 0 and 1 both refer to the
-printer field. Node 2 refers to the parcel records field. The timing tag
-belongs to node 1. This walk uses each operation's diagnostic label and
-annotation types. Starting the program requires a compatible `Run`
-implementation. Inspection can happen earlier.
+### 2. Inspect the route before creating the machine
 
-### 3. Dispatch at PC 0 and issue the print
+The demo constructs the route, checks that it occupies zero bytes, and
+prints the topology. `Describe` walks the path types, reading operation
+labels, field markers, and annotation types. It produces this output.
 
-The Warehouse program loader decodes the bytecode into generated machine
-instructions. At PC 0, generated dispatch calls the printer's `Step`.
-Its `ProgramContext` starts the route with the owned print instruction and
-a terminal callback that writes to the current instruction's completion
-slot. The route starts with message preparation. The next node passes
-its metadata to the simulator, which reads the `ExecutionTicks` value of
-`MinExecution<12>` and computes an earliest delivery tick of 17.
+```text
+Warehouse / Print Label
+  0  build message printer []
+  1  execute instruction printer ["MinExecution<12>"]
+  2  receive effect parcels []
+  0 → 1  []
+  1 → 2  []
+```
 
-The simulator calls the printer's `Execute` at tick 5. The printer records
-the submission and returns its `LabelPrinted` effect. The simulator
-queues the effect and the continuation to the receiver for tick 17.
-The parcel records are still empty. The program loop keeps PC 0 in flight
-and asks the simulation driver to advance pending work.
+Nodes 0 and 1 have the same field marker and separate occurrence indices.
+The timing annotation belongs to node 1. The two edges describe payload
+dependencies and have empty annotation lists. During execution, the
+simulator gets timing metadata through the annotated node's driver hook.
+[Topology projection](../../crates/vihaco-runtime/examples/static_graph_routes/framework/graph/inspection.rs)
 
-### 4. Deliver the label and advance the program
+### 3. Decode the program and dispatch PC 0
 
-At tick 17, the simulator removes the queued event and calls its
-continuation with a fresh mutable borrow of Warehouse. The receiver
-stores the label and returns `()`. The terminal callback writes
-`Ok(())` to the completion slot. The program loop consumes that result,
-advances to PC 1, and dispatches `VerifyLabel(42)`. Verification sees the
-stored label at tick 17. A route error puts the program loop in its fault
-state at the current PC.
+The example encodes `PrintLabel(42)`, `VerifyLabel(42)`, and `Halt`.
+The loader decodes the bytecode, converts each instruction to the
+generated Warehouse instruction enum, and constructs a module with an
+entry function at PC 0. `Loadable::new` pairs that image with the Warehouse
+machine. The driver owns the `Loadable` and borrows its image and machine
+separately for checked dispatch. The PC comes from the machine's
+`#[program]` field, an `ExecutionState<Pause>` exposed through `HasProgram`.
+The simulator is configured to start at tick 5. Inside `execute`, the
+driver calls `start((), &[])` to enter the module's entry function.
+Machine ID `()` selects the single machine in this driver.
+[Bytecode conversion](../../crates/vihaco-stdlib/examples/program_drivers/warehouse/program.rs) · [Program driver](../../crates/vihaco-stdlib/examples/program_drivers/checked.rs)
 
-With the channel backend, the annotation hook takes its default inline
-path. The same route writes its terminal result during the initial
-dispatch, so the loop can advance without asking the backend for work.
-The Warehouse loop is example code. Owner-selected work, retirement
-gates, and debugger authorization are covered in the driver design.
-[Route drivers](route-drivers.md)
+`run((), RunCommand::Continue)` enters the guarded execution loop.
+At PC 0, checked fetch reads the instruction and advances the PC to 1.
+It passes a `StepContext` containing the module and the route backend to
+generated dispatch. The selected `Step` hands an owned print instruction
+to `context.start(self, &print_route(), ...)`. The context gives
+`Route::start_with` a one-shot terminal callback that owns an `Rc` to the
+completion slot. That slot can outlive the borrowed step context.
+[Warehouse step](../../crates/vihaco-stdlib/examples/program_drivers/warehouse/mod.rs) · [Completion slot](../../crates/vihaco-stdlib/examples/program_drivers/checked.rs)
+
+An inline completion is returned by `context.start` as the step result.
+When the route parks, `context.start` saves its completion slot and
+continuation PC, suspends `ExecutionState`, and returns `Ok(())`.
+Checked fetch then restores the originating PC. The inner `run` call
+reports a typed `Pending` result, which `execute` handles internally.
+
+### 4. Start the operation at tick 5 and park its result
+
+`Route::start_with` calls the path's `Run` implementation. A sequence
+runs its left path with a callback that starts the right path on success
+or forwards the error. For this route, message preparation runs inline
+and calls `BuildMessage` with unit context. It passes the prepared
+instruction and `NoMessage` to the annotated execution node.
+[Continuation execution](../../crates/vihaco-runtime/examples/static_graph_routes/framework/graph/execution.rs)
+
+The execution node invokes `SimDriver::run_annotated`. The tag
+`MinExecution<12>` supplies the value `ExecutionTicks(12)`. The driver
+looks up that value type and computes `ready_at = 5 + 12 = 17`.
+It calls the printer's `Execute` immediately. The printer increments
+`submitted` and returns the barcode. A successful result before
+`ready_at` goes into a `Scheduled<LabelPrinted>` along with the tick.
+The simulator's `Await` implementation stores a one-shot callback in its
+event queue, ordered by tick and then by insertion order. An error passes
+through immediately, as does a success reported at or after `ready_at`.
+[Simulation driver](../../crates/vihaco-runtime/examples/static_graph_routes/simulation.rs)
+
+The event owns the effect and the continuation that will invoke the
+receiver. The mutable machine borrow ends when dispatch returns. At
+that point, the printer has one submission, the parcel records are
+empty, and the completion slot is empty. The checked driver returns
+`ProgramStop::Pending { pc: 0, work }` with zero retirements and saves the
+original `Continue` command. The pending-state test checks that PC 0
+is still visible and that verification has yet to run.
+
+### 5. Deliver at tick 17 and fetch PC 1
+
+The `execute` loop calls `deliver((), work, ())`. The checked driver
+validates the work ID, restores the saved continuation PC of 1 under
+the reentrancy guard, and asks the simulator to deliver. `advance_next`
+removes the event for tick 17, sets the simulated clock, and invokes
+the stored callback with a fresh mutable borrow of Warehouse.
+The continuation starts `receive_effect_at::<ParcelField>()`.
+`ParcelRecords::receive` inserts the barcode under parcel 42 and returns
+`Ok(())`. This completes the route, so its terminal callback writes
+`Some(Ok(()))` into the program driver's slot.
+[Scheduled delivery](../../crates/vihaco-runtime/examples/static_graph_routes/simulation.rs) · [Parcel receiver](../../crates/vihaco-stdlib/examples/program_drivers/warehouse/mod.rs)
+
+The checked driver takes the terminal result and counts one retirement
+at the saved originating PC of 0. It resumes the saved `Continue`
+command and fetches `VerifyLabel(42)` at PC 1. The verify route completes
+inline, finds the stored barcode, and records parcel 42 as verified.
+The next fetch executes `Halt` at PC 2. The driver returns
+`ProgramStop::Halted { pc: 2 }` at tick 17. [Program loop](../../crates/vihaco-stdlib/examples/program_drivers/checked.rs)
+
+| Point in the run | Tick | PC | Observable state |
+| --- | ---: | ---: | --- |
+| Printer returns the barcode during dispatch | 5 | 1 | One submission, no stored label |
+| Checked fetch returns with the route parked | 5 | 0 | No retirement, verification still waiting |
+| Driver restores continuation and delivers the label | 17 | 1 | Barcode stored, print completion available |
+| Driver retires print and fetches verify | 17 | 1 | Verification sees the barcode |
+| Driver executes halt | 17 | 2 | Parcel 42 verified, program halted |
+
+### 6. Compare inline delivery and failure
+
+The demo runs the same decoded bytecode on a fresh machine with
+`ChannelDriver`. That driver uses the default annotation hook, which
+starts the node and passes its result straight to the continuation.
+The parcel records receive the label and the print route's terminal
+result is available before dispatch returns. Inside `execute`, the
+first `run` call reaches `Halted { pc: 2 }` on the channel backend. Both
+backends use the same `StepContext` and checked program loop.
+[Channel comparison](../../crates/vihaco-stdlib/examples/program_drivers/warehouse/mod.rs) · [Default annotation hook](../../crates/vihaco-runtime/examples/static_graph_routes/framework/graph/execution.rs)
+
+If receipt rejects a duplicate label, the route reports the error through
+the same slot. The program driver enters `Faulted` at PC 0 and the print
+submission already recorded by the printer remains. The checked-in
+failure test instead runs verification first. It confirms that the
+missing-label error leaves the PC at 0 and the later print is never
+dispatched. The checked driver owns one in-flight instruction per
+machine. The driver design describes debugger authorization and the
+remaining work on owner scheduling and retirement gates.
+[Failure test](../../crates/vihaco-stdlib/examples/program_drivers/warehouse/mod.rs) · [Route drivers](route-drivers.md)
 
 ## Where to read next
 

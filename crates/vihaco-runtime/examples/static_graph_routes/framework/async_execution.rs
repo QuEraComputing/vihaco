@@ -25,11 +25,19 @@ use eyre::{Result, eyre};
 use std::{any::type_name, cell::RefCell, marker::PhantomData, rc::Rc};
 use vihaco_runtime::Field;
 
+/// Executes an instruction while borrowing its component across suspension.
+///
+/// The route submits the future to a local driver. The component's exclusive
+/// lease lets the driver release its machine borrow between polls.
 pub(crate) trait AsyncExecute<I> {
+    /// Invocation data prepared before the async execution node.
     type Message;
+    /// The payload sent to the successor after the component is restored.
     type Effect;
+    /// The failure reported by the component, converted to an eyre report by the node.
     type Error;
 
+    /// Runs one instruction using the prepared message and the leased component.
     async fn execute(
         &mut self,
         instruction: &I,
@@ -37,18 +45,24 @@ pub(crate) trait AsyncExecute<I> {
     ) -> std::result::Result<Self::Effect, Self::Error>;
 }
 
-// The route owns the component while pending. The machine retains this slot.
+/// Holds the component on the machine whenever no invocation has leased it.
+///
+/// A pending route owns the component. The slot remains empty until its lease
+/// returns the component, so a second invocation can detect that the field is busy.
 pub(crate) struct AsyncSlot<D>(Rc<RefCell<Option<D>>>);
 
 impl<D> AsyncSlot<D> {
+    /// Creates a slot containing a component ready to be leased.
     pub(crate) fn new(component: D) -> Self {
         Self(Rc::new(RefCell::new(Some(component))))
     }
 
+    /// Reads the component while it is available and returns `None` while it is leased.
     pub(crate) fn inspect<R>(&self, read: impl FnOnce(&D) -> R) -> Option<R> {
         self.0.borrow().as_ref().map(read)
     }
 
+    /// Moves the component into a lease or reports that an invocation already holds it.
     fn lease(&self) -> Result<Lease<D>> {
         let component = self
             .0
@@ -62,6 +76,7 @@ impl<D> AsyncSlot<D> {
     }
 }
 
+/// Forwards an effect to the restored component or reports that the field is busy.
 impl<D: Receive<E>, E> Receive<E> for AsyncSlot<D> {
     fn receive(&mut self, effect: E) -> Result<()> {
         self.0
@@ -72,12 +87,14 @@ impl<D: Receive<E>, E> Receive<E> for AsyncSlot<D> {
     }
 }
 
+/// Owns the component and a reference to the slot that receives it on drop.
 struct Lease<D> {
     slot: Rc<RefCell<Option<D>>>,
     component: Option<D>,
 }
 
 impl<D> Lease<D> {
+    /// Borrows the component exclusively for its async instruction.
     fn get_mut(&mut self) -> &mut D {
         self.component
             .as_mut()
@@ -85,19 +102,25 @@ impl<D> Lease<D> {
     }
 }
 
+/// Restores the component on normal completion, failure, or drop of the pending future.
 impl<D> Drop for Lease<D> {
     fn drop(&mut self) {
         *self.slot.borrow_mut() = self.component.take();
     }
 }
 
+/// Selects a field for `then_execute_async` in the step builder.
 pub(crate) struct AsyncInstructionAt<F>(PhantomData<fn() -> F>);
+
+/// Runs the async instruction at field `F` using the incoming instruction and message.
 pub(crate) struct AsyncExecuteAt<F>(PhantomData<fn() -> F>);
 
+/// Creates the field selector for the step's designated async execution node.
 pub(crate) fn async_instruction_at<F>() -> NodePlan<AsyncInstructionAt<F>> {
     node()
 }
 
+/// Identifies the async execution site when projecting the route topology.
 impl<F> Label for AsyncExecuteAt<F> {
     const LABEL: &'static str = "execute async instruction";
 
@@ -106,6 +129,7 @@ impl<F> Label for AsyncExecuteAt<F> {
     }
 }
 
+/// Submits the leased component's future and restores it before delivering the result.
 impl<M, F, I, D, Backend> Operation<M, (I, D::Message), Backend> for AsyncExecuteAt<F>
 where
     M: Field<F, Child = AsyncSlot<D>> + 'static,

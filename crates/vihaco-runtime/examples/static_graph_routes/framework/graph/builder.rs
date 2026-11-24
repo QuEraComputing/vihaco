@@ -15,9 +15,12 @@ use crate::framework::{
 };
 use std::marker::PhantomData;
 
+/// Carries a type in a declaration without storing or owning a value of that type.
 type TypeMarker<T> = PhantomData<fn() -> T>;
 
-/// A static connection descriptor carrying its annotation list in its type.
+/// Describes a connection before it is attached to a path.
+///
+/// The type parameter `A` holds the annotation list projected onto that edge.
 pub(crate) struct Edge<A>(PhantomData<fn() -> A>);
 
 /// Creates an unannotated connection descriptor.
@@ -25,7 +28,6 @@ pub(crate) fn edge() -> Edge<Unannotated> {
     Edge(PhantomData)
 }
 
-// Adds metadata to a connection before it is attached to a path.
 impl<A> Edge<A> {
     /// Attaches a metadata tag to the edge.
     pub(crate) fn annotate<T: Annotation>(self) -> Edge<Annotated<A, T>> {
@@ -33,10 +35,16 @@ impl<A> Edge<A> {
     }
 }
 
-/// A zero-sized descriptor of a composable path.
+/// A zero-sized value used to compose a path before finishing a step.
+///
+/// `P` describes the complete path and can represent an operation, a
+/// sequence, or a fork/join.
 pub(crate) struct Plan<P>(PhantomData<fn() -> P>);
 
-/// Pairs an operation type with its node annotations.
+/// Describes one operation occurrence of type `N` with annotations `A`.
+///
+/// Using the same node type twice in a path produces two occurrences in the
+/// inspected topology.
 pub(crate) struct Node<N, A>(PhantomData<fn() -> (N, A)>);
 
 /// The descriptor for a single unannotated operation.
@@ -47,18 +55,20 @@ pub(in crate::framework) fn node<N>() -> NodePlan<N> {
     Plan(PhantomData)
 }
 
-// Adds annotations to a node while preserving the operation type.
 impl<N, A> Plan<Node<N, A>> {
     /// Attaches a metadata tag to the node.
+    #[allow(dead_code, reason = "used by the checked program driver examples")]
     pub(crate) fn annotate<T: Annotation>(self) -> Plan<Node<N, Annotated<A, T>>> {
         Plan(PhantomData)
     }
 }
 
-/// Connects the left path’s output to the right path’s input through edge E.
+/// Connects the output of path `L` to the input of path `R`.
+///
+/// `E` describes the edge's annotations. The execution interpreters check
+/// that the payload types match.
 pub(crate) struct Sequence<L, E, R>(TypeMarker<(L, E, R)>);
 
-// Composes paths.
 impl<L> Plan<L> {
     /// Connects the next path through an unannotated edge.
     pub(crate) fn then<R>(self, next: Plan<R>) -> Plan<Sequence<L, Unannotated, R>> {
@@ -71,7 +81,10 @@ impl<L> Plan<L> {
     }
 }
 
-/// Describes a split path, two arms, and their join node.
+/// Describes a split path `S`, two arms `L` and `R`, and their synthetic join.
+///
+/// The split supplies an owned input to each arm. The join produces their
+/// outputs as a pair in left-to-right order.
 pub(crate) struct ForkJoin<S, L, R>(TypeMarker<(S, L, R)>);
 
 /// Builds a path that splits one input and pairs the results of its two arms.
@@ -79,19 +92,25 @@ pub(crate) fn fork_join<S, L, R>(_: Plan<S>, _: Plan<L>, _: Plan<R>) -> Plan<For
     Plan(PhantomData)
 }
 
-/// Marks a step that can still declare its designated instruction.
+/// Marks the builder state that can designate a sync or async instruction site.
 pub(crate) struct Before;
 
-/// Marks a step whose designated instruction execution is in place.
+/// Marks the builder state that can finish because its instruction site is set.
 pub(crate) struct After;
 
-/// Selects the instruction type before the route has an entry path.
+/// Carries the selected instruction type `I` until `begin` supplies an entry path.
 pub(crate) struct Start<I>(PhantomData<fn() -> I>);
 
-/// Accumulates a path while tracking whether the instruction has been declared.
+/// Accumulates the path `P` for instruction `I`.
+///
+/// `State` controls which builder methods are available. Only a step with
+/// a designated instruction site can become a finished route.
 pub(crate) struct Step<I, P, State>(TypeMarker<(I, P, State)>);
 
-/// The step type after appending a path through an edge.
+/// Names the builder result after appending path `R` to `L` through edge `E`.
+///
+/// The caller chooses the resulting state to reflect whether the append
+/// designated the instruction site.
 pub(crate) type ExtendedStep<I, L, E, R, State> = Step<I, Sequence<L, E, R>, State>;
 
 /// Starts describing a step for instruction type I.
@@ -99,7 +118,6 @@ pub(crate) fn step_graph<I>() -> Start<I> {
     Start(PhantomData)
 }
 
-// Makes the first path the root of the step.
 impl<I> Start<I> {
     /// Installs the entry path before the execution node is chosen.
     pub(crate) fn begin<P>(self, _: Plan<P>) -> Step<I, P, Before> {
@@ -107,7 +125,7 @@ impl<I> Start<I> {
     }
 }
 
-// Allows auxiliary paths on either side of the designated instruction.
+/// Appends paths in either builder state without designating an instruction site.
 impl<I, P, State> Step<I, P, State> {
     /// Connects the next path through an unannotated edge.
     pub(crate) fn then<R>(self, next: Plan<R>) -> ExtendedStep<I, P, Unannotated, R, State> {
@@ -120,7 +138,7 @@ impl<I, P, State> Step<I, P, State> {
     }
 }
 
-// Inserts the designated instruction node and advances the builder state.
+/// Selects the designated instruction site and transitions to `After`.
 impl<I, P> Step<I, P, Before> {
     /// Adds the instruction execution node through an unannotated edge.
     pub(crate) fn then_execute<F, A>(
@@ -148,7 +166,6 @@ impl<I, P> Step<I, P, Before> {
     }
 }
 
-// Finishes steps that have declared their instruction node.
 impl<I, P> Step<I, P, After> {
     /// Produces the finished route once the execution node is present.
     pub(crate) fn finish(self) -> Route<I, P> {
@@ -156,5 +173,9 @@ impl<I, P> Step<I, P, After> {
     }
 }
 
-/// A finished zero-sized graph that can be inspected and started repeatedly.
+/// A finished zero-sized declaration for one instruction step.
+///
+/// The type records the instruction `I` and complete path `P`. Inspection
+/// projects that path without a machine. Each execution supplies its own inputs
+/// and any state needed to resume.
 pub(crate) struct Route<I, P>(PhantomData<fn() -> (I, P)>);

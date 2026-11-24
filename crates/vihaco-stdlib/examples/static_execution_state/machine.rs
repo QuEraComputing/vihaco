@@ -3,37 +3,44 @@
 
 //! A program machine that finishes each static route before the next fetch.
 
-use crate::framework::{
-    Compute, Describe, Route, build_message_at, compute, instruction_at, step_graph,
-    synchronous::RunSync,
+use crate::{
+    checked::{CheckedDriver, Inline, Module, Pause, StepContext},
+    framework::{
+        Compute, Describe, Route, build_message_at, compute, instruction_at, step_graph,
+        synchronous::RunSync,
+    },
 };
 use eyre::Result;
 use std::marker::PhantomData;
-use vihaco_abi::{Type, Value};
+use vihaco_abi::Type;
 use vihaco_cpu::{CPU, cpu};
-use vihaco_module::module::{FunctionInfo, LocalModule, Signature};
+use vihaco_module::module::{FunctionInfo, Signature};
 use vihaco_runtime::{
     Apply, BuildMessage, Execute, HasInstructionSet, ReusableMessageRecipe, Step, composite, field,
 };
-use vihaco_stdlib::{ExecutionState, Image, Loadable, program::program};
+use vihaco_stdlib::{
+    ExecutionState, Image, Loadable,
+    program::program,
+    program_driver::{ProgramDriver, ProgramStop, RunCommand},
+};
 
 #[composite]
 struct Machine {
     #[device(0)]
     #[program]
-    execution: vihaco_stdlib::ExecutionState,
+    execution: vihaco_stdlib::ExecutionState<Pause>,
     #[device(1)]
     cpu: vihaco_cpu::CPU,
 }
 
 type Instruction = <Machine as HasInstructionSet>::Runtime;
-type Program = LocalModule<Instruction, Value, Type>;
+type Program = Module<Instruction>;
 type ExecutionField = field!(Machine::execution);
 type CpuField = field!(Machine::cpu);
 
 impl<I, Message> BuildMessage<ExecutionField, I, Program, Message> for Machine
 where
-    ExecutionState: Execute<I, Message = Message>,
+    ExecutionState<Pause>: Execute<I, Message = Message>,
     Message: ReusableMessageRecipe<Self, ExecutionField, I, Program>,
 {
     fn build_message(&mut self, instruction: &I, program: &Program) -> Result<Message> {
@@ -54,7 +61,7 @@ where
 fn execution_route<I>()
 -> Route<I, impl for<'a> RunSync<Machine, (&'a I, &'a Program), Output = ()> + Describe>
 where
-    ExecutionState: Execute<I, Effect = (), Error = eyre::Report>,
+    ExecutionState<Pause>: Execute<I, Effect = (), Error = eyre::Report>,
     Machine: BuildMessage<ExecutionField, I, Program>,
 {
     step_graph::<I>()
@@ -66,7 +73,7 @@ where
 struct ApplyCpuEffect<E>(PhantomData<fn() -> E>);
 impl<E> Compute for ApplyCpuEffect<E>
 where
-    ExecutionState: Apply<E>,
+    ExecutionState<Pause>: Apply<E>,
 {
     type Machine = Machine;
     type Input = E;
@@ -84,7 +91,7 @@ fn cpu_route<I>()
 where
     CPU: Execute<I, Error = eyre::Report>,
     Machine: BuildMessage<CpuField, I, Program>,
-    ExecutionState: Apply<<CPU as Execute<I>>::Effect>,
+    ExecutionState<Pause>: Apply<<CPU as Execute<I>>::Effect>,
 {
     step_graph::<I>()
         .begin(build_message_at::<CpuField>())
@@ -94,25 +101,33 @@ where
 }
 
 // The runner lends each Step the current instruction and its module.
-impl<I> Step<ExecutionField, I, Program> for Machine
+impl<I> Step<ExecutionField, I, StepContext<'_, Instruction, Inline>> for Machine
 where
-    ExecutionState: Execute<I, Effect = (), Error = eyre::Report>,
+    ExecutionState<Pause>: Execute<I, Effect = (), Error = eyre::Report>,
     Self: BuildMessage<ExecutionField, I, Program>,
 {
-    fn step(&mut self, instruction: &I, module: &Program) -> Result<()> {
-        execution_route::<I>().run_synchronously(self, instruction, module)
+    fn step(
+        &mut self,
+        instruction: &I,
+        context: &StepContext<'_, Instruction, Inline>,
+    ) -> Result<()> {
+        execution_route::<I>().run_synchronously(self, instruction, context.module)
     }
 }
 
 // Arithmetic effects are applied before the runner can fetch the next instruction.
-impl<I> Step<CpuField, I, Program> for Machine
+impl<I> Step<CpuField, I, StepContext<'_, Instruction, Inline>> for Machine
 where
     CPU: Execute<I, Error = eyre::Report>,
     Self: BuildMessage<CpuField, I, Program>,
-    ExecutionState: Apply<<CPU as Execute<I>>::Effect>,
+    ExecutionState<Pause>: Apply<<CPU as Execute<I>>::Effect>,
 {
-    fn step(&mut self, instruction: &I, module: &Program) -> Result<()> {
-        cpu_route::<I>().run_synchronously(self, instruction, module)
+    fn step(
+        &mut self,
+        instruction: &I,
+        context: &StepContext<'_, Instruction, Inline>,
+    ) -> Result<()> {
+        cpu_route::<I>().run_synchronously(self, instruction, context.module)
     }
 }
 
@@ -144,14 +159,12 @@ fn program() -> Program {
     }
 }
 
-fn load(module: Program) -> Loadable<Image<Instruction>, Machine> {
-    Loadable::new(
-        Image::new(module),
-        Machine {
-            execution: ExecutionState::new(),
-            cpu: CPU::default(),
-        },
-    )
+fn load(module: Program) -> CheckedDriver<Machine, Instruction, Inline> {
+    let machine = Machine {
+        execution: ExecutionState::default(),
+        cpu: CPU::default(),
+    };
+    CheckedDriver::new(Loadable::new(Image::new(module), machine), Inline)
 }
 
 pub(crate) fn demo() -> Result<()> {
@@ -163,7 +176,11 @@ pub(crate) fn demo() -> Result<()> {
     arithmetic.topology().print("MulU64");
 
     let mut loaded = load(program());
-    loaded.execute(&[])?;
+    loaded.start((), &[])?;
+    assert_eq!(
+        loaded.run((), RunCommand::Continue)?,
+        ProgramStop::Halted { pc: 5 }
+    );
     let execution = &loaded.machine().execution;
     assert_eq!(execution.stack(), &[42]);
     assert!(execution.frames().is_empty());
@@ -188,8 +205,9 @@ mod tests {
         module.code[0] = Instruction::V_execution__program__Branch(program::Branch(u32::MAX));
         let mut loaded = load(module);
 
+        loaded.start((), &[])?;
         let error = loaded
-            .execute(&[])
+            .run((), RunCommand::Continue)
             .expect_err("the branch target is outside the program");
         assert_eq!(error.to_string(), "branch target out of bounds");
         assert_eq!(loaded.machine().execution.pc(), 0);

@@ -37,6 +37,7 @@ vihaco-cpu = { workspace = true, optional = true }
 vihaco-runtime = { workspace = true }
 
 [dev-dependencies]
+tokio = { version = "1", features = ["rt", "sync", "time"] }
 vihaco-parser = { workspace = true }
 vihaco-sst = { workspace = true }
 vihaco-syntax = { workspace = true }
@@ -55,4 +56,8 @@ required-features = ["program-image-execution"]
 
 [[example]]
 name = "static_execution_state"
+required-features = ["program-image-execution"]
+
+[[example]]
+name = "program_drivers"
 required-features = ["program-image-execution"]

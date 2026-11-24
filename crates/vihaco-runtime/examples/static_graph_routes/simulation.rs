@@ -13,8 +13,10 @@
 //! can mutate the machine at start. Errors propagate as soon as the
 //! operation reports them.
 
+#[cfg(feature = "program-image-execution")]
+use crate::framework::Annotation;
 use crate::framework::{
-    AnnotatedDriver, Annotation, Await, FutureDriver, Metadata, Operation, PollJob, poll_future,
+    AnnotatedDriver, Await, FutureDriver, Metadata, Operation, PollJob, poll_future,
 };
 use eyre::{Result, ensure, eyre};
 use std::{
@@ -23,14 +25,16 @@ use std::{
     future::Future,
 };
 
-struct Scheduled<T> {
-    tick: u64,
-    result: Result<T>,
+pub(super) struct Scheduled<T> {
+    pub(super) tick: u64,
+    pub(super) result: Result<T>,
 }
 
+#[cfg(feature = "program-image-execution")]
 pub(super) struct MinExecution<const TICKS: u64>;
 pub(super) struct ExecutionTicks(u64);
 
+#[cfg(feature = "program-image-execution")]
 impl<const TICKS: u64> Annotation for MinExecution<TICKS> {
     type Value = ExecutionTicks;
     const VALUE: &'static ExecutionTicks = &ExecutionTicks(TICKS);
@@ -48,8 +52,13 @@ pub(super) struct SimDriver<M> {
 
 impl<M> SimDriver<M> {
     pub(super) fn new() -> Self {
+        Self::starting_at(0)
+    }
+
+    /// Creates an empty simulator starting at the supplied tick.
+    pub(super) fn starting_at(tick: u64) -> Self {
         Self {
-            now: Cell::new(0),
+            now: Cell::new(tick),
             sequence: Cell::new(0),
             events: RefCell::default(),
             futures: RefCell::default(),
@@ -60,6 +69,7 @@ impl<M> SimDriver<M> {
         self.now.get()
     }
 
+    #[cfg(feature = "program-image-execution")]
     pub(super) fn advance_next(&self, machine: &mut M) -> Result<u64> {
         let tick = self
             .events

@@ -15,7 +15,7 @@ use super::{
 };
 
 impl<I, P> Route<I, P> {
-    /// Materializes the graph using operation types and static annotations.
+    /// Projects the route without requiring a machine, driver, or executable path.
     pub(crate) fn topology(&self) -> Topology
     where
         P: Describe,
@@ -26,7 +26,7 @@ impl<I, P> Route<I, P> {
     }
 }
 
-/// Identifies an operation and any selected field for inspection.
+/// Supplies the diagnostic name and optional machine field for an operation.
 pub(crate) trait Label {
     /// The diagnostic name for an operation occurrence.
     const LABEL: &'static str;
@@ -37,7 +37,10 @@ pub(crate) trait Label {
     }
 }
 
-/// The inspectable projection of node occurrences and directed edges.
+/// A diagnostic graph projected from a route's static path.
+///
+/// Node indices belong to this projection. Each occurrence has its own index,
+/// even when multiple nodes use the same operation or field.
 #[derive(Default)]
 pub(crate) struct Topology {
     /// Nodes in traversal order, indexed by their occurrence IDs.
@@ -47,7 +50,7 @@ pub(crate) struct Topology {
     pub(crate) edges: Vec<Link>,
 }
 
-/// A node occurrence identified by its index in the topology’s node list.
+/// One operation occurrence or synthetic join in the projected graph.
 pub(crate) struct Vertex {
     /// The operation’s diagnostic label.
     pub(crate) name: &'static str,
@@ -59,7 +62,7 @@ pub(crate) struct Vertex {
     pub(crate) metadata: Metadata,
 }
 
-/// A directed edge between two node occurrence indices.
+/// A directed payload dependency between two projected node occurrences.
 pub(crate) struct Link {
     /// The node occurrence producing the payload.
     pub(crate) from: usize,
@@ -71,7 +74,6 @@ pub(crate) struct Link {
     pub(crate) metadata: Metadata,
 }
 
-// Assigns occurrence indices and renders the projected graph.
 impl Topology {
     /// Adds a node and connects its incoming edge when it has a predecessor.
     fn vertex(
@@ -110,20 +112,23 @@ impl Topology {
     }
 }
 
-/// Projects a path into the topology and returns its final node index.
+/// Appends a path to the topology and returns its exit node's index.
+///
+/// The optional incoming edge connects the previous path's exit to this
+/// path's entry. Composite paths use the returned index to connect successors.
 pub(crate) trait Describe {
-    /// Projects the path beginning at the supplied predecessor and returns the final node index.
+    /// Projects the path and attaches the incoming edge if one was supplied.
     fn describe(from: Option<(usize, Metadata)>, topology: &mut Topology) -> usize;
 }
 
-// Projects one operation and its incoming edge when a predecessor exists.
+/// Projects one operation and its incoming edge when a predecessor exists.
 impl<N: Label, A: Annotations> Describe for Node<N, A> {
     fn describe(from: Option<(usize, Metadata)>, topology: &mut Topology) -> usize {
         topology.vertex(N::LABEL, N::field(), A::metadata(), from)
     }
 }
 
-// Connects the left path’s last node to the right path’s entry node.
+/// Connects the left path’s last node to the right path’s entry node.
 impl<L: Describe, E: Annotations, R: Describe> Describe for Sequence<L, E, R> {
     fn describe(from: Option<(usize, Metadata)>, topology: &mut Topology) -> usize {
         let predecessor = L::describe(from, topology);
@@ -131,7 +136,7 @@ impl<L: Describe, E: Annotations, R: Describe> Describe for Sequence<L, E, R> {
     }
 }
 
-// Projects both paths from the split and records both edges into the join.
+/// Projects both paths from the split and records both edges into the join.
 impl<S: Describe, L: Describe, R: Describe> Describe for ForkJoin<S, L, R> {
     fn describe(from: Option<(usize, Metadata)>, topology: &mut Topology) -> usize {
         let split = S::describe(from, topology);

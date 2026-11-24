@@ -21,7 +21,9 @@ use super::{
 use eyre::Result;
 use vihaco_runtime::{BuildMessage, Execute, Field};
 
-/// Runs a static path to completion on the calling thread.
+/// Interprets a static path inline and returns its result to the caller.
+///
+/// The input can borrow the program's current instruction and context.
 pub(crate) trait RunSync<M, Input> {
     /// The result passed directly to the next path.
     type Output;
@@ -30,7 +32,7 @@ pub(crate) trait RunSync<M, Input> {
     fn run_sync(machine: &mut M, input: Input) -> Result<Self::Output>;
 }
 
-/// Runs one operation to completion without constructing a continuation.
+/// Defines the direct-call execution contract for an individual node.
 pub(crate) trait SyncOperation<M, Input> {
     /// The output of this operation.
     type Output;
@@ -39,7 +41,7 @@ pub(crate) trait SyncOperation<M, Input> {
     fn apply(machine: &mut M, input: Input) -> Result<Self::Output>;
 }
 
-// The same static node can have an inline interpretation for borrowed inputs.
+/// The same static node can have an inline interpretation for borrowed inputs.
 impl<M, Input, N: SyncOperation<M, Input>, A> RunSync<M, Input> for Node<N, A> {
     type Output = N::Output;
 
@@ -48,7 +50,7 @@ impl<M, Input, N: SyncOperation<M, Input>, A> RunSync<M, Input> for Node<N, A> {
     }
 }
 
-// An error ends the sequence at the operation that produced it.
+/// An error ends the sequence at the operation that produced it.
 impl<M, Input, L, E, R> RunSync<M, Input> for Sequence<L, E, R>
 where
     L: RunSync<M, Input>,
@@ -62,9 +64,10 @@ where
     }
 }
 
-// The instruction and program context come from the runner for this invocation.
 impl<I, P> Route<I, P> {
-    /// Runs a unit-output step with borrowed input and returns any error to the runner.
+    /// Runs a unit-output step using the runner's borrowed instruction and context.
+    ///
+    /// Returns after the path has applied its effects or reported an error.
     pub(crate) fn run_synchronously<'input, M, C: ?Sized>(
         &self,
         machine: &mut M,
@@ -78,7 +81,7 @@ impl<I, P> Route<I, P> {
     }
 }
 
-// The entry node reads the borrowed context and passes on the prepared message.
+/// The entry node reads the borrowed context and passes on the prepared message.
 impl<'input, M, F, I, C: ?Sized, Message> SyncOperation<M, (&'input I, &'input C)> for BuildAt<F>
 where
     M: BuildMessage<F, I, C, Message>,
@@ -98,7 +101,7 @@ where
     }
 }
 
-// Execute borrows the original instruction directly from the program.
+/// Execute borrows the original instruction directly from the program.
 impl<M, F, I, Message> SyncOperation<M, Prepared<&I, Message>> for ExecuteAt<F>
 where
     M: Field<F>,
@@ -114,7 +117,7 @@ where
     }
 }
 
-// The final inline computation can apply a CPU effect to the program stack.
+/// The final inline computation can apply a CPU effect to the program stack.
 impl<C: Compute> SyncOperation<C::Machine, C::Input> for ComputeNode<C> {
     type Output = C::Output;
 

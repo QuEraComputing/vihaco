@@ -10,14 +10,15 @@
 mod framework;
 #[path = "static_graph_routes/machines/mod.rs"]
 mod machines;
+#[cfg(test)]
+#[allow(dead_code, reason = "also used by the program driver example")]
 #[path = "static_graph_routes/simulation.rs"]
 mod simulation;
 
 fn main() -> eyre::Result<()> {
     machines::waveform::demo()?;
     machines::device_completion::demo()?;
-    machines::async_capture::demo()?;
-    machines::warehouse::demo()
+    machines::async_capture::demo()
 }
 
 #[cfg(test)]
@@ -32,10 +33,5 @@ mod tests {
     #[test]
     fn device_wait_resumes_without_reissuing_capture() -> eyre::Result<()> {
         machines::device_completion::demo()
-    }
-
-    #[test]
-    fn warehouse_waits_for_each_label_before_verifying_it() -> eyre::Result<()> {
-        machines::warehouse::demo()
     }
 }

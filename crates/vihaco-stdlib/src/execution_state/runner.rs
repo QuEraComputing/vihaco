@@ -135,6 +135,27 @@ where
     M: HasProgram<Program = ExecutionState<S>>
         + Dispatch<LocalModule<I, V, Ty, Info>, Instruction = I>,
 {
+    execute_instruction_with_context(module, machine, instruction_override, module)
+}
+
+/// Fetch and dispatch using a context supplied by the program driver.
+///
+/// The module supplies the instruction image. The context can also expose
+/// route execution services to the authored step. PC and error handling are
+/// the same as in [`execute_instruction`].
+/// Custom runners should call this helper inside [`run`].
+///
+/// # Errors
+/// Rejects invalid invocation state or fetches and propagates dispatch errors.
+pub fn execute_instruction_with_context<M, I, V, Ty, Info, S, C: ?Sized>(
+    module: &LocalModule<I, V, Ty, Info>,
+    machine: &mut M,
+    instruction_override: Option<&I>,
+    context: &C,
+) -> eyre::Result<()>
+where
+    M: HasProgram<Program = ExecutionState<S>> + Dispatch<C, Instruction = I>,
+{
     let program = machine.program_mut();
     program.ensure_running()?;
     let position = program.pc;
@@ -146,7 +167,7 @@ where
     program.pc = position
         .checked_add(1)
         .ok_or_else(|| eyre::eyre!("program counter overflow"))?;
-    let result = machine.dispatch(instruction, module);
+    let result = machine.dispatch(instruction, context);
     let program = machine.program_mut();
     if result.is_err() || !matches!(program.run_state, RunState::Runnable) {
         program.pc = position;

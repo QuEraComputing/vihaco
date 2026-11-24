@@ -23,6 +23,9 @@ use std::{cell::RefCell, rc::Rc};
 
 impl<I, P> Route<I, P> {
     /// Starts an invocation and reports its terminal result to its caller.
+    ///
+    /// The terminal callback can run before this method returns or after a
+    /// driver delivers pending work.
     pub(crate) fn start_with<M, D>(
         &self,
         machine: &mut M,
@@ -36,11 +39,15 @@ impl<I, P> Route<I, P> {
     }
 }
 
-/// Executes a path with a typed input and reports its result through a one-shot callback.
+/// Interprets a path for a machine `M`, input `I`, and driver `D`.
+///
+/// Bounds on composed paths check payload compatibility and require only
+/// the driver capabilities their operations use.
 pub(crate) trait Run<M, I, D> {
     /// The owned value passed to the next path when it succeeds.
     type Output: 'static;
 
+    /// Takes ownership of the input and passes the terminal result to `done`.
     fn run(
         machine: &mut M,
         driver: &D,
@@ -49,7 +56,10 @@ pub(crate) trait Run<M, I, D> {
     );
 }
 
-/// Lets a driver interpret annotations while running a node.
+/// Lets a driver interpret an operation node's annotations.
+///
+/// The default policy invokes the node directly. A backend can override the
+/// hook to change when the result is delivered, as the Warehouse simulator does.
 pub(crate) trait AnnotatedDriver<M>: Sized {
     /// Starts an operation and optionally controls when its result is delivered.
     fn run_annotated<I, N: Operation<M, I, Self>>(
@@ -63,8 +73,12 @@ pub(crate) trait AnnotatedDriver<M>: Sized {
     }
 }
 
-// The empty list can dispatch directly. Annotated nodes consult the driver.
+/// Dispatches a node according to its type-level annotation list.
+///
+/// The empty list dispatches directly. A nonempty list projects its metadata
+/// and requires the driver to implement `AnnotatedDriver`.
 pub(crate) trait RunAnnotations<M, D> {
+    /// Starts the operation using this annotation list's dispatch policy.
     fn run<I, N: Operation<M, I, D>>(
         machine: &mut M,
         driver: &D,
@@ -73,6 +87,7 @@ pub(crate) trait RunAnnotations<M, D> {
     );
 }
 
+/// Starts the operation without materializing metadata or consulting a hook.
 impl<M, D> RunAnnotations<M, D> for Unannotated {
     fn run<I, N: Operation<M, I, D>>(
         machine: &mut M,
@@ -84,6 +99,7 @@ impl<M, D> RunAnnotations<M, D> for Unannotated {
     }
 }
 
+/// Projects the annotation list for the driver's hook.
 impl<M, D: AnnotatedDriver<M>, Previous: Annotations, A: Annotation> RunAnnotations<M, D>
     for Annotated<Previous, A>
 {
@@ -97,6 +113,7 @@ impl<M, D: AnnotatedDriver<M>, Previous: Annotations, A: Annotation> RunAnnotati
     }
 }
 
+/// Runs one operation using the dispatch policy of its node annotations.
 impl<M, I, D, N: Operation<M, I, D>, A: RunAnnotations<M, D>> Run<M, I, D> for Node<N, A> {
     type Output = N::Output;
 
@@ -110,7 +127,8 @@ impl<M, I, D, N: Operation<M, I, D>, A: RunAnnotations<M, D>> Run<M, I, D> for N
     }
 }
 
-// Starts the right path with the left output or propagates the left failure.
+/// Starts the right path after left succeeds, forwarding the left payload.
+/// A left error goes straight to the sequence's continuation.
 impl<M, I, D, L, E, R> Run<M, I, D> for Sequence<L, E, R>
 where
     L: Run<M, I, D>,
@@ -136,7 +154,10 @@ where
     }
 }
 
-/// Stores the branch outputs and continuation for one fork invocation.
+/// Shares two output slots and one completion callback between a fork's arms.
+///
+/// Taking the callback marks the join complete. Later arrivals cannot deliver
+/// a second result.
 struct Join<L, R, C> {
     left: Option<L>,
     right: Option<R>,
@@ -144,7 +165,9 @@ struct Join<L, R, C> {
 }
 
 impl<L, R, C> Join<L, R, C> {
-    /// Records a result and releases the continuation once.
+    /// Records an arm's result and delivers the first error or the completed pair.
+    ///
+    /// Releases the join's mutable borrow before running the callback.
     fn arrive<M, D, T>(
         state: &RefCell<Self>,
         machine: &mut M,
@@ -182,7 +205,7 @@ impl<L, R, C> Join<L, R, C> {
     }
 }
 
-// Runs the split and gives each arm ownership of its input and callback.
+/// Runs the split and starts each arm with its own input and completion callback.
 impl<M, I, D, LI: 'static, RI: 'static, S, L, R> Run<M, I, D> for ForkJoin<S, L, R>
 where
     S: Run<M, I, D, Output = (LI, RI)>,

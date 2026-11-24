@@ -5,5 +5,4 @@
 
 pub(crate) mod async_capture;
 pub(crate) mod device_completion;
-pub(crate) mod warehouse;
 pub(crate) mod waveform;

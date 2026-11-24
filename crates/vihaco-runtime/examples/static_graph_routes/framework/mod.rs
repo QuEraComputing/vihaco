@@ -26,15 +26,22 @@ pub(crate) mod synchronous;
 pub(crate) use async_execution::{AsyncExecute, AsyncSlot, async_instruction_at};
 
 // The graph builder and the bounds used in route signatures.
-pub(crate) use graph::{
-    AnnotatedDriver, Annotation, Describe, Metadata, Route, Run, edge, fork_join, step_graph,
-};
+pub(crate) use graph::{Annotation, Describe, Route, Run, edge, fork_join, step_graph};
 
 // Built-in constructors and application extension points.
 pub(crate) use operations::{
-    Compute, Operation, Receive, await_work, build_message_at, compute, instruction_at,
-    receive_effect_at,
+    Compute, Receive, await_work, build_message_at, compute, instruction_at, receive_effect_at,
 };
 
 // The runtime driver and the owned wait handle used by asynchronous nodes.
-pub(crate) use runtime::{Await, ChannelDriver, FutureDriver, PollJob, Wait, poll_future};
+pub(crate) use runtime::{ChannelDriver, FutureDriver, Wait};
+
+#[allow(
+    unused_imports,
+    reason = "shared with the simulator and program examples"
+)]
+pub(crate) use {
+    graph::{AnnotatedDriver, Metadata},
+    operations::Operation,
+    runtime::{Await, PollJob, Signal, poll_future},
+};

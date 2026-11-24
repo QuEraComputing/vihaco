@@ -29,7 +29,10 @@ use eyre::Result;
 use std::{any::type_name, marker::PhantomData};
 use vihaco_runtime::{BuildMessage, Execute, Field};
 
-/// Interprets a static operation type for a machine and a typed input.
+/// Runs one operation for machine `M`, input `I`, and driver `D`.
+///
+/// A synchronous operation can report its result inline. A waiting operation
+/// hands its continuation and the state it needs to the driver.
 pub(crate) trait Operation<M, I, D> {
     /// The owned value passed to the continuation.
     type Output: 'static;
@@ -51,15 +54,15 @@ pub(crate) struct Prepared<I, Message> {
     pub(super) message: Message,
 }
 
-/// Identifies the field that needs an instruction message.
+/// Runs the machine's `BuildMessage` implementation for field `F`.
 pub(crate) struct BuildAt<F>(PhantomData<fn() -> F>);
 
-/// Describes preparing an instruction message for field F.
+/// Creates the message-preparation node for field `F`.
 pub(crate) fn build_message_at<F>() -> NodePlan<BuildAt<F>> {
     node()
 }
 
-// Names message preparation and identifies its target field for inspection.
+/// Names message preparation and identifies its target field for inspection.
 impl<F> Label for BuildAt<F> {
     const LABEL: &'static str = "build message";
 
@@ -68,7 +71,7 @@ impl<F> Label for BuildAt<F> {
     }
 }
 
-// Calls BuildMessage and forwards the prepared snapshot with the instruction.
+/// Calls BuildMessage and forwards the prepared snapshot with the instruction.
 impl<M, D, F, I: 'static, Message: 'static> Operation<M, I, D> for BuildAt<F>
 where
     M: BuildMessage<F, I, (), Message>,
@@ -92,7 +95,9 @@ where
     }
 }
 
-/// Identifies the instruction site selected by the step builder.
+/// Marks the field selected for synchronous execution by the step builder.
+///
+/// `then_execute` turns this selector into an `ExecuteAt` operation.
 pub(crate) struct InstructionAt<F>(PhantomData<fn() -> F>);
 
 /// Selects the field for the step’s designated instruction execution.
@@ -100,10 +105,10 @@ pub(crate) fn instruction_at<F>() -> NodePlan<InstructionAt<F>> {
     node()
 }
 
-/// The executable operation inserted by the step builder.
+/// Runs `Execute` at field `F` and forwards the resulting effect.
 pub(crate) struct ExecuteAt<F>(PhantomData<fn() -> F>);
 
-// Names the instruction operation and identifies its selected field.
+/// Names the instruction operation and identifies its selected field.
 impl<F> Label for ExecuteAt<F> {
     const LABEL: &'static str = "execute instruction";
 
@@ -112,7 +117,7 @@ impl<F> Label for ExecuteAt<F> {
     }
 }
 
-// Executes the prepared instruction once on the selected component and forwards its effect.
+/// Executes the prepared instruction once on the selected component and forwards its effect.
 impl<M, D, F, I, Message> Operation<M, Prepared<I, Message>, D> for ExecuteAt<F>
 where
     M: Field<F>,
@@ -134,21 +139,23 @@ where
     }
 }
 
-/// Lets a component accept an effect routed to it by the graph.
+/// Applies a routed effect to its receiving component.
+///
+/// A receive error ends the current path and is passed to its continuation.
 pub(crate) trait Receive<E> {
     /// Applies the received effect to this component.
     fn receive(&mut self, effect: E) -> Result<()>;
 }
 
-/// Identifies the field that receives a produced effect.
+/// Delivers an effect to field `F` using its component's `Receive` implementation.
 pub(crate) struct ReceiveAt<F>(PhantomData<fn() -> F>);
 
-/// Describes sending an effect to the component at field F.
+/// Creates a node that delivers an effect to field `F` and completes with `()`.
 pub(crate) fn receive_effect_at<F>() -> NodePlan<ReceiveAt<F>> {
     node()
 }
 
-// Names effect reception and identifies its selected field.
+/// Names effect reception and identifies its selected field.
 impl<F> Label for ReceiveAt<F> {
     const LABEL: &'static str = "receive effect";
 
@@ -157,7 +164,7 @@ impl<F> Label for ReceiveAt<F> {
     }
 }
 
-// Borrows the receiving component, delivers the effect, and reports completion.
+/// Borrows the receiving component, delivers the effect, and reports completion.
 impl<M: Field<F>, D, F, I> Operation<M, I, D> for ReceiveAt<F>
 where
     M::Child: Receive<I>,
@@ -175,7 +182,10 @@ where
     }
 }
 
-/// Defines an application computation with a machine, an input, and an output.
+/// Defines an application computation that runs inline with a machine borrow.
+///
+/// A computation can split one payload for a fork or transform an effect
+/// before delivery.
 pub(crate) trait Compute {
     /// The machine available to the computation while it runs.
     type Machine;
@@ -192,7 +202,7 @@ pub(crate) trait Compute {
     fn apply(machine: &mut Self::Machine, input: Self::Input) -> Result<Self::Output>;
 }
 
-/// Adapts a Compute implementation to the operation contract.
+/// Adapts a `Compute` implementation into an operation node.
 pub(crate) struct ComputeNode<C>(PhantomData<fn() -> C>);
 
 /// Describes a node that runs an application computation.
@@ -200,12 +210,12 @@ pub(crate) fn compute<C: Compute>() -> NodePlan<ComputeNode<C>> {
     node()
 }
 
-// Uses the computation’s declared name in the topology.
+/// Uses the computation’s declared name in the topology.
 impl<C: Compute> Label for ComputeNode<C> {
     const LABEL: &'static str = C::NAME;
 }
 
-// Applies the computation on the driver thread and forwards its result.
+/// Applies the computation on the driver thread and forwards its result.
 impl<D, C: Compute> Operation<C::Machine, C::Input, D> for ComputeNode<C> {
     type Output = C::Output;
 
@@ -223,14 +233,17 @@ impl<D, C: Compute> Operation<C::Machine, C::Input, D> for ComputeNode<C> {
 /// Awaits work supplied by the preceding node using the selected driver.
 pub(crate) struct AwaitWork;
 
+/// Creates a node that consumes a work handle and forwards the driver's result.
 pub(crate) fn await_work() -> NodePlan<AwaitWork> {
     node()
 }
 
+/// Gives the pending-work node a diagnostic label in the topology.
 impl Label for AwaitWork {
     const LABEL: &'static str = "await completion";
 }
 
+/// Passes the incoming handle and continuation to the driver's `Await` implementation.
 impl<M, D, H> Operation<M, H, D> for AwaitWork
 where
     D: Await<M, H>,
