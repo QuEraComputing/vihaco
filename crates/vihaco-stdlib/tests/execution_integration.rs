@@ -292,6 +292,64 @@ fn recursive_execution_preserves_continuations_and_multiple_results() {
 }
 
 #[test]
+fn repeated_calls_zero_reused_local_slots() {
+    let (mut module, mut vm) = machine(&[
+        "program::program::call 0, 5",
+        "program::program::store_u64 0",
+        "program::program::call 0, 5",
+        "program::program::load_u64 0",
+        "program::program::ret 2",
+        "program::program::load_u64 1",
+        "program::program::const_u64 42",
+        "program::program::store_u64 1",
+        "program::program::ret 1",
+    ]);
+    module.functions[0].end_address = 5;
+    module.functions[0].signature.ret = vec![vihaco_abi::Type::U64; 2];
+    module.functions.push(FunctionInfo {
+        name: 0,
+        signature: Signature {
+            params: vec![],
+            ret: vec![vihaco_abi::Type::U64],
+        },
+        local_count: 2,
+        start_address: 5,
+        end_address: 9,
+        file: 0,
+    });
+
+    // The callee returns the initial value of local 1 and writes 42 to that slot.
+    // Returning one value discards local 1, and the next call reuses its slot.
+    execute(&module, &mut vm, &[]).unwrap();
+
+    assert_eq!(vm.program.stack(), &[0, 0]);
+    assert!(vm.program.frames().is_empty());
+}
+
+#[test]
+fn out_of_range_local_access_preserves_operands() {
+    for instruction in ["load_u64", "store_u64"] {
+        for index in [1, 10, u32::MAX] {
+            let (module, mut vm) = machine(&[
+                "program::program::const_u64 99",
+                &format!("program::program::{instruction} {index}"),
+            ]);
+
+            let error = execute(&module, &mut vm, &[]).unwrap_err();
+
+            assert!(
+                error.to_string().contains("local index out of bounds"),
+                "{error}"
+            );
+            assert_eq!(vm.program.pc(), 1);
+            assert_eq!(vm.program.stack(), &[0, 99]);
+            assert_eq!(vm.program.frames().len(), 1);
+            assert_eq!(vm.program.frames()[0].local_count, 1);
+        }
+    }
+}
+
+#[test]
 fn execution_failures_preserve_consumption_and_faulting_pc() {
     let (module, mut vm) = machine(&[
         "program::program::const_u64 4",
