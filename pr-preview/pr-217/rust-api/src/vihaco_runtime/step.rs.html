@@ -5,30 +5,29 @@
 <a href=#5 id=5 data-nosnippet>5</a>
 <a href=#6 id=6 data-nosnippet>6</a><span class="doccomment">/// Execution behavior for one composite field route and instruction type.
 <a href=#7 id=7 data-nosnippet>7</a>///
-<a href=#8 id=8 data-nosnippet>8</a>/// Use
-<a href=#9 id=9 data-nosnippet>9</a>/// [`crate::field!`] to select a direct field or a nested route. The final child
-<a href=#10 id=10 data-nosnippet>10</a>/// must implement [`Execute&lt;I&gt;`], while the step implementation supplies the
-<a href=#11 id=11 data-nosnippet>11</a>/// composite's behavior, including runtime input and effect handling.
-<a href=#12 id=12 data-nosnippet>12</a>/// [`crate::BuildMessage`] is an optional helper for preparing that input; it
-<a href=#13 id=13 data-nosnippet>13</a>/// does not provide a step automatically. `Context` is shared execution input,
-<a href=#14 id=14 data-nosnippet>14</a>/// defaults to `()`, and is forwarded by dispatch; the Step decides how to use it.
-<a href=#15 id=15 data-nosnippet>15</a>/// A composite with a `#[program]` execution-state device
-<a href=#16 id=16 data-nosnippet>16</a>/// supplies operand storage. Steps remain authored; program execution handles
-<a href=#17 id=17 data-nosnippet>17</a>/// running checks and PC progression outside this trait.
-<a href=#18 id=18 data-nosnippet>18</a></span><span class="kw">pub trait </span>Step&lt;F, I, Context: <span class="question-mark">?</span>Sized = ()&gt;
-<a href=#19 id=19 data-nosnippet>19</a><span class="kw">where
-<a href=#20 id=20 data-nosnippet>20</a>    </span><span class="self">Self</span>: Composite + Field&lt;F&gt;,
-<a href=#21 id=21 data-nosnippet>21</a>    &lt;<span class="self">Self </span><span class="kw">as </span>Field&lt;F&gt;&gt;::Child: Execute&lt;I&gt;,
-<a href=#22 id=22 data-nosnippet>22</a>{
-<a href=#23 id=23 data-nosnippet>23</a>    <span class="doccomment">/// Perform a step for the selected destination, borrowing its instruction.
-<a href=#24 id=24 data-nosnippet>24</a>    ///
-<a href=#25 id=25 data-nosnippet>25</a>    /// # Errors
-<a href=#26 id=26 data-nosnippet>26</a>    ///
-<a href=#27 id=27 data-nosnippet>27</a>    /// Returns failures from preparing runtime input, executing the instruction,
-<a href=#28 id=28 data-nosnippet>28</a>    /// or handling its effects. Implementations can use `?` to convert compatible
-<a href=#29 id=29 data-nosnippet>29</a>    /// execution errors into [`eyre::Report`], including `Infallible`, or to
-<a href=#30 id=30 data-nosnippet>30</a>    /// propagate existing reports unchanged. Returning an error does not roll
-<a href=#31 id=31 data-nosnippet>31</a>    /// back state changes or effects already applied.
-<a href=#32 id=32 data-nosnippet>32</a>    </span><span class="kw">fn </span>step(<span class="kw-2">&amp;mut </span><span class="self">self</span>, instruction: <span class="kw-2">&amp;</span>I, context: <span class="kw-2">&amp;</span>Context) -&gt; eyre::Result&lt;()&gt;;
-<a href=#33 id=33 data-nosnippet>33</a>}
+<a href=#8 id=8 data-nosnippet>8</a>/// Use `field!` to select a direct field or a nested route. The final child
+<a href=#9 id=9 data-nosnippet>9</a>/// must implement [`Execute&lt;I&gt;`], while the step implementation supplies the
+<a href=#10 id=10 data-nosnippet>10</a>/// composite's behavior, including runtime input and effect handling.
+<a href=#11 id=11 data-nosnippet>11</a>/// [`crate::BuildMessage`] is an optional helper for preparing that input; it
+<a href=#12 id=12 data-nosnippet>12</a>/// does not provide a step automatically. `Context` is shared execution input,
+<a href=#13 id=13 data-nosnippet>13</a>/// defaults to `()`, and is forwarded by dispatch; the Step decides how to use it.
+<a href=#14 id=14 data-nosnippet>14</a>/// A composite with a `#[program]` execution-state device
+<a href=#15 id=15 data-nosnippet>15</a>/// supplies operand storage. Steps remain authored; program execution handles
+<a href=#16 id=16 data-nosnippet>16</a>/// running checks and PC progression outside this trait.
+<a href=#17 id=17 data-nosnippet>17</a></span><span class="kw">pub trait </span>Step&lt;F, I, Context: <span class="question-mark">?</span>Sized = ()&gt;
+<a href=#18 id=18 data-nosnippet>18</a><span class="kw">where
+<a href=#19 id=19 data-nosnippet>19</a>    </span><span class="self">Self</span>: Composite + Field&lt;F&gt;,
+<a href=#20 id=20 data-nosnippet>20</a>    &lt;<span class="self">Self </span><span class="kw">as </span>Field&lt;F&gt;&gt;::Child: Execute&lt;I&gt;,
+<a href=#21 id=21 data-nosnippet>21</a>{
+<a href=#22 id=22 data-nosnippet>22</a>    <span class="doccomment">/// Perform a step for the selected destination, borrowing its instruction.
+<a href=#23 id=23 data-nosnippet>23</a>    ///
+<a href=#24 id=24 data-nosnippet>24</a>    /// # Errors
+<a href=#25 id=25 data-nosnippet>25</a>    ///
+<a href=#26 id=26 data-nosnippet>26</a>    /// Returns failures from preparing runtime input, executing the instruction,
+<a href=#27 id=27 data-nosnippet>27</a>    /// or handling its effects. Implementations can use `?` to convert compatible
+<a href=#28 id=28 data-nosnippet>28</a>    /// execution errors into [`eyre::Report`], including `Infallible`, or to
+<a href=#29 id=29 data-nosnippet>29</a>    /// propagate existing reports unchanged. Returning an error does not roll
+<a href=#30 id=30 data-nosnippet>30</a>    /// back state changes or effects already applied.
+<a href=#31 id=31 data-nosnippet>31</a>    </span><span class="kw">fn </span>step(<span class="kw-2">&amp;mut </span><span class="self">self</span>, instruction: <span class="kw-2">&amp;</span>I, context: <span class="kw-2">&amp;</span>Context) -&gt; eyre::Result&lt;()&gt;;
+<a href=#32 id=32 data-nosnippet>32</a>}
 </code></pre></div></section></main></body></html>
