@@ -5,8 +5,7 @@ use crate::{Composite, Execute, Field};
 
 /// Execution behavior for one composite field route and instruction type.
 ///
-/// Use
-/// [`crate::field!`] to select a direct field or a nested route. The final child
+/// Use `field!` to select a direct field or a nested route. The final child
 /// must implement [`Execute<I>`], while the step implementation supplies the
 /// composite's behavior, including runtime input and effect handling.
 /// [`crate::BuildMessage`] is an optional helper for preparing that input; it
