@@ -23,14 +23,19 @@ mod runtime;
 #[allow(dead_code)]
 pub(crate) mod synchronous;
 
-pub(crate) use async_execution::{AsyncExecute, AsyncSlot, async_instruction_at};
+pub(crate) use async_execution::{
+    AsyncExecute, AsyncSlot, BuildAsyncMessage, async_instruction_at, build_async_message_at,
+};
 
 // The graph builder and the bounds used in route signatures.
 pub(crate) use graph::{Annotation, Describe, Route, Run, edge, fork_join, step_graph};
 
 // Built-in constructors and application extension points.
+#[cfg(feature = "program-image-execution")]
+#[allow(unused_imports, reason = "used by the stdlib program examples")]
+pub(crate) use operations::apply_effect_at;
 pub(crate) use operations::{
-    Compute, Receive, await_work, build_message_at, compute, instruction_at, receive_effect_at,
+    Receive, await_work, build_message_at, duplicate, instruction_at, receive_effect_at,
 };
 
 // The runtime driver and the owned wait handle used by asynchronous nodes.

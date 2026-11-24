@@ -6,6 +6,25 @@ these operations and their payload dependencies. A route can be inspected
 before a machine exists, then reused across invocations with fresh inputs
 and completion handles.
 
+## Where behavior lives
+
+Routes describe where payloads go and when execution waits. A field-targeted
+node calls the selected component's `Execute`, `AsyncExecute`, `Receive`,
+or `Apply` implementation. `Receive<E>` can return a new typed effect for
+the next node or `()` for final delivery. For example, the waveform clamp
+receives the source samples and returns the clamped samples that travel over
+the annotated DAC edge.
+
+Message preparation uses `BuildMessage` for synchronous instructions and
+`BuildAsyncMessage` for async instructions. Both identify the field whose
+message they prepare. `build_async_message_at` runs before the async
+execution node leases the destination component.
+
+The route API omits `Compute`. Payload plumbing such as `duplicate()`
+operates on the payload alone. State changes go through the destination
+field's contract and appear as such in the inspected topology.
+[Field-targeted operations](../../crates/vihaco-runtime/examples/static_graph_routes/framework/operations.rs) · [Async message preparation](../../crates/vihaco-runtime/examples/static_graph_routes/framework/async_execution.rs)
+
 ## Runnable examples
 
 | Example | What to read for |
@@ -36,9 +55,10 @@ step_graph::<ops::PrintLabel>()
 ```
 
 `then` connects the output of one path to the input of the next.
-`then_via` attaches metadata to that connection. A fork takes an explicit
-split operation that supplies owned inputs to its two arms, then produces
-the pair of their outputs. A path can be written inline or returned by an
+`then_via` attaches metadata to that connection. A fork takes a split
+such as `duplicate()`, which clones a payload once and moves the original
+to the other arm. The join produces a pair of the arms' outputs.
+A path can be written inline or returned by an
 ordinary Rust function. The builder requires exactly one designated
 instruction node, selected with `then_execute` or `then_execute_async`.
 

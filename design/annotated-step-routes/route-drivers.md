@@ -84,6 +84,12 @@ A parked continuation owns its captures and receives a fresh mutable
 machine borrow when it runs. The current implementations of these contracts
 live in the RFC examples. [Await and FutureDriver prototype](../../crates/vihaco-runtime/examples/static_graph_routes/framework/runtime.rs) · [AnnotatedDriver prototype](../../crates/vihaco-runtime/examples/static_graph_routes/framework/graph/execution.rs)
 
+When a work handle resolves, its output continues along the route to the
+selected field's effect handler. In the sample route, `Await` produces a
+typed `PushToStack` effect and `apply_effect_at::<ProgramField>()` calls
+`Apply` on the program field. The route completes after that field receives
+the result. [Sample route](../../crates/vihaco-stdlib/examples/program_drivers/machine.rs)
+
 ## Checked issue, resumption, and retirement
 
 1. **Issue.** Checked fetch remembers the originating PC and advances
@@ -148,8 +154,10 @@ capabilities without a loaded program. Run them with
   replacement invocation. Validate this with a deferred fault after
   a visible effect and a late completion after reset.
 - **Integration boundaries.** Generate coverage for sync and async
-  execution modes, support async message preparation, and define how
-  deferred routes can retain any program context they still need.
+  execution modes and define how deferred routes can retain any program
+  context they still need. The prototype prepares owned messages before
+  entering async execution. Message preparation that itself suspends
+  remains open.
   Edge latency and arbitration across streams also remain open.
 
 [Issue #204](https://github.com/QuEraComputing/vihaco/issues/204)

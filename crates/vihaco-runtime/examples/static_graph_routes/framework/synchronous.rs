@@ -6,20 +6,20 @@
 //! The CPU runner lends a module and current instruction to
 //! `Route::run_synchronously`. The same `build_message_at` descriptor used
 //! by callback routes now reads the borrowed context through `BuildMessage`.
-//! `Execute` borrows the original instruction. The final CPU computation
-//! applies the effect to the operand stack before the runner fetches again.
+//! `Execute` borrows the original instruction. The program field
+//! applies the CPU effect to the operand stack before the runner fetches again.
 //!
 //! `RunSync` interprets nodes and sequences and returns results on the call
 //! stack. Its current operations are message preparation, instruction
-//! execution, and computation. Metadata remains inspectable. The inline
+//! execution, and effect delivery. Metadata remains inspectable. The inline
 //! interpreter has no driver hooks, waits, or fork/join.
 
 use super::{
     graph::{Node, Route, Sequence},
-    operations::{BuildAt, Compute, ComputeNode, ExecuteAt, Prepared},
+    operations::{ApplyAt, BuildAt, ExecuteAt, Prepared, Receive, ReceiveAt},
 };
 use eyre::Result;
-use vihaco_runtime::{BuildMessage, Execute, Field};
+use vihaco_runtime::{Apply, BuildMessage, Execute, Field};
 
 /// Interprets a static path inline and returns its result to the caller.
 ///
@@ -117,11 +117,27 @@ where
     }
 }
 
-/// The final inline computation can apply a CPU effect to the program stack.
-impl<C: Compute> SyncOperation<C::Machine, C::Input> for ComputeNode<C> {
-    type Output = C::Output;
+/// Delivers a fallible effect to the selected field and forwards its output.
+impl<M: Field<F>, F, E> SyncOperation<M, E> for ReceiveAt<F>
+where
+    M::Child: Receive<E>,
+{
+    type Output = <M::Child as Receive<E>>::Output;
 
-    fn apply(machine: &mut C::Machine, input: C::Input) -> Result<Self::Output> {
-        C::apply(machine, input)
+    fn apply(machine: &mut M, effect: E) -> Result<Self::Output> {
+        machine.get_mut().receive(effect)
+    }
+}
+
+/// Applies an infallible effect directly to the selected field.
+impl<M: Field<F>, F, E> SyncOperation<M, E> for ApplyAt<F>
+where
+    M::Child: Apply<E>,
+{
+    type Output = ();
+
+    fn apply(machine: &mut M, effect: E) -> Result<()> {
+        machine.get_mut().apply(effect);
+        Ok(())
     }
 }

@@ -6,10 +6,10 @@
 mod metadata;
 
 use crate::framework::{
-    ChannelDriver, Compute, Describe, Receive, Route, Run, build_message_at, compute, edge,
-    fork_join, instruction_at, receive_effect_at, step_graph,
+    ChannelDriver, Describe, Receive, Route, Run, build_message_at, duplicate, edge, fork_join,
+    instruction_at, receive_effect_at, step_graph,
 };
-use eyre::{Result, ensure};
+use eyre::Result;
 use metadata::{Bus, Critical, DacBus};
 use vihaco_runtime::{
     BuildMessage, Execute, Field, NoMessage, component, composite, dialect, field,
@@ -40,8 +40,36 @@ impl Execute<ops::Fire> for Source {
 #[derive(Default)]
 struct Sink(Vec<Vec<i32>>);
 impl Receive<Vec<i32>> for Sink {
+    type Output = ();
+
     fn receive(&mut self, samples: Vec<i32>) -> Result<()> {
         self.0.push(samples);
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct Clamp;
+
+impl Receive<Vec<i32>> for Clamp {
+    type Output = Vec<i32>;
+
+    fn receive(&mut self, mut samples: Vec<i32>) -> Result<Vec<i32>> {
+        for sample in &mut samples {
+            *sample = (*sample).clamp(-4, 4);
+        }
+        Ok(samples)
+    }
+}
+
+#[derive(Default)]
+struct DeliveryLog(usize);
+
+impl Receive<((), ())> for DeliveryLog {
+    type Output = ();
+
+    fn receive(&mut self, _: ((), ())) -> Result<()> {
+        self.0 += 1;
         Ok(())
     }
 }
@@ -52,13 +80,27 @@ impl Receive<Vec<i32>> for Sink {
 pub(crate) struct Machine {
     #[device(1)]
     source: Source,
+    clamp: Clamp,
     dac: Sink,
     monitor: Sink,
-    delivered: usize,
+    deliveries: DeliveryLog,
 }
 type SourceField = field!(Machine::source);
+struct ClampField;
 struct Dac;
 struct Monitor;
+struct DeliveryField;
+
+impl Field<ClampField> for Machine {
+    type Child = Clamp;
+    const SOURCE: &'static [&'static str] = &["clamp"];
+    fn get(&self) -> &Clamp {
+        &self.clamp
+    }
+    fn get_mut(&mut self) -> &mut Clamp {
+        &mut self.clamp
+    }
+}
 impl Field<Dac> for Machine {
     type Child = Sink;
     const SOURCE: &'static [&'static str] = &["dac"];
@@ -80,41 +122,14 @@ impl Field<Monitor> for Machine {
     }
 }
 
-struct Duplicate;
-impl Compute for Duplicate {
-    type Machine = Machine;
-    type Input = Vec<i32>;
-    type Output = (Vec<i32>, Vec<i32>);
-    const NAME: &'static str = "duplicate waveform";
-    fn apply(_: &mut Machine, samples: Vec<i32>) -> Result<Self::Output> {
-        Ok((samples.clone(), samples))
+impl Field<DeliveryField> for Machine {
+    type Child = DeliveryLog;
+    const SOURCE: &'static [&'static str] = &["deliveries"];
+    fn get(&self) -> &DeliveryLog {
+        &self.deliveries
     }
-}
-
-struct Clamp<const LIMIT: i32>;
-impl<const LIMIT: i32> Compute for Clamp<LIMIT> {
-    type Machine = Machine;
-    type Input = Vec<i32>;
-    type Output = Vec<i32>;
-    const NAME: &'static str = "clamp waveform";
-    fn apply(_: &mut Machine, mut samples: Vec<i32>) -> Result<Vec<i32>> {
-        ensure!(LIMIT >= 0, "clamp limit must be nonnegative");
-        for sample in &mut samples {
-            *sample = (*sample).clamp(-LIMIT, LIMIT);
-        }
-        Ok(samples)
-    }
-}
-
-struct RecordDelivery;
-impl Compute for RecordDelivery {
-    type Machine = Machine;
-    type Input = ((), ());
-    type Output = ();
-    const NAME: &'static str = "record delivery";
-    fn apply(machine: &mut Machine, _: ((), ())) -> Result<()> {
-        machine.delivered += 1;
-        Ok(())
+    fn get_mut(&mut self) -> &mut DeliveryLog {
+        &mut self.deliveries
     }
 }
 
@@ -130,16 +145,16 @@ fn route()
         .begin(build_message_at::<SourceField>())
         .then_execute(instruction_at::<SourceField>())
         .then(fork_join(
-            compute::<Duplicate>(),
+            duplicate(),
             // The DAC gets the clamped copy. The monitor gets the original.
-            compute::<Clamp<4>>().then_via(
+            receive_effect_at::<ClampField>().then_via(
                 edge().annotate::<DacBus>().annotate::<Critical>(),
                 receive_effect_at::<Dac>(),
             ),
             receive_effect_at::<Monitor>(),
         ))
         // The join releases this node after both receivers have accepted their samples.
-        .then(compute::<RecordDelivery>())
+        .then(receive_effect_at::<DeliveryField>())
         .finish()
 }
 
@@ -148,8 +163,15 @@ pub(crate) fn demo() -> Result<()> {
     assert_eq!(std::mem::size_of_val(&route), 0);
     let topology = route.topology();
     // Inspect the transfer before constructing the machine or running the route.
-    let dac = &topology.edges[3];
-    assert_eq!(topology.nodes[dac.from].name, "clamp waveform");
+    let dac = topology
+        .edges
+        .iter()
+        .find(|link| link.metadata.get::<DacBus>().is_some())
+        .expect("the DAC transfer is annotated");
+    assert_eq!(
+        topology.nodes[dac.from].field,
+        Some(std::any::type_name::<ClampField>())
+    );
     assert_eq!(
         topology.nodes[dac.to].field,
         Some(std::any::type_name::<Dac>())
@@ -170,6 +192,6 @@ pub(crate) fn demo() -> Result<()> {
     driver.run_until_complete(&mut machine)?;
     assert_eq!(machine.dac.0, [[-4, 0, 4]]);
     assert_eq!(machine.monitor.0, [[-10, 0, 10]]);
-    assert_eq!(machine.delivered, 1);
+    assert_eq!(machine.deliveries.0, 1);
     Ok(())
 }

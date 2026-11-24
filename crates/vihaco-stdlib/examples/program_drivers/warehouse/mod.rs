@@ -74,6 +74,8 @@ pub(crate) struct ParcelRecords {
 }
 
 impl Receive<LabelPrinted> for ParcelRecords {
+    type Output = ();
+
     fn receive(&mut self, label: LabelPrinted) -> Result<()> {
         ensure!(
             !self.labels.contains_key(&label.parcel),

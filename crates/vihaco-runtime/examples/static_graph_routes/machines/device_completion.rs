@@ -4,8 +4,8 @@
 //! A synchronous instruction returns a handle that the route waits on.
 
 use crate::framework::{
-    ChannelDriver, Compute, Describe, Route, Run, Wait, await_work, build_message_at, compute,
-    instruction_at, step_graph,
+    ChannelDriver, Describe, Receive, Route, Run, Wait, await_work, build_message_at,
+    instruction_at, receive_effect_at, step_graph,
 };
 use eyre::{Result, eyre};
 use vihaco_runtime::{BuildMessage, Execute, component, composite, dialect, field};
@@ -23,6 +23,7 @@ pub(crate) mod ops {
 #[derive(Default)]
 pub(crate) struct Digitizer {
     issued: usize,
+    sample: Option<u16>,
 }
 
 impl Execute<ops::Capture> for Digitizer {
@@ -44,7 +45,6 @@ pub(crate) struct Machine {
     #[device(1)]
     digitizer: Digitizer,
     next_completion: Option<Wait<u16>>,
-    sample: Option<u16>,
 }
 
 type DigitizerField = field!(Machine::digitizer);
@@ -57,16 +57,11 @@ impl BuildMessage<DigitizerField, ops::Capture, (), Wait<u16>> for Machine {
     }
 }
 
-struct StoreSample;
-
-impl Compute for StoreSample {
-    type Machine = Machine;
-    type Input = u16;
+impl Receive<u16> for Digitizer {
     type Output = ();
-    const NAME: &'static str = "store sample";
 
-    fn apply(machine: &mut Machine, sample: u16) -> Result<()> {
-        machine.sample = Some(sample);
+    fn receive(&mut self, sample: u16) -> Result<()> {
+        self.sample = Some(sample);
         Ok(())
     }
 }
@@ -76,7 +71,7 @@ fn route() -> Route<
     impl Run<Machine, ops::Capture, ChannelDriver<Machine>, Output = ()> + Describe,
 > {
     // The completion path parks on the handle returned by Execute.
-    let completion = await_work().then(compute::<StoreSample>());
+    let completion = await_work().then(receive_effect_at::<DigitizerField>());
     step_graph::<ops::Capture>()
         .begin(build_message_at::<DigitizerField>())
         .then_execute(instruction_at::<DigitizerField>())
@@ -100,7 +95,7 @@ pub(crate) fn demo() -> Result<()> {
 
         device.complete(Ok(sample));
         driver.run_until_complete(&mut machine)?;
-        assert_eq!(machine.sample, Some(sample));
+        assert_eq!(machine.digitizer.sample, Some(sample));
         assert_eq!(machine.digitizer.issued, issued);
     }
     assert_eq!(machine.digitizer.issued, 2);

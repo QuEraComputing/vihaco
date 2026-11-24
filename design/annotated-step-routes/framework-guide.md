@@ -5,6 +5,12 @@ step. Its zero-sized Rust type can be inspected before the machine exists.
 Each invocation supplies the instruction and machine state. The execution
 path can finish inline or hand a continuation to a driver.
 
+Preparation, execution, and effect delivery identify their destination
+fields. A receiver can return a new effect to the graph, as the waveform
+clamp does. In the sample program, all backends turn the completed sample
+into a typed `PushToStack` effect and the program field applies it before
+the next fetch. [Waveform handlers](../../crates/vihaco-runtime/examples/static_graph_routes/machines/waveform/mod.rs) · [Sample route](../../crates/vihaco-stdlib/examples/program_drivers/machine.rs)
+
 ## Warehouse label printing walkthrough
 
 The program prints a barcode for parcel 42, then looks up that parcel to
@@ -191,9 +197,9 @@ remaining work on owner scheduling and retirement gates.
 | [`graph/builder.rs`](../../crates/vihaco-runtime/examples/static_graph_routes/framework/graph/builder.rs) | Path composition and the single-instruction builder state |
 | [`graph/inspection.rs`](../../crates/vihaco-runtime/examples/static_graph_routes/framework/graph/inspection.rs) and [`graph/annotations.rs`](../../crates/vihaco-runtime/examples/static_graph_routes/framework/graph/annotations.rs) | Node occurrences, dependency edges, and typed annotation lookup |
 | [`graph/execution.rs`](../../crates/vihaco-runtime/examples/static_graph_routes/framework/graph/execution.rs) | Inline or parked continuations, sequence errors, and the join |
-| [`operations.rs`](../../crates/vihaco-runtime/examples/static_graph_routes/framework/operations.rs) | Payloads entering and leaving each kind of node |
+| [`operations.rs`](../../crates/vihaco-runtime/examples/static_graph_routes/framework/operations.rs) | Typed payloads, field-targeted effect delivery, and pure duplication for a fork |
 | [`runtime.rs`](../../crates/vihaco-runtime/examples/static_graph_routes/framework/runtime.rs) | Driver contracts, channel delivery, and local future polling |
-| [`async_execution.rs`](../../crates/vihaco-runtime/examples/static_graph_routes/framework/async_execution.rs) | Exclusive component leases during async execution |
+| [`async_execution.rs`](../../crates/vihaco-runtime/examples/static_graph_routes/framework/async_execution.rs) | Field-targeted message preparation and exclusive component leases during async execution |
 | [`synchronous.rs`](../../crates/vihaco-runtime/examples/static_graph_routes/framework/synchronous.rs) | Inline execution with a borrowed instruction and program context |
 
 The device-completion example parks **after** the instruction returns a

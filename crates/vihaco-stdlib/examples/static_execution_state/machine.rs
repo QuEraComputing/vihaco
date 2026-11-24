@@ -6,12 +6,11 @@
 use crate::{
     checked::{CheckedDriver, Inline, Module, Pause, StepContext},
     framework::{
-        Compute, Describe, Route, build_message_at, compute, instruction_at, step_graph,
+        Describe, Route, apply_effect_at, build_message_at, instruction_at, step_graph,
         synchronous::RunSync,
     },
 };
 use eyre::Result;
-use std::marker::PhantomData;
 use vihaco_abi::Type;
 use vihaco_cpu::{CPU, cpu};
 use vihaco_module::module::{FunctionInfo, Signature};
@@ -70,22 +69,6 @@ where
         .finish()
 }
 
-struct ApplyCpuEffect<E>(PhantomData<fn() -> E>);
-impl<E> Compute for ApplyCpuEffect<E>
-where
-    ExecutionState<Pause>: Apply<E>,
-{
-    type Machine = Machine;
-    type Input = E;
-    type Output = ();
-    const NAME: &'static str = "apply CPU effect to the operand stack";
-
-    fn apply(machine: &mut Machine, effect: E) -> Result<()> {
-        machine.execution.apply(effect);
-        Ok(())
-    }
-}
-
 fn cpu_route<I>()
 -> Route<I, impl for<'a> RunSync<Machine, (&'a I, &'a Program), Output = ()> + Describe>
 where
@@ -96,7 +79,7 @@ where
     step_graph::<I>()
         .begin(build_message_at::<CpuField>())
         .then_execute(instruction_at::<CpuField>())
-        .then(compute::<ApplyCpuEffect<<CPU as Execute<I>>::Effect>>())
+        .then(apply_effect_at::<ExecutionField>())
         .finish()
 }
 

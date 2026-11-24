@@ -6,28 +6,31 @@
 use crate::{
     checked::Backend,
     framework::{AnnotatedDriver, Await, ChannelDriver, FutureDriver},
-    machine::{Machine, SampleRequest},
+    machine::{Machine, SampleEffect, SampleRequest},
     simulation::{Scheduled, SimDriver},
     tokio_driver::TokioDriver,
 };
 use eyre::{Result, ensure, eyre};
 use std::{thread, time::Duration};
 use vihaco_abi::word::Word;
+use vihaco_runtime::PushToStack;
 
 impl AnnotatedDriver<Machine> for TokioDriver<Machine> {}
 
 impl Await<Machine, SampleRequest> for ChannelDriver<Machine> {
-    type Output = Word;
+    type Output = SampleEffect;
 
     fn wait(
         &self,
         machine: &mut Machine,
         _: SampleRequest,
-        done: impl FnOnce(&mut Machine, &Self, Result<Word>) + 'static,
+        done: impl FnOnce(&mut Machine, &Self, Result<SampleEffect>) + 'static,
     ) {
         let (sender, handle) = self.signal();
         machine.sender = Some(sender);
-        self.wait(machine, handle, done);
+        self.wait(machine, handle, move |machine, driver, sample| {
+            done(machine, driver, sample.map(|word| PushToStack([word])));
+        });
     }
 }
 
@@ -46,13 +49,13 @@ impl Backend<Machine> for ChannelDriver<Machine> {
 }
 
 impl Await<Machine, SampleRequest> for SimDriver<Machine> {
-    type Output = Word;
+    type Output = SampleEffect;
 
     fn wait(
         &self,
         machine: &mut Machine,
         request: SampleRequest,
-        done: impl FnOnce(&mut Machine, &Self, Result<Word>) + 'static,
+        done: impl FnOnce(&mut Machine, &Self, Result<SampleEffect>) + 'static,
     ) {
         let Some(tick) = self.now().checked_add(12) else {
             return done(machine, self, Err(eyre!("simulation tick overflow")));
@@ -61,7 +64,7 @@ impl Await<Machine, SampleRequest> for SimDriver<Machine> {
             machine,
             Scheduled {
                 tick,
-                result: Ok(request.0),
+                result: Ok(PushToStack([request.0])),
             },
             done,
         );
@@ -78,13 +81,13 @@ impl<M> Backend<M> for SimDriver<M> {
 }
 
 impl Await<Machine, SampleRequest> for TokioDriver<Machine> {
-    type Output = Word;
+    type Output = SampleEffect;
 
     fn wait(
         &self,
         machine: &mut Machine,
         request: SampleRequest,
-        done: impl FnOnce(&mut Machine, &Self, Result<Word>) + 'static,
+        done: impl FnOnce(&mut Machine, &Self, Result<SampleEffect>) + 'static,
     ) {
         let owner = thread::current().id();
         let gate = machine.tokio_gate.clone();
@@ -99,7 +102,7 @@ impl Await<Machine, SampleRequest> for TokioDriver<Machine> {
                     thread::current().id() == owner,
                     "route future left its owner thread"
                 );
-                Ok(request.0)
+                Ok(PushToStack([request.0]))
             },
             done,
         );

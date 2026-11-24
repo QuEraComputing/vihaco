@@ -11,15 +11,14 @@
 //! | --- | --- | --- |
 //! | `build_message_at::<F>()` | Owned instruction for `Run`, or borrowed instruction and context for `RunSync` | `Prepared` instruction and message |
 //! | `instruction_at::<F>()` | `Prepared` instruction and message | Effect from `Execute` on field `F` |
-//! | `receive_effect_at::<F>()` | Effect | `()` after fallible delivery to field `F` |
-//! | `compute::<C>()` | Application-defined value | Result of `Compute::apply` |
+//! | `receive_effect_at::<F>()` | Effect | Output from the field's fallible `Receive` handler |
+//! | `apply_effect_at::<F>()` | Effect | `()` after applying it to field `F` |
+//! | `duplicate()` | Cloneable payload | Two owned values for a fork |
 //! | `await_work()` | Backend-specific work handle | Typed result delivered through `Await` |
 //!
 //! The callback interpreter calls `BuildMessage` with a unit context.
 //! The borrowed interpreter lends it the program context. Field markers
-//! select the component and identify the site in the topology. The async
-//! example uses a `Compute` preparation node because `BuildMessage` requires
-//! a field that implements synchronous `Execute`.
+//! select the component and identify the site in the topology.
 
 use super::{
     graph::{Label, NodePlan, node},
@@ -27,6 +26,8 @@ use super::{
 };
 use eyre::Result;
 use std::{any::type_name, marker::PhantomData};
+#[cfg(feature = "program-image-execution")]
+use vihaco_runtime::Apply;
 use vihaco_runtime::{BuildMessage, Execute, Field};
 
 /// Runs one operation for machine `M`, input `I`, and driver `D`.
@@ -143,14 +144,17 @@ where
 ///
 /// A receive error ends the current path and is passed to its continuation.
 pub(crate) trait Receive<E> {
-    /// Applies the received effect to this component.
-    fn receive(&mut self, effect: E) -> Result<()>;
+    /// The next effect to forward, or `()` for a terminal receiver.
+    type Output;
+
+    /// Applies the effect to this component and returns its output.
+    fn receive(&mut self, effect: E) -> Result<Self::Output>;
 }
 
 /// Delivers an effect to field `F` using its component's `Receive` implementation.
 pub(crate) struct ReceiveAt<F>(PhantomData<fn() -> F>);
 
-/// Creates a node that delivers an effect to field `F` and completes with `()`.
+/// Creates a node that delivers an effect to field `F` and forwards its output.
 pub(crate) fn receive_effect_at<F>() -> NodePlan<ReceiveAt<F>> {
     node()
 }
@@ -164,69 +168,84 @@ impl<F> Label for ReceiveAt<F> {
     }
 }
 
-/// Borrows the receiving component, delivers the effect, and reports completion.
-impl<M: Field<F>, D, F, I> Operation<M, I, D> for ReceiveAt<F>
+/// Borrows the receiving component, delivers the effect, and reports its output.
+impl<M: Field<F>, D, F, E> Operation<M, E, D> for ReceiveAt<F>
 where
-    M::Child: Receive<I>,
+    M::Child: Receive<E, Output: 'static>,
+{
+    type Output = <M::Child as Receive<E>>::Output;
+
+    fn start(
+        machine: &mut M,
+        driver: &D,
+        effect: E,
+        done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
+    ) {
+        let result = machine.get_mut().receive(effect);
+        done(machine, driver, result);
+    }
+}
+
+/// Delivers an infallible effect through the selected field's `Apply` implementation.
+#[cfg(feature = "program-image-execution")]
+pub(crate) struct ApplyAt<F>(PhantomData<fn() -> F>);
+
+/// Creates a node that applies an effect to field `F`.
+#[cfg(feature = "program-image-execution")]
+#[allow(dead_code, reason = "used by the stdlib program examples")]
+pub(crate) fn apply_effect_at<F>() -> NodePlan<ApplyAt<F>> {
+    node()
+}
+
+#[cfg(feature = "program-image-execution")]
+impl<F> Label for ApplyAt<F> {
+    const LABEL: &'static str = "apply effect";
+
+    fn field() -> Option<&'static str> {
+        Some(type_name::<F>())
+    }
+}
+
+#[cfg(feature = "program-image-execution")]
+impl<M: Field<F>, D, F, E> Operation<M, E, D> for ApplyAt<F>
+where
+    M::Child: Apply<E>,
 {
     type Output = ();
 
     fn start(
         machine: &mut M,
         driver: &D,
-        input: I,
+        effect: E,
         done: impl FnOnce(&mut M, &D, Result<()>) + 'static,
     ) {
-        let result = machine.get_mut().receive(input);
-        done(machine, driver, result);
+        machine.get_mut().apply(effect);
+        done(machine, driver, Ok(()));
     }
 }
 
-/// Defines an application computation that runs inline with a machine borrow.
-///
-/// A computation can split one payload for a fork or transform an effect
-/// before delivery.
-pub(crate) trait Compute {
-    /// The machine available to the computation while it runs.
-    type Machine;
-    /// The payload consumed by the computation.
-    type Input;
+/// Supplies the same payload to two arms of a fork.
+pub(crate) struct Duplicate;
 
-    /// The owned value passed to the continuation.
-    type Output: 'static;
-
-    /// The name displayed for this computation during inspection.
-    const NAME: &'static str;
-
-    /// Runs the computation and returns the downstream payload.
-    fn apply(machine: &mut Self::Machine, input: Self::Input) -> Result<Self::Output>;
-}
-
-/// Adapts a `Compute` implementation into an operation node.
-pub(crate) struct ComputeNode<C>(PhantomData<fn() -> C>);
-
-/// Describes a node that runs an application computation.
-pub(crate) fn compute<C: Compute>() -> NodePlan<ComputeNode<C>> {
+/// Creates a split that clones its payload once and moves the original.
+pub(crate) fn duplicate() -> NodePlan<Duplicate> {
     node()
 }
 
-/// Uses the computation’s declared name in the topology.
-impl<C: Compute> Label for ComputeNode<C> {
-    const LABEL: &'static str = C::NAME;
+impl Label for Duplicate {
+    const LABEL: &'static str = "duplicate payload";
 }
 
-/// Applies the computation on the driver thread and forwards its result.
-impl<D, C: Compute> Operation<C::Machine, C::Input, D> for ComputeNode<C> {
-    type Output = C::Output;
+impl<M, D, T: Clone + 'static> Operation<M, T, D> for Duplicate {
+    type Output = (T, T);
 
     fn start(
-        machine: &mut C::Machine,
+        machine: &mut M,
         driver: &D,
-        input: C::Input,
-        done: impl FnOnce(&mut C::Machine, &D, Result<C::Output>) + 'static,
+        input: T,
+        done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
     ) {
-        let result = C::apply(machine, input);
-        done(machine, driver, result);
+        done(machine, driver, Ok((input.clone(), input)));
     }
 }
 

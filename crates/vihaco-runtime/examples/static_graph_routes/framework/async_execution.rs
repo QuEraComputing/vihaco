@@ -18,7 +18,7 @@
 
 use super::{
     graph::{Label, NodePlan, node},
-    operations::{Operation, Receive},
+    operations::{Operation, Prepared, Receive},
     runtime::FutureDriver,
 };
 use eyre::{Result, eyre};
@@ -43,6 +43,55 @@ pub(crate) trait AsyncExecute<I> {
         instruction: &I,
         message: Self::Message,
     ) -> std::result::Result<Self::Effect, Self::Error>;
+}
+
+/// Prepares the owned message for an async instruction at field `F`.
+pub(crate) trait BuildAsyncMessage<F, I>: Field<F> {
+    /// The selected async instruction's message.
+    type Message;
+
+    /// Resolves the message before the async component is leased.
+    fn build_async_message(&mut self, instruction: &I) -> Result<Self::Message>;
+}
+
+/// Pairs an owned instruction with the message for its async execution site.
+pub(crate) struct BuildAsyncAt<F>(PhantomData<fn() -> F>);
+
+/// Creates the message preparation node for an async instruction at field `F`.
+pub(crate) fn build_async_message_at<F>() -> NodePlan<BuildAsyncAt<F>> {
+    node()
+}
+
+impl<F> Label for BuildAsyncAt<F> {
+    const LABEL: &'static str = "build async message";
+
+    fn field() -> Option<&'static str> {
+        Some(type_name::<F>())
+    }
+}
+
+impl<M, Backend, F, I, D> Operation<M, I, Backend> for BuildAsyncAt<F>
+where
+    M: BuildAsyncMessage<F, I, Message = D::Message> + Field<F, Child = AsyncSlot<D>>,
+    I: 'static,
+    D: AsyncExecute<I, Message: 'static>,
+{
+    type Output = Prepared<I, D::Message>;
+
+    fn start(
+        machine: &mut M,
+        driver: &Backend,
+        instruction: I,
+        done: impl FnOnce(&mut M, &Backend, Result<Self::Output>) + 'static,
+    ) {
+        let result = machine
+            .build_async_message(&instruction)
+            .map(|message| Prepared {
+                instruction,
+                message,
+            });
+        done(machine, driver, result);
+    }
 }
 
 /// Holds the component on the machine whenever no invocation has leased it.
@@ -78,7 +127,9 @@ impl<D> AsyncSlot<D> {
 
 /// Forwards an effect to the restored component or reports that the field is busy.
 impl<D: Receive<E>, E> Receive<E> for AsyncSlot<D> {
-    fn receive(&mut self, effect: E) -> Result<()> {
+    type Output = D::Output;
+
+    fn receive(&mut self, effect: E) -> Result<Self::Output> {
         self.0
             .borrow_mut()
             .as_mut()
@@ -130,7 +181,7 @@ impl<F> Label for AsyncExecuteAt<F> {
 }
 
 /// Submits the leased component's future and restores it before delivering the result.
-impl<M, F, I, D, Backend> Operation<M, (I, D::Message), Backend> for AsyncExecuteAt<F>
+impl<M, F, I, D, Backend> Operation<M, Prepared<I, D::Message>, Backend> for AsyncExecuteAt<F>
 where
     M: Field<F, Child = AsyncSlot<D>> + 'static,
     I: 'static,
@@ -142,7 +193,10 @@ where
     fn start(
         machine: &mut M,
         driver: &Backend,
-        (instruction, message): (I, D::Message),
+        Prepared {
+            instruction,
+            message,
+        }: Prepared<I, D::Message>,
         done: impl FnOnce(&mut M, &Backend, Result<Self::Output>) + 'static,
     ) {
         match machine.get().lease() {

@@ -6,20 +6,17 @@
 use crate::{
     checked::{CheckedDriver, Module, Pause, StepContext},
     framework::{
-        AnnotatedDriver, Await, Compute, Route, Run, Signal, await_work, build_message_at, compute,
+        AnnotatedDriver, Await, Route, Run, Signal, apply_effect_at, await_work, build_message_at,
         instruction_at, step_graph,
     },
     simulation::MinExecution,
 };
 use eyre::Result;
 use vihaco_abi::{Type, word::Word};
-use vihaco_module::{
-    PushStack,
-    module::{FunctionInfo, Signature},
-};
+use vihaco_module::module::{FunctionInfo, Signature};
 use vihaco_runtime::{
-    BuildMessage, Execute, HasInstructionSet, NoMessage, ReusableMessageRecipe, Step, component,
-    composite, dialect, field,
+    BuildMessage, Execute, HasInstructionSet, NoMessage, PushToStack, ReusableMessageRecipe, Step,
+    component, composite, dialect, field,
 };
 use vihaco_stdlib::{ExecutionState, Image, Loadable, program::program};
 
@@ -31,6 +28,9 @@ pub mod ops {
 
 /// Work request produced by the sensor. Backends decide how to deliver a value.
 pub struct SampleRequest(pub Word);
+
+/// Completion pushes exactly one sample word onto the program operand stack.
+pub(super) type SampleEffect = PushToStack<[Word; 1]>;
 
 #[component]
 #[instructions { ops }]
@@ -85,34 +85,21 @@ where
     }
 }
 
-struct PushSample;
-impl Compute for PushSample {
-    type Machine = Machine;
-    type Input = Word;
-    type Output = ();
-
-    const NAME: &'static str = "push sample";
-
-    fn apply(machine: &mut Machine, value: Word) -> Result<()> {
-        PushStack::<Word>::push(&mut machine.execution, value);
-        Ok(())
-    }
-}
-
-fn sample_route<B: AnnotatedDriver<Machine> + Await<Machine, SampleRequest, Output = Word>>()
--> Route<ops::Sample, impl Run<Machine, ops::Sample, B, Output = ()>> {
+fn sample_route<
+    B: AnnotatedDriver<Machine> + Await<Machine, SampleRequest, Output = SampleEffect>,
+>() -> Route<ops::Sample, impl Run<Machine, ops::Sample, B, Output = ()>> {
     step_graph::<ops::Sample>()
         .begin(build_message_at::<SensorField>())
         // Simulation releases the request after three ticks, then waits for its reply.
         .then_execute(instruction_at::<SensorField>().annotate::<MinExecution<3>>())
         .then(await_work())
-        .then(compute::<PushSample>())
+        .then(apply_effect_at::<ProgramField>())
         .finish()
 }
 
 impl<B> Step<SensorField, ops::Sample, StepContext<'_, Instruction, B>> for Machine
 where
-    B: AnnotatedDriver<Machine> + Await<Machine, SampleRequest, Output = Word>,
+    B: AnnotatedDriver<Machine> + Await<Machine, SampleRequest, Output = SampleEffect>,
 {
     fn step(
         &mut self,

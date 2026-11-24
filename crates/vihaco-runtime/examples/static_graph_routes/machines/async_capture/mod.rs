@@ -7,8 +7,8 @@
 mod tokio_driver;
 
 use crate::framework::{
-    AsyncExecute, AsyncSlot, ChannelDriver, Compute, Describe, FutureDriver, Receive, Route, Run,
-    async_instruction_at, compute, receive_effect_at, step_graph,
+    AsyncExecute, AsyncSlot, BuildAsyncMessage, ChannelDriver, Describe, FutureDriver, Receive,
+    Route, Run, async_instruction_at, build_async_message_at, receive_effect_at, step_graph,
 };
 use eyre::{Result, WrapErr, eyre};
 use tokio::sync::oneshot;
@@ -35,6 +35,8 @@ impl AsyncExecute<Capture> for Digitizer {
 }
 
 impl Receive<u16> for Digitizer {
+    type Output = ();
+
     fn receive(&mut self, sample: u16) -> Result<()> {
         self.sample = Some(sample);
         Ok(())
@@ -61,27 +63,20 @@ impl Field<DigitizerField> for Machine {
     }
 }
 
-struct PrepareCapture;
+impl BuildAsyncMessage<DigitizerField, Capture> for Machine {
+    type Message = oneshot::Receiver<u16>;
 
-impl Compute for PrepareCapture {
-    type Machine = Machine;
-    type Input = Capture;
-    type Output = (Capture, oneshot::Receiver<u16>);
-    const NAME: &'static str = "prepare capture";
-
-    fn apply(machine: &mut Machine, instruction: Capture) -> Result<Self::Output> {
-        let sample = machine
-            .next_sample
+    fn build_async_message(&mut self, _: &Capture) -> Result<Self::Message> {
+        self.next_sample
             .take()
-            .ok_or_else(|| eyre!("capture has no sample channel"))?;
-        Ok((instruction, sample))
+            .ok_or_else(|| eyre!("capture has no sample channel"))
     }
 }
 
 fn route<D: FutureDriver<Machine>>()
 -> Route<Capture, impl Run<Machine, Capture, D, Output = ()> + Describe> {
     step_graph::<Capture>()
-        .begin(compute::<PrepareCapture>())
+        .begin(build_async_message_at::<DigitizerField>())
         .then_execute_async(async_instruction_at::<DigitizerField>())
         // Execution returns the lease before this node borrows the same field.
         .then(receive_effect_at::<DigitizerField>())
