@@ -25,6 +25,11 @@ operates on the payload alone. State changes go through the destination
 field's contract and appear as such in the inspected topology.
 [Field-targeted operations](../../crates/vihaco-runtime/examples/static_graph_routes/framework/operations.rs) · [Async message preparation](../../crates/vihaco-runtime/examples/static_graph_routes/framework/async_execution.rs)
 
+## Foundational work
+
+The runtime changes that can land ahead of the route API are tracked in
+[Foundational work](foundational-work.md).
+
 ## Runnable examples
 
 | Example | What to read for |

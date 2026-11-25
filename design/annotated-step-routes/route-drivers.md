@@ -141,8 +141,8 @@ capabilities without a loaded program. Run them with
 
 ## Open integration work
 
-- **Owner scheduling.** A Stellarscope owner may need to match several
-  pending waits against signal, frame, and instrument events. The
+- **Owner scheduling.** A machine owner may need to match several
+  pending waits against incoming events. The
   prototype identifies the current work for a machine. A scheduler
   also needs the stream or invocation identity, a typed wait reason,
   and the earliest eligible time when available.
