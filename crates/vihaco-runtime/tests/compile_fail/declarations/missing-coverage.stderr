@@ -1,23 +1,26 @@
-error[E0277]: the trait bound `Cpu: Execute<B>` is not satisfied
+error[E0277]: the trait bound `Cpu: vihaco_runtime::__private::Supports<Dialect>` is not satisfied
   --> tests/compile_fail/declarations/missing-coverage.rs:14:56
    |
 14 |     vihaco_runtime::__private::require_coverage::<Cpu, Dialect>();
    |                                                        ^^^^^^^ unsatisfied trait bound
    |
-help: the trait `Execute<B>` is not implemented for `Cpu`
-      but trait `Execute<A>` is implemented for it
-  --> tests/compile_fail/declarations/missing-coverage.rs:7:1
+help: the trait `vihaco_runtime::__private::Supports<Dialect>` is not implemented for `Cpu`
+  --> tests/compile_fail/declarations/missing-coverage.rs:5:1
    |
- 7 | impl Execute<A> for Cpu {
-   | ^^^^^^^^^^^^^^^^^^^^^^^
-   = help: for that trait implementation, expected `A`, found `B`
+ 5 | struct Cpu;
+   | ^^^^^^^^^^
+help: the trait `vihaco_runtime::__private::Supports<Dialect>` is implemented for `declarations::Cpu<'_, N>`
+  --> tests/compile_fail/declarations/../../support/declarations.rs
+   |
+   | impl<const N: usize> Supports<RenamedDialect> for Cpu<'_, N> {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: required for `Dialect` to implement `vihaco_runtime::__private::Coverage<Cpu>`
   --> tests/compile_fail/declarations/../../support/declarations.rs
    |
-   | impl<C: Execute<A> + Execute<B>> Coverage<C> for Dialect {}
-   |                      ----------  ^^^^^^^^^^^     ^^^^^^^
-   |                      |
-   |                      unsatisfied trait bound introduced here
+   | impl<C: Supports<Dialect>> Coverage<C> for Dialect {}
+   |         -----------------  ^^^^^^^^^^^     ^^^^^^^
+   |         |
+   |         unsatisfied trait bound introduced here
 note: required by a bound in `vihaco_runtime::__private::require_coverage`
   --> src/declarations.rs
    |

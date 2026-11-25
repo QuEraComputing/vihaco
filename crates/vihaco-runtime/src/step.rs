@@ -1,14 +1,14 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-use crate::{Composite, Execute, Field};
+use crate::{Composite, Field};
 
 /// Execution behavior for one composite field route and instruction type.
 ///
 /// Available with the experimental `typed-declarations` feature. Use
-/// [`crate::field!`] to select a direct field or a nested route. The final child
-/// must implement [`Execute<I>`], while the step implementation supplies the
-/// composite's behavior, including runtime input and effect handling.
+/// [`crate::field!`] to select a direct field or a nested route. The step
+/// chooses how to execute the instruction and supplies the composite's behavior,
+/// including runtime input and effect handling.
 /// [`crate::BuildMessage`] is an optional helper for preparing that input; it
 /// does not provide a step automatically. `Context` is shared execution input,
 /// defaults to `()`, and is forwarded by dispatch; the Step decides how to use it.
@@ -18,7 +18,6 @@ use crate::{Composite, Execute, Field};
 pub trait Step<F, I, Context: ?Sized = ()>
 where
     Self: Composite + Field<F>,
-    <Self as Field<F>>::Child: Execute<I>,
 {
     /// Perform a step for the selected destination, borrowing its instruction.
     ///

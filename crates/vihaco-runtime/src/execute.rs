@@ -50,3 +50,42 @@ pub trait Execute<I>: Component {
         message: Self::Message,
     ) -> Result<Self::Effect, Self::Error>;
 }
+
+/// Execute one instruction asynchronously with runtime-supplied input.
+///
+/// The returned future may borrow the component and instruction. A driver
+/// that stores the future must arrange for it to own its inputs, for example
+/// by moving the component, instruction, and message into an outer future.
+pub trait AsyncExecute<I>: Component {
+    /// Input supplied by the runtime.
+    type Message;
+    /// The successful result.
+    type Effect;
+    /// The component's execution error.
+    type Error;
+
+    /// Start execution of a borrowed instruction.
+    ///
+    /// # Errors
+    ///
+    /// The future resolves to the implementation's error if execution fails.
+    fn execute(
+        &mut self,
+        instruction: &I,
+        message: Self::Message,
+    ) -> impl Future<Output = Result<Self::Effect, Self::Error>>;
+}
+
+/// Evidence that a component declares execution support for instruction `I`.
+///
+/// [`crate::component`] checks each leaf of its declared dialects for
+/// [`Execute`], [`AsyncExecute`], or both. This bound follows from that checked
+/// dialect membership. Use the corresponding execution trait to call a method.
+pub trait ExecutionCapability<I>: Component {}
+
+impl<C, I> ExecutionCapability<I> for C
+where
+    I: crate::__private::InstructionSpec,
+    C: crate::__private::Supports<I::Dialect>,
+{
+}

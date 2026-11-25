@@ -160,12 +160,6 @@ fn emit(component: Component) -> TokenStream {
         }
         #(#[#gates])*
         const _: () = {
-            // The function body is checked for every original generic parameter;
-            // adding Coverage/Execute bounds here would conceal missing impls.
-            #[allow(dead_code, clippy::multiple_bound_locations)]
-            fn __vihaco_check_coverage #impl_generics () #where_clause {
-                #(#root::__private::require_coverage::<#name #type_generics, #identities>();)*
-            }
             #root::__private::validate(&#description);
         };
         #(#support)*

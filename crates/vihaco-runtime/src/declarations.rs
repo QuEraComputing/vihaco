@@ -14,7 +14,8 @@
 //! generic associated constant is insufficient. Internal capability reporting
 //! forces validation for its concrete monomorphization at code generation.
 
-use crate::{Component, Execute, Field};
+use crate::{AsyncExecute, Component, Execute, ExecutionCapability, Field};
+use std::marker::PhantomData;
 
 pub use crate::inspection::{
     InspectInstruction, InspectOperands, InstructionOperand, InstructionView,
@@ -61,17 +62,33 @@ pub trait DialectSpec {
 /// Declared dialect membership, independent of arbitrary Execute impls.
 pub trait Supports<D: DialectSpec>: Component {}
 
-/// Emitted by a dialect with one Execute bound per declared instruction.
+/// Emitted by a dialect for components declaring that dialect.
 pub trait Coverage<C: Component>: DialectSpec {}
 
-/// Called under the component declaration's original generic bounds.
+/// Checks a component's declared coverage of a dialect.
 pub fn require_coverage<C: Component, D: Coverage<C>>() {}
 
 pub fn require_available<C, I>()
 where
     I: InstructionSpec,
-    C: Supports<I::Dialect> + Execute<I>,
+    C: ExecutionCapability<I>,
 {
+}
+
+/// Checks execution support for a known component and instruction.
+pub struct ExecutionProbe<C, I>(pub PhantomData<fn() -> (C, I)>);
+
+/// Generated probes try the async receiver first and dereference for sync.
+pub trait CheckExecution {
+    fn check_execution(self);
+}
+
+impl<C: Execute<I>, I> CheckExecution for &ExecutionProbe<C, I> {
+    fn check_execution(self) {}
+}
+
+impl<C: AsyncExecute<I>, I> CheckExecution for &&ExecutionProbe<C, I> {
+    fn check_execution(self) {}
 }
 
 /// Resolves a route to its unchanged marker after checking traversal from Self.

@@ -87,22 +87,14 @@ implementation is an error at the component declaration. This check
 applies to components used directly and to components used in a composite
 with authored steps or routes.
 
-`#[component]` generates one `ExecutionCapability<I>` implementation for
-each declared instruction. Authors write ordinary `Execute` and
-`AsyncExecute` impls. The runtime exposes a hidden helper for the macro
-expansion.
+Authors write ordinary `Execute` and `AsyncExecute` impls. The macro
+checks the leaves and emits the existing dialect membership witness.
+A blanket implementation derives `ExecutionCapability<I>` from that
+membership and the generated instruction's dialect identity.
 
 ```rust,ignore
-pub trait ExecutionCapability<I>: Component {}
-
 // Export these helpers under __private for downstream macro expansions.
-pub struct ExecutionProbe<C, I>(std::marker::PhantomData<fn() -> (C, I)>);
-
-impl<C, I> ExecutionProbe<C, I> {
-    pub fn new() -> Self {
-        Self(std::marker::PhantomData)
-    }
-}
+pub struct ExecutionProbe<C, I>(pub std::marker::PhantomData<fn() -> (C, I)>);
 
 pub trait CheckExecution {
     fn check_execution(self);
@@ -117,18 +109,17 @@ impl<C: AsyncExecute<I>, I> CheckExecution for &&ExecutionProbe<C, I> {
 }
 ```
 
-Emit the marker impl and probe call for each leaf in the component's
-resolved inventory. For a component declared as `Digitizer<T: Host>`, a
-single leaf expands to the following Rust.
+Emit a probe call for each leaf in the resolved inventory. For
+`Digitizer<T: Host>`, a single-leaf dialect expands to the following Rust.
 
 ```rust,ignore
-impl<T: Host> ExecutionCapability<acquisition::Capture> for Digitizer<T> {}
+impl<T: Host> Supports<acquisition::__VihacoDialect> for Digitizer<T> {}
 
 const _: () = {
     fn check_component<T: Host>() {
         use vihaco_runtime::__private::{CheckExecution, ExecutionProbe};
 
-        (&&ExecutionProbe::<Digitizer<T>, acquisition::Capture>::new())
+        (&&ExecutionProbe::<Digitizer<T>, acquisition::Capture>(std::marker::PhantomData))
             .check_execution();
     }
 };
@@ -144,15 +135,17 @@ only affects the check. Route or step authors still select which
 execution method to call.
 
 Generic code can then use `C: ExecutionCapability<I>` to require
-availability in either mode. A call site that executes the instruction
+availability in either mode. The blanket impl avoids overlapping
+per-leaf impls over associated type projections from upstream dialects.
+A call site that executes the instruction
 directly still needs the bound for the method it calls.
 
-Add compile-pass coverage for sync-only, async-only, and dual-mode leaves
-in the same dialect, including a generic component in a downstream crate.
-Add compile-fail cases for a missing leaf and for an implementation that
-requires a bound absent from the component declaration. Neither failing
-fixture needs to construct a composite or a route.
-[Current declaration-time check](../../crates/vihaco-runtime-derive/src/attr_typed_component.rs)
+The branch prototype checks these cases across crate boundaries. The
+compile-fail cases cover a missing leaf and implementations requiring
+bounds absent from the component declaration. Neither failing fixture
+constructs a composite or a route. Generated dispatch requires the chosen
+`Step` for each leaf. The step can call either execution mode.
+[Declaration-time check](../../crates/vihaco-runtime-derive/src/inventory.rs) · [Cross-crate tests](../../crates/vihaco-runtime/tests/fixtures/dialects/consumer/src/lib.rs)
 
 ### Driver boundary
 
@@ -176,7 +169,7 @@ pub trait AsyncBuildMessage<F, I, Context: ?Sized = ()>: Field<F> {
     ) -> impl Future<Output = eyre::Result<Self::Message>> + 'static;
 }
 
-pub trait AsyncExecute<I> {
+pub trait AsyncExecute<I>: Component {
     type Message;
     type Effect;
     type Error;

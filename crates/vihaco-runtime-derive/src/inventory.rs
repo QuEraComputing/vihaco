@@ -33,7 +33,7 @@
 //! `LeafAt`/`RouteAt` associations; producers never transport leaf type spellings.
 
 use proc_macro2::TokenStream;
-use quote::{ToTokens, format_ident, quote};
+use quote::{ToTokens, format_ident, quote, quote_spanned};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use syn::{
     Fields, Ident, ItemStruct, LitInt, LitStr, Path, Result, Token, Type, Visibility, braced,
@@ -518,18 +518,35 @@ fn emit(collection: Collection) -> Result<TokenStream> {
             #route
         }
     });
-    let aggregate = if kind == "composite" {
+    let (impl_generics, type_generics, where_clause) = item.generics.split_for_impl();
+    let generated = if kind == "composite" {
         aggregate(&root, &item, &entries)?
     } else {
-        TokenStream::new()
+        let instructions = entries.iter().map(|entry| &entry.instruction);
+        let checks = instructions.map(|instruction| {
+            quote_spanned! {name.span()=>
+                (&&#root::__private::ExecutionProbe::<#name #type_generics, #instruction>(
+                    ::core::marker::PhantomData,
+                )).check_execution();
+            }
+        });
+        quote! {
+            const _: () = {
+                // Rust checks this unused body under the exact authored bounds.
+                #[allow(dead_code, clippy::multiple_bound_locations)]
+                fn __vihaco_check_coverage #impl_generics () #where_clause {
+                    use #root::__private::CheckExecution as _;
+                    #(#checks)*
+                }
+            };
+        }
     };
-    let (impl_generics, type_generics, where_clause) = item.generics.split_for_impl();
     Ok(quote! {
         #producer
         impl #impl_generics #root::__private::HasInventory for #name #type_generics #where_clause {
             type Provider = #provider;
         }
-        #(#associations)* #aggregate
+        #(#associations)* #generated
     })
 }
 
@@ -583,10 +600,6 @@ fn aggregate(root: &Path, item: &ItemStruct, entries: &[Entry]) -> Result<TokenS
             .make_where_clause()
             .predicates
             .push(syn::parse_quote!(Self: #root::Step<#field, #ty, #execution_context>));
-        dispatch_generics
-            .make_where_clause()
-            .predicates
-            .push(syn::parse_quote!(<Self as #root::Field<#field>>::Child: #root::Execute<#ty>));
     }
     let (dispatch_impl_generics, _, dispatch_where_clause) = dispatch_generics.split_for_impl();
     let mut arms = Vec::new();
@@ -888,7 +901,7 @@ mod tests {
             .as_ref()
             .unwrap()
             .predicates;
-        assert_eq!(predicates.len(), 3);
+        assert_eq!(predicates.len(), 2);
         let syn::WherePredicate::Type(predicate) = &predicates[0] else {
             panic!("original where predicate")
         };
@@ -897,6 +910,13 @@ mod tests {
         assert!(
             matches!(&predicate.bounds[0], syn::TypeParamBound::Trait(bound) if bound.path.is_ident("Default"))
         );
+        let syn::WherePredicate::Type(step) = &predicates[1] else {
+            panic!("generated step predicate")
+        };
+        assert!(matches!(&step.bounded_ty, Type::Path(ty) if ty.path.is_ident("Self")));
+        assert_eq!(step.bounds.len(), 1);
+        assert!(matches!(&step.bounds[0], syn::TypeParamBound::Trait(bound)
+                if bound.path.segments.last().is_some_and(|segment| segment.ident == "Step")));
     }
 
     #[test]

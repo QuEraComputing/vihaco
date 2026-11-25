@@ -42,6 +42,8 @@ use arithmetic as renamed;
 
 struct Cpu;
 impl Component for Cpu {}
+impl vihaco_runtime::__private::Supports<renamed::__VihacoDialect> for Cpu {}
+impl vihaco_runtime::__private::Supports<parameter_names::__VihacoDialect> for Cpu {}
 macro_rules! execute {
     ($($instruction:ty),*) => {$(
         impl Execute<$instruction> for Cpu {
