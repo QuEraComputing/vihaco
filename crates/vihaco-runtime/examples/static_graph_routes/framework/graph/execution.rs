@@ -4,8 +4,8 @@
 //! Drive a typed path with callbacks that may run inline or park.
 //!
 //! A sequence passes the left output to the right. A fork starts the left arm
-//! first, then starts the right if the left has succeeded or parked. The join
-//! holds branch results until both succeed and calls its continuation once.
+//! before the remaining arms. The join holds branch results until all succeed
+//! and calls its continuation once.
 //! A failure stops the join, while already-started work may finish.
 //!
 //! Unannotated nodes dispatch directly to the operation. An annotated
@@ -15,7 +15,7 @@
 
 use super::{
     annotations::{Annotated, Annotation, Annotations, Metadata, Unannotated},
-    builder::{ForkJoin, Node, Route, Sequence},
+    builder::{DeliverFork, ForkJoin, Node, Route, Sequence},
 };
 use crate::framework::operations::Operation;
 use eyre::Result;
@@ -114,7 +114,9 @@ impl<M, D: AnnotatedDriver<M>, Previous: Annotations, A: Annotation> RunAnnotati
 }
 
 /// Runs one operation using the dispatch policy of its node annotations.
-impl<M, I, D, N: Operation<M, I, D>, A: RunAnnotations<M, D>> Run<M, I, D> for Node<N, A> {
+impl<M, I, D, N: Operation<M, I, D>, A: RunAnnotations<M, D>, Execution> Run<M, I, D>
+    for Node<N, A, Execution>
+{
     type Output = N::Output;
 
     fn run(
@@ -154,65 +156,124 @@ where
     }
 }
 
-/// Shares two output slots and one completion callback between a fork's arms.
-///
-/// Taking the callback marks the join complete. Later arrivals cannot deliver
-/// a second result.
-struct Join<L, R, C> {
-    left: Option<L>,
-    right: Option<R>,
+/// Tracks branch results until every arm succeeds or one fails.
+struct Join<Slots, C> {
+    slots: Slots,
     done: Option<C>,
 }
 
-impl<L, R, C> Join<L, R, C> {
-    /// Records an arm's result and delivers the first error or the completed pair.
-    ///
-    /// Releases the join's mutable borrow before running the callback.
+trait BranchSlots: Default {
+    type Output;
+    fn take_complete(&mut self) -> Option<Self::Output>;
+}
+
+impl<Slots: BranchSlots, C> Join<Slots, C> {
+    /// Releases the join's mutable borrow before running a continuation.
     fn arrive<M, D, T>(
         state: &RefCell<Self>,
         machine: &mut M,
         driver: &D,
         result: Result<T>,
-        store: impl FnOnce(&mut Self, T),
+        store: impl FnOnce(&mut Slots, T),
     ) where
-        C: FnOnce(&mut M, &D, Result<(L, R)>),
+        C: FnOnce(&mut M, &D, Result<Slots::Output>),
     {
         let (done, outcome) = {
             let mut state = state.borrow_mut();
             if state.done.is_none() {
-                return; // A sibling failure already completed this route.
+                return;
             }
-            match result {
-                Err(error) => (state.done.take(), Err(error)),
-                Ok(output) => {
-                    store(&mut state, output);
-                    if state.left.is_none() || state.right.is_none() {
+            let outcome = match result {
+                Err(error) => Err(error),
+                Ok(value) => {
+                    store(&mut state.slots, value);
+                    let Some(outputs) = state.slots.take_complete() else {
                         return;
-                    }
-                    (
-                        state.done.take(),
-                        Ok((
-                            state.left.take().expect("left branch completed"),
-                            state.right.take().expect("right branch completed"),
-                        )),
-                    )
+                    };
+                    Ok(outputs)
                 }
-            }
+            };
+            (state.done.take().expect("join has a continuation"), outcome)
         };
-        if let Some(done) = done {
-            done(machine, driver, outcome);
-        }
+        done(machine, driver, outcome);
     }
 }
 
-/// Runs the split and starts each arm with its own input and completion callback.
-impl<M, I, D, LI: 'static, RI: 'static, S, L, R> Run<M, I, D> for ForkJoin<S, L, R>
+pub(crate) trait RunBranches<M, Input, D> {
+    type Output: 'static;
+
+    fn run(
+        machine: &mut M,
+        driver: &D,
+        input: Input,
+        done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
+    );
+}
+
+/// A terminal delivery path consumes each branch's effect.
+trait UnitOutputs {}
+
+macro_rules! unit {
+    ($index:tt) => {
+        ()
+    };
+}
+
+macro_rules! run_branches {
+    ($(($branch:ident, $input:ident, $value:ident, $index:tt)),+) => {
+        impl<$($input,)+> BranchSlots for ($(Option<$input>,)+) {
+            type Output = ($($input,)+);
+
+            fn take_complete(&mut self) -> Option<Self::Output> {
+                if $(self.$index.is_some())&&+ {
+                    Some(($(self.$index.take().expect("branch completed"),)+))
+                } else {
+                    None
+                }
+            }
+        }
+
+        impl UnitOutputs for ($(unit!($index),)+) {}
+
+        impl<M, Driver, $($input: 'static, $branch: Run<M, $input, Driver>,)+>
+            RunBranches<M, ($($input,)+), Driver> for ($($branch,)+)
+        {
+            type Output = ($($branch::Output,)+);
+
+            fn run(
+                machine: &mut M,
+                driver: &Driver,
+                ($($value,)+): ($($input,)+),
+                done: impl FnOnce(&mut M, &Driver, Result<Self::Output>) + 'static,
+            ) {
+                let join = Rc::new(RefCell::new(Join {
+                    slots: <($(Option<$branch::Output>,)+)>::default(),
+                    done: Some(done),
+                }));
+                $(
+                    // An inline failure has already consumed the continuation.
+                    if join.borrow().done.is_none() {
+                        return;
+                    }
+                    let branch = Rc::clone(&join);
+                    $branch::run(machine, driver, $value, move |machine, driver, result| {
+                        Join::arrive(&branch, machine, driver, result, |slots, value| {
+                            slots.$index = Some(value);
+                        });
+                    });
+                )+
+            }
+        }
+    };
+}
+for_each_branch_tuple!(run_branches);
+
+impl<M, I, D, S, B> Run<M, I, D> for ForkJoin<S, B>
 where
-    S: Run<M, I, D, Output = (LI, RI)>,
-    L: Run<M, LI, D>,
-    R: Run<M, RI, D>,
+    S: Run<M, I, D>,
+    B: RunBranches<M, S::Output, D>,
 {
-    type Output = (L::Output, R::Output);
+    type Output = B::Output;
 
     fn run(
         machine: &mut M,
@@ -220,31 +281,33 @@ where
         input: I,
         done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
     ) {
-        S::run(machine, driver, input, move |machine, driver, result| {
-            let (left, right) = match result {
-                Ok(inputs) => inputs,
-                Err(error) => return done(machine, driver, Err(error)),
-            };
-            let join = Rc::new(RefCell::new(Join {
-                left: None,
-                right: None,
-                done: Some(done),
-            }));
-            let left_join = Rc::clone(&join);
-            L::run(machine, driver, left, move |machine, driver, result| {
-                Join::arrive(&left_join, machine, driver, result, |join, value| {
-                    join.left = Some(value)
-                });
-            });
-            // An inline left failure has already consumed the terminal callback.
-            if join.borrow().done.is_none() {
-                return;
-            }
-            R::run(machine, driver, right, move |machine, driver, result| {
-                Join::arrive(&join, machine, driver, result, |join, value| {
-                    join.right = Some(value)
-                });
-            });
+        S::run(
+            machine,
+            driver,
+            input,
+            move |machine, driver, result| match result {
+                Ok(inputs) => B::run(machine, driver, inputs, done),
+                Err(error) => done(machine, driver, Err(error)),
+            },
+        );
+    }
+}
+
+impl<M, I, D, S, B> Run<M, I, D> for DeliverFork<S, B>
+where
+    S: Run<M, I, D>,
+    B: RunBranches<M, S::Output, D, Output: UnitOutputs>,
+{
+    type Output = ();
+
+    fn run(
+        machine: &mut M,
+        driver: &D,
+        input: I,
+        done: impl FnOnce(&mut M, &D, Result<()>) + 'static,
+    ) {
+        ForkJoin::<S, B>::run(machine, driver, input, move |machine, driver, result| {
+            done(machine, driver, result.map(|_| ()));
         });
     }
 }
@@ -297,10 +360,128 @@ mod tests {
         }
     }
 
+    struct StartDelivery;
+    struct SplitDelivery;
+    struct RecordDelivery;
+
+    impl Operation<Vec<String>, (), ()> for StartDelivery {
+        type Output = ();
+
+        fn start(
+            machine: &mut Vec<String>,
+            driver: &(),
+            (): (),
+            done: impl FnOnce(&mut Vec<String>, &(), Result<()>) + 'static,
+        ) {
+            done(machine, driver, Ok(()));
+        }
+    }
+
+    impl Operation<Vec<String>, (), ()> for SplitDelivery {
+        type Output = (u8, bool, &'static str);
+
+        fn start(
+            machine: &mut Vec<String>,
+            driver: &(),
+            (): (),
+            done: impl FnOnce(&mut Vec<String>, &(), Result<Self::Output>) + 'static,
+        ) {
+            done(machine, driver, Ok((42, true, "alarm")));
+        }
+    }
+
+    impl<T: std::fmt::Display> Operation<Vec<String>, T, ()> for RecordDelivery {
+        type Output = ();
+
+        fn start(
+            machine: &mut Vec<String>,
+            driver: &(),
+            input: T,
+            done: impl FnOnce(&mut Vec<String>, &(), Result<()>) + 'static,
+        ) {
+            machine.push(input.to_string());
+            done(machine, driver, Ok(()));
+        }
+    }
+
+    impl super::super::inspection::Label for StartDelivery {
+        const LABEL: &'static str = "start delivery";
+    }
+
+    impl super::super::inspection::Label for SplitDelivery {
+        const LABEL: &'static str = "split delivery";
+    }
+
+    impl super::super::inspection::Label for RecordDelivery {
+        const LABEL: &'static str = "record delivery";
+    }
+
+    #[test]
+    fn a_typed_fork_can_deliver_three_branches_without_a_join_node() {
+        use super::super::builder::{NodePlan, OneInstruction, node, split_with, step_graph};
+
+        let start: NodePlan<StartDelivery, OneInstruction> = node();
+        let split: NodePlan<SplitDelivery> = node();
+        let record = || -> NodePlan<RecordDelivery> { node() };
+        let route = step_graph::<()>()
+            .begin(start)
+            .then(
+                split_with(split)
+                    .then(record())
+                    .then(record())
+                    .then(record()),
+            )
+            .finish();
+
+        let topology = route.topology();
+        let edges: Vec<_> = topology
+            .edges
+            .iter()
+            .map(|edge| (edge.from, edge.to))
+            .collect();
+        assert_eq!(edges, [(0, 1), (1, 2), (1, 3), (1, 4)]);
+        assert_eq!(topology.nodes.len(), 5);
+
+        let mut deliveries = Vec::new();
+        route.start_with(&mut deliveries, &(), (), |deliveries, _, result| {
+            result.expect("all deliveries succeeded");
+            deliveries.push("complete".to_owned());
+        });
+        assert_eq!(deliveries, ["42", "true", "alarm", "complete"]);
+    }
+
+    #[test]
+    fn a_join_keeps_tuple_order_when_branches_complete_out_of_order() {
+        use super::super::{Unannotated, builder::NoInstruction};
+        use crate::framework::{ChannelDriver, operations::AwaitWork};
+
+        type Arm = Node<AwaitWork, Unannotated, NoInstruction>;
+        let driver = ChannelDriver::new();
+        let (first, wait_first) = driver.signal();
+        let (second, wait_second) = driver.signal();
+        let (third, wait_third) = driver.signal();
+        let mut results = None;
+
+        <(Arm, Arm, Arm) as RunBranches<_, _, _>>::run(
+            &mut results,
+            &driver,
+            (wait_first, wait_second, wait_third),
+            |results, _, result| *results = Some(result.expect("all three branches succeeded")),
+        );
+        third.complete(Ok("alarm"));
+        second.complete(Ok(true));
+        driver.poll_ready(&mut results);
+        assert!(results.is_none());
+
+        first.complete(Ok(42_u8));
+        driver.poll_ready(&mut results);
+        assert_eq!(results, Some((42, true, "alarm")));
+    }
+
     #[test]
     fn inline_left_failure_skips_the_right_arm() {
         let mut events = Vec::new();
-        ForkJoin::<Split, Fail, Record>::run(&mut events, &(), (), |events, _, result| {
+        ForkJoin::<Split, (Fail, Record)>::run(&mut events, &(), (), |events, _, result| {
             assert_eq!(
                 result.expect_err("left arm fails").to_string(),
                 "left failed"

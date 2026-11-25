@@ -10,6 +10,8 @@
 mod framework;
 #[path = "../../vihaco-runtime/examples/static_graph_routes/simulation.rs"]
 mod simulation;
+#[path = "../../vihaco-runtime/examples/static_graph_routes/timing.rs"]
+mod timing;
 
 #[path = "program_drivers/backends.rs"]
 mod backends;
@@ -23,6 +25,10 @@ mod machine;
 mod portable;
 #[path = "program_drivers/scenarios.rs"]
 mod scenarios;
+#[path = "program_drivers/scheduled/mod.rs"]
+mod scheduled;
+#[path = "program_drivers/sst.rs"]
+mod sst;
 #[path = "program_drivers/warehouse/mod.rs"]
 mod warehouse;
 

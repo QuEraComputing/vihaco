@@ -7,7 +7,7 @@ instruction in flight. The scheduling backend advances the pending
 work and reports when a result can be delivered.
 [Annotated step topologies](annotated-step-topologies.md)
 
-## Execution layers
+## Canonical runtime structure
 
 | Layer | What it owns | What it decides |
 | --- | --- | --- |
@@ -16,12 +16,19 @@ work and reports when a result can be delivered.
 | **Scheduling backend** | Pending tasks and ready notifications, backed by queues, timers, device events, or a virtual clock. | When work becomes eligible and how to order ready turns and task completions under the runtime's policy. |
 | **Runtime** | The loaded machines or the workers that own them, and the mapping from scheduled program turns to machine IDs. | Section placement, worker placement, and how to coordinate machine turns with device events. It delegates instruction execution to the program driver. |
 
-An independent instruction stream has its own `Loadable` and PC. Devices
-that participate in one stream can be fields of its composite. A runtime
-can coordinate different machine types alongside multiple instances of
-one machine type. The owner lends the driver the selected image and
-machine for a turn. The one-machine checked example combines the owner
-and program driver in one struct.
+The runtime owns each `Loadable` and lends the selected machine and image
+to the program driver for one turn. The driver owns instruction and
+continuation bookkeeping. The scheduling backend takes owned work and
+reports ready task IDs. It can serve several machines without borrowing
+any of them. The runtime maps each ready ID to a program turn or asks the
+driver which parked invocation owns the result. This is the canonical
+split for both single-machine and multi-machine runtimes.
+
+An independent instruction stream has its own image and PC. Devices in
+that stream can be fields of its composite. Warehouse uses one stream,
+and the digitizer runs several streams. They share the same runtime,
+program driver, and simulator and Tokio backends.
+[Shared runtime](../../crates/vihaco-stdlib/examples/program_drivers/scheduled/runtime.rs) · [Shared program driver](../../crates/vihaco-stdlib/examples/program_drivers/scheduled/driver.rs)
 
 ## Starting and placing machines
 
@@ -36,6 +43,10 @@ for loadable in loadables {
 }
 runtime.run()?;
 ```
+
+Warehouse uses `Runtime::execute(loadable, args)` to load one stream,
+queue entry, and run to halt in one host call. Internally it uses the
+same entry queue and execution loop as the multi-stream digitizer.
 
 The runtime maps the selected turn to program entry, instruction issue,
 or task delivery. Whenever an action leaves a machine runnable, the
@@ -76,17 +87,19 @@ verification before execution is a separate layer.
 
 ## Program driver operations
 
-The scheduler-facing operations are `enter`, `issue_one`, and
-`resume_one`. Issue and resume return control before another instruction
-is fetched. Their outcome identifies the originating PC and whether the
-instruction retired, parked, halted, or hit a breakpoint. Ordinary
-scheduler turns preserve a debugger stop. The host explicitly authorizes
-a debugger step or continuation.
+The runtime-facing operations are `enter`, `issue_one`, and `resume`.
+Issue and resume return control to the runtime before another instruction
+is fetched. The shared example driver uses the machine's run state to
+communicate whether the stream can be scheduled again. The RFC's driver
+interface can also expose retirement and debugger stops to the runtime.
+A debugger stop stays in force until the host authorizes a step or
+continuation.
 
-The checked examples expose a higher-level `ProgramDriver` interface.
-A single-machine driver accepts machine ID `()`. The portable digitizer
-example exercises the scheduler-facing operations on several machines.
-[ProgramDriver](../../crates/vihaco-stdlib/src/program_driver.rs) · [Checked driver](../../crates/vihaco-stdlib/examples/program_drivers/checked.rs)
+The inline, channel, and debugger demos use `CheckedDriver` as a
+single-machine host adapter around the command-driven `ProgramDriver`
+interface. It combines ownership and program driving for those demos.
+Warehouse and the digitizer illustrate the canonical scheduler boundary.
+[ProgramDriver](../../crates/vihaco-stdlib/src/program_driver.rs) · [Command-driven adapter](../../crates/vihaco-stdlib/examples/program_drivers/checked.rs)
 
 | Host method | What it authorizes |
 | --- | --- |
@@ -94,15 +107,7 @@ example exercises the scheduler-facing operations on several machines.
 | `run(machine, command)` | Fetches and dispatches under a `Continue` or `SingleStep` command. |
 | `deliver(machine, work, delivery)` | Advances the selected pending instruction under its saved command. |
 
-For backends that can advance on their own, the checked example also
-offers `execute(arguments)`. It enters the program, runs until a stop,
-and drives pending work until halt. Warehouse uses this entry point.
-If it encounters a breakpoint, it returns an error at that PC so a
-caller can choose the next debugger command.
-The explicit `run` and `deliver` methods support debugger commands and
-host-supplied samples.
-
-The driver reports a typed stop. `Pending` includes the originating PC
+The command-driven adapter reports a typed stop. `Pending` includes the originating PC
 and work ID. `Retired` reports the instruction completed by a
 single-step. `Breakpoint` and `Halted` identify their stop positions.
 Errors travel through `eyre::Result`. This keeps a normal wait distinct
@@ -165,9 +170,9 @@ pub trait ReadyQueue {
 
 An error from `submit` means the backend declined the work. Once it
 accepts the work, its ticket carries the terminal result. A ready
-notification can be queued immediately. The owner records the ticket
-and continuation before it consumes the notification. Draining a ready
-queue requires no machine borrow.
+notification can be queued immediately. The driver records the ticket
+and continuation before the runtime consumes the notification. Draining a
+ready queue requires no machine borrow.
 
 Submission and readiness are public extension points for scheduler
 authors. The backend can expose native timing and readiness operations
@@ -177,19 +182,21 @@ in flight. The runtime can schedule that progress before the terminal
 result arrives.
 
 The route interpreter uses machine-aware `Await` and `FutureDriver`
-callbacks. The portable example implements the latter on the program
-owner's side of the boundary. It submits an owned future, keeps the
-typed ticket and continuation, and receives an opaque task ID from
-the backend when the result is ready. In the Warehouse example,
-`await_work()` registers interest in a work handle and the annotation
-hook can select the earliest simulated delivery tick.
-[Route contracts](../../crates/vihaco-runtime/examples/static_graph_routes/framework/runtime.rs) · [Portable driver](../../crates/vihaco-stdlib/examples/program_drivers/portable/owner.rs) · [Task boundary](../../crates/vihaco-stdlib/examples/program_drivers/portable/tasks.rs)
+callbacks. In the scheduled examples, the driver implements
+`FutureDriver` by submitting an owned future and keeping the typed
+ticket and continuation. Warehouse uses the same ticket path for
+annotated timing. Its driver reads the node annotation, asks the
+backend for a deadline at issue, and submits the owned label for
+delivery at that deadline. The example's optional `TimedSubmit`
+capability keeps deadlines specific to the backend. The backend
+reports readiness by task ID.
+[Route contracts](../../crates/vihaco-runtime/examples/static_graph_routes/framework/runtime.rs) · [Route driver](../../crates/vihaco-stdlib/examples/program_drivers/scheduled/driver.rs) · [Task boundary](../../crates/vihaco-stdlib/examples/program_drivers/scheduled/tasks.rs)
 
 When a work handle resolves, its output continues along the route to the
 selected field's effect handler. In the sample route, `Await` produces a
-typed `PushToStack` effect and `apply_effect_at::<ProgramField>()` calls
-`Apply` on the program field. The route completes after that field receives
-the result. [Sample route](../../crates/vihaco-stdlib/examples/program_drivers/machine.rs)
+typed `PushToStack` effect and preserves the sensor as its source.
+`handle_effect_at::<ProgramField>()` calls the composite's hook for that
+source and destination. The hook calls `Apply` on the program field. [Sample route](../../crates/vihaco-stdlib/examples/program_drivers/machine.rs)
 
 ### Ownership of parked routes
 
@@ -216,31 +223,30 @@ issued to external devices remains the backend's responsibility.
 1. **Issue.** Checked fetch remembers the originating PC and advances
    to the sequential continuation before dispatch. The fetch helper
    borrows instructions from the module and takes a separate dispatch
-   context. The prototype context carries the module and a route backend,
-   so an authored `Step` can simply return
-   `context.start(self, &sample_route(), ops::Sample(instruction.0))`.
+   context. The context carries the module and route startup services,
+   so an authored `Step` can return
+   `context.start(self, &print_route(), ops::PrintLabel(instruction.0))`.
 2. **Park.** An inline route returns its result as the `Step` result.
    If a route is still pending, the context saves the continuation PC
    and terminal result slot in the driver, then suspends `ExecutionState`.
-   Checked fetch restores the originating PC. The driver returns
-   `Pending` and retains the run command with the pending route.
+   Checked fetch restores the originating PC. The runtime leaves this
+   stream parked and selects another ready turn.
 3. **Resume.** The backend announces the ready task. The driver checks
    the waiting invocation, takes the typed result, restores the saved PC
    under the reentrancy guard, and resumes the route. If a stage submits
-   more work, the driver keeps the instruction in flight and preserves
-   its debugger authorization.
-4. **Retire.** The driver counts one retirement at the originating PC
-   once the route finishes. The next fetch is a separate turn. A
-   higher-level `Continue` can schedule that turn under the saved command.
+   more work, the driver keeps the same instruction in flight.
+4. **Retire.** The instruction is complete once its route finishes. If
+   the machine is runnable, the runtime queues the next fetch as a
+   separate issue turn.
 5. **Fault.** A deferred route error leaves the visible PC at the
    originating instruction and retains effects already applied.
 
 The module-only `execute_instruction` entry point wraps the same checked
 fetch helper. Existing `Loadable` callers and the image-patching debugger
-keep using that API. The prototype driver owns one in-flight route per
-machine. Its debugger checks breakpoints before fetch and preserves
-single-step across two waits. Integrating async suspension into the
-image-patching debugger is follow-up work.
+keep using that API. The shared driver tracks one in-flight instruction
+per machine. The command-driven debugger demo checks breakpoints before
+fetch and preserves single-step across two waits. Integrating async
+suspension into the image-patching debugger remains open.
 [Checked fetch](../../crates/vihaco-stdlib/src/execution_state/runner.rs) · [Existing debugger](../../crates/vihaco-stdlib/src/debugger/runner.rs) · [Sample Step](../../crates/vihaco-stdlib/examples/program_drivers/machine.rs)
 
 ## Runnable examples
@@ -252,7 +258,7 @@ Run the five scenarios with `mise run program-drivers`.
 | [Inline CPU](../../crates/vihaco-stdlib/examples/static_execution_state/machine.rs) | Uses the checked driver and borrowed synchronous routes. A branch skips an instruction and the CPU leaves its arithmetic result on the stack before the next fetch. |
 | [Debugger](../../crates/vihaco-stdlib/examples/program_drivers/scenarios.rs) | Preserves a single-step across two waits, retires the sample instruction once, and stops independently at the next breakpoint. |
 | [Channel](../../crates/vihaco-stdlib/examples/program_drivers/scenarios.rs) | Delivers an external sample to a parked route. A stale work ID is rejected and the sensor issues once. |
-| [Simulation and Warehouse](framework-guide.md#warehouse-label-printing-walkthrough) | Runs real bytecode through one `execute` call. The print issues at tick 5 and its label arrives at tick 17. Verification fetches after delivery. The same routes complete inline with the channel backend. |
+| [Warehouse](framework-guide.md#warehouse-label-printing-walkthrough) | Runs one SST image on simulation and Tokio through the same `execute` entry point. Simulation delivers the label at tick 17 after issuing at tick 5. Tokio interprets the same annotation with a wall-clock timer. |
 | [Portable digitizers](../../crates/vihaco-stdlib/examples/program_drivers/portable/mod.rs) | Runs two named SST sections through the same machine and route on a shared simulation timeline and on Tokio owner workers. |
 
 The waveform, device completion, and async digitizer demos remain small
@@ -277,7 +283,7 @@ each with a `LocalSet` and wall-clock timers. The owner drives several
 machines when they share a worker. The tests compare route nodes and
 edges, sample values, capture counts, and halt PCs. They also drive
 multiple captures in one invocation.
-[Runtime loop](../../crates/vihaco-stdlib/examples/program_drivers/portable/runtime.rs) · [Simulation](../../crates/vihaco-stdlib/examples/program_drivers/portable/backends/sim.rs) · [Tokio workers](../../crates/vihaco-stdlib/examples/program_drivers/portable/backends/threaded.rs)
+[Runtime loop](../../crates/vihaco-stdlib/examples/program_drivers/scheduled/runtime.rs) · [Simulation](../../crates/vihaco-stdlib/examples/program_drivers/scheduled/backends/sim.rs) · [Tokio workers](../../crates/vihaco-stdlib/examples/program_drivers/scheduled/backends/threaded.rs)
 
 Use `cargo run -p vihaco-stdlib --features program-image-execution
 --example program_drivers -- 1` to put both digitizers on one Tokio
@@ -296,8 +302,7 @@ worker. The default uses two workers.
   replacement, and cancellation. A late event must never resume a
   replacement invocation. Validate this with a deferred fault after
   a visible effect and a late completion after reset.
-- **Integration boundaries.** Connect suspending effect handling to
-  the route interpreter and define how deferred routes retain program
+- **Integration boundaries.** Define how deferred routes retain program
   context. The portable example models independent streams. Timing
   constraints and resource arbitration between distinct machine types
   still need a shared-device scenario.

@@ -109,7 +109,7 @@ impl Parked {
     }
 }
 
-/// Runs a loaded machine with a route backend. A fleet can own several drivers.
+/// Single-machine host adapter for the inline, channel, and debugger examples.
 pub(super) struct CheckedDriver<M: Composite, I, B> {
     loaded: Loadable<Image<I>, M>,
     backend: B,
@@ -141,36 +141,8 @@ impl<M: Composite, I, B> CheckedDriver<M, I, B> {
         self.loaded.machine()
     }
 
-    pub(super) fn backend(&self) -> &B {
-        &self.backend
-    }
-
     pub(super) fn retirements(&self) -> usize {
         self.retirements
-    }
-}
-
-impl<M: Composite, I, B> CheckedDriver<M, I, B>
-where
-    Self: ProgramDriver<MachineId = (), WorkId = u64, Delivery = ()>,
-{
-    /// Run the loaded program to halt, letting the backend drive pending work.
-    ///
-    /// This convenience entry point is for backends that can advance without
-    /// a host-supplied payload. A breakpoint returns an error at its stop PC.
-    pub(super) fn execute(&mut self, arguments: &[Word]) -> Result<()> {
-        self.start((), arguments)?;
-        let mut stop = self.run((), RunCommand::Continue)?;
-        loop {
-            stop = match stop {
-                ProgramStop::Pending { work, .. } => self.deliver((), work, ())?,
-                ProgramStop::Halted { .. } => return Ok(()),
-                ProgramStop::Breakpoint { pc } => return Err(eyre!("breakpoint at PC {pc}")),
-                ProgramStop::Retired { pc } => {
-                    return Err(eyre!("continuous execution stopped after retiring PC {pc}"));
-                }
-            };
-        }
     }
 }
 

@@ -13,11 +13,10 @@
 //! can mutate the machine at start. Errors propagate as soon as the
 //! operation reports them.
 
-#[cfg(feature = "program-image-execution")]
-use crate::framework::Annotation;
 use crate::framework::{
     AnnotatedDriver, Await, FutureDriver, Metadata, Operation, PollJob, poll_future,
 };
+use crate::timing::minimum_execution;
 use eyre::{Result, ensure, eyre};
 use std::{
     cell::{Cell, RefCell},
@@ -28,16 +27,6 @@ use std::{
 pub(super) struct Scheduled<T> {
     pub(super) tick: u64,
     pub(super) result: Result<T>,
-}
-
-#[cfg(feature = "program-image-execution")]
-pub(super) struct MinExecution<const TICKS: u64>;
-pub(super) struct ExecutionTicks(u64);
-
-#[cfg(feature = "program-image-execution")]
-impl<const TICKS: u64> Annotation for MinExecution<TICKS> {
-    type Value = ExecutionTicks;
-    const VALUE: &'static ExecutionTicks = &ExecutionTicks(TICKS);
 }
 
 type Event<M> = Box<dyn FnOnce(&mut M, &SimDriver<M>)>;
@@ -147,9 +136,7 @@ impl<M: 'static> AnnotatedDriver<M> for SimDriver<M> {
         input: I,
         done: impl FnOnce(&mut M, &Self, Result<N::Output>) + 'static,
     ) {
-        let ticks = metadata
-            .get_value::<ExecutionTicks>()
-            .map_or(0, |time| time.0);
+        let ticks = minimum_execution(metadata);
         let Some(ready_at) = self.now().checked_add(ticks) else {
             return done(machine, self, Err(eyre!("simulation node time overflow")));
         };

@@ -5,23 +5,15 @@ use crate::{Execute, Field, NoMessage};
 
 /// Build execution input for one composite field route and instruction type.
 ///
-/// Available with the experimental `typed-declarations` feature. The selected
-/// child's [`Execute<I>`] implementation determines the message type. The `M`
-/// parameter defaults to that associated type. `Context` defaults to `()`;
-/// runners can instead supply immutable runtime data such as a borrowed module.
-/// Consumers can write `C: BuildMessage<F, I, Context>`.
+/// Available with the experimental `typed-declarations` feature. The message
+/// type defaults to the selected child's synchronous [`Execute<I>`] message.
+/// An explicit message type also supports asynchronous execution. The caller
+/// that executes the instruction checks that its message type matches.
+/// `Context` defaults to `()` and can carry immutable runner data.
 ///
-/// Composite authors implement this trait to choose how their specific machine
-/// builds each message. The body of `build_message` can construct the input
-/// directly or explicitly delegate to a message's [`ReusableMessageRecipe`].
-/// Standard messages, including [`NoMessage`] and typed stack inputs, provide
-/// recipes but do not automatically implement this trait for a composite.
-///
-/// Specify `M` explicitly in those implementations, such as
-/// `BuildMessage<F, Call, (), FunctionInfo>`. Distinct explicit message types
-/// can separate generic builders for different input shapes. The equality bound
-/// requires `M` to match the child's execution message; it cannot select a
-/// different one.
+/// Composite authors construct the input directly or delegate to a message's
+/// [`ReusableMessageRecipe`]. A recipe supplies message construction without
+/// implementing this trait on a composite.
 ///
 /// A [`crate::Step`] implementation can use this optional helper to separate
 /// message construction from execution and effect handling. Implementing this
@@ -46,8 +38,7 @@ pub trait BuildMessage<
     I,
     Context: ?Sized = (),
     M = <<Self as Field<F>>::Child as Execute<I>>::Message,
->: Field<F> where
-    Self::Child: Execute<I, Message = M>,
+>: Field<F>
 {
     /// Resolve and validate the input needed to execute `instruction`.
     ///
@@ -90,7 +81,6 @@ pub trait ReusableMessageRecipe<Parent, Route, I, Context: ?Sized>: Sized {
 impl<C, F, I, Context: ?Sized> ReusableMessageRecipe<C, F, I, Context> for NoMessage
 where
     C: Field<F>,
-    C::Child: Execute<I, Message = NoMessage>,
 {
     #[inline]
     fn prepare(_: &mut C, _: &I, _: &Context) -> eyre::Result<Self> {

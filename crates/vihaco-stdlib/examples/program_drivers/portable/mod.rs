@@ -3,21 +3,17 @@
 
 //! Load two sections and run the same machine on a virtual clock and Tokio.
 
-mod backends;
 mod digitizer;
-mod owner;
-mod runtime;
 mod sst;
-mod tasks;
 
-use backends::{
+use crate::scheduled::backends::{
     DemoInput, Drive, Input,
     sim::{Sim, SimSubmitter},
     threaded::{TokioSubmitter, run_on_workers},
 };
+use crate::scheduled::runtime::Runtime;
 use digitizer::{Instruction, fixture, topology};
 use eyre::{Result, ensure, eyre};
-use runtime::Runtime;
 use std::thread::{self, ThreadId};
 use vihaco_runtime::HasProgram;
 use vihaco_stdlib::{Image, Loadable};
@@ -59,7 +55,7 @@ struct Report {
 fn run_sections<D: Drive + DemoInput>(
     mut backend: D,
     programs: Vec<Program>,
-) -> Result<(Report, Runtime<D>)> {
+) -> Result<(Report, Runtime<digitizer::Machine, D>)> {
     let mut names = Vec::new();
     let mut loadables = Vec::new();
     for Program {
@@ -76,7 +72,7 @@ fn run_sections<D: Drive + DemoInput>(
                 delay,
                 sample,
                 port,
-            });
+            })?;
         }
     }
 
@@ -220,7 +216,7 @@ mod tests {
                 delay,
                 sample,
                 port,
-            });
+            })?;
         }
 
         let mut runtime = Runtime::new(sim);

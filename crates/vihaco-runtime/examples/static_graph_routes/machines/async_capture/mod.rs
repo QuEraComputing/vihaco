@@ -7,8 +7,8 @@
 mod tokio_driver;
 
 use crate::framework::{
-    AsyncBuildMessage, AsyncSlot, ChannelDriver, Describe, FutureDriver, Route, Run,
-    apply_effect_at, async_build_message_at, async_instruction_at, step_graph,
+    AsyncReusableMessageRecipe, AsyncSlot, ChannelDriver, Describe, FutureDriver, Route, Run,
+    apply_effect_at, async_prepare_message_at, execute_async_instruction_at, step_graph,
 };
 use eyre::{Result, WrapErr, eyre};
 use std::{convert::Infallible, future::Future};
@@ -84,16 +84,30 @@ impl Field<DigitizerField> for Machine {
     }
 }
 
-impl AsyncBuildMessage<DigitizerField, Capture> for Machine {
-    type Message = oneshot::Receiver<u16>;
+// A parent can use this recipe by exposing its pending sample receiver.
+struct SampleInput;
+
+impl Field<SampleInput> for Machine {
+    type Child = Option<oneshot::Receiver<u16>>;
+    const SOURCE: &'static [&'static str] = &["next_sample"];
+
+    fn get(&self) -> &Self::Child {
+        &self.next_sample
+    }
+
+    fn get_mut(&mut self) -> &mut Self::Child {
+        &mut self.next_sample
+    }
+}
+
+impl<M, F, I, C: ?Sized> AsyncReusableMessageRecipe<M, F, I, C> for oneshot::Receiver<u16>
+where
+    M: Field<SampleInput, Child = Option<Self>>,
+{
     type Error = eyre::Report;
 
-    fn build_message(
-        &mut self,
-        _: &Capture,
-        _: &(),
-    ) -> impl Future<Output = Result<Self::Message>> + 'static {
-        let sample = self.next_sample.take();
+    fn prepare(parent: &mut M, _: &I, _: &C) -> impl Future<Output = Result<Self>> + 'static {
+        let sample = parent.get_mut().take();
         async move { sample.ok_or_else(|| eyre!("capture has no sample channel")) }
     }
 }
@@ -101,8 +115,11 @@ impl AsyncBuildMessage<DigitizerField, Capture> for Machine {
 fn route<D: FutureDriver<Machine>>()
 -> Route<Capture, impl Run<Machine, Capture, D, Output = ()> + Describe> {
     step_graph::<Capture>()
-        .begin(async_build_message_at::<DigitizerField>())
-        .then_execute_async(async_instruction_at::<DigitizerField>())
+        .begin(async_prepare_message_at::<
+            DigitizerField,
+            oneshot::Receiver<u16>,
+        >())
+        .then(execute_async_instruction_at::<DigitizerField>())
         // Execution returns the lease before this node borrows the same field.
         .then(apply_effect_at::<DigitizerField>())
         .finish()
@@ -147,6 +164,36 @@ mod tests {
     use super::tokio_driver::TokioDriver;
     use super::*;
     use crate::simulation::SimDriver;
+
+    impl vihaco_runtime::BuildMessage<DigitizerField, Capture, (), oneshot::Receiver<u16>> for Machine {
+        fn build_message(&mut self, _: &Capture, _: &()) -> Result<oneshot::Receiver<u16>> {
+            self.next_sample
+                .take()
+                .ok_or_else(|| eyre!("capture has no sample channel"))
+        }
+    }
+
+    #[test]
+    fn synchronous_builder_can_feed_async_only_execution() -> Result<()> {
+        use crate::framework::build_message_at;
+
+        let route = step_graph::<Capture>()
+            .begin(build_message_at::<DigitizerField, oneshot::Receiver<u16>>())
+            .then(execute_async_instruction_at::<DigitizerField>())
+            .then(apply_effect_at::<DigitizerField>())
+            .finish();
+
+        let (mut machine, device) = fixture();
+        let driver = ChannelDriver::new();
+        driver.start(&mut machine, &route, Capture);
+        device.send(23).expect("capture owns the sample receiver");
+        driver.run_until_complete(&mut machine)?;
+        assert_eq!(
+            machine.digitizer.inspect(|digitizer| digitizer.sample),
+            Some(Some(23))
+        );
+        Ok(())
+    }
 
     #[test]
     fn async_capture_returns_its_component_before_delivering_the_sample() -> Result<()> {

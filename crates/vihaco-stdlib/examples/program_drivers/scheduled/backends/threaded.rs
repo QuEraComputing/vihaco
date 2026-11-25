@@ -3,7 +3,7 @@
 
 //! Tokio drives local futures on a worker's owner thread.
 
-use super::super::tasks::{Submit, TaskId, TaskIds, Ticket, track};
+use super::super::tasks::{Submit, TaskId, TaskIds, Ticket, TimedSubmit, track};
 use super::{DemoInput, Drive, Input};
 use eyre::{Result, WrapErr, eyre};
 use std::{future::Future, rc::Rc, thread, time::Duration};
@@ -11,7 +11,7 @@ use tokio::{
     runtime::{Builder, Runtime},
     sync::mpsc,
     task::LocalSet,
-    time::{sleep, timeout},
+    time::{Instant, sleep, sleep_until, timeout},
 };
 
 #[derive(Clone)]
@@ -19,6 +19,23 @@ pub(crate) struct TokioSubmitter {
     local: Rc<LocalSet>,
     ids: Rc<TaskIds>,
     ready: mpsc::UnboundedSender<TaskId>,
+}
+
+impl TimedSubmit for TokioSubmitter {
+    type Deadline = Instant;
+
+    fn deadline(&self, ticks: u64) -> Result<Instant> {
+        Instant::now()
+            .checked_add(Duration::from_millis(ticks))
+            .ok_or_else(|| eyre!("Tokio deadline overflow"))
+    }
+
+    fn submit_at<T: 'static>(&self, deadline: Instant, value: T) -> Result<Ticket<T>> {
+        self.submit(async move {
+            sleep_until(deadline).await;
+            Ok(value)
+        })
+    }
 }
 
 impl Submit for TokioSubmitter {
@@ -109,10 +126,11 @@ pub(crate) fn run_on_workers<P: Send, R: Send>(
 }
 
 impl DemoInput for TokioWorker {
-    fn schedule_input(&mut self, input: Input) {
+    fn schedule_input(&mut self, input: Input) -> Result<()> {
         drop(self.submitter.local.spawn_local(async move {
             sleep(Duration::from_millis(input.delay)).await;
             let _ = input.port.send(input.sample);
         }));
+        Ok(())
     }
 }

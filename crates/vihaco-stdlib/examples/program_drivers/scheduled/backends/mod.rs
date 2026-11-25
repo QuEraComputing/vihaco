@@ -27,5 +27,5 @@ pub(crate) trait Drive {
 
 /// Supplies scripted device input for the demo.
 pub(crate) trait DemoInput {
-    fn schedule_input(&mut self, input: Input);
+    fn schedule_input(&mut self, input: Input) -> Result<()>;
 }

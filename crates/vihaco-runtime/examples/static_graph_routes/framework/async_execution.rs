@@ -17,7 +17,10 @@
 //! external work belongs to the backend or machine owner.
 
 use super::{
-    graph::{Label, NodePlan, node},
+    graph::{
+        BindOrigin, EmitsFrom, FieldOrigin, Label, NoInstruction, NoOrigin, NodePlan,
+        OneInstruction, ResolveOperation, node,
+    },
     operations::{Operation, Prepared},
     runtime::FutureDriver,
 };
@@ -25,7 +28,7 @@ use eyre::{Result, eyre};
 use std::{any::type_name, cell::RefCell, future::Future, marker::PhantomData, rc::Rc};
 use vihaco_runtime::{Apply, AsyncExecute, Field};
 
-/// Prepares the owned message for an async instruction at field `F`.
+/// Prepares an owned message asynchronously for an instruction at field `F`.
 pub(crate) trait AsyncBuildMessage<F, I, Context: ?Sized = ()>: Field<F> {
     /// The selected async instruction's message.
     type Message: 'static;
@@ -43,7 +46,7 @@ pub(crate) trait AsyncBuildMessage<F, I, Context: ?Sized = ()>: Field<F> {
 /// Pairs an owned instruction with the message for its async execution site.
 pub(crate) struct BuildAsyncAt<F>(PhantomData<fn() -> F>);
 
-/// Creates the message preparation node for an async instruction at field `F`.
+/// Creates the async message preparation node for field `F`.
 pub(crate) fn async_build_message_at<F>() -> NodePlan<BuildAsyncAt<F>> {
     node()
 }
@@ -56,15 +59,14 @@ impl<F> Label for BuildAsyncAt<F> {
     }
 }
 
-impl<M, Backend, F, I, D> Operation<M, I, Backend> for BuildAsyncAt<F>
+impl<M, Backend, F, I> Operation<M, I, Backend> for BuildAsyncAt<F>
 where
-    M: AsyncBuildMessage<F, I, Message = D::Message> + Field<F, Child = AsyncSlot<D>>,
+    M: AsyncBuildMessage<F, I>,
     I: 'static,
     M::Error: Into<eyre::Report>,
     Backend: FutureDriver<M>,
-    D: AsyncExecute<I, Message: 'static>,
 {
-    type Output = Prepared<I, D::Message>;
+    type Output = Prepared<I, M::Message>;
 
     fn start(
         machine: &mut M,
@@ -80,6 +82,179 @@ where
             })
         };
         driver.run_future(machine, prepare, done);
+    }
+}
+
+/// Reusable asynchronous message construction from a parent's capabilities.
+pub(crate) trait AsyncReusableMessageRecipe<Parent, F, I, Context: ?Sized = ()>:
+    Sized
+{
+    /// The error produced during preparation.
+    type Error;
+
+    /// Takes a short borrow of the parent and returns owned preparation work.
+    fn prepare(
+        parent: &mut Parent,
+        instruction: &I,
+        context: &Context,
+    ) -> impl Future<Output = Result<Self, Self::Error>> + 'static;
+}
+
+/// Prepares the selected message asynchronously using its reusable recipe.
+pub(crate) struct PrepareAsyncAt<F, Message>(PhantomData<fn() -> (F, Message)>);
+
+/// Builds a message asynchronously from a recipe for the destination field.
+pub(crate) fn async_prepare_message_at<F, Message>() -> NodePlan<PrepareAsyncAt<F, Message>> {
+    node()
+}
+
+impl<F, Message> Label for PrepareAsyncAt<F, Message> {
+    const LABEL: &'static str = "async prepare message";
+
+    fn field() -> Option<&'static str> {
+        Some(type_name::<F>())
+    }
+}
+
+impl<M, Backend, F, I: 'static, Message> Operation<M, I, Backend> for PrepareAsyncAt<F, Message>
+where
+    M: Field<F>,
+    Backend: FutureDriver<M>,
+    Message: AsyncReusableMessageRecipe<M, F, I, Error: Into<eyre::Report>> + 'static,
+{
+    type Output = Prepared<I, Message>;
+
+    fn start(
+        machine: &mut M,
+        driver: &Backend,
+        instruction: I,
+        done: impl FnOnce(&mut M, &Backend, Result<Self::Output>) + 'static,
+    ) {
+        let message = Message::prepare(machine, &instruction, &());
+        let prepare = async move {
+            Ok(Prepared {
+                instruction,
+                message: message.await.map_err(Into::into)?,
+            })
+        };
+        driver.run_future(machine, prepare, done);
+    }
+}
+
+/// Handles an effect asynchronously at the receiving field.
+pub(crate) trait AsyncApply<E> {
+    /// The output forwarded to the next route node.
+    type Effect: 'static;
+    /// The error produced while handling the effect.
+    type Error;
+
+    /// Starts handling the effect and returns owned work that can outlive the field borrow.
+    fn apply(
+        &mut self,
+        effect: E,
+    ) -> impl Future<Output = Result<Self::Effect, Self::Error>> + 'static;
+}
+
+/// Handles an incoming effect at field `F` and forwards its eventual result.
+pub(crate) struct AsyncApplyEffectAt<F>(PhantomData<fn() -> F>);
+
+/// Creates an async effect handler for the selected receiving field.
+pub(crate) fn async_apply_effect_at<F>()
+-> NodePlan<AsyncApplyEffectAt<F>, NoInstruction, EmitsFrom<F>> {
+    node()
+}
+
+impl<F> Label for AsyncApplyEffectAt<F> {
+    const LABEL: &'static str = "async apply effect";
+
+    fn field() -> Option<&'static str> {
+        Some(type_name::<F>())
+    }
+}
+
+impl<M, Backend, F, E> Operation<M, E, Backend> for AsyncApplyEffectAt<F>
+where
+    M: Field<F>,
+    M::Child: AsyncApply<E, Error: Into<eyre::Report>>,
+    Backend: FutureDriver<M>,
+{
+    type Output = <M::Child as AsyncApply<E>>::Effect;
+
+    fn start(
+        machine: &mut M,
+        driver: &Backend,
+        effect: E,
+        done: impl FnOnce(&mut M, &Backend, Result<Self::Output>) + 'static,
+    ) {
+        let work = AsyncApply::apply(machine.get_mut(), effect);
+        driver.run_future(machine, async move { work.await.map_err(Into::into) }, done);
+    }
+}
+
+/// Composite policy that can suspend while handling an effect between two fields.
+pub(crate) trait AsyncHandleEffect<Source, Destination, E, Context: ?Sized = ()>:
+    Field<Source> + Field<Destination>
+{
+    /// The effect passed to the next node.
+    type Effect: 'static;
+
+    /// Takes a short composite borrow and returns owned work.
+    fn handle_effect(
+        &mut self,
+        effect: E,
+        context: &Context,
+    ) -> impl Future<Output = Result<Self::Effect>> + 'static;
+}
+
+/// Runs asynchronous composite effect policy for a pair of fields.
+pub(crate) struct AsyncHandleEffectBetween<Source, Destination>(
+    PhantomData<fn() -> (Source, Destination)>,
+);
+
+/// Composite effect handler whose source will be resolved when the route is finished.
+pub(crate) struct AsyncHandleEffectAt<Destination>(PhantomData<fn() -> Destination>);
+
+/// Selects the composite's async handler for an effect arriving at the destination.
+pub(crate) fn async_handle_effect_at<Destination>()
+-> NodePlan<AsyncHandleEffectAt<Destination>, NoInstruction, BindOrigin> {
+    node()
+}
+
+impl<Source, Destination> ResolveOperation<AsyncHandleEffectAt<Destination>, FieldOrigin<Source>>
+    for BindOrigin
+{
+    type Operation = AsyncHandleEffectBetween<Source, Destination>;
+    type Origin = NoOrigin;
+}
+
+impl<Source, Destination> Label for AsyncHandleEffectBetween<Source, Destination> {
+    const LABEL: &'static str = "async handle composite effect";
+
+    fn source_field() -> Option<&'static str> {
+        Some(type_name::<Source>())
+    }
+
+    fn field() -> Option<&'static str> {
+        Some(type_name::<Destination>())
+    }
+}
+
+impl<M, Backend, Source, Destination, E> Operation<M, E, Backend>
+    for AsyncHandleEffectBetween<Source, Destination>
+where
+    M: AsyncHandleEffect<Source, Destination, E>,
+    Backend: FutureDriver<M>,
+{
+    type Output = M::Effect;
+
+    fn start(
+        machine: &mut M,
+        driver: &Backend,
+        effect: E,
+        done: impl FnOnce(&mut M, &Backend, Result<Self::Output>) + 'static,
+    ) {
+        let work = machine.handle_effect(effect, &());
+        driver.run_future(machine, work, done);
     }
 }
 
@@ -163,14 +338,12 @@ impl<D> Drop for Lease<D> {
     }
 }
 
-/// Selects a field for `then_execute_async` in the step builder.
-pub(crate) struct AsyncInstructionAt<F>(PhantomData<fn() -> F>);
-
 /// Runs the async instruction at field `F` using the incoming instruction and message.
 pub(crate) struct AsyncExecuteAt<F>(PhantomData<fn() -> F>);
 
-/// Creates the field selector for the step's designated async execution node.
-pub(crate) fn async_instruction_at<F>() -> NodePlan<AsyncInstructionAt<F>> {
+/// Executes the prepared async instruction at the selected field.
+pub(crate) fn execute_async_instruction_at<F>()
+-> NodePlan<AsyncExecuteAt<F>, OneInstruction, EmitsFrom<F>> {
     node()
 }
 

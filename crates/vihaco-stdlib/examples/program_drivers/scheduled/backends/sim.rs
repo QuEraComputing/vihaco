@@ -3,11 +3,11 @@
 
 //! Deterministic virtual time. Device input wakes an ordinary Rust future.
 
-use super::super::tasks::{Submit, TaskId, TaskIds, Ticket, track};
+use super::super::tasks::{Submit, TaskId, TaskIds, Ticket, TimedSubmit, track};
 use super::{DemoInput, Drive, Input};
 use eyre::{Result, eyre};
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::{BTreeMap, VecDeque},
     future::Future,
     pin::Pin,
@@ -29,15 +29,52 @@ impl Wake for WakeTask {
     }
 }
 
+type Events = BTreeMap<(u64, TaskId), Box<dyn FnOnce()>>;
+
 struct Queue {
+    now: Cell<u64>,
+    events: RefCell<Events>,
     ids: TaskIds,
     jobs: RefCell<BTreeMap<TaskId, Job>>,
     ready: RefCell<VecDeque<TaskId>>,
     runnable: mpsc::Sender<TaskId>,
 }
 
+impl Queue {
+    fn schedule(&self, tick: u64, event: impl FnOnce() + 'static) -> Result<()> {
+        let sequence = self.ids.next()?;
+        self.events
+            .borrow_mut()
+            .insert((tick, sequence), Box::new(event));
+        Ok(())
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct SimSubmitter(Rc<Queue>);
+
+impl TimedSubmit for SimSubmitter {
+    type Deadline = u64;
+
+    fn deadline(&self, ticks: u64) -> Result<u64> {
+        self.0
+            .now
+            .get()
+            .checked_add(ticks)
+            .ok_or_else(|| eyre!("simulation deadline overflow"))
+    }
+
+    fn submit_at<T: 'static>(&self, deadline: u64, value: T) -> Result<Ticket<T>> {
+        if deadline <= self.0.now.get() {
+            return self.submit(std::future::ready(Ok(value)));
+        }
+        let (send, receive) = tokio::sync::oneshot::channel();
+        self.0.schedule(deadline, move || {
+            let _ = send.send(value);
+        })?;
+        self.submit(async move { Ok(receive.await?) })
+    }
+}
 
 impl Submit for SimSubmitter {
     fn submit<T: 'static>(
@@ -58,22 +95,22 @@ impl Submit for SimSubmitter {
 }
 
 pub(crate) struct Sim {
-    now: u64,
-    next_input: usize,
-    inputs: BTreeMap<(u64, usize), Input>,
     runnable: mpsc::Receiver<TaskId>,
     submitter: SimSubmitter,
 }
 
 impl Sim {
     pub(crate) fn new() -> Self {
+        Self::starting_at(0)
+    }
+
+    pub(crate) fn starting_at(tick: u64) -> Self {
         let (send, runnable) = mpsc::channel();
         Self {
-            now: 0,
-            next_input: 0,
-            inputs: BTreeMap::new(),
             runnable,
             submitter: SimSubmitter(Rc::new(Queue {
+                now: Cell::new(tick),
+                events: RefCell::default(),
                 ids: TaskIds::default(),
                 jobs: RefCell::default(),
                 ready: RefCell::default(),
@@ -83,7 +120,7 @@ impl Sim {
     }
 
     pub(crate) fn now(&self) -> u64 {
-        self.now
+        self.submitter.0.now.get()
     }
 
     fn poll_task(&self, task: TaskId) {
@@ -127,20 +164,23 @@ impl Drive for Sim {
                 self.poll_task(task);
                 continue;
             }
-            let ((tick, _), input) = self
-                .inputs
+            let queue = &self.submitter.0;
+            let ((tick, _), event) = queue
+                .events
+                .borrow_mut()
                 .pop_first()
-                .ok_or_else(|| eyre!("simulation has pending tasks but no device event"))?;
-            self.now = tick;
-            let _ = input.port.send(input.sample);
+                .ok_or_else(|| eyre!("simulation has pending tasks but no timed event"))?;
+            queue.now.set(tick);
+            event();
         }
     }
 }
 
 impl DemoInput for Sim {
-    fn schedule_input(&mut self, input: Input) {
-        let key = (self.now + input.delay, self.next_input);
-        self.next_input += 1;
-        self.inputs.insert(key, input);
+    fn schedule_input(&mut self, input: Input) -> Result<()> {
+        let tick = self.submitter.deadline(input.delay)?;
+        self.submitter.0.schedule(tick, move || {
+            let _ = input.port.send(input.sample);
+        })
     }
 }

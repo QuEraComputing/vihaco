@@ -10,7 +10,7 @@
 
 use super::{
     annotations::{Annotations, Metadata},
-    builder::{ForkJoin, Node, Route, Sequence},
+    builder::{DeliverFork, ForkJoin, Node, Route, Sequence},
     short_name,
 };
 
@@ -30,6 +30,11 @@ impl<I, P> Route<I, P> {
 pub(crate) trait Label {
     /// The diagnostic name for an operation occurrence.
     const LABEL: &'static str;
+
+    /// Returns the emitting field for a composite effect handler.
+    fn source_field() -> Option<&'static str> {
+        None
+    }
 
     /// Returns the selected field marker’s type name when the operation targets a field.
     fn field() -> Option<&'static str> {
@@ -57,6 +62,8 @@ pub(crate) struct Vertex {
 
     /// The field marker’s type name for a field-directed operation.
     pub(crate) field: Option<&'static str>,
+    /// Emitting field for a composite effect handler.
+    pub(crate) source_field: Option<&'static str>,
 
     /// Metadata attached to this operation occurrence.
     pub(crate) metadata: Metadata,
@@ -80,6 +87,7 @@ impl Topology {
         &mut self,
         name: &'static str,
         field: Option<&'static str>,
+        source_field: Option<&'static str>,
         metadata: Metadata,
         from: Option<(usize, Metadata)>,
     ) -> usize {
@@ -87,6 +95,7 @@ impl Topology {
         self.nodes.push(Vertex {
             name,
             field,
+            source_field,
             metadata,
         });
         if let Some((from, metadata)) = from {
@@ -104,7 +113,15 @@ impl Topology {
         println!("{title}");
         for (id, node) in self.nodes.iter().enumerate() {
             let site = node.field.map(short_name).unwrap_or("");
-            println!("  {id}  {} {site} {:?}", node.name, node.metadata.names());
+            let source = node
+                .source_field
+                .map(|field| format!("{} → ", short_name(field)))
+                .unwrap_or_default();
+            println!(
+                "  {id}  {} {source}{site} {:?}",
+                node.name,
+                node.metadata.names()
+            );
         }
         for link in &self.edges {
             println!("  {} → {}  {:?}", link.from, link.to, link.metadata.names());
@@ -122,9 +139,9 @@ pub(crate) trait Describe {
 }
 
 /// Projects one operation and its incoming edge when a predecessor exists.
-impl<N: Label, A: Annotations> Describe for Node<N, A> {
+impl<N: Label, A: Annotations, Execution> Describe for Node<N, A, Execution> {
     fn describe(from: Option<(usize, Metadata)>, topology: &mut Topology) -> usize {
-        topology.vertex(N::LABEL, N::field(), A::metadata(), from)
+        topology.vertex(N::LABEL, N::field(), N::source_field(), A::metadata(), from)
     }
 }
 
@@ -136,23 +153,41 @@ impl<L: Describe, E: Annotations, R: Describe> Describe for Sequence<L, E, R> {
     }
 }
 
-/// Projects both paths from the split and records both edges into the join.
-impl<S: Describe, L: Describe, R: Describe> Describe for ForkJoin<S, L, R> {
+/// Projects each branch from the same split, keeping their exits in declaration order.
+trait DescribeBranches {
+    fn describe(split: usize, topology: &mut Topology) -> Vec<usize>;
+}
+
+macro_rules! describe_branches {
+    ($(($branch:ident, $input:ident, $value:ident, $index:tt)),+) => {
+        impl<$($branch: Describe,)+> DescribeBranches for ($($branch,)+) {
+            fn describe(split: usize, topology: &mut Topology) -> Vec<usize> {
+                vec![$($branch::describe(Some((split, Metadata::default())), topology),)+]
+            }
+        }
+    };
+}
+for_each_branch_tuple!(describe_branches);
+
+impl<S: Describe, B: DescribeBranches> Describe for ForkJoin<S, B> {
     fn describe(from: Option<(usize, Metadata)>, topology: &mut Topology) -> usize {
         let split = S::describe(from, topology);
-        let left = L::describe(Some((split, Metadata::default())), topology);
-        let right = R::describe(Some((split, Metadata::default())), topology);
-        let join = topology.vertex(
-            "join results",
-            None,
-            Metadata::default(),
-            Some((left, Metadata::default())),
-        );
-        topology.edges.push(Link {
-            from: right,
+        let exits = B::describe(split, topology);
+        let join = topology.vertex("join results", None, None, Metadata::default(), None);
+        topology.edges.extend(exits.into_iter().map(|from| Link {
+            from,
             to: join,
             metadata: Metadata::default(),
-        });
+        }));
         join
+    }
+}
+
+impl<S: Describe, B: DescribeBranches> Describe for DeliverFork<S, B> {
+    fn describe(from: Option<(usize, Metadata)>, topology: &mut Topology) -> usize {
+        let split = S::describe(from, topology);
+        B::describe(split, topology);
+        // Terminal forks have no successor that can use this index.
+        split
     }
 }

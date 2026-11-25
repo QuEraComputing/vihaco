@@ -7,7 +7,7 @@ mod metadata;
 
 use crate::framework::{
     ChannelDriver, Describe, Route, Run, apply_effect_at, build_message_at, duplicate, edge,
-    fork_join, instruction_at, step_graph,
+    execute_instruction_at, fork_join, step_graph,
 };
 use eyre::Result;
 use metadata::{Bus, Critical, DacBus};
@@ -146,16 +146,17 @@ impl BuildMessage<SourceField, ops::Fire, (), NoMessage> for Machine {
 fn route()
 -> Route<ops::Fire, impl Run<Machine, ops::Fire, ChannelDriver<Machine>, Output = ()> + Describe> {
     step_graph::<ops::Fire>()
-        .begin(build_message_at::<SourceField>())
-        .then_execute(instruction_at::<SourceField>())
+        .begin(build_message_at::<SourceField, NoMessage>())
+        .then(execute_instruction_at::<SourceField>())
         .then(fork_join(
-            duplicate(),
-            // The DAC gets the clamped copy. The monitor gets the original.
-            apply_effect_at::<ClampField>().then_via(
-                edge().annotate::<DacBus>().annotate::<Critical>(),
-                apply_effect_at::<Dac>(),
-            ),
-            apply_effect_at::<Monitor>(),
+            duplicate()
+                // The copy reaches the DAC after clamping.
+                .then(apply_effect_at::<ClampField>().then_via(
+                    edge().annotate::<DacBus>().annotate::<Critical>(),
+                    apply_effect_at::<Dac>(),
+                ))
+                // The original goes to the monitor.
+                .then(apply_effect_at::<Monitor>()),
         ))
         // The join releases this node after both receivers have accepted their samples.
         .then(apply_effect_at::<DeliveryField>())

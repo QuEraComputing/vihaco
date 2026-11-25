@@ -31,6 +31,15 @@ pub(crate) trait Submit: Clone + 'static {
     ) -> Result<Ticket<T>>;
 }
 
+/// Optional backend capability for releasing a result at a backend-native deadline.
+pub(crate) trait TimedSubmit: Submit {
+    type Deadline;
+
+    fn deadline(&self, ticks: u64) -> Result<Self::Deadline>;
+
+    fn submit_at<T: 'static>(&self, deadline: Self::Deadline, value: T) -> Result<Ticket<T>>;
+}
+
 pub(crate) struct Ticket<T> {
     id: TaskId,
     result: oneshot::Receiver<Result<T>>,

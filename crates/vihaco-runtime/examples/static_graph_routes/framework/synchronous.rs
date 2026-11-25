@@ -16,10 +16,12 @@
 
 use super::{
     graph::{Node, Route, Sequence},
-    operations::{ApplyAt, BuildAt, ExecuteAt, Prepared},
+    operations::{
+        ApplyEffectAt, BuildAt, ExecuteAt, HandleEffect, HandleEffectBetween, PrepareAt, Prepared,
+    },
 };
 use eyre::Result;
-use vihaco_runtime::{Apply, BuildMessage, Execute, Field};
+use vihaco_runtime::{Apply, BuildMessage, Execute, Field, ReusableMessageRecipe};
 
 /// Interprets a static path inline and returns its result to the caller.
 ///
@@ -42,7 +44,9 @@ pub(crate) trait SyncOperation<M, Input> {
 }
 
 /// The same static node can have an inline interpretation for borrowed inputs.
-impl<M, Input, N: SyncOperation<M, Input>, A> RunSync<M, Input> for Node<N, A> {
+impl<M, Input, N: SyncOperation<M, Input>, A, Execution> RunSync<M, Input>
+    for Node<N, A, Execution>
+{
     type Output = N::Output;
 
     fn run_sync(machine: &mut M, input: Input) -> Result<Self::Output> {
@@ -82,10 +86,10 @@ impl<I, P> Route<I, P> {
 }
 
 /// The entry node reads the borrowed context and passes on the prepared message.
-impl<'input, M, F, I, C: ?Sized, Message> SyncOperation<M, (&'input I, &'input C)> for BuildAt<F>
+impl<'input, M, F, I, C: ?Sized, Message> SyncOperation<M, (&'input I, &'input C)>
+    for BuildAt<F, Message>
 where
     M: BuildMessage<F, I, C, Message>,
-    M::Child: Execute<I, Message = Message>,
 {
     type Output = Prepared<&'input I, Message>;
 
@@ -94,6 +98,26 @@ where
         (instruction, context): (&'input I, &'input C),
     ) -> Result<Self::Output> {
         let message = machine.build_message(instruction, context)?;
+        Ok(Prepared {
+            instruction,
+            message,
+        })
+    }
+}
+
+impl<'input, M, F, I, C: ?Sized, Message> SyncOperation<M, (&'input I, &'input C)>
+    for PrepareAt<F, Message>
+where
+    M: Field<F>,
+    Message: ReusableMessageRecipe<M, F, I, C>,
+{
+    type Output = Prepared<&'input I, Message>;
+
+    fn apply(
+        machine: &mut M,
+        (instruction, context): (&'input I, &'input C),
+    ) -> Result<Self::Output> {
+        let message = Message::prepare(machine, instruction, context)?;
         Ok(Prepared {
             instruction,
             message,
@@ -118,7 +142,7 @@ where
 }
 
 /// Applies an effect directly to the selected field and forwards its output.
-impl<M: Field<F>, F, E> SyncOperation<M, E> for ApplyAt<F>
+impl<M: Field<F>, F, E> SyncOperation<M, E> for ApplyEffectAt<F>
 where
     M::Child: Apply<E, Error: Into<eyre::Report>>,
 {
@@ -126,5 +150,16 @@ where
 
     fn apply(machine: &mut M, effect: E) -> Result<Self::Output> {
         machine.get_mut().apply(effect).map_err(Into::into)
+    }
+}
+
+impl<M, Source, Destination, E> SyncOperation<M, E> for HandleEffectBetween<Source, Destination>
+where
+    M: HandleEffect<Source, Destination, E>,
+{
+    type Output = M::Effect;
+
+    fn apply(machine: &mut M, effect: E) -> Result<Self::Output> {
+        machine.handle_effect(effect, &())
     }
 }

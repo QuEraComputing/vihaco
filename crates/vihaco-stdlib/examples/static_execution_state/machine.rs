@@ -6,7 +6,7 @@
 use crate::{
     checked::{CheckedDriver, Inline, Module, Pause, StepContext},
     framework::{
-        Describe, Route, apply_effect_at, build_message_at, instruction_at, step_graph,
+        Describe, Route, apply_effect_at, execute_instruction_at, prepare_message_at, step_graph,
         synchronous::RunSync,
     },
 };
@@ -15,7 +15,7 @@ use vihaco_abi::Type;
 use vihaco_cpu::{CPU, cpu};
 use vihaco_module::module::{FunctionInfo, Signature};
 use vihaco_runtime::{
-    Apply, BuildMessage, Execute, HasInstructionSet, ReusableMessageRecipe, Step, composite, field,
+    Apply, Execute, HasInstructionSet, ReusableMessageRecipe, Step, composite, field,
 };
 use vihaco_stdlib::{
     ExecutionState, Image, Loadable,
@@ -37,35 +37,19 @@ type Program = Module<Instruction>;
 type ExecutionField = field!(Machine::execution);
 type CpuField = field!(Machine::cpu);
 
-impl<I, Message> BuildMessage<ExecutionField, I, Program, Message> for Machine
-where
-    ExecutionState<Pause>: Execute<I, Message = Message>,
-    Message: ReusableMessageRecipe<Self, ExecutionField, I, Program>,
-{
-    fn build_message(&mut self, instruction: &I, program: &Program) -> Result<Message> {
-        Message::prepare(self, instruction, program)
-    }
-}
-
-impl<I, Message> BuildMessage<CpuField, I, Program, Message> for Machine
-where
-    CPU: Execute<I, Message = Message>,
-    Message: ReusableMessageRecipe<Self, CpuField, I, Program>,
-{
-    fn build_message(&mut self, instruction: &I, program: &Program) -> Result<Message> {
-        Message::prepare(self, instruction, program)
-    }
-}
-
 fn execution_route<I>()
 -> Route<I, impl for<'a> RunSync<Machine, (&'a I, &'a Program), Output = ()> + Describe>
 where
     ExecutionState<Pause>: Execute<I, Effect = (), Error = eyre::Report>,
-    Machine: BuildMessage<ExecutionField, I, Program>,
+    <ExecutionState<Pause> as Execute<I>>::Message:
+        ReusableMessageRecipe<Machine, ExecutionField, I, Program>,
 {
     step_graph::<I>()
-        .begin(build_message_at::<ExecutionField>())
-        .then_execute(instruction_at::<ExecutionField>())
+        .begin(prepare_message_at::<
+            ExecutionField,
+            <ExecutionState<Pause> as Execute<I>>::Message,
+        >())
+        .then(execute_instruction_at::<ExecutionField>())
         .finish()
 }
 
@@ -73,13 +57,13 @@ fn cpu_route<I>()
 -> Route<I, impl for<'a> RunSync<Machine, (&'a I, &'a Program), Output = ()> + Describe>
 where
     CPU: Execute<I, Error = eyre::Report>,
-    Machine: BuildMessage<CpuField, I, Program>,
+    <CPU as Execute<I>>::Message: ReusableMessageRecipe<Machine, CpuField, I, Program>,
     ExecutionState<Pause>:
         Apply<<CPU as Execute<I>>::Effect, Effect = (), Error: Into<eyre::Report>>,
 {
     step_graph::<I>()
-        .begin(build_message_at::<CpuField>())
-        .then_execute(instruction_at::<CpuField>())
+        .begin(prepare_message_at::<CpuField, <CPU as Execute<I>>::Message>())
+        .then(execute_instruction_at::<CpuField>())
         .then(apply_effect_at::<ExecutionField>())
         .finish()
 }
@@ -88,7 +72,8 @@ where
 impl<I> Step<ExecutionField, I, StepContext<'_, Instruction, Inline>> for Machine
 where
     ExecutionState<Pause>: Execute<I, Effect = (), Error = eyre::Report>,
-    Self: BuildMessage<ExecutionField, I, Program>,
+    <ExecutionState<Pause> as Execute<I>>::Message:
+        ReusableMessageRecipe<Machine, ExecutionField, I, Program>,
 {
     fn step(
         &mut self,
@@ -103,7 +88,7 @@ where
 impl<I> Step<CpuField, I, StepContext<'_, Instruction, Inline>> for Machine
 where
     CPU: Execute<I, Error = eyre::Report>,
-    Self: BuildMessage<CpuField, I, Program>,
+    <CPU as Execute<I>>::Message: ReusableMessageRecipe<Machine, CpuField, I, Program>,
     ExecutionState<Pause>:
         Apply<<CPU as Execute<I>>::Effect, Effect = (), Error: Into<eyre::Report>>,
 {

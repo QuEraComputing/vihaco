@@ -3,19 +3,17 @@
 
 //! An async instruction keeps its component across a suspension.
 
-use super::{
-    owner::{RouteDriver, StepContext},
-    tasks::Submit,
-};
 use crate::framework::{
-    AsyncBuildMessage, AsyncSlot, Describe, FutureDriver, Route, Run, apply_effect_at,
-    async_build_message_at, async_instruction_at, step_graph,
+    AsyncBuildMessage, AsyncHandleEffect, AsyncSlot, Describe, FutureDriver, Route, Run,
+    async_build_message_at, async_handle_effect_at, execute_async_instruction_at, step_graph,
+};
+use crate::scheduled::{
+    driver::{Module, Pause, RouteDriver, StepContext},
+    tasks::Submit,
 };
 use eyre::{Result, WrapErr, eyre};
 use std::{collections::VecDeque, convert::Infallible, future::Future};
 use tokio::sync::oneshot;
-use vihaco_abi::{Type, Value};
-use vihaco_module::module::LocalModule;
 use vihaco_runtime::{
     Apply, AsyncExecute, Execute, HasInstructionSet, ReusableMessageRecipe, Step, component,
     composite, dialect, field,
@@ -69,12 +67,6 @@ impl Apply<u16> for AsyncSlot<Digitizer> {
     }
 }
 
-#[derive(Debug)]
-pub(crate) enum Pause {
-    Route,
-    Faulted,
-}
-
 // The lease slot has the same inventory as the component it holds. Make
 // the companion modules available under the field type's alias.
 pub use __vihaco_fields_Digitizer as __vihaco_fields_CaptureDevice;
@@ -94,22 +86,20 @@ pub(crate) struct Machine {
 type ProgramField = field!(Machine::execution);
 type DigitizerField = field!(Machine::digitizer);
 pub(crate) type Instruction = <Machine as HasInstructionSet>::Runtime;
-pub(crate) type SyntaxInstruction = <Machine as HasInstructionSet>::Syntax;
-pub(crate) type Module = LocalModule<Instruction, Value, Type>;
 
-impl<I, Message, B> Step<ProgramField, I, StepContext<'_, B>> for Machine
+impl<I, Message, B> Step<ProgramField, I, StepContext<'_, Self, B>> for Machine
 where
     ExecutionState<Pause>: Execute<I, Message = Message, Effect = (), Error = eyre::Report>,
-    Message: ReusableMessageRecipe<Self, ProgramField, I, Module>,
+    Message: ReusableMessageRecipe<Self, ProgramField, I, Module<Self>>,
 {
-    fn step(&mut self, instruction: &I, context: &StepContext<'_, B>) -> Result<()> {
+    fn step(&mut self, instruction: &I, context: &StepContext<'_, Self, B>) -> Result<()> {
         let message = Message::prepare(self, instruction, context.module)?;
         self.execution.execute(instruction, message)
     }
 }
 
-impl<B: Submit> Step<DigitizerField, Capture, StepContext<'_, B>> for Machine {
-    fn step(&mut self, _: &Capture, context: &StepContext<'_, B>) -> Result<()> {
+impl<B: Submit> Step<DigitizerField, Capture, StepContext<'_, Self, B>> for Machine {
+    fn step(&mut self, _: &Capture, context: &StepContext<'_, Self, B>) -> Result<()> {
         context.start(self, &route(), Capture)
     }
 }
@@ -131,13 +121,26 @@ impl AsyncBuildMessage<DigitizerField, Capture> for Machine {
     }
 }
 
+impl AsyncHandleEffect<DigitizerField, DigitizerField, u16> for Machine {
+    type Effect = ();
+
+    fn handle_effect(&mut self, sample: u16, _: &()) -> impl Future<Output = Result<()>> + 'static {
+        let result = if sample == 0 {
+            Err(eyre!("missing sample"))
+        } else {
+            self.digitizer.apply(sample)
+        };
+        std::future::ready(result)
+    }
+}
+
 fn route<D: FutureDriver<Machine>>()
 -> Route<Capture, impl Run<Machine, Capture, D, Output = ()> + Describe> {
     step_graph::<Capture>()
         .begin(async_build_message_at::<DigitizerField>())
-        .then_execute_async(async_instruction_at::<DigitizerField>())
-        // Execution returns the lease before this node borrows the same field.
-        .then(apply_effect_at::<DigitizerField>())
+        .then(execute_async_instruction_at::<DigitizerField>())
+        // Execution restores the digitizer before the composite sees the sample.
+        .then(async_handle_effect_at::<DigitizerField>())
         .finish()
 }
 
@@ -173,7 +176,7 @@ pub(crate) struct TopologySignature {
 
 /// Inspect the same declaration under either interpreter.
 pub(crate) fn topology<B: Submit>() -> TopologySignature {
-    let topology = route::<RouteDriver<B>>().topology();
+    let topology = route::<RouteDriver<Machine, B>>().topology();
     TopologySignature {
         nodes: topology
             .nodes

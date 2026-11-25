@@ -1,0 +1,24 @@
+sst v2
+
+.section verify-first
+.header
+    .file "failures.sst"
+    .func @main(), locals 0
+    .entry @main
+.text
+@main:
+    parcels::records::verifylabel 42
+    printer::ops::printlabel 42
+    execution::program::halt
+
+.section duplicate-print
+.header
+    .file "failures.sst"
+    .func @main(), locals 0
+    .entry @main
+.text
+@main:
+    printer::ops::printlabel 42
+    printer::ops::printlabel 42
+    parcels::records::verifylabel 42
+    execution::program::halt

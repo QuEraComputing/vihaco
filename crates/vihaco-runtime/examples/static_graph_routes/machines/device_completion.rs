@@ -1,15 +1,16 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! A synchronous instruction returns a handle that the route waits on.
+//! A capture route awaits acquisition and then validates the sample asynchronously.
 
 use crate::framework::{
-    ChannelDriver, Describe, Route, Run, Wait, apply_effect_at, await_work, build_message_at,
-    instruction_at, step_graph,
+    AsyncApply, ChannelDriver, Describe, Route, Run, Wait, async_apply_effect_at, await_work,
+    build_message_at, execute_instruction_at, step_graph,
 };
-use eyre::{Result, eyre};
-use std::convert::Infallible;
-use vihaco_runtime::{Apply, BuildMessage, Execute, component, composite, dialect, field};
+use eyre::{Result, WrapErr, ensure, eyre};
+use std::{cell::Cell, future::Future, rc::Rc};
+use tokio::sync::oneshot;
+use vihaco_runtime::{BuildMessage, Execute, component, composite, dialect, field};
 
 #[dialect]
 #[vihaco(crate = ::vihaco_runtime)]
@@ -24,7 +25,8 @@ pub(crate) mod ops {
 #[derive(Default)]
 pub(crate) struct Digitizer {
     issued: usize,
-    sample: Option<u16>,
+    sample: Rc<Cell<Option<u16>>>,
+    next_validation: Option<oneshot::Receiver<bool>>,
 }
 
 impl Execute<ops::Capture> for Digitizer {
@@ -58,13 +60,22 @@ impl BuildMessage<DigitizerField, ops::Capture, (), Wait<u16>> for Machine {
     }
 }
 
-impl Apply<u16> for Digitizer {
+impl AsyncApply<u16> for Digitizer {
     type Effect = ();
-    type Error = Infallible;
+    type Error = eyre::Report;
 
-    fn apply(&mut self, sample: u16) -> Result<(), Self::Error> {
-        self.sample = Some(sample);
-        Ok(())
+    fn apply(&mut self, sample: u16) -> impl Future<Output = Result<()>> + 'static {
+        let validation = self.next_validation.take();
+        let stored_sample = Rc::clone(&self.sample);
+        async move {
+            let validation = validation.ok_or_else(|| eyre!("sample has no validation handle"))?;
+            ensure!(
+                validation.await.wrap_err("sample validator closed")?,
+                "sample rejected"
+            );
+            stored_sample.set(Some(sample));
+            Ok(())
+        }
     }
 }
 
@@ -72,11 +83,11 @@ fn route() -> Route<
     ops::Capture,
     impl Run<Machine, ops::Capture, ChannelDriver<Machine>, Output = ()> + Describe,
 > {
-    // The completion path parks on the handle returned by Execute.
-    let completion = await_work().then(apply_effect_at::<DigitizerField>());
+    // Acquisition and validation can each complete on their own schedule.
+    let completion = await_work().then(async_apply_effect_at::<DigitizerField>());
     step_graph::<ops::Capture>()
-        .begin(build_message_at::<DigitizerField>())
-        .then_execute(instruction_at::<DigitizerField>())
+        .begin(build_message_at::<DigitizerField, Wait<u16>>())
+        .then(execute_instruction_at::<DigitizerField>())
         .then(completion)
         .finish()
 }
@@ -90,16 +101,54 @@ pub(crate) fn demo() -> Result<()> {
     for sample in [12, 29] {
         // Reuse the route with a fresh handle for each acquisition.
         let (device, completion) = driver.signal();
+        let (validator, validation) = oneshot::channel();
         machine.next_completion = Some(completion);
+        machine.digitizer.next_validation = Some(validation);
         driver.start(&mut machine, &route, ops::Capture);
         let issued = machine.digitizer.issued;
         assert!(driver.take_completion().is_none());
 
+        let previous_sample = machine.digitizer.sample.get();
         device.complete(Ok(sample));
+        driver.poll_ready(&mut machine);
+        // The capture is ready. The async handler still needs validation.
+        assert_eq!(machine.digitizer.sample.get(), previous_sample);
+        assert!(driver.take_completion().is_none());
+
+        validator
+            .send(true)
+            .map_err(|_| eyre!("effect handler stopped waiting for validation"))?;
         driver.run_until_complete(&mut machine)?;
-        assert_eq!(machine.digitizer.sample, Some(sample));
+        assert_eq!(machine.digitizer.sample.get(), Some(sample));
         assert_eq!(machine.digitizer.issued, issued);
     }
     assert_eq!(machine.digitizer.issued, 2);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn async_validation_failure_stops_effect_delivery() {
+        let route = route();
+        let driver = ChannelDriver::new();
+        let (device, completion) = driver.signal();
+        let (validator, validation) = oneshot::channel();
+        let mut machine = Machine::default();
+        machine.next_completion = Some(completion);
+        machine.digitizer.next_validation = Some(validation);
+
+        driver.start(&mut machine, &route, ops::Capture);
+        device.complete(Ok(12));
+        driver.poll_ready(&mut machine);
+        assert!(driver.take_completion().is_none());
+        validator.send(false).expect("validation receiver is live");
+
+        let error = driver.run_until_complete(&mut machine).unwrap_err();
+        assert_eq!(error.to_string(), "sample rejected");
+        assert_eq!(machine.digitizer.sample.get(), None);
+        assert_eq!(machine.digitizer.issued, 1);
+    }
 }

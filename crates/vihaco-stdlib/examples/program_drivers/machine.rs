@@ -6,10 +6,10 @@
 use crate::{
     checked::{CheckedDriver, Module, Pause, StepContext},
     framework::{
-        AnnotatedDriver, Await, Route, Run, Signal, apply_effect_at, await_work, build_message_at,
-        instruction_at, step_graph,
+        AnnotatedDriver, Await, HandleEffect, Route, Run, Signal, await_work, build_message_at,
+        execute_instruction_at, handle_effect_at, step_graph,
     },
-    simulation::MinExecution,
+    timing::MinExecution,
 };
 use eyre::Result;
 use vihaco_abi::{Type, word::Word};
@@ -84,15 +84,24 @@ where
     }
 }
 
+impl HandleEffect<SensorField, ProgramField, SampleEffect> for Machine {
+    type Effect = ();
+
+    fn handle_effect(&mut self, effect: SampleEffect, _: &()) -> Result<()> {
+        vihaco_runtime::Apply::apply(&mut self.execution, effect)?;
+        Ok(())
+    }
+}
+
 fn sample_route<
     B: AnnotatedDriver<Machine> + Await<Machine, SampleRequest, Output = SampleEffect>,
 >() -> Route<ops::Sample, impl Run<Machine, ops::Sample, B, Output = ()>> {
     step_graph::<ops::Sample>()
-        .begin(build_message_at::<SensorField>())
+        .begin(build_message_at::<SensorField, NoMessage>())
         // Simulation releases the request after three ticks, then waits for its reply.
-        .then_execute(instruction_at::<SensorField>().annotate::<MinExecution<3>>())
+        .then(execute_instruction_at::<SensorField>().annotate::<MinExecution<3>>())
         .then(await_work())
-        .then(apply_effect_at::<ProgramField>())
+        .then(handle_effect_at::<ProgramField>())
         .finish()
 }
 

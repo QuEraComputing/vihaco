@@ -14,7 +14,9 @@ can delegate input preparation to `ReusableMessageRecipe::prepare` and
 delegate delivery to the receiving field's `Apply` implementation.
 
 ```rust,ignore
-pub trait HandleEffect<F, E, Context: ?Sized = ()>: Field<F> {
+pub trait HandleEffect<Source, Destination, E, Context: ?Sized = ()>:
+    Field<Source> + Field<Destination>
+{
     type Effect;
 
     fn handle_effect(
@@ -25,18 +27,23 @@ pub trait HandleEffect<F, E, Context: ?Sized = ()>: Field<F> {
 }
 ```
 
-`F` identifies the emitting field, so the composite can handle identical
-effect types differently based on their source. `E` identifies the incoming
-effect, so instructions from the same field can share a handler. The
-associated `Effect` is the value passed to the next link. Use `()` when
-the handler consumes the effect and ends the chain.
+The composite implements the hook for a particular source, destination,
+and incoming effect type. For example, a sensor can emit a completed
+sample. The composite can validate it for the program field and return
+`PushToStack<[Word; 1]>`, or transform the same sample for a display
+field using a separate impl. Both fields resolve through `Field`.
+The source and destination may be the same field.
 
-For example, a sensor can emit a completed sample and the composite can
-validate it before emitting `PushToStack<[Word; 1]>`. An authored step
-calls the composite handler, then applies the stack effect to the program
-field. A chain can repeat this pattern across any number of handlers.
-Each link consumes the preceding output in order. An error stops the
-chain and preserves mutations already made by earlier links.
+Choose one handler for each effect handoff. A field-local node handles
+delivery through `Apply` or `AsyncApply`. A composite node handles the
+handoff through `HandleEffect` or `AsyncHandleEffect` and can delegate
+to the receiving field inside that hook. This is the same choice a
+route makes between a message recipe and a composite builder.
+
+If a handler emits a new effect, that effect can have its own handoff.
+Each link consumes the previous output and chooses its own handler.
+Use `()` when the hook consumes the effect and ends the chain. An
+error stops the chain and preserves prior mutations.
 
 ### Apply effects at the receiving field
 
@@ -63,10 +70,12 @@ handlers that fail or produce another effect. The route names the destination wi
 `apply_effect_at::<DestinationField>()`. The node projects that field
 with `Field::get_mut`, calls `Apply`, and forwards its output. This keeps
 each receiving field visible in the topology and limits the handler's
-mutable borrow to that field. When handling requires composite state or
-source-dependent routing, the authored step uses
-`HandleEffect<SourceField, E, Context>`. That hook can delegate to one or
-more receivers according to the composite's policy.
+mutable borrow to that field. When handling depends on the composite,
+the authored step uses `HandleEffect<SourceField, DestinationField, E, Context>`.
+The `handle_effect_at::<DestinationField>()` node infers the source from
+the upstream field operation and calls the composite hook. If that
+hook delegates to `Apply`, the delegation stays inside the impl.
+`BuildMessage` selects its hook using the instruction destination.
 
 [Apply contract](../../crates/vihaco-runtime/src/apply.rs) · [Route effect application](../../crates/vihaco-runtime/examples/static_graph_routes/framework/operations.rs)
 
@@ -75,8 +84,15 @@ more receivers according to the composite's policy.
 The RFC proposes public traits for suspending during message preparation,
 instruction execution, and effect handling. Each stage is independently
 selectable. A synchronous instruction can hand its result to an async effect
-handler. This branch implements `AsyncExecute` and prototypes
-`AsyncBuildMessage` in the route examples.
+handler. This branch implements `AsyncExecute` in the runtime and
+prototypes the other async hooks in the route examples.
+`async_prepare_message_at` calls the message type's reusable recipe.
+`async_build_message_at` calls the composite's builder.
+`async_apply_effect_at` calls `AsyncApply` at the receiving field.
+`async_handle_effect_at` calls `AsyncHandleEffect` on the composite
+using the inferred source and the named destination. Each submits owned work through the
+same driver boundary.
+[Async effect node](../../crates/vihaco-runtime/examples/static_graph_routes/framework/async_execution.rs) · [Validation example](../../crates/vihaco-runtime/examples/static_graph_routes/machines/device_completion.rs)
 
 ### Component coverage
 
@@ -159,6 +175,13 @@ borrow.
 ```rust,ignore
 use std::future::Future;
 
+pub trait AsyncReusableMessageRecipe<Parent, F, I, Context: ?Sized = ()>: Sized {
+    type Error;
+
+    fn prepare(parent: &mut Parent, instruction: &I, context: &Context)
+        -> impl Future<Output = Result<Self, Self::Error>> + 'static;
+}
+
 pub trait AsyncBuildMessage<F, I, Context: ?Sized = ()>: Field<F> {
     type Message: 'static;
     type Error;
@@ -182,7 +205,17 @@ pub trait AsyncExecute<I>: Component {
     ) -> impl Future<Output = Result<Self::Effect, Self::Error>>;
 }
 
-pub trait AsyncHandleEffect<F, E, Context: ?Sized = ()>: Field<F> {
+pub trait AsyncApply<E> {
+    type Effect: 'static;
+    type Error;
+
+    fn apply(&mut self, effect: E)
+        -> impl Future<Output = Result<Self::Effect, Self::Error>> + 'static;
+}
+
+pub trait AsyncHandleEffect<Source, Destination, E, Context: ?Sized = ()>:
+    Field<Source> + Field<Destination>
+{
     type Effect: 'static;
 
     fn handle_effect(
@@ -213,7 +246,8 @@ Use the narrowest ownership that the operation needs.
 | Operation | What the pending work owns |
 | --- | --- |
 | Issue a device request, then wait for its result | The work handle or an owned future. The component remains in its field. |
-| Prepare a message or handle an effect asynchronously | Owned inputs extracted during a short borrow of the composite. A later stage can apply the result with a fresh borrow. |
+| Prepare a message or handle a composite-level effect asynchronously | Owned inputs extracted during a short borrow of the composite. |
+| Handle an effect asynchronously at a receiving field | The effect and any inputs or handles extracted during a short field borrow. The next stage can borrow the machine afresh. |
 | Run a component method that borrows `&mut self` across suspension | The owned instruction and an exclusive lease of the component. |
 
 `AsyncSlot` is the prototype's way to implement the third case. The
@@ -234,8 +268,8 @@ methods. The prototype uses a thread-local slot. Backends can run
 An operation that can wait using owned data or a work handle needs
 no slot. For example, a digitizer can increment its issue counter
 and return a sample handle synchronously. The route waits on the
-handle, then stores the sample through `Apply` with a fresh borrow
-of the digitizer. A slot is useful when the component's own async
+handle and uses `AsyncApply` to wait for validation. The owned handler
+future stores the accepted sample through a field-owned handle. A slot is useful when the component's own async
 method must retain its exclusive borrow.
 [Device completion example](../../crates/vihaco-runtime/examples/static_graph_routes/machines/device_completion.rs) · [Component lease prototype](../../crates/vihaco-runtime/examples/static_graph_routes/framework/async_execution.rs)
 
@@ -250,13 +284,11 @@ keeps a completion from an earlier invocation from applying an effect
 after reset or image replacement.
 [Driver ownership and delivery](route-drivers.md#ownership-of-parked-routes)
 
-The preparation contract depends on whether preparation can suspend.
-Use `BuildMessage` when it completes during the initial borrow and
-`AsyncBuildMessage` when it returns a future. Both can supply the
-message for `Execute` or `AsyncExecute`. Generalize the existing
-`BuildMessage` bound, which gets the message type from `Execute`, so
-the selected execution stage checks its input type. The route adapters
-submit futures that report failures as `eyre::Report`.
-Synchronous preparation can then feed either execution mode through the
-same hook.
-[Current BuildMessage bound](../../crates/vihaco-runtime/src/build_message.rs)
+The preparation contract depends on where preparation is defined and
+whether it can suspend. A recipe lives on the message type. A builder
+lives on the composite. Both can supply the message for `Execute`
+or `AsyncExecute`. `BuildMessage` still defaults to the synchronous
+execution message. An explicit message type lets it also feed the async
+execution node. The execution node checks message compatibility.
+The route adapters submit futures that report failures as `eyre::Report`.
+[BuildMessage contract](../../crates/vihaco-runtime/src/build_message.rs)

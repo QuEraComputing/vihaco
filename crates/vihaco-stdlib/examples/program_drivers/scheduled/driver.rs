@@ -1,23 +1,33 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! The machine owner records route continuations separately from scheduled tasks.
+//! Issue and resume one instruction using a machine lent by the runtime.
 
-use super::{
-    digitizer::{Instruction, Machine, Module, Pause},
-    tasks::{Submit, TaskId},
+use super::tasks::{Submit, TaskId, Ticket, TimedSubmit};
+use crate::{
+    framework::{AnnotatedDriver, FutureDriver, Metadata, Operation, Route, Run},
+    timing::minimum_execution,
 };
-use crate::framework::{FutureDriver, Route, Run};
 use eyre::{Result, ensure, eyre};
 use std::{cell::RefCell, collections::HashMap, future::Future, ops::ControlFlow, rc::Rc};
-use vihaco_abi::word::Word;
-use vihaco_runtime::HasProgram;
+use vihaco_abi::{Type, Value, word::Word};
+use vihaco_module::module::LocalModule;
+use vihaco_runtime::{Composite, Dispatch, HasInstructionSet, HasProgram};
 use vihaco_stdlib::{
-    Image, Loadable,
+    ExecutionState, Image, Loadable,
     execution_state::{RunState, execute_instruction_with_context, run},
 };
 
-type Resume<B> = Box<dyn FnOnce(&mut Machine, &RouteDriver<B>)>;
+pub(crate) type Module<M> = LocalModule<<M as HasInstructionSet>::Runtime, Value, Type>;
+pub(crate) type Loaded<M> = Loadable<Image<<M as HasInstructionSet>::Runtime>, M>;
+
+#[derive(Debug)]
+pub(crate) enum Pause {
+    Route,
+    Faulted,
+}
+
+type Resume<M, B> = Box<dyn FnOnce(&mut M, &RouteDriver<M, B>)>;
 
 struct RouteState {
     continuation_pc: u32,
@@ -26,24 +36,29 @@ struct RouteState {
 
 type ActiveRoute = Rc<RefCell<RouteState>>;
 
-struct Parked<B> {
+struct Parked<M, B> {
     machine: usize,
     route: ActiveRoute,
-    resume: Resume<B>,
+    resume: Resume<M, B>,
 }
 
-type PendingRoutes<B> = Rc<RefCell<HashMap<TaskId, Parked<B>>>>;
+type PendingRoutes<M, B> = Rc<RefCell<HashMap<TaskId, Parked<M, B>>>>;
 
 /// Bridges the current route trait to the machine-independent scheduler.
-pub(crate) struct RouteDriver<B> {
+pub(crate) struct RouteDriver<M, B> {
     machine: usize,
     submitter: B,
-    pending: PendingRoutes<B>,
+    pending: PendingRoutes<M, B>,
     route: ActiveRoute,
 }
 
-impl<B: Submit> RouteDriver<B> {
-    fn new(machine: usize, submitter: &B, pending: &PendingRoutes<B>, route: ActiveRoute) -> Self {
+impl<M: 'static, B: Submit> RouteDriver<M, B> {
+    fn new(
+        machine: usize,
+        submitter: &B,
+        pending: &PendingRoutes<M, B>,
+        route: ActiveRoute,
+    ) -> Self {
         Self {
             machine,
             submitter: submitter.clone(),
@@ -60,14 +75,58 @@ impl<B: Submit> RouteDriver<B> {
     }
 }
 
-impl<B: Submit> FutureDriver<Machine> for RouteDriver<B> {
+impl<M: 'static, B: Submit> FutureDriver<M> for RouteDriver<M, B> {
     fn run_future<T: 'static>(
         &self,
-        machine: &mut Machine,
+        machine: &mut M,
         future: impl Future<Output = Result<T>> + 'static,
-        done: impl FnOnce(&mut Machine, &Self, Result<T>) + 'static,
+        done: impl FnOnce(&mut M, &Self, Result<T>) + 'static,
     ) {
-        let ticket = match self.submitter.submit(future) {
+        let ticket = self.submitter.submit(future);
+        self.register(machine, ticket, done);
+    }
+}
+
+impl<M: 'static, B: TimedSubmit> AnnotatedDriver<M> for RouteDriver<M, B> {
+    fn run_annotated<I, N: Operation<M, I, Self>>(
+        &self,
+        machine: &mut M,
+        metadata: &Metadata,
+        input: I,
+        done: impl FnOnce(&mut M, &Self, Result<N::Output>) + 'static,
+    ) {
+        let ticks = minimum_execution(metadata);
+        if ticks == 0 {
+            return N::start(machine, self, input, done);
+        }
+
+        let deadline = match self.submitter.deadline(ticks) {
+            Ok(deadline) => deadline,
+            Err(error) => return done(machine, self, Err(error)),
+        };
+        N::start(
+            machine,
+            self,
+            input,
+            move |machine, driver, result| match result {
+                Ok(value) => {
+                    let ticket = driver.submitter.submit_at(deadline, value);
+                    driver.register(machine, ticket, done);
+                }
+                Err(error) => done(machine, driver, Err(error)),
+            },
+        );
+    }
+}
+
+impl<M: 'static, B: Submit> RouteDriver<M, B> {
+    fn register<T: 'static>(
+        &self,
+        machine: &mut M,
+        ticket: Result<Ticket<T>>,
+        done: impl FnOnce(&mut M, &Self, Result<T>) + 'static,
+    ) {
+        let ticket = match ticket {
             Ok(ticket) => ticket,
             Err(error) => return done(machine, self, Err(error)),
         };
@@ -84,22 +143,26 @@ impl<B: Submit> FutureDriver<Machine> for RouteDriver<B> {
     }
 }
 
-pub(crate) struct StepContext<'a, B> {
+pub(crate) struct StepContext<'a, M: HasInstructionSet, B> {
     machine: usize,
     submitter: &'a B,
-    pending: &'a PendingRoutes<B>,
-    pub(crate) module: &'a Module,
+    pending: &'a PendingRoutes<M, B>,
+    pub(crate) module: &'a Module<M>,
 }
 
-impl<B: Submit> StepContext<'_, B> {
+impl<M, B> StepContext<'_, M, B>
+where
+    M: HasInstructionSet + HasProgram<Program = ExecutionState<Pause>> + 'static,
+    B: Submit,
+{
     pub(crate) fn start<I, P>(
         &self,
-        machine: &mut Machine,
+        machine: &mut M,
         route: &Route<I, P>,
         instruction: I,
     ) -> Result<()>
     where
-        P: Run<Machine, I, RouteDriver<B>, Output = ()>,
+        P: Run<M, I, RouteDriver<M, B>, Output = ()>,
     {
         let state = Rc::new(RefCell::new(RouteState {
             continuation_pc: machine.program().pc(),
@@ -130,30 +193,31 @@ impl<B: Submit> StepContext<'_, B> {
     }
 }
 
-pub(crate) type Loaded = Loadable<Image<Instruction>, Machine>;
-
-pub(crate) struct Owner<B> {
-    pub(crate) machines: Vec<Loaded>,
+pub(crate) struct Driver<M, B> {
     submitter: B,
-    pending: PendingRoutes<B>,
+    pending: PendingRoutes<M, B>,
 }
 
-impl<B: Submit> Owner<B> {
-    pub(crate) fn new(machines: Vec<Loaded>, submitter: B) -> Self {
+impl<M, B> Driver<M, B>
+where
+    M: Composite + HasInstructionSet + HasProgram<Program = ExecutionState<Pause>> + 'static,
+    M: for<'a> Dispatch<StepContext<'a, M, B>, Instruction = M::Runtime>,
+    B: Submit,
+{
+    pub(crate) fn new(submitter: B) -> Self {
         Self {
-            machines,
             submitter,
             pending: Rc::default(),
         }
     }
 
-    pub(crate) fn enter(&mut self, machine: usize, args: &[Word]) -> Result<()> {
-        self.machines[machine].start(args)
+    pub(crate) fn enter(&self, loaded: &mut Loaded<M>, args: &[Word]) -> Result<()> {
+        loaded.start(args)
     }
 
-    /// Fetch and dispatch at most one instruction from the selected program.
-    pub(crate) fn issue_one(&mut self, machine_id: usize) -> Result<()> {
-        let (image, machine) = self.machines[machine_id].parts_mut();
+    /// Fetch and dispatch one instruction from the selected program.
+    pub(crate) fn issue_one(&self, machine_id: usize, loaded: &mut Loaded<M>) -> Result<()> {
+        let (image, machine) = loaded.parts_mut();
         let context = StepContext {
             machine: machine_id,
             submitter: &self.submitter,
@@ -174,15 +238,23 @@ impl<B: Submit> Owner<B> {
         result
     }
 
+    pub(crate) fn waiting_machine(&self, task: TaskId) -> Result<usize> {
+        self.pending
+            .borrow()
+            .get(&task)
+            .map(|parked| parked.machine)
+            .ok_or_else(|| eyre!("no parked route for {task:?}"))
+    }
+
     /// Deliver one result under the execution guard and return before fetching again.
-    pub(crate) fn resume(&mut self, task: TaskId) -> Result<usize> {
+    pub(crate) fn resume(&self, task: TaskId, loaded: &mut Loaded<M>) -> Result<()> {
         let parked = self
             .pending
             .borrow_mut()
             .remove(&task)
             .ok_or_else(|| eyre!("no parked route for {task:?}"))?;
         let driver = RouteDriver::new(parked.machine, &self.submitter, &self.pending, parked.route);
-        let machine = self.machines[parked.machine].machine_mut();
+        let machine = loaded.machine_mut();
         let origin = machine.program().pc();
         ensure!(
             matches!(machine.program().run_state(), RunState::Other(Pause::Route)),
@@ -215,6 +287,6 @@ impl<B: Submit> Owner<B> {
             machine.program_mut().suspend(Pause::Faulted);
             return Err(error);
         }
-        Ok(parked.machine)
+        Ok(())
     }
 }
