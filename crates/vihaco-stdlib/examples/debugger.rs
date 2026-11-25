@@ -91,7 +91,7 @@ impl Step<DebuggerField, debug::Breakpoint, Program> for Machine {
                 module,
             )?;
         let effect = self.debugger.execute(instruction, message)?;
-        self.execution.apply(effect);
+        self.execution.apply(effect)?;
         Ok(())
     }
 }

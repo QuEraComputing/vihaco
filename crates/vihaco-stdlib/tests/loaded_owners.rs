@@ -120,7 +120,7 @@ impl<I> Step<field!(SequencerMachine::cpu), I, Module<SequencerMachine>> for Seq
 where
     CPU: Execute<I, Error = eyre::Report>,
     Self: BuildMessage<field!(SequencerMachine::cpu), I, Module<Self>>,
-    ExecutionState: Apply<<CPU as Execute<I>>::Effect>,
+    ExecutionState: Apply<<CPU as Execute<I>>::Effect, Effect = (), Error: Into<eyre::Report>>,
 {
     fn step(&mut self, instruction: &I, module: &Module<Self>) -> eyre::Result<()> {
         let message =
@@ -130,8 +130,7 @@ where
                 module,
             )?;
         let effect = self.cpu.execute(instruction, message)?;
-        self.execution.apply(effect);
-        Ok(())
+        self.execution.apply(effect).map_err(Into::into)
     }
 }
 

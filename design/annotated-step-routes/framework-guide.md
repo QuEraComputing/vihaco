@@ -11,6 +11,12 @@ clamp does. In the sample program, all backends turn the completed sample
 into a typed `PushToStack` effect and the program field applies it before
 the next fetch. [Waveform handlers](../../crates/vihaco-runtime/examples/static_graph_routes/machines/waveform/mod.rs) · [Sample route](../../crates/vihaco-stdlib/examples/program_drivers/machine.rs)
 
+This walkthrough follows the checked Warehouse example. Its simulator
+stores a delivery callback in the event queue. The proposed shared
+scheduler interface uses a typed ticket and leaves the continuation
+with the program driver. The one-call `execute` entry point can wrap
+either arrangement. [Task submission and completion](route-drivers.md#task-submission-and-completion)
+
 ## Warehouse label printing walkthrough
 
 The program prints a barcode for parcel 42, then looks up that parcel to
@@ -37,13 +43,13 @@ interface directly so it can inspect the machine between those operations.
 step_graph::<ops::PrintLabel>()
     .begin(build_message_at::<PrinterField>())
     .then_execute(instruction_at::<PrinterField>().annotate::<MinExecution<12>>())
-    .then(receive_effect_at::<ParcelField>())
+    .then(apply_effect_at::<ParcelField>())
     .finish()
 ```
 
 `PrinterField` and `ParcelField` identify fields of the same `Warehouse`
 machine. The printer implements `Execute<ops::PrintLabel>`. The parcel
-records implement `Receive<LabelPrinted>` and, separately,
+records implement `Apply<LabelPrinted>` and, separately,
 `Execute<records::VerifyLabel>`. Receipt is the last operation of the
 print route. Verification is a later instruction with its own route.
 [Warehouse components and routes](../../crates/vihaco-stdlib/examples/program_drivers/warehouse/mod.rs)
@@ -52,7 +58,7 @@ print route. Verification is a later instruction with its own route.
 | --- | --- | --- |
 | Prepare at `PrinterField` | `PrintLabel(42)` | `Prepared { instruction: PrintLabel(42), message: NoMessage }` |
 | Execute at `PrinterField` | The prepared instruction and message | `LabelPrinted { parcel: 42, barcode: "BX-0042" }` |
-| Receive at `ParcelField` | The owned `LabelPrinted` effect | `()` after storing the barcode |
+| Apply at `ParcelField` | The owned `LabelPrinted` effect | `()` after storing the barcode |
 
 `begin` installs the preparation node in a step builder whose state is
 `Before`. `then_execute` replaces the field selector with an execution
@@ -73,7 +79,7 @@ labels, field markers, and annotation types. It produces this output.
 Warehouse / Print Label
   0  build message printer []
   1  execute instruction printer ["MinExecution<12>"]
-  2  receive effect parcels []
+  2  apply effect parcels []
   0 → 1  []
   1 → 2  []
 ```
@@ -148,8 +154,8 @@ validates the work ID, restores the saved continuation PC of 1 under
 the reentrancy guard, and asks the simulator to deliver. `advance_next`
 removes the event for tick 17, sets the simulated clock, and invokes
 the stored callback with a fresh mutable borrow of Warehouse.
-The continuation starts `receive_effect_at::<ParcelField>()`.
-`ParcelRecords::receive` inserts the barcode under parcel 42 and returns
+The continuation starts `apply_effect_at::<ParcelField>()`.
+`ParcelRecords::apply` inserts the barcode under parcel 42 and returns
 `Ok(())`. This completes the route, so its terminal callback writes
 `Some(Ok(()))` into the program driver's slot.
 [Scheduled delivery](../../crates/vihaco-runtime/examples/static_graph_routes/simulation.rs) · [Parcel receiver](../../crates/vihaco-stdlib/examples/program_drivers/warehouse/mod.rs)
@@ -181,13 +187,11 @@ backends use the same `StepContext` and checked program loop.
 [Channel comparison](../../crates/vihaco-stdlib/examples/program_drivers/warehouse/mod.rs) · [Default annotation hook](../../crates/vihaco-runtime/examples/static_graph_routes/framework/graph/execution.rs)
 
 If receipt rejects a duplicate label, the route reports the error through
-the same slot. The program driver enters `Faulted` at PC 0 and the print
-submission already recorded by the printer remains. The checked-in
-failure test instead runs verification first. It confirms that the
-missing-label error leaves the PC at 0 and the later print is never
-dispatched. The checked driver owns one in-flight instruction per
-machine. The driver design describes debugger authorization and the
-remaining work on owner scheduling and retirement gates.
+the same slot. The deferred failure test prints twice and checks that
+the second print faults at PC 1. The first stored label and both print
+submissions remain, and verification never runs. A separate test runs
+verification first and checks that its missing-label error leaves the PC
+at 0. The checked driver owns one in-flight instruction per machine.
 [Failure test](../../crates/vihaco-stdlib/examples/program_drivers/warehouse/mod.rs) · [Route drivers](route-drivers.md)
 
 ## Where to read next

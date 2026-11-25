@@ -11,8 +11,7 @@
 //! | --- | --- | --- |
 //! | `build_message_at::<F>()` | Owned instruction for `Run`, or borrowed instruction and context for `RunSync` | `Prepared` instruction and message |
 //! | `instruction_at::<F>()` | `Prepared` instruction and message | Effect from `Execute` on field `F` |
-//! | `receive_effect_at::<F>()` | Effect | Output from the field's fallible `Receive` handler |
-//! | `apply_effect_at::<F>()` | Effect | `()` after applying it to field `F` |
+//! | `apply_effect_at::<F>()` | Effect | Output of `Apply` on field `F` |
 //! | `duplicate()` | Cloneable payload | Two owned values for a fork |
 //! | `await_work()` | Backend-specific work handle | Typed result delivered through `Await` |
 //!
@@ -26,9 +25,7 @@ use super::{
 };
 use eyre::Result;
 use std::{any::type_name, marker::PhantomData};
-#[cfg(feature = "program-image-execution")]
-use vihaco_runtime::Apply;
-use vihaco_runtime::{BuildMessage, Execute, Field};
+use vihaco_runtime::{Apply, BuildMessage, Execute, Field};
 
 /// Runs one operation for machine `M`, input `I`, and driver `D`.
 ///
@@ -140,64 +137,14 @@ where
     }
 }
 
-/// Applies a routed effect to its receiving component.
-///
-/// A receive error ends the current path and is passed to its continuation.
-pub(crate) trait Receive<E> {
-    /// The next effect to forward, or `()` for a terminal receiver.
-    type Output;
-
-    /// Applies the effect to this component and returns its output.
-    fn receive(&mut self, effect: E) -> Result<Self::Output>;
-}
-
-/// Delivers an effect to field `F` using its component's `Receive` implementation.
-pub(crate) struct ReceiveAt<F>(PhantomData<fn() -> F>);
-
-/// Creates a node that delivers an effect to field `F` and forwards its output.
-pub(crate) fn receive_effect_at<F>() -> NodePlan<ReceiveAt<F>> {
-    node()
-}
-
-/// Names effect reception and identifies its selected field.
-impl<F> Label for ReceiveAt<F> {
-    const LABEL: &'static str = "receive effect";
-
-    fn field() -> Option<&'static str> {
-        Some(type_name::<F>())
-    }
-}
-
-/// Borrows the receiving component, delivers the effect, and reports its output.
-impl<M: Field<F>, D, F, E> Operation<M, E, D> for ReceiveAt<F>
-where
-    M::Child: Receive<E, Output: 'static>,
-{
-    type Output = <M::Child as Receive<E>>::Output;
-
-    fn start(
-        machine: &mut M,
-        driver: &D,
-        effect: E,
-        done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
-    ) {
-        let result = machine.get_mut().receive(effect);
-        done(machine, driver, result);
-    }
-}
-
-/// Delivers an infallible effect through the selected field's `Apply` implementation.
-#[cfg(feature = "program-image-execution")]
+/// Applies a routed effect to field `F`.
 pub(crate) struct ApplyAt<F>(PhantomData<fn() -> F>);
 
-/// Creates a node that applies an effect to field `F`.
-#[cfg(feature = "program-image-execution")]
-#[allow(dead_code, reason = "used by the stdlib program examples")]
+/// Creates a node that applies an effect to field `F` and forwards its output.
 pub(crate) fn apply_effect_at<F>() -> NodePlan<ApplyAt<F>> {
     node()
 }
 
-#[cfg(feature = "program-image-execution")]
 impl<F> Label for ApplyAt<F> {
     const LABEL: &'static str = "apply effect";
 
@@ -206,21 +153,20 @@ impl<F> Label for ApplyAt<F> {
     }
 }
 
-#[cfg(feature = "program-image-execution")]
 impl<M: Field<F>, D, F, E> Operation<M, E, D> for ApplyAt<F>
 where
-    M::Child: Apply<E>,
+    M::Child: Apply<E, Effect: 'static, Error: Into<eyre::Report>>,
 {
-    type Output = ();
+    type Output = <M::Child as Apply<E>>::Effect;
 
     fn start(
         machine: &mut M,
         driver: &D,
         effect: E,
-        done: impl FnOnce(&mut M, &D, Result<()>) + 'static,
+        done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
     ) {
-        machine.get_mut().apply(effect);
-        done(machine, driver, Ok(()));
+        let result = machine.get_mut().apply(effect).map_err(Into::into);
+        done(machine, driver, result);
     }
 }
 

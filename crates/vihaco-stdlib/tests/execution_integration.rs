@@ -101,7 +101,7 @@ impl<I> Step<field!(Machine::cpu), I, Program> for Machine
 where
     CPU: Execute<I, Error = eyre::Report>,
     Self: BuildMessage<field!(Machine::cpu), I, Program>,
-    ExecutionState: Apply<<CPU as Execute<I>>::Effect>,
+    ExecutionState: Apply<<CPU as Execute<I>>::Effect, Effect = (), Error: Into<eyre::Report>>,
 {
     fn step(&mut self, instruction: &I, module: &Program) -> eyre::Result<()> {
         self.assert_borrowed_instruction(instruction, module);
@@ -111,7 +111,9 @@ where
             module,
         )?;
         let effect = self.cpu.execute(instruction, message)?;
-        self.program.apply(effect);
+        self.program
+            .apply(effect)
+            .map_err(Into::<eyre::Report>::into)?;
         if self.fail_after_effects {
             // Even after Halt inside an authored Step, its invocation remains
             // protected against reentrant execution.
@@ -480,10 +482,10 @@ fn variable_batches_keep_order_ownership_empty_inputs_and_partial_consumption() 
             vm.program.start(&module, &[]).unwrap();
             let expected = (1..=count as u64).collect::<Vec<_>>();
             for value in &expected {
-                vm.program.apply(PushToStack((*value,)));
+                vm.program.apply(PushToStack((*value,))).unwrap();
             }
             if from_stack {
-                vm.program.apply(PushToStack((count as u64,)));
+                vm.program.apply(PushToStack((count as u64,))).unwrap();
             }
             resume(&module, &mut vm).unwrap();
             assert_eq!(vm.program.stack(), &[0]);
@@ -497,7 +499,9 @@ fn variable_batches_keep_order_ownership_empty_inputs_and_partial_consumption() 
         "program::program::halt",
     ]);
     vm.program.start(&module, &[]).unwrap();
-    vm.program.apply(PushToStack((7_u64, 9_u64, 3_u64)));
+    vm.program
+        .apply(PushToStack((7_u64, 9_u64, 3_u64)))
+        .unwrap();
     assert!(resume(&module, &mut vm).is_err());
     assert_eq!(vm.program.stack(), &[0]); // Locals protected; count and prior values consumed.
     assert_eq!(vm.program.pc(), 0);

@@ -74,7 +74,8 @@ fn cpu_route<I>()
 where
     CPU: Execute<I, Error = eyre::Report>,
     Machine: BuildMessage<CpuField, I, Program>,
-    ExecutionState<Pause>: Apply<<CPU as Execute<I>>::Effect>,
+    ExecutionState<Pause>:
+        Apply<<CPU as Execute<I>>::Effect, Effect = (), Error: Into<eyre::Report>>,
 {
     step_graph::<I>()
         .begin(build_message_at::<CpuField>())
@@ -103,7 +104,8 @@ impl<I> Step<CpuField, I, StepContext<'_, Instruction, Inline>> for Machine
 where
     CPU: Execute<I, Error = eyre::Report>,
     Self: BuildMessage<CpuField, I, Program>,
-    ExecutionState<Pause>: Apply<<CPU as Execute<I>>::Effect>,
+    ExecutionState<Pause>:
+        Apply<<CPU as Execute<I>>::Effect, Effect = (), Error: Into<eyre::Report>>,
 {
     fn step(
         &mut self,

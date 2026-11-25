@@ -7,12 +7,13 @@
 mod tokio_driver;
 
 use crate::framework::{
-    AsyncExecute, AsyncSlot, BuildAsyncMessage, ChannelDriver, Describe, FutureDriver, Receive,
-    Route, Run, async_instruction_at, build_async_message_at, receive_effect_at, step_graph,
+    AsyncExecute, AsyncSlot, BuildAsyncMessage, ChannelDriver, Describe, FutureDriver, Route, Run,
+    apply_effect_at, async_instruction_at, build_async_message_at, step_graph,
 };
 use eyre::{Result, WrapErr, eyre};
+use std::convert::Infallible;
 use tokio::sync::oneshot;
-use vihaco_runtime::Field;
+use vihaco_runtime::{Apply, Field};
 
 struct Capture;
 
@@ -34,12 +35,22 @@ impl AsyncExecute<Capture> for Digitizer {
     }
 }
 
-impl Receive<u16> for Digitizer {
-    type Output = ();
+impl Apply<u16> for Digitizer {
+    type Effect = ();
+    type Error = Infallible;
 
-    fn receive(&mut self, sample: u16) -> Result<()> {
+    fn apply(&mut self, sample: u16) -> Result<(), Self::Error> {
         self.sample = Some(sample);
         Ok(())
+    }
+}
+
+impl Apply<u16> for AsyncSlot<Digitizer> {
+    type Effect = ();
+    type Error = eyre::Report;
+
+    fn apply(&mut self, sample: u16) -> Result<()> {
+        self.apply_to_component(sample)
     }
 }
 
@@ -79,7 +90,7 @@ fn route<D: FutureDriver<Machine>>()
         .begin(build_async_message_at::<DigitizerField>())
         .then_execute_async(async_instruction_at::<DigitizerField>())
         // Execution returns the lease before this node borrows the same field.
-        .then(receive_effect_at::<DigitizerField>())
+        .then(apply_effect_at::<DigitizerField>())
         .finish()
 }
 

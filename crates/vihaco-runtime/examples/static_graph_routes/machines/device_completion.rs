@@ -4,11 +4,12 @@
 //! A synchronous instruction returns a handle that the route waits on.
 
 use crate::framework::{
-    ChannelDriver, Describe, Receive, Route, Run, Wait, await_work, build_message_at,
-    instruction_at, receive_effect_at, step_graph,
+    ChannelDriver, Describe, Route, Run, Wait, apply_effect_at, await_work, build_message_at,
+    instruction_at, step_graph,
 };
 use eyre::{Result, eyre};
-use vihaco_runtime::{BuildMessage, Execute, component, composite, dialect, field};
+use std::convert::Infallible;
+use vihaco_runtime::{Apply, BuildMessage, Execute, component, composite, dialect, field};
 
 #[dialect]
 #[vihaco(crate = ::vihaco_runtime)]
@@ -57,10 +58,11 @@ impl BuildMessage<DigitizerField, ops::Capture, (), Wait<u16>> for Machine {
     }
 }
 
-impl Receive<u16> for Digitizer {
-    type Output = ();
+impl Apply<u16> for Digitizer {
+    type Effect = ();
+    type Error = Infallible;
 
-    fn receive(&mut self, sample: u16) -> Result<()> {
+    fn apply(&mut self, sample: u16) -> Result<(), Self::Error> {
         self.sample = Some(sample);
         Ok(())
     }
@@ -71,7 +73,7 @@ fn route() -> Route<
     impl Run<Machine, ops::Capture, ChannelDriver<Machine>, Output = ()> + Describe,
 > {
     // The completion path parks on the handle returned by Execute.
-    let completion = await_work().then(receive_effect_at::<DigitizerField>());
+    let completion = await_work().then(apply_effect_at::<DigitizerField>());
     step_graph::<ops::Capture>()
         .begin(build_message_at::<DigitizerField>())
         .then_execute(instruction_at::<DigitizerField>())

@@ -100,9 +100,12 @@ pub use runtime::field;
 #[cfg(feature = "typed-declarations")]
 pub use runtime::dialect;
 
+#[cfg(feature = "typed-declarations")]
+pub use runtime::Apply;
+
 #[cfg(feature = "program-image-execution")]
 pub use runtime::{
-    Apply, HasOperandStack, InputCount, PopFromStack, PopStack, PushStack, PushToStack, StackBatch,
+    HasOperandStack, InputCount, PopFromStack, PopStack, PushStack, PushToStack, StackBatch,
     StackBatchIntoIter, StackInputCount, StackValue,
 };
 

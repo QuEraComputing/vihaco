@@ -8,8 +8,8 @@ mod program;
 use crate::{
     checked::{Backend, CheckedDriver, Module, Pause, StepContext},
     framework::{
-        AnnotatedDriver, ChannelDriver, Describe, Receive, Route, Run, build_message_at,
-        instruction_at, receive_effect_at, step_graph,
+        AnnotatedDriver, ChannelDriver, Describe, Route, Run, apply_effect_at, build_message_at,
+        instruction_at, step_graph,
     },
     simulation::{MinExecution, SimDriver},
 };
@@ -17,8 +17,8 @@ use eyre::{Result, ensure};
 use program::Bytecode;
 use std::collections::BTreeMap;
 use vihaco_runtime::{
-    BuildMessage, Execute, HasInstructionSet, NoMessage, ReusableMessageRecipe, Step, component,
-    composite, dialect, field,
+    Apply, BuildMessage, Execute, HasInstructionSet, NoMessage, ReusableMessageRecipe, Step,
+    component, composite, dialect, field,
 };
 use vihaco_stdlib::{ExecutionState, Image, Loadable};
 
@@ -73,10 +73,11 @@ pub(crate) struct ParcelRecords {
     verified: Vec<u32>,
 }
 
-impl Receive<LabelPrinted> for ParcelRecords {
-    type Output = ();
+impl Apply<LabelPrinted> for ParcelRecords {
+    type Effect = ();
+    type Error = eyre::Report;
 
-    fn receive(&mut self, label: LabelPrinted) -> Result<()> {
+    fn apply(&mut self, label: LabelPrinted) -> Result<()> {
         ensure!(
             !self.labels.contains_key(&label.parcel),
             "parcel already labeled"
@@ -141,7 +142,7 @@ where
         .begin(build_message_at::<PrinterField>())
         // Simulation delays delivery of the printed label until 12 ticks after issue.
         .then_execute(instruction_at::<PrinterField>().annotate::<MinExecution<12>>())
-        .then(receive_effect_at::<ParcelField>())
+        .then(apply_effect_at::<ParcelField>())
         .finish()
 }
 
@@ -263,6 +264,29 @@ mod tests {
         assert_eq!(vm.machine().execution.pc(), 0);
         assert_eq!(vm.machine().printer.submitted, 0);
         assert!(vm.run((), RunCommand::Continue).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn deferred_application_error_keeps_the_prior_effect_and_faults_at_the_origin() -> Result<()> {
+        let module = program::load(&[
+            Bytecode::PrintLabel(42),
+            Bytecode::PrintLabel(42),
+            Bytecode::VerifyLabel(42),
+            Bytecode::Halt,
+        ])?;
+        let loaded = Loadable::new(Image::new(module), Warehouse::default());
+        let mut vm = CheckedDriver::new(loaded, SimDriver::new());
+        let error = vm.execute(&[]).unwrap_err();
+        assert_eq!(error.to_string(), "parcel already labeled");
+        assert_eq!(vm.machine().execution.pc(), 1);
+        assert_eq!(vm.machine().printer.submitted, 2);
+        assert_eq!(
+            vm.machine().parcels.labels.get(&42).map(String::as_str),
+            Some("BX-0042")
+        );
+        assert!(vm.machine().parcels.verified.is_empty());
+        assert_eq!(vm.retirements(), 1);
         Ok(())
     }
 }

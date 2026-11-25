@@ -6,13 +6,14 @@
 mod metadata;
 
 use crate::framework::{
-    ChannelDriver, Describe, Receive, Route, Run, build_message_at, duplicate, edge, fork_join,
-    instruction_at, receive_effect_at, step_graph,
+    ChannelDriver, Describe, Route, Run, apply_effect_at, build_message_at, duplicate, edge,
+    fork_join, instruction_at, step_graph,
 };
 use eyre::Result;
 use metadata::{Bus, Critical, DacBus};
+use std::convert::Infallible;
 use vihaco_runtime::{
-    BuildMessage, Execute, Field, NoMessage, component, composite, dialect, field,
+    Apply, BuildMessage, Execute, Field, NoMessage, component, composite, dialect, field,
 };
 
 #[dialect]
@@ -39,10 +40,11 @@ impl Execute<ops::Fire> for Source {
 
 #[derive(Default)]
 struct Sink(Vec<Vec<i32>>);
-impl Receive<Vec<i32>> for Sink {
-    type Output = ();
+impl Apply<Vec<i32>> for Sink {
+    type Effect = ();
+    type Error = Infallible;
 
-    fn receive(&mut self, samples: Vec<i32>) -> Result<()> {
+    fn apply(&mut self, samples: Vec<i32>) -> Result<(), Self::Error> {
         self.0.push(samples);
         Ok(())
     }
@@ -51,10 +53,11 @@ impl Receive<Vec<i32>> for Sink {
 #[derive(Default)]
 struct Clamp;
 
-impl Receive<Vec<i32>> for Clamp {
-    type Output = Vec<i32>;
+impl Apply<Vec<i32>> for Clamp {
+    type Effect = Vec<i32>;
+    type Error = Infallible;
 
-    fn receive(&mut self, mut samples: Vec<i32>) -> Result<Vec<i32>> {
+    fn apply(&mut self, mut samples: Vec<i32>) -> Result<Vec<i32>, Self::Error> {
         for sample in &mut samples {
             *sample = (*sample).clamp(-4, 4);
         }
@@ -65,10 +68,11 @@ impl Receive<Vec<i32>> for Clamp {
 #[derive(Default)]
 struct DeliveryLog(usize);
 
-impl Receive<((), ())> for DeliveryLog {
-    type Output = ();
+impl Apply<((), ())> for DeliveryLog {
+    type Effect = ();
+    type Error = Infallible;
 
-    fn receive(&mut self, _: ((), ())) -> Result<()> {
+    fn apply(&mut self, _: ((), ())) -> Result<(), Self::Error> {
         self.0 += 1;
         Ok(())
     }
@@ -147,14 +151,14 @@ fn route()
         .then(fork_join(
             duplicate(),
             // The DAC gets the clamped copy. The monitor gets the original.
-            receive_effect_at::<ClampField>().then_via(
+            apply_effect_at::<ClampField>().then_via(
                 edge().annotate::<DacBus>().annotate::<Critical>(),
-                receive_effect_at::<Dac>(),
+                apply_effect_at::<Dac>(),
             ),
-            receive_effect_at::<Monitor>(),
+            apply_effect_at::<Monitor>(),
         ))
         // The join releases this node after both receivers have accepted their samples.
-        .then(receive_effect_at::<DeliveryField>())
+        .then(apply_effect_at::<DeliveryField>())
         .finish()
 }
 

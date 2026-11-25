@@ -16,7 +16,7 @@
 
 use super::{
     graph::{Node, Route, Sequence},
-    operations::{ApplyAt, BuildAt, ExecuteAt, Prepared, Receive, ReceiveAt},
+    operations::{ApplyAt, BuildAt, ExecuteAt, Prepared},
 };
 use eyre::Result;
 use vihaco_runtime::{Apply, BuildMessage, Execute, Field};
@@ -117,27 +117,14 @@ where
     }
 }
 
-/// Delivers a fallible effect to the selected field and forwards its output.
-impl<M: Field<F>, F, E> SyncOperation<M, E> for ReceiveAt<F>
-where
-    M::Child: Receive<E>,
-{
-    type Output = <M::Child as Receive<E>>::Output;
-
-    fn apply(machine: &mut M, effect: E) -> Result<Self::Output> {
-        machine.get_mut().receive(effect)
-    }
-}
-
-/// Applies an infallible effect directly to the selected field.
+/// Applies an effect directly to the selected field and forwards its output.
 impl<M: Field<F>, F, E> SyncOperation<M, E> for ApplyAt<F>
 where
-    M::Child: Apply<E>,
+    M::Child: Apply<E, Error: Into<eyre::Report>>,
 {
-    type Output = ();
+    type Output = <M::Child as Apply<E>>::Effect;
 
-    fn apply(machine: &mut M, effect: E) -> Result<()> {
-        machine.get_mut().apply(effect);
-        Ok(())
+    fn apply(machine: &mut M, effect: E) -> Result<Self::Output> {
+        machine.get_mut().apply(effect).map_err(Into::into)
     }
 }

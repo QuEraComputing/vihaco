@@ -64,14 +64,13 @@
 //! where
 //!     CPU: Execute<I, Error = eyre::Report>,
 //!     Self: BuildMessage<field!(Machine::cpu), I, Program>,
-//!     ExecutionState: Apply<<CPU as Execute<I>>::Effect>,
+//!     ExecutionState: Apply<<CPU as Execute<I>>::Effect, Effect = (), Error: Into<eyre::Report>>,
 //! {
 //!     fn step(&mut self, instruction: &I, module: &Program) -> eyre::Result<()> {
 //!         let message = <Self as BuildMessage<field!(Machine::cpu), I, Program>>
 //!             ::build_message(self, instruction, module)?;
 //!         let effect = self.cpu.execute(instruction, message)?;
-//!         self.execution.apply(effect);
-//!         Ok(())
+//!         self.execution.apply(effect).map_err(Into::into)
 //!     }
 //! }
 //!

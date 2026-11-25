@@ -9,21 +9,39 @@ and completion handles.
 ## Where behavior lives
 
 Routes describe where payloads go and when execution waits. A field-targeted
-node calls the selected component's `Execute`, `AsyncExecute`, `Receive`,
-or `Apply` implementation. `Receive<E>` can return a new typed effect for
+node calls the selected component's `Execute`, `AsyncExecute`, or `Apply`
+implementation. `Apply<E>` can return a typed effect for
 the next node or `()` for final delivery. For example, the waveform clamp
-receives the source samples and returns the clamped samples that travel over
-the annotated DAC edge.
+receives source samples and returns the clamped samples that travel over
+the annotated DAC edge. Composite-level policy uses `HandleEffect`.
+[Foundational effect handling](foundational-work.md#composite-and-receiving-field-effect-handling)
 
-Message preparation uses `BuildMessage` for synchronous instructions and
-`BuildAsyncMessage` for async instructions. Both identify the field whose
-message they prepare. `build_async_message_at` runs before the async
-execution node leases the destination component.
+Use `BuildMessage` when preparation completes synchronously and
+`AsyncBuildMessage` when preparation can suspend. Either can feed
+synchronous or async execution. Preparation completes before the
+execution node borrows or leases its destination.
+[Borrowing across suspension](foundational-work.md#borrowing-across-suspension)
 
 The route API omits `Compute`. Payload plumbing such as `duplicate()`
 operates on the payload alone. State changes go through the destination
 field's contract and appear as such in the inspected topology.
 [Field-targeted operations](../../crates/vihaco-runtime/examples/static_graph_routes/framework/operations.rs) · [Async message preparation](../../crates/vihaco-runtime/examples/static_graph_routes/framework/async_execution.rs)
+
+## Using the same machine with different backends
+
+The machine author declares the dialect, device fields, preparation
+and effect handlers, and any routes. A capture step can start the same
+route with the backend supplied through its `StepContext`. The logical
+program and route stay the same as long as the backend supplies the
+required work and effect types.
+
+The runtime author places each section on its machine, queues entries,
+and chooses how to coordinate independent instruction streams and
+device events. That includes virtual time and tie-breaks for an
+emulator, or worker assignment and completion routing for a threaded
+host. Compare machine outcomes when switching backends. Add timing
+and ordering assertions wherever the workload requires them.
+[Execution layers](route-drivers.md#execution-layers)
 
 ## Foundational work
 
@@ -47,7 +65,7 @@ available on its own through `mise run static-execution-state`.
 
 ## Declaring and inspecting a route
 
-The warehouse's print instruction has three nodes. The execution annotation
+Warehouse's print route has three nodes. The execution annotation
 sets the earliest tick at which simulation can deliver a successful result
 to the parcel records.
 
@@ -55,7 +73,7 @@ to the parcel records.
 step_graph::<ops::PrintLabel>()
     .begin(build_message_at::<PrinterField>())
     .then_execute(instruction_at::<PrinterField>().annotate::<MinExecution<12>>())
-    .then(receive_effect_at::<ParcelField>())
+    .then(apply_effect_at::<ParcelField>())
     .finish()
 ```
 
@@ -92,11 +110,9 @@ its result after both arms succeed. If one arm fails, the terminal callback
 reports the error once. Any already-started work can still complete, and
 prior mutations and effects are retained.
 
-The prototype framework lives under `examples/`. The RFC specifies
-`Await`, `FutureDriver`, and `AnnotatedDriver` as public extension traits
-that downstream crates can implement. Program examples put a checked
-program driver above the route backend. That driver uses
-`HasProgram` to read the machine's `ExecutionState`, fetches and
-dispatches instructions, and stops fetching while a route is pending.
-The companion design explains the driver API, retirement, and debugger
-commands. [Route drivers](route-drivers.md)
+The prototype framework lives under `examples/`. The public submission
+and readiness contracts let downstream runtimes supply their own
+scheduling backends. A checked program driver uses `HasProgram` to
+fetch and dispatch and resumes a parked route when its result is ready.
+The backend can serve more than one machine.
+[Task submission and completion](route-drivers.md#task-submission-and-completion)

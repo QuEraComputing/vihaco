@@ -12,18 +12,18 @@
 //!
 //! When the future finishes, it drops the lease before forwarding success
 //! or failure. The next node can use the restored field, as the digitizer's
-//! same-field receive demonstrates. Dropping a pending future also restores
-//! the component. This is local ownership recovery. Cancellation policy for
+//! same-field effect application demonstrates. Dropping a pending future
+//! also restores the component. Cancellation policy for
 //! external work belongs to the backend or machine owner.
 
 use super::{
     graph::{Label, NodePlan, node},
-    operations::{Operation, Prepared, Receive},
+    operations::{Operation, Prepared},
     runtime::FutureDriver,
 };
 use eyre::{Result, eyre};
 use std::{any::type_name, cell::RefCell, marker::PhantomData, rc::Rc};
-use vihaco_runtime::Field;
+use vihaco_runtime::{Apply, Field};
 
 /// Executes an instruction while borrowing its component across suspension.
 ///
@@ -123,18 +123,18 @@ impl<D> AsyncSlot<D> {
             component: Some(component),
         })
     }
-}
 
-/// Forwards an effect to the restored component or reports that the field is busy.
-impl<D: Receive<E>, E> Receive<E> for AsyncSlot<D> {
-    type Output = D::Output;
-
-    fn receive(&mut self, effect: E) -> Result<Self::Output> {
+    /// Applies an effect to the restored component or reports that it is busy.
+    pub(crate) fn apply_to_component<E>(&mut self, effect: E) -> Result<D::Effect>
+    where
+        D: Apply<E, Error: Into<eyre::Report>>,
+    {
         self.0
             .borrow_mut()
             .as_mut()
             .ok_or_else(|| eyre!("component still leased"))?
-            .receive(effect)
+            .apply(effect)
+            .map_err(Into::into)
     }
 }
 

@@ -30,12 +30,9 @@ pub(crate) use async_execution::{
 // The graph builder and the bounds used in route signatures.
 pub(crate) use graph::{Annotation, Describe, Route, Run, edge, fork_join, step_graph};
 
-// Built-in constructors and application extension points.
-#[cfg(feature = "program-image-execution")]
-#[allow(unused_imports, reason = "used by the stdlib program examples")]
-pub(crate) use operations::apply_effect_at;
+// Built-in constructors for each route operation.
 pub(crate) use operations::{
-    Receive, await_work, build_message_at, duplicate, instruction_at, receive_effect_at,
+    apply_effect_at, await_work, build_message_at, duplicate, instruction_at,
 };
 
 // The runtime driver and the owned wait handle used by asynchronous nodes.
