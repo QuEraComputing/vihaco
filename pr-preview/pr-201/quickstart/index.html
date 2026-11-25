@@ -134,7 +134,7 @@ impl&lt;I&gt; Step&lt;field!(Machine::calculator), I, Program&gt; for Machine
 where
     Calculator: Execute&lt;I, Error = eyre::Report&gt;,
     Self: BuildMessage&lt;field!(Machine::calculator), I, Program&gt;,
-    ExecutionState: Apply&lt;&lt;Calculator as Execute&lt;I&gt;&gt;::Effect&gt;,
+    ExecutionState: Apply&lt;&lt;Calculator as Execute&lt;I&gt;&gt;::Effect, Effect = (), Error: Into&lt;eyre::Report&gt;&gt;,
 {
     fn step(&amp;mut self, instruction: &amp;I, module: &amp;Program) -&gt; eyre::Result&lt;()&gt; {
         let message =
@@ -144,8 +144,7 @@ where
                 module,
             )?;
         let effect = self.calculator.execute(instruction, message)?;
-        self.execution.apply(effect);
-        Ok(())
+        self.execution.apply(effect).map_err(Into::into)
     }
 }
 

@@ -59,8 +59,8 @@ and decide what happens to its result. You can read other devices along the way.
 <table><thead><tr><th>Trait</th><th>Who supplies it</th><th>What it does</th></tr></thead><tbody><tr><td><code>Dispatch&#x3C;Context></code></td><td>Composite macro</td><td>Chooses a route and calls its step</td></tr><tr><td><code>Step&#x3C;F, I, Context></code></td><td>You, on the composite</td><td>Connects input preparation, execution, and result handling</td></tr><tr><td><code>BuildMessage&#x3C;F, I, Context, M></code></td><td>You, on the composite</td><td>Chooses machine-specific message construction</td></tr><tr><td><code>ReusableMessageRecipe&#x3C;Parent, Route, I, Context></code></td><td>Message authors</td><td>Supplies generic construction over required machine capabilities</td></tr><tr><td><code>Execute&#x3C;I></code></td><td>You, on the component</td><td>Executes a borrowed instruction</td></tr><tr><td><code>Apply&#x3C;E></code></td><td>Effect/storage protocols or you</td><td>Applies one owned effect to a destination</td></tr></tbody></table>
 <p>The component’s associated types define its execution inputs and outputs.
 <code>Step</code> and <code>Dispatch</code> return <code>eyre::Result&#x3C;()></code>, so a step can propagate or
-convert errors along the way. <code>Apply::apply</code> returns <code>()</code>; write fallible result
-handling directly in the step when you need it.</p>
+convert errors along the way. <code>Apply::apply</code> returns the destination’s
+next effect or error. A terminal handler uses <code>()</code> for its effect.</p>
 <h2 id="trace-the-addition">Trace the addition</h2>
 <p>In <a href="/vihaco/pr-preview/pr-201/guide/first-machine">your first machine</a>, dispatch chooses
 <code>field!(Machine::calculator)</code> and <code>arithmetic::Add</code>. The step also receives a
