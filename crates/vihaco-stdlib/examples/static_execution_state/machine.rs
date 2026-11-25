@@ -6,8 +6,9 @@
 use crate::{
     checked::{CheckedDriver, Inline, Module, Pause, StepContext},
     framework::{
-        Describe, Route, apply_effect_at, execute_instruction_at, prepare_message_at, step_graph,
-        synchronous::RunSync,
+        Describe, InlineRoute, apply_effect_at, execute_instruction_at, prepare_message_at,
+        step_graph,
+        synchronous::{RunSync, recipe_instruction_route},
     },
 };
 use eyre::Result;
@@ -37,24 +38,8 @@ type Program = Module<Instruction>;
 type ExecutionField = field!(Machine::execution);
 type CpuField = field!(Machine::cpu);
 
-fn execution_route<I>()
--> Route<I, impl for<'a> RunSync<Machine, (&'a I, &'a Program), Output = ()> + Describe>
-where
-    ExecutionState<Pause>: Execute<I, Effect = (), Error = eyre::Report>,
-    <ExecutionState<Pause> as Execute<I>>::Message:
-        ReusableMessageRecipe<Machine, ExecutionField, I, Program>,
-{
-    step_graph::<I>()
-        .begin(prepare_message_at::<
-            ExecutionField,
-            <ExecutionState<Pause> as Execute<I>>::Message,
-        >())
-        .then(execute_instruction_at::<ExecutionField>())
-        .finish()
-}
-
 fn cpu_route<I>()
--> Route<I, impl for<'a> RunSync<Machine, (&'a I, &'a Program), Output = ()> + Describe>
+-> InlineRoute<I, impl for<'a> RunSync<Machine, (&'a I, &'a Program), Output = ()> + Describe>
 where
     CPU: Execute<I, Error = eyre::Report>,
     <CPU as Execute<I>>::Message: ReusableMessageRecipe<Machine, CpuField, I, Program>,
@@ -65,7 +50,7 @@ where
         .begin(prepare_message_at::<CpuField, <CPU as Execute<I>>::Message>())
         .then(execute_instruction_at::<CpuField>())
         .then(apply_effect_at::<ExecutionField>())
-        .finish()
+        .finish_inline()
 }
 
 // The runner lends each Step the current instruction and its module.
@@ -80,7 +65,11 @@ where
         instruction: &I,
         context: &StepContext<'_, Instruction, Inline>,
     ) -> Result<()> {
-        execution_route::<I>().run_synchronously(self, instruction, context.module)
+        context.start(
+            self,
+            &recipe_instruction_route::<Self, ExecutionField, I, _>(),
+            instruction,
+        )
     }
 }
 
@@ -97,7 +86,7 @@ where
         instruction: &I,
         context: &StepContext<'_, Instruction, Inline>,
     ) -> Result<()> {
-        cpu_route::<I>().run_synchronously(self, instruction, context.module)
+        context.start(self, &cpu_route::<I>(), instruction)
     }
 }
 
@@ -138,7 +127,7 @@ fn load(module: Program) -> CheckedDriver<Machine, Instruction, Inline> {
 }
 
 pub(crate) fn demo() -> Result<()> {
-    let control = execution_route::<program::Branch>();
+    let control = recipe_instruction_route::<Machine, ExecutionField, program::Branch, Program>();
     let arithmetic = cpu_route::<cpu::MulU64>();
     assert_eq!(std::mem::size_of_val(&control), 0);
     assert_eq!(std::mem::size_of_val(&arithmetic), 0);

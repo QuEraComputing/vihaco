@@ -7,15 +7,16 @@ mod program;
 
 use crate::{
     framework::{
-        AnnotatedDriver, Describe, Route, Run, apply_effect_at, execute_instruction_at,
-        prepare_message_at, step_graph,
+        Describe, Entry, ParkableRoute, RouteDelivery, Run, apply_effect_at,
+        execute_instruction_at, prepare_message_at, step_graph,
+        synchronous::recipe_instruction_route,
     },
     scheduled::{
         backends::{
             sim::{Sim, SimSubmitter},
             threaded::TokioWorker,
         },
-        driver::{Module, Pause, RouteDriver, StepContext},
+        driver::{Module, Pause, RouteContext, StepContext},
         runtime::Runtime,
         tasks::{Submit, TimedSubmit},
     },
@@ -128,25 +129,19 @@ type ProgramField = field!(Warehouse::execution);
 type PrinterField = field!(Warehouse::printer);
 type ParcelField = field!(Warehouse::parcels);
 
-fn print_route<D>()
--> Route<ops::PrintLabel, impl Run<Warehouse, ops::PrintLabel, D, Output = ()> + Describe>
+fn print_route<D>() -> ParkableRoute<
+    ops::PrintLabel,
+    impl for<'a> Run<Warehouse, Entry<'a, ops::PrintLabel, ()>, D, Output = ()> + Describe,
+>
 where
-    D: AnnotatedDriver<Warehouse>,
+    D: RouteDelivery<Warehouse>,
 {
     step_graph::<ops::PrintLabel>()
         .begin(prepare_message_at::<PrinterField, NoMessage>())
         // Each backend delivers the label after its interpretation of 12 ticks.
         .then(execute_instruction_at::<PrinterField>().annotate::<MinExecution<12>>())
         .then(apply_effect_at::<ParcelField>())
-        .finish()
-}
-
-fn verify_route<D>()
--> Route<records::VerifyLabel, impl Run<Warehouse, records::VerifyLabel, D, Output = ()>> {
-    step_graph::<records::VerifyLabel>()
-        .begin(prepare_message_at::<ParcelField, NoMessage>())
-        .then(execute_instruction_at::<ParcelField>())
-        .finish()
+        .finish_parkable()
 }
 
 impl<B: TimedSubmit> Step<PrinterField, ops::PrintLabel, StepContext<'_, Self, B>> for Warehouse {
@@ -165,18 +160,25 @@ impl<B: Submit> Step<ParcelField, records::VerifyLabel, StepContext<'_, Self, B>
         instruction: &records::VerifyLabel,
         context: &StepContext<'_, Self, B>,
     ) -> Result<()> {
-        context.start(self, &verify_route(), records::VerifyLabel(instruction.0))
+        context.start(
+            self,
+            &recipe_instruction_route::<Self, ParcelField, _, _>(),
+            instruction,
+        )
     }
 }
 
-impl<I, B, Message> Step<ProgramField, I, StepContext<'_, Self, B>> for Warehouse
+impl<I, B: Submit, Message> Step<ProgramField, I, StepContext<'_, Self, B>> for Warehouse
 where
     ExecutionState<Pause>: Execute<I, Message = Message, Effect = (), Error = eyre::Report>,
     Message: ReusableMessageRecipe<Self, ProgramField, I, Module<Self>>,
 {
     fn step(&mut self, instruction: &I, context: &StepContext<'_, Self, B>) -> Result<()> {
-        let message = Message::prepare(self, instruction, context.module)?;
-        self.execution.execute(instruction, message)
+        context.start(
+            self,
+            &recipe_instruction_route::<Self, ProgramField, I, _>(),
+            instruction,
+        )
     }
 }
 
@@ -186,7 +188,7 @@ fn new_warehouse(image: Image<Instruction>) -> Loadable<Image<Instruction>, Ware
 
 pub(super) fn demo() -> Result<()> {
     let image = program::load()?;
-    let route = print_route::<RouteDriver<Warehouse, SimSubmitter>>();
+    let route = print_route::<RouteContext<Warehouse, SimSubmitter>>();
     assert_eq!(std::mem::size_of_val(&route), 0);
     route.topology().print("Warehouse / Print Label");
 
@@ -282,8 +284,8 @@ mod tests {
 
     #[test]
     fn tokio_uses_the_same_topology_and_resumes_the_parked_print() -> Result<()> {
-        let simulated = print_route::<RouteDriver<Warehouse, SimSubmitter>>().topology();
-        let realtime = print_route::<RouteDriver<Warehouse, TokioSubmitter>>().topology();
+        let simulated = print_route::<RouteContext<Warehouse, SimSubmitter>>().topology();
+        let realtime = print_route::<RouteContext<Warehouse, TokioSubmitter>>().topology();
         assert!(simulated.nodes.iter().zip(&realtime.nodes).all(|(a, b)| (
             a.name,
             a.field,

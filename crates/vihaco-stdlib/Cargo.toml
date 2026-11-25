@@ -61,3 +61,7 @@ required-features = ["program-image-execution"]
 [[example]]
 name = "program_drivers"
 required-features = ["program-image-execution"]
+
+[[example]]
+name = "logical_routes"
+required-features = ["program-image-execution"]

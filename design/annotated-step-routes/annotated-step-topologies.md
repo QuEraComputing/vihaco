@@ -78,10 +78,13 @@ to synchronous preparation.
 ## Using the same machine with different backends
 
 The machine author declares the dialect, device fields, preparation
-and effect handlers, and any routes. A capture step can start the same
-route with the backend supplied through its `StepContext`. The logical
-program and route stay the same as long as the backend supplies the
-required work and effect types.
+and effect handlers, and any routes. The route describes the operations,
+their typed inputs and outputs, and their dependencies. `await_work()`
+expresses that the next stage needs the result of a work handle. An async
+node selects a hook whose result may become available later. The driver
+and backend decide whether a result can be delivered in the current turn,
+when to park and resume, and where eligible work runs. The logical
+machine and program can stay the same when the backend changes.
 
 The runtime author places each section on its machine, queues entries,
 and chooses how to coordinate independent instruction streams and
@@ -90,6 +93,50 @@ emulator, or worker assignment and completion routing for a threaded
 host. Compare machine outcomes when switching backends. Add timing
 and ordering assertions wherever the workload requires them.
 [Canonical runtime structure](route-drivers.md#canonical-runtime-structure)
+
+### Routes describe dependencies
+
+A route answers what must happen and which values each operation needs.
+The host configures timing for the driver and backend it uses. A handoff
+from the printer to the parcel records has the same meaning in an
+immediate runner, a virtual-time simulation, and a wall-clock runner.
+Those hosts can give the handoff different release policies while using
+the same machine, route, and instruction image.
+
+Use `.named("print")` to identify a node and
+`edge().named("label_to_records")` to identify an individual handoff.
+Names describe roles in the route and give host configuration and
+inspection a shared vocabulary. Typed annotations can describe logical
+properties such as the bus a transfer uses. The host supplies that bus's
+timing model and any release delays. A delay on `label_to_records` applies
+to that dependency even if the printer has other outgoing handoffs.
+[Backend delivery policy](route-drivers.md#delivery-policy-at-the-backend)
+
+### Using Sim as a machine author
+
+- Name the handoff whose delivery the simulation needs to control. In
+  Warehouse, `label_to_records` names the edge carrying the completed
+  label. The `print` node name appears in inspection. This example binds
+  delays to edges. Keep names used by host policy unique within the
+  route, and update that policy when renaming a site.
+- Use annotations for logical properties of the operation or handoff.
+  For example, `DacBus` identifies a shared bus so a host can choose a
+  model for it. Warehouse needs only an edge name for its per-edge delay.
+  A machine author who also supplies the simulation host sets the delay
+  in the `Sim` configuration, after registering the route's topology.
+- `delay_edge` in this example takes virtual ticks from the moment the
+  payload reaches the edge. The printer issues at tick 5, and the records
+  receive the owned label at tick 17 with a 12-tick delay. A synchronous
+  `Execute` and `Apply` work for this route because the driver can park
+  between them. Choose an async hook when the operation itself can
+  suspend, or `await_work()` when a preceding operation hands off a
+  work handle whose result the next stage needs.
+- Put ordering requirements in the route. Warehouse retires the print
+  instruction after the records apply the label, so the following
+  instruction can rely on it under immediate and timed delivery. Assert
+  exact ticks in the simulation test that supplies the timing policy.
+
+[Warehouse machine](../../crates/vihaco-stdlib/examples/logical_routes/machine.rs) · [Sim host and timing test](../../crates/vihaco-stdlib/examples/logical_routes.rs)
 
 ## Foundational work
 
@@ -107,29 +154,42 @@ bytecode lifting.
 | [Waveform fan-out](../../crates/vihaco-runtime/examples/static_graph_routes/machines/waveform/mod.rs) | Inspect the annotated DAC transfer. Follow the clamped and original samples down separate paths and join after both deliveries. |
 | [Device completion](../../crates/vihaco-runtime/examples/static_graph_routes/machines/device_completion.rs) | Wait on a handle from synchronous `Execute`. Then use `async_apply_effect_at` to validate and store the sample at the receiving field. |
 | [Async digitizer](../../crates/vihaco-runtime/examples/static_graph_routes/machines/async_capture/mod.rs) | Prepare the receiver, then let the component's `AsyncExecute` impl await the sample. Return the leased component before applying the result at that field. |
-| [Warehouse SST](../../crates/vihaco-stdlib/examples/program_drivers/warehouse/warehouse.sst) | Print a label and verify it through the same route on simulation and Tokio. Simulation delays delivery by 12 ticks, and Tokio uses a wall-clock timer. |
+| [Warehouse SST](../../crates/vihaco-stdlib/examples/program_drivers/warehouse/warehouse.sst) | Follow annotated print delivery and verification on simulation and Tokio. |
+| [Logical Warehouse routes](../../crates/vihaco-stdlib/examples/logical_routes.rs) | Start the same print and async scan routes with borrowed instructions. Compare immediate delivery, delayed delivery configured by the simulator, and Tokio. |
 
 Run the route-only examples with `mise run static-graph-routes`. Run the
 CPU and Warehouse programs plus the debugger, channel, and Tokio
 scenarios with `mise run program-drivers`. The CPU program is also
 available on its own through `mise run static-execution-state`.
+Run the logical-route example with `cargo run -p vihaco-stdlib
+--features program-image-execution --example logical_routes`.
 
 ## Declaring and inspecting a route
 
-Warehouse's print route has three nodes. The execution annotation
-sets the earliest tick at which simulation can deliver a successful result
-to the parcel records.
+Warehouse's logical print route has three nodes. The parcel-records
+handler depends on the label produced by the printer.
 
 ```rust,ignore
 step_graph::<ops::PrintLabel>()
     .begin(prepare_message_at::<PrinterField, NoMessage>())
-    .then(execute_instruction_at::<PrinterField>().annotate::<MinExecution<12>>())
-    .then(apply_effect_at::<ParcelField>())
+    .then(execute_instruction_at::<PrinterField>().named("print"))
+    .then_via(
+        edge().named("label_to_records"),
+        apply_effect_at::<ParcelField>(),
+    )
     .finish()
 ```
 
+Its `Step` calls `context.start(self, &print_route().finish(), instruction)` with
+the borrowed instruction. The same route can deliver the label in the
+issue turn or let a simulator release it 12 ticks later. The delay is
+part of the simulator's policy configuration. The earlier Warehouse
+walkthrough uses a timing annotation and explicitly selects its interpreter.
+[Logical print route](../../crates/vihaco-stdlib/examples/logical_routes/machine.rs) · [Warehouse walkthrough](framework-guide.md#warehouse-label-printing-walkthrough) · [Backend delivery policy](route-drivers.md#delivery-policy-at-the-backend)
+
 On the main path, `then` connects one node's output to the next
-node's input. `then_via` also attaches edge metadata. On a fork builder
+node's input. `then_via` also attaches edge metadata. The callback
+interpreter can defer a named edge's owned payload. On a fork builder
 started by `duplicate()` or `split_with(...)`, each `then` adds a branch.
 Any `then` inside that branch still connects its own nodes in sequence.
 
@@ -175,21 +235,25 @@ the execution node. The same `then` connects preparation, execution,
 and effect handling. At compile time, `finish()` requires exactly one
 execution node in the route, outside any fork/join path.
 
-The zero-sized `Route<I, P>` supports inspection and two execution paths.
+The zero-sized `Route<I, P>` supports inspection and execution.
 `Describe` projects the nodes, field markers, directed edges, and
 metadata. Repeated uses of the same operation get distinct occurrence
 indices within the projection.
-`Run` checks that each operation accepts its predecessor's output and that
-the driver supplies the capabilities it needs. The synchronous
-interpreter, `RunSync`, runs its supported nodes and sequences inline with
-borrowed program context.
+Execution checks that each operation accepts its predecessor's output and
+that the driver supplies the capabilities it needs. The proposed entry
+point starts every route with a borrowed instruction and program image.
+When a stage needs to wait, its adapter retains the values it needs across
+suspension. The `logical_routes` example uses `finish()` for both the
+print and scan routes and exercises that borrowed entry point with
+immediate simulation, timed simulation, and Tokio. The earlier program
+driver examples use `finish_inline()` and `finish_parkable()`.
 [Framework guide and Warehouse walkthrough](framework-guide.md)
 
-Applications attach typed static annotations to nodes and edges. Inspection
-can look up a value by tag or by its value type. Annotated operation nodes
-pass their metadata to the driver when they run. Edge annotations are
-available for inspection. An execution hook for edges, resource occupancy,
-and stable occurrence IDs for source mappings remain open.
+Inspection can look up an annotation by tag or by its value type. The
+registered topology exposes names on nodes and edges. The named edge
+delivery hook is prototyped in `logical_routes`. Node-specific timing,
+resource occupancy, and occurrence IDs stable across route edits remain
+open.
 
 ## From route to invocation
 

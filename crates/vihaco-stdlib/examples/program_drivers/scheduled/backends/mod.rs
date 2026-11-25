@@ -4,7 +4,7 @@
 pub(crate) mod sim;
 pub(crate) mod threaded;
 
-use super::tasks::{Submit, TaskId};
+use super::tasks::{TaskId, TimedSubmit};
 use eyre::Result;
 use tokio::sync::oneshot;
 
@@ -18,7 +18,7 @@ pub(crate) struct Input {
 
 /// Orders runnable program turns and task completions in one backend.
 pub(crate) trait Drive {
-    type Submitter: Submit;
+    type Submitter: TimedSubmit;
 
     fn submitter(&self) -> Self::Submitter;
     fn enqueue_turn(&self) -> Result<TaskId>;

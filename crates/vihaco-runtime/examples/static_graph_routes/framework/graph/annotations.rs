@@ -74,10 +74,15 @@ pub(crate) struct Unannotated;
 /// Represents the annotation list formed by appending tag `A` to `Previous`.
 pub(crate) struct Annotated<Previous, A>(PhantomData<fn() -> (Previous, A)>);
 
+/// Marks an occurrence with a name supplied by the declaration.
+pub(crate) struct Named<A>(PhantomData<fn() -> A>);
+
 /// Materializes annotation entries from their type-level list.
 ///
 /// Both topology inspection and the annotated execution hook use this projection.
 pub(crate) trait Annotations {
+    const NAMED: bool = false;
+
     /// Appends this list’s entries in declaration order.
     fn collect(metadata: &mut Metadata);
 
@@ -96,6 +101,8 @@ impl Annotations for Unannotated {
 
 /// Collects the earlier annotations before adding the current one.
 impl<Previous: Annotations, A: Annotation> Annotations for Annotated<Previous, A> {
+    const NAMED: bool = Previous::NAMED;
+
     fn collect(metadata: &mut Metadata) {
         Previous::collect(metadata);
         metadata.0.push(MetadataEntry {
@@ -103,5 +110,13 @@ impl<Previous: Annotations, A: Annotation> Annotations for Annotated<Previous, A
             name: type_name::<A>(),
             value: A::VALUE,
         });
+    }
+}
+
+impl<A: Annotations> Annotations for Named<A> {
+    const NAMED: bool = true;
+
+    fn collect(metadata: &mut Metadata) {
+        A::collect(metadata);
     }
 }

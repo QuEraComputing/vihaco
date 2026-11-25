@@ -4,8 +4,8 @@
 //! A capture route awaits acquisition and then validates the sample asynchronously.
 
 use crate::framework::{
-    AsyncApply, ChannelDriver, Describe, Route, Run, Wait, async_apply_effect_at, await_work,
-    build_message_at, execute_instruction_at, step_graph,
+    AsyncApply, ChannelDriver, Describe, Entry, Route, Run, Wait, async_apply_effect_at,
+    await_work, build_message_at, execute_instruction_at, step_graph,
 };
 use eyre::{Result, WrapErr, ensure, eyre};
 use std::{cell::Cell, future::Future, rc::Rc};
@@ -82,7 +82,8 @@ impl AsyncApply<u16> for Digitizer {
 
 fn route() -> Route<
     ops::Capture,
-    impl Run<Machine, ops::Capture, ChannelDriver<Machine>, Output = ()> + Describe,
+    impl for<'a> Run<Machine, Entry<'a, ops::Capture, ()>, ChannelDriver<Machine>, Output = ()>
+    + Describe,
 > {
     // Acquisition and validation can each complete on their own schedule.
     let completion = await_work().then(async_apply_effect_at::<DigitizerField>());

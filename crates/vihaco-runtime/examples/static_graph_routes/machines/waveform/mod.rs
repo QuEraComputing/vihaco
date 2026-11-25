@@ -6,8 +6,8 @@
 mod metadata;
 
 use crate::framework::{
-    ChannelDriver, Describe, Route, Run, apply_effect_at, duplicate, edge, execute_instruction_at,
-    fork_join, prepare_message_at, step_graph,
+    ChannelDriver, Describe, Entry, Route, Run, apply_effect_at, duplicate, edge,
+    execute_instruction_at, fork_join, prepare_message_at, step_graph,
 };
 use eyre::Result;
 use metadata::{Bus, Critical, DacBus};
@@ -135,8 +135,10 @@ impl Field<DeliveryField> for Machine {
     }
 }
 
-fn route()
--> Route<ops::Fire, impl Run<Machine, ops::Fire, ChannelDriver<Machine>, Output = ()> + Describe> {
+fn route() -> Route<
+    ops::Fire,
+    impl for<'a> Run<Machine, Entry<'a, ops::Fire, ()>, ChannelDriver<Machine>, Output = ()> + Describe,
+> {
     step_graph::<ops::Fire>()
         .begin(prepare_message_at::<SourceField, NoMessage>())
         .then(execute_instruction_at::<SourceField>())

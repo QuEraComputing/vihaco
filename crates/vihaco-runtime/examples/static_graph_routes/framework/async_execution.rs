@@ -21,7 +21,7 @@ use super::{
         BindOrigin, EmitsFrom, FieldOrigin, Label, NoInstruction, NoOrigin, NodePlan,
         OneInstruction, ResolveOperation, node,
     },
-    operations::{Operation, Prepared},
+    operations::{Entry, Instruction, Operation, Prepared},
     runtime::FutureDriver,
 };
 use eyre::{Result, eyre};
@@ -59,25 +59,29 @@ impl<F> Label for BuildAsyncAt<F> {
     }
 }
 
-impl<M, Backend, F, I> Operation<M, I, Backend> for BuildAsyncAt<F>
+impl<M, Backend, F, I: Clone + 'static, C: ?Sized> Operation<M, Entry<'_, I, C>, Backend>
+    for BuildAsyncAt<F>
 where
-    M: AsyncBuildMessage<F, I>,
-    I: 'static,
-    M::Error: Into<eyre::Report>,
+    M: AsyncBuildMessage<F, I, C, Error: Into<eyre::Report>>,
     Backend: FutureDriver<M>,
 {
-    type Output = Prepared<I, M::Message>;
+    type Output = Prepared<'static, I, M::Message>;
 
     fn start(
         machine: &mut M,
         driver: &Backend,
-        instruction: I,
+        Entry {
+            instruction,
+            context,
+        }: Entry<'_, I, C>,
         done: impl FnOnce(&mut M, &Backend, Result<Self::Output>) + 'static,
     ) {
-        let message = machine.build_message(&instruction, &());
+        let message = machine.build_message(instruction, context);
+        // A later stage still needs the instruction after preparation suspends.
+        let instruction = instruction.clone();
         let prepare = async move {
             Ok(Prepared {
-                instruction,
+                instruction: Instruction::Owned(instruction),
                 message: message.await.map_err(Into::into)?,
             })
         };
@@ -116,24 +120,30 @@ impl<F, Message> Label for PrepareAsyncAt<F, Message> {
     }
 }
 
-impl<M, Backend, F, I: 'static, Message> Operation<M, I, Backend> for PrepareAsyncAt<F, Message>
+impl<M, Backend, F, I: Clone + 'static, C: ?Sized, Message> Operation<M, Entry<'_, I, C>, Backend>
+    for PrepareAsyncAt<F, Message>
 where
     M: Field<F>,
+    Message: AsyncReusableMessageRecipe<M, F, I, C, Error: Into<eyre::Report>> + 'static,
     Backend: FutureDriver<M>,
-    Message: AsyncReusableMessageRecipe<M, F, I, Error: Into<eyre::Report>> + 'static,
 {
-    type Output = Prepared<I, Message>;
+    type Output = Prepared<'static, I, Message>;
 
     fn start(
         machine: &mut M,
         driver: &Backend,
-        instruction: I,
+        Entry {
+            instruction,
+            context,
+        }: Entry<'_, I, C>,
         done: impl FnOnce(&mut M, &Backend, Result<Self::Output>) + 'static,
     ) {
-        let message = Message::prepare(machine, &instruction, &());
+        let message = Message::prepare(machine, instruction, context);
+        // A later stage still needs the instruction after preparation suspends.
+        let instruction = instruction.clone();
         let prepare = async move {
             Ok(Prepared {
-                instruction,
+                instruction: Instruction::Owned(instruction),
                 message: message.await.map_err(Into::into)?,
             })
         };
@@ -357,10 +367,10 @@ impl<F> Label for AsyncExecuteAt<F> {
 }
 
 /// Submits the leased component's future and restores it before delivering the result.
-impl<M, F, I, D, Backend> Operation<M, Prepared<I, D::Message>, Backend> for AsyncExecuteAt<F>
+impl<M, F, I, D, Backend> Operation<M, Prepared<'_, I, D::Message>, Backend> for AsyncExecuteAt<F>
 where
     M: Field<F, Child = AsyncSlot<D>> + 'static,
-    I: 'static,
+    I: Clone + 'static,
     Backend: FutureDriver<M>,
     D: AsyncExecute<I, Message: 'static, Effect: 'static, Error: Into<eyre::Report>> + 'static,
 {
@@ -372,11 +382,12 @@ where
         Prepared {
             instruction,
             message,
-        }: Prepared<I, D::Message>,
+        }: Prepared<'_, I, D::Message>,
         done: impl FnOnce(&mut M, &Backend, Result<Self::Output>) + 'static,
     ) {
         match machine.get().lease() {
             Ok(mut lease) => {
+                let instruction = instruction.into_owned();
                 let future = async move {
                     let result = lease.get_mut().execute(&instruction, message).await;
                     drop(lease);

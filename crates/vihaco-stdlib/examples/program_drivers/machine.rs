@@ -6,8 +6,9 @@
 use crate::{
     checked::{CheckedDriver, Module, Pause, StepContext},
     framework::{
-        AnnotatedDriver, Await, HandleEffect, Route, Run, Signal, await_work,
+        Await, Entry, HandleEffect, ParkableRoute, RouteDelivery, Run, Signal, await_work,
         execute_instruction_at, handle_effect_at, prepare_message_at, step_graph,
+        synchronous::recipe_instruction_route,
     },
     timing::MinExecution,
 };
@@ -74,8 +75,11 @@ where
     Message: ReusableMessageRecipe<Self, ProgramField, I, Module<Instruction>>,
 {
     fn step(&mut self, instruction: &I, context: &StepContext<'_, Instruction, B>) -> Result<()> {
-        let message = Message::prepare(self, instruction, context.module)?;
-        self.execution.execute(instruction, message)
+        context.start(
+            self,
+            &recipe_instruction_route::<Self, ProgramField, I, _>(),
+            instruction,
+        )
     }
 }
 
@@ -91,20 +95,22 @@ impl HandleEffect<SensorField, ProgramField, SampleEffect> for Machine {
 }
 
 fn sample_route<
-    B: AnnotatedDriver<Machine> + Await<Machine, SampleRequest, Output = SampleEffect>,
->() -> Route<ops::Sample, impl Run<Machine, ops::Sample, B, Output = ()>> {
+    B: RouteDelivery<Machine> + Await<Machine, SampleRequest, Output = SampleEffect> + 'static,
+>()
+-> ParkableRoute<ops::Sample, impl for<'a> Run<Machine, Entry<'a, ops::Sample, ()>, B, Output = ()>>
+{
     step_graph::<ops::Sample>()
         .begin(prepare_message_at::<SensorField, NoMessage>())
         // Simulation releases the request after three ticks, then waits for its reply.
         .then(execute_instruction_at::<SensorField>().annotate::<MinExecution<3>>())
         .then(await_work())
         .then(handle_effect_at::<ProgramField>())
-        .finish()
+        .finish_parkable()
 }
 
 impl<B> Step<SensorField, ops::Sample, StepContext<'_, Instruction, B>> for Machine
 where
-    B: AnnotatedDriver<Machine> + Await<Machine, SampleRequest, Output = SampleEffect>,
+    B: RouteDelivery<Machine> + Await<Machine, SampleRequest, Output = SampleEffect> + 'static,
 {
     fn step(
         &mut self,

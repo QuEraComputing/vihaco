@@ -53,15 +53,17 @@ mod inspection;
 
 pub(in crate::framework) use annotations::Unannotated;
 pub(crate) use annotations::{Annotation, Metadata};
-#[cfg(feature = "program-image-execution")]
-pub(crate) use builder::Sequence;
 pub(in crate::framework) use builder::{
     BindOrigin, EmitsFrom, FieldOrigin, NoInstruction, NoOrigin, OneInstruction, ResolveOperation,
     node,
 };
-pub(crate) use builder::{Fork, Node, NodePlan, Route, edge, fork_join, split_with, step_graph};
-pub(crate) use execution::{AnnotatedDriver, Run};
-pub(crate) use inspection::{Describe, Label};
+pub(crate) use builder::{
+    Fork, Node, NodePlan, Route, RouteDeclaration, edge, fork_join, split_with, step_graph,
+};
+#[cfg(feature = "program-image-execution")]
+pub(crate) use builder::{InlineRoute, ParkableRoute, Sequence};
+pub(crate) use execution::{RouteDelivery, Run};
+pub(crate) use inspection::{Describe, EdgeId, Label, RegisteredTopology};
 
 /// Uses the final path segment as a concise diagnostic label.
 fn short_name(name: &'static str) -> &'static str {

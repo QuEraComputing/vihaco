@@ -31,6 +31,9 @@ pub(crate) use async_execution::{
 
 // The graph builder and the bounds used in route signatures.
 pub(crate) use graph::{Annotation, Describe, Route, Run, edge, fork_join, split_with, step_graph};
+#[cfg(feature = "program-image-execution")]
+#[allow(unused_imports, reason = "used by the loaded program examples")]
+pub(crate) use graph::{InlineRoute, ParkableRoute};
 
 // Built-in constructors for each route operation.
 pub(crate) use operations::{
@@ -46,7 +49,7 @@ pub(crate) use runtime::{ChannelDriver, FutureDriver, Wait};
     reason = "shared with the simulator and program examples"
 )]
 pub(crate) use {
-    graph::{AnnotatedDriver, Metadata},
-    operations::Operation,
+    graph::{EdgeId, Metadata, RegisteredTopology, RouteDeclaration, RouteDelivery},
+    operations::{Entry, Operation},
     runtime::{Await, PollJob, Signal, poll_future},
 };

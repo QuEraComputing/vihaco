@@ -14,28 +14,29 @@
 //! neither an authored operation nor a driver hook.
 
 use super::{
-    annotations::{Annotated, Annotation, Annotations, Metadata, Unannotated},
+    annotations::{Annotated, Annotation, Annotations, Metadata, Named, Unannotated},
     builder::{DeliverFork, ForkJoin, Node, Route, Sequence},
+    inspection::EdgeId,
 };
 use crate::framework::operations::Operation;
 use eyre::Result;
 use std::{cell::RefCell, rc::Rc};
 
-impl<I, P> Route<I, P> {
+impl<I, P, Mode> Route<I, P, Mode> {
     /// Starts an invocation and reports its terminal result to its caller.
     ///
     /// The terminal callback can run before this method returns or after a
     /// driver delivers pending work.
-    pub(crate) fn start_with<M, D>(
+    pub(crate) fn start_with<M, Input, D>(
         &self,
         machine: &mut M,
         driver: &D,
-        instruction: I,
+        input: Input,
         done: impl FnOnce(&mut M, &D, Result<P::Output>) + 'static,
     ) where
-        P: Run<M, I, D>,
+        P: Run<M, Input, D>,
     {
-        P::run(machine, driver, instruction, done);
+        P::run(machine, driver, input, done);
     }
 }
 
@@ -44,8 +45,11 @@ impl<I, P> Route<I, P> {
 /// Bounds on composed paths check payload compatibility and require only
 /// the driver capabilities their operations use.
 pub(crate) trait Run<M, I, D> {
-    /// The owned value passed to the next path when it succeeds.
-    type Output: 'static;
+    /// The value passed to the next path when it succeeds.
+    type Output;
+
+    /// Number of indexed handoffs in this path, in topology order.
+    const NAMED_EDGES: usize = 0;
 
     /// Takes ownership of the input and passes the terminal result to `done`.
     fn run(
@@ -53,16 +57,23 @@ pub(crate) trait Run<M, I, D> {
         driver: &D,
         input: I,
         done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
+    ) {
+        Self::run_at(machine, driver, input, 0, done);
+    }
+
+    fn run_at(
+        machine: &mut M,
+        driver: &D,
+        input: I,
+        edge_offset: usize,
+        done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
     );
 }
 
-/// Lets a driver interpret an operation node's annotations.
-///
-/// The default policy invokes the node directly. A backend can override the
-/// hook to change when the result is delivered, as the Warehouse simulator does.
-pub(crate) trait AnnotatedDriver<M>: Sized {
+/// Lets the driver deliver owned results immediately or hold them for later.
+pub(crate) trait RouteDelivery<M>: Sized {
     /// Starts an operation and optionally controls when its result is delivered.
-    fn run_annotated<I, N: Operation<M, I, Self>>(
+    fn run_annotated<I, N: Operation<M, I, Self, Output: 'static>>(
         &self,
         machine: &mut M,
         _: &Metadata,
@@ -71,85 +82,137 @@ pub(crate) trait AnnotatedDriver<M>: Sized {
     ) {
         N::start(machine, self, input, done);
     }
+
+    /// Delivers the owned payload of a named handoff.
+    fn deliver_edge<E: 'static>(
+        &self,
+        machine: &mut M,
+        _: EdgeId,
+        effect: E,
+        done: impl FnOnce(&mut M, &Self, Result<E>) + 'static,
+    ) {
+        done(machine, self, Ok(effect));
+    }
 }
 
-/// Dispatches a node according to its type-level annotation list.
-///
-/// The empty list dispatches directly. A nonempty list projects its metadata
-/// and requires the driver to implement `AnnotatedDriver`.
-pub(crate) trait RunAnnotations<M, D> {
-    /// Starts the operation using this annotation list's dispatch policy.
-    fn run<I, N: Operation<M, I, D>>(
+/// Executes an ordinary operation directly.
+impl<M, I, D, N: Operation<M, I, D>, Execution> Run<M, I, D> for Node<N, Unannotated, Execution> {
+    type Output = N::Output;
+
+    fn run_at(
         machine: &mut M,
         driver: &D,
         input: I,
-        done: impl FnOnce(&mut M, &D, Result<N::Output>) + 'static,
-    );
-}
-
-/// Starts the operation without materializing metadata or consulting a hook.
-impl<M, D> RunAnnotations<M, D> for Unannotated {
-    fn run<I, N: Operation<M, I, D>>(
-        machine: &mut M,
-        driver: &D,
-        input: I,
-        done: impl FnOnce(&mut M, &D, Result<N::Output>) + 'static,
+        _: usize,
+        done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
     ) {
         N::start(machine, driver, input, done);
     }
 }
 
-/// Projects the annotation list for the driver's hook.
-impl<M, D: AnnotatedDriver<M>, Previous: Annotations, A: Annotation> RunAnnotations<M, D>
-    for Annotated<Previous, A>
-{
-    fn run<I, N: Operation<M, I, D>>(
-        machine: &mut M,
-        driver: &D,
-        input: I,
-        done: impl FnOnce(&mut M, &D, Result<N::Output>) + 'static,
-    ) {
-        driver.run_annotated::<I, N>(machine, &Self::metadata(), input, done);
-    }
-}
-
-/// Runs one operation using the dispatch policy of its node annotations.
-impl<M, I, D, N: Operation<M, I, D>, A: RunAnnotations<M, D>, Execution> Run<M, I, D>
-    for Node<N, A, Execution>
+/// Gives the driver a chance to apply policy to an annotated operation.
+impl<M, I, D, N, Previous, A, Execution> Run<M, I, D> for Node<N, Annotated<Previous, A>, Execution>
+where
+    D: RouteDelivery<M>,
+    N: Operation<M, I, D, Output: 'static>,
+    Previous: Annotations,
+    A: Annotation,
 {
     type Output = N::Output;
 
-    fn run(
+    fn run_at(
         machine: &mut M,
         driver: &D,
         input: I,
+        _: usize,
         done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
     ) {
-        A::run::<I, N>(machine, driver, input, done);
+        driver.run_annotated::<I, N>(machine, &Annotated::<Previous, A>::metadata(), input, done);
     }
 }
 
-/// Starts the right path after left succeeds, forwarding the left payload.
-/// A left error goes straight to the sequence's continuation.
-impl<M, I, D, L, E, R> Run<M, I, D> for Sequence<L, E, R>
+impl<M, I, D, N, A, Execution> Run<M, I, D> for Node<N, Named<A>, Execution>
 where
-    L: Run<M, I, D>,
-    R: Run<M, L::Output, D>,
+    Node<N, A, Execution>: Run<M, I, D>,
 {
-    type Output = R::Output;
+    type Output = <Node<N, A, Execution> as Run<M, I, D>>::Output;
 
-    fn run(
+    fn run_at(
         machine: &mut M,
         driver: &D,
         input: I,
+        edge_offset: usize,
         done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
     ) {
-        L::run(
+        Node::<N, A, Execution>::run_at(machine, driver, input, edge_offset, done);
+    }
+}
+
+trait RunEdge<M, Payload, D> {
+    const COUNT: usize = 0;
+
+    fn deliver(
+        machine: &mut M,
+        driver: &D,
+        _: EdgeId,
+        payload: Payload,
+        done: impl FnOnce(&mut M, &D, Result<Payload>) + 'static,
+    ) {
+        done(machine, driver, Ok(payload));
+    }
+}
+
+impl<M, Payload, D> RunEdge<M, Payload, D> for Unannotated {}
+impl<M, Payload, D, Previous, A> RunEdge<M, Payload, D> for Annotated<Previous, A> {}
+
+impl<M, Payload: 'static, D: RouteDelivery<M>, A> RunEdge<M, Payload, D> for Named<A> {
+    const COUNT: usize = 1;
+
+    fn deliver(
+        machine: &mut M,
+        driver: &D,
+        id: EdgeId,
+        payload: Payload,
+        done: impl FnOnce(&mut M, &D, Result<Payload>) + 'static,
+    ) {
+        driver.deliver_edge(machine, id, payload, done);
+    }
+}
+
+/// Forwards the left output through the connecting edge and starts the right path.
+impl<M, I, D, L, E, R> Run<M, I, D> for Sequence<L, E, R>
+where
+    L: Run<M, I, D>,
+    E: RunEdge<M, L::Output, D>,
+    R: Run<M, L::Output, D>,
+{
+    type Output = R::Output;
+    const NAMED_EDGES: usize = L::NAMED_EDGES + E::COUNT + R::NAMED_EDGES;
+
+    fn run_at(
+        machine: &mut M,
+        driver: &D,
+        input: I,
+        edge_offset: usize,
+        done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
+    ) {
+        let edge = EdgeId(edge_offset + L::NAMED_EDGES);
+        L::run_at(
             machine,
             driver,
             input,
+            edge_offset,
             move |machine, driver, result| match result {
-                Ok(output) => R::run(machine, driver, output, done),
+                Ok(output) => E::deliver(
+                    machine,
+                    driver,
+                    edge,
+                    output,
+                    move |machine, driver, result| match result {
+                        Ok(output) => R::run_at(machine, driver, output, edge.0 + E::COUNT, done),
+                        Err(error) => done(machine, driver, Err(error)),
+                    },
+                ),
                 Err(error) => done(machine, driver, Err(error)),
             },
         );
@@ -201,11 +264,13 @@ impl<Slots: BranchSlots, C> Join<Slots, C> {
 
 pub(crate) trait RunBranches<M, Input, D> {
     type Output: 'static;
+    const NAMED_EDGES: usize;
 
     fn run(
         machine: &mut M,
         driver: &D,
         input: Input,
+        edge_offset: usize,
         done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
     );
 }
@@ -235,28 +300,31 @@ macro_rules! run_branches {
 
         impl UnitOutputs for ($(unit!($index),)+) {}
 
-        impl<M, Driver, $($input: 'static, $branch: Run<M, $input, Driver>,)+>
+        impl<M, Driver, $($input: 'static, $branch: Run<M, $input, Driver, Output: 'static>,)+>
             RunBranches<M, ($($input,)+), Driver> for ($($branch,)+)
         {
             type Output = ($($branch::Output,)+);
+            const NAMED_EDGES: usize = 0 $(+ $branch::NAMED_EDGES)+;
 
             fn run(
                 machine: &mut M,
                 driver: &Driver,
                 ($($value,)+): ($($input,)+),
+                edge_offset: usize,
                 done: impl FnOnce(&mut M, &Driver, Result<Self::Output>) + 'static,
             ) {
                 let join = Rc::new(RefCell::new(Join {
                     slots: <($(Option<$branch::Output>,)+)>::default(),
                     done: Some(done),
                 }));
+                let counts = [$($branch::NAMED_EDGES),+];
                 $(
                     // An inline failure has already consumed the continuation.
                     if join.borrow().done.is_none() {
                         return;
                     }
                     let branch = Rc::clone(&join);
-                    $branch::run(machine, driver, $value, move |machine, driver, result| {
+                    $branch::run_at(machine, driver, $value, edge_offset + counts[..$index].iter().sum::<usize>(), move |machine, driver, result| {
                         Join::arrive(&branch, machine, driver, result, |slots, value| {
                             slots.$index = Some(value);
                         });
@@ -274,19 +342,22 @@ where
     B: RunBranches<M, S::Output, D>,
 {
     type Output = B::Output;
+    const NAMED_EDGES: usize = S::NAMED_EDGES + B::NAMED_EDGES;
 
-    fn run(
+    fn run_at(
         machine: &mut M,
         driver: &D,
         input: I,
+        edge_offset: usize,
         done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
     ) {
-        S::run(
+        S::run_at(
             machine,
             driver,
             input,
+            edge_offset,
             move |machine, driver, result| match result {
-                Ok(inputs) => B::run(machine, driver, inputs, done),
+                Ok(inputs) => B::run(machine, driver, inputs, edge_offset + S::NAMED_EDGES, done),
                 Err(error) => done(machine, driver, Err(error)),
             },
         );
@@ -299,16 +370,24 @@ where
     B: RunBranches<M, S::Output, D, Output: UnitOutputs>,
 {
     type Output = ();
+    const NAMED_EDGES: usize = S::NAMED_EDGES + B::NAMED_EDGES;
 
-    fn run(
+    fn run_at(
         machine: &mut M,
         driver: &D,
         input: I,
+        edge_offset: usize,
         done: impl FnOnce(&mut M, &D, Result<()>) + 'static,
     ) {
-        ForkJoin::<S, B>::run(machine, driver, input, move |machine, driver, result| {
-            done(machine, driver, result.map(|_| ()));
-        });
+        ForkJoin::<S, B>::run_at(
+            machine,
+            driver,
+            input,
+            edge_offset,
+            move |machine, driver, result| {
+                done(machine, driver, result.map(|_| ()));
+            },
+        );
     }
 }
 
@@ -323,10 +402,11 @@ mod tests {
     impl Run<Vec<&'static str>, (), ()> for Split {
         type Output = ((), ());
 
-        fn run(
+        fn run_at(
             machine: &mut Vec<&'static str>,
             driver: &(),
             (): (),
+            _: usize,
             done: impl FnOnce(&mut Vec<&'static str>, &(), Result<Self::Output>) + 'static,
         ) {
             done(machine, driver, Ok(((), ())));
@@ -336,10 +416,11 @@ mod tests {
     impl Run<Vec<&'static str>, (), ()> for Fail {
         type Output = ();
 
-        fn run(
+        fn run_at(
             machine: &mut Vec<&'static str>,
             driver: &(),
             (): (),
+            _: usize,
             done: impl FnOnce(&mut Vec<&'static str>, &(), Result<()>) + 'static,
         ) {
             done(machine, driver, Err(eyre::eyre!("left failed")));
@@ -349,10 +430,11 @@ mod tests {
     impl Run<Vec<&'static str>, (), ()> for Record {
         type Output = ();
 
-        fn run(
+        fn run_at(
             machine: &mut Vec<&'static str>,
             driver: &(),
             (): (),
+            _: usize,
             done: impl FnOnce(&mut Vec<&'static str>, &(), Result<()>) + 'static,
         ) {
             machine.push("right started");
@@ -364,40 +446,40 @@ mod tests {
     struct SplitDelivery;
     struct RecordDelivery;
 
-    impl Operation<Vec<String>, (), ()> for StartDelivery {
+    impl<D> Operation<Vec<String>, (), D> for StartDelivery {
         type Output = ();
 
         fn start(
             machine: &mut Vec<String>,
-            driver: &(),
+            driver: &D,
             (): (),
-            done: impl FnOnce(&mut Vec<String>, &(), Result<()>) + 'static,
+            done: impl FnOnce(&mut Vec<String>, &D, Result<()>) + 'static,
         ) {
             done(machine, driver, Ok(()));
         }
     }
 
-    impl Operation<Vec<String>, (), ()> for SplitDelivery {
+    impl<D> Operation<Vec<String>, (), D> for SplitDelivery {
         type Output = (u8, bool, &'static str);
 
         fn start(
             machine: &mut Vec<String>,
-            driver: &(),
+            driver: &D,
             (): (),
-            done: impl FnOnce(&mut Vec<String>, &(), Result<Self::Output>) + 'static,
+            done: impl FnOnce(&mut Vec<String>, &D, Result<Self::Output>) + 'static,
         ) {
             done(machine, driver, Ok((42, true, "alarm")));
         }
     }
 
-    impl<T: std::fmt::Display> Operation<Vec<String>, T, ()> for RecordDelivery {
+    impl<T: std::fmt::Display, D> Operation<Vec<String>, T, D> for RecordDelivery {
         type Output = ();
 
         fn start(
             machine: &mut Vec<String>,
-            driver: &(),
+            driver: &D,
             input: T,
-            done: impl FnOnce(&mut Vec<String>, &(), Result<()>) + 'static,
+            done: impl FnOnce(&mut Vec<String>, &D, Result<()>) + 'static,
         ) {
             machine.push(input.to_string());
             done(machine, driver, Ok(()));
@@ -451,6 +533,58 @@ mod tests {
     }
 
     #[test]
+    fn registered_names_select_distinct_edges_in_reused_branches() {
+        use super::super::builder::{
+            NodePlan, OneInstruction, RouteDeclaration, edge, node, split_with, step_graph,
+        };
+
+        struct RecordEdges;
+        impl RouteDelivery<Vec<String>> for RecordEdges {
+            fn deliver_edge<E: 'static>(
+                &self,
+                machine: &mut Vec<String>,
+                id: EdgeId,
+                effect: E,
+                done: impl FnOnce(&mut Vec<String>, &Self, Result<E>) + 'static,
+            ) {
+                machine.push(format!("edge {}", id.0));
+                done(machine, self, Ok(effect));
+            }
+        }
+
+        let branch = |name| {
+            let record: NodePlan<RecordDelivery> = node();
+            let finish: NodePlan<StartDelivery> = node();
+            record.then_via(edge().named(name), finish)
+        };
+        let declare = |second| {
+            let start: NodePlan<StartDelivery, OneInstruction> = node();
+            let split: NodePlan<SplitDelivery> = node();
+            let alarm: NodePlan<RecordDelivery> = node();
+            step_graph::<()>().begin(start).then(
+                split_with(split)
+                    .then(branch("first"))
+                    .then(branch(second))
+                    .then(alarm),
+            )
+        };
+
+        let registered = declare("second").registered_topology();
+        assert_eq!(registered.topology.named_edge("first").unwrap(), EdgeId(0));
+        assert_eq!(registered.topology.named_edge("second").unwrap(), EdgeId(1));
+        let duplicate = declare("first").registered_topology();
+        assert!(duplicate.topology.named_edge("first").is_err());
+
+        let mut deliveries = Vec::new();
+        let route = declare("second").finish();
+        assert_eq!(std::mem::size_of_val(&route), 0);
+        route.start_with(&mut deliveries, &RecordEdges, (), |_, _, result| {
+            result.unwrap()
+        });
+        assert_eq!(deliveries, ["42", "edge 0", "true", "edge 1", "alarm"]);
+    }
+
+    #[test]
     fn a_join_keeps_tuple_order_when_branches_complete_out_of_order() {
         use super::super::{Unannotated, builder::NoInstruction};
         use crate::framework::{ChannelDriver, operations::AwaitWork};
@@ -466,6 +600,7 @@ mod tests {
             &mut results,
             &driver,
             (wait_first, wait_second, wait_third),
+            0,
             |results, _, result| *results = Some(result.expect("all three branches succeeded")),
         );
         third.complete(Ok("alarm"));

@@ -48,6 +48,8 @@ impl<M> TokioDriver<M> {
     }
 }
 
+impl<M> crate::framework::RouteDelivery<M> for TokioDriver<M> {}
+
 impl<M: 'static> FutureDriver<M> for TokioDriver<M> {
     fn run_future<T: 'static>(
         &self,

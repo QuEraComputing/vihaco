@@ -8,22 +8,34 @@
 //! arms and adds a synthetic join. Indices and field names identify occurrences
 //! for diagnostics within a projection.
 
+use std::any::TypeId;
+
+use eyre::{Result, ensure, eyre};
+
 use super::{
     annotations::{Annotations, Metadata},
     builder::{DeliverFork, ForkJoin, Node, Route, Sequence},
     short_name,
 };
 
-impl<I, P> Route<I, P> {
+impl<I, P, Mode> Route<I, P, Mode> {
     /// Projects the route without requiring a machine, driver, or executable path.
     pub(crate) fn topology(&self) -> Topology
     where
         P: Describe,
     {
-        let mut topology = Topology::default();
-        P::describe(None, &mut topology);
-        topology
+        Topology::describe::<P>(&mut std::iter::empty())
     }
+}
+
+/// A route-local index into the backend policy table for named handoffs.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct EdgeId(pub(crate) usize);
+
+/// The named topology supplied to a backend at configuration time.
+pub(crate) struct RegisteredTopology {
+    pub(crate) topology: Topology,
+    pub(crate) route_key: TypeId,
 }
 
 /// Supplies the diagnostic name and optional machine field for an operation.
@@ -57,6 +69,9 @@ pub(crate) struct Topology {
 
 /// One operation occurrence or synthetic join in the projected graph.
 pub(crate) struct Vertex {
+    /// The optional name supplied by the route author.
+    pub(crate) site_name: Option<&'static str>,
+
     /// The operation’s diagnostic label.
     pub(crate) name: &'static str,
 
@@ -71,6 +86,8 @@ pub(crate) struct Vertex {
 
 /// A directed payload dependency between two projected node occurrences.
 pub(crate) struct Link {
+    pub(crate) site_name: Option<&'static str>,
+
     /// The node occurrence producing the payload.
     pub(crate) from: usize,
 
@@ -82,6 +99,27 @@ pub(crate) struct Link {
 }
 
 impl Topology {
+    pub(super) fn describe<P: Describe>(names: &mut impl Iterator<Item = &'static str>) -> Self {
+        let mut topology = Self::default();
+        P::describe(None, &mut topology, names);
+        topology
+    }
+
+    /// Resolves one named edge within this topology before execution.
+    pub(crate) fn named_edge(&self, name: &str) -> Result<EdgeId> {
+        let mut matches = self
+            .edges
+            .iter()
+            .filter_map(|link| link.site_name)
+            .enumerate()
+            .filter(|(_, site)| *site == name);
+        let (index, _) = matches
+            .next()
+            .ok_or_else(|| eyre!("unknown route edge {name:?}"))?;
+        ensure!(matches.next().is_none(), "ambiguous route edge {name:?}");
+        Ok(EdgeId(index))
+    }
+
     /// Adds a node and connects its incoming edge when it has a predecessor.
     fn vertex(
         &mut self,
@@ -89,17 +127,19 @@ impl Topology {
         field: Option<&'static str>,
         source_field: Option<&'static str>,
         metadata: Metadata,
-        from: Option<(usize, Metadata)>,
+        from: Incoming,
     ) -> usize {
         let id = self.nodes.len();
         self.nodes.push(Vertex {
             name,
+            site_name: None,
             field,
             source_field,
             metadata,
         });
-        if let Some((from, metadata)) = from {
+        if let Some((from, metadata, site_name)) = from {
             self.edges.push(Link {
+                site_name,
                 from,
                 to: id,
                 metadata,
@@ -117,52 +157,80 @@ impl Topology {
                 .source_field
                 .map(|field| format!("{} → ", short_name(field)))
                 .unwrap_or_default();
+            let name = node
+                .site_name
+                .map(|name| format!(" ({name})"))
+                .unwrap_or_default();
             println!(
-                "  {id}  {} {source}{site} {:?}",
+                "  {id}  {} {source}{site}{name} {:?}",
                 node.name,
                 node.metadata.names()
             );
         }
         for link in &self.edges {
-            println!("  {} → {}  {:?}", link.from, link.to, link.metadata.names());
+            let name = link
+                .site_name
+                .map(|name| format!(" ({name})"))
+                .unwrap_or_default();
+            println!(
+                "  {} → {}{name}  {:?}",
+                link.from,
+                link.to,
+                link.metadata.names()
+            );
         }
     }
 }
 
+/// Carries a predecessor and its edge properties into a path.
+pub(crate) type Incoming = Option<(usize, Metadata, Option<&'static str>)>;
+
 /// Appends a path to the topology and returns its exit node's index.
-///
-/// The optional incoming edge connects the previous path's exit to this
-/// path's entry. Composite paths use the returned index to connect successors.
 pub(crate) trait Describe {
-    /// Projects the path and attaches the incoming edge if one was supplied.
-    fn describe(from: Option<(usize, Metadata)>, topology: &mut Topology) -> usize;
+    fn describe(
+        from: Incoming,
+        topology: &mut Topology,
+        names: &mut impl Iterator<Item = &'static str>,
+    ) -> usize;
 }
 
-/// Projects one operation and its incoming edge when a predecessor exists.
 impl<N: Label, A: Annotations, Execution> Describe for Node<N, A, Execution> {
-    fn describe(from: Option<(usize, Metadata)>, topology: &mut Topology) -> usize {
-        topology.vertex(N::LABEL, N::field(), N::source_field(), A::metadata(), from)
+    fn describe(
+        from: Incoming,
+        topology: &mut Topology,
+        names: &mut impl Iterator<Item = &'static str>,
+    ) -> usize {
+        let id = topology.vertex(N::LABEL, N::field(), N::source_field(), A::metadata(), from);
+        topology.nodes[id].site_name = A::NAMED.then(|| names.next()).flatten();
+        id
     }
 }
 
-/// Connects the left path’s last node to the right path’s entry node.
 impl<L: Describe, E: Annotations, R: Describe> Describe for Sequence<L, E, R> {
-    fn describe(from: Option<(usize, Metadata)>, topology: &mut Topology) -> usize {
-        let predecessor = L::describe(from, topology);
-        R::describe(Some((predecessor, E::metadata())), topology)
+    fn describe(
+        from: Incoming,
+        topology: &mut Topology,
+        names: &mut impl Iterator<Item = &'static str>,
+    ) -> usize {
+        let predecessor = L::describe(from, topology, names);
+        let name = E::NAMED.then(|| names.next()).flatten();
+        R::describe(Some((predecessor, E::metadata(), name)), topology, names)
     }
 }
 
-/// Projects each branch from the same split, keeping their exits in declaration order.
 trait DescribeBranches {
-    fn describe(split: usize, topology: &mut Topology) -> Vec<usize>;
+    fn describe(
+        split: usize,
+        topology: &mut Topology,
+        names: &mut impl Iterator<Item = &'static str>,
+    ) -> Vec<usize>;
 }
 
 macro_rules! describe_branches {
     ($(($branch:ident, $input:ident, $value:ident, $index:tt)),+) => {
         impl<$($branch: Describe,)+> DescribeBranches for ($($branch,)+) {
-            fn describe(split: usize, topology: &mut Topology) -> Vec<usize> {
-                vec![$($branch::describe(Some((split, Metadata::default())), topology),)+]
+            fn describe(split: usize, topology: &mut Topology, names: &mut impl Iterator<Item = &'static str>) -> Vec<usize> {
+                vec![$($branch::describe(Some((split, Metadata::default(), None)), topology, names),)+]
             }
         }
     };
@@ -170,24 +238,32 @@ macro_rules! describe_branches {
 for_each_branch_tuple!(describe_branches);
 
 impl<S: Describe, B: DescribeBranches> Describe for ForkJoin<S, B> {
-    fn describe(from: Option<(usize, Metadata)>, topology: &mut Topology) -> usize {
-        let split = S::describe(from, topology);
-        let exits = B::describe(split, topology);
+    fn describe(
+        from: Incoming,
+        topology: &mut Topology,
+        names: &mut impl Iterator<Item = &'static str>,
+    ) -> usize {
+        let split = S::describe(from, topology, names);
+        let exits = B::describe(split, topology, names);
         let join = topology.vertex("join results", None, None, Metadata::default(), None);
         topology.edges.extend(exits.into_iter().map(|from| Link {
             from,
             to: join,
             metadata: Metadata::default(),
+            site_name: None,
         }));
         join
     }
 }
 
 impl<S: Describe, B: DescribeBranches> Describe for DeliverFork<S, B> {
-    fn describe(from: Option<(usize, Metadata)>, topology: &mut Topology) -> usize {
-        let split = S::describe(from, topology);
-        B::describe(split, topology);
-        // Terminal forks have no successor that can use this index.
+    fn describe(
+        from: Incoming,
+        topology: &mut Topology,
+        names: &mut impl Iterator<Item = &'static str>,
+    ) -> usize {
+        let split = S::describe(from, topology, names);
+        B::describe(split, topology, names);
         split
     }
 }

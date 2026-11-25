@@ -3,7 +3,10 @@
 
 //! Checked issue and retirement for a single loaded machine.
 
-use crate::framework::{Route, Run};
+use crate::framework::{
+    Route, Run,
+    synchronous::{StartCallback, StartRoute},
+};
 use eyre::{Result, ensure, eyre};
 use std::{cell::RefCell, collections::BTreeSet, convert::Infallible, ops::ControlFlow, rc::Rc};
 use vihaco_abi::{Type, Value, word::Word};
@@ -58,23 +61,39 @@ pub(super) struct StepContext<'a, I, B> {
 }
 
 impl<I, B> StepContext<'_, I, B> {
-    pub(super) fn start<M, Inst, P>(
+    pub(super) fn start<M, Inst>(
         &self,
         machine: &mut M,
-        route: &Route<Inst, P>,
+        route: &impl StartRoute<M, Inst, Module<I>, B>,
         instruction: Inst,
     ) -> Result<()>
     where
         M: HasProgram<Program = ExecutionState<Pause>>,
-        P: Run<M, Inst, B, Output = ()>,
     {
         ensure!(
             self.pending.borrow().is_none(),
             "a route is already pending"
         );
+        route.start(machine, instruction, self.module, self)
+    }
+}
+
+impl<I, B, M: HasProgram<Program = ExecutionState<Pause>>> StartCallback<M, B>
+    for StepContext<'_, I, B>
+{
+    fn start_callback<Inst, P, Mode, Input>(
+        &self,
+        machine: &mut M,
+        route: &Route<Inst, P, Mode>,
+        input: Input,
+    ) -> Result<()>
+    where
+        Inst: 'static,
+        P: Run<M, Input, B, Output = ()> + 'static,
+    {
         let completion = Completion::default();
         let slot = Rc::clone(&completion);
-        route.start_with(machine, self.backend, instruction, move |_, _, result| {
+        route.start_with(machine, self.backend, input, move |_, _, result| {
             *slot.borrow_mut() = Some(result);
         });
         let result = completion.borrow_mut().take();

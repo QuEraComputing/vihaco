@@ -8,8 +8,11 @@
 //! exactly one execution node, with none inside fork/join paths. Payload
 //! and driver compatibility are checked when choosing an interpreter.
 
-use super::annotations::{Annotated, Annotation, Unannotated};
-use std::marker::PhantomData;
+use super::{
+    annotations::{Annotated, Annotation, Named, Unannotated},
+    inspection::{Describe, RegisteredTopology, Topology},
+};
+use std::{any::TypeId, marker::PhantomData};
 
 /// Carries a type in a declaration without storing or owning a value of that type.
 type TypeMarker<T> = PhantomData<fn() -> T>;
@@ -17,25 +20,36 @@ type TypeMarker<T> = PhantomData<fn() -> T>;
 /// Describes a connection before it is attached to a path.
 ///
 /// The type parameter `A` holds the annotation list projected onto that edge.
-pub(crate) struct Edge<A>(PhantomData<fn() -> A>);
+pub(crate) struct Edge<A, Names = ()>(TypeMarker<A>, Names);
 
 /// Creates an unannotated connection descriptor.
 pub(crate) fn edge() -> Edge<Unannotated> {
-    Edge(PhantomData)
+    Edge(PhantomData, ())
 }
 
 impl<A> Edge<A> {
     /// Attaches a metadata tag to the edge.
     pub(crate) fn annotate<T: Annotation>(self) -> Edge<Annotated<A, T>> {
-        Edge(PhantomData)
+        Edge(PhantomData, ())
     }
 }
 
-/// A zero-sized value used to compose a path before finishing a step.
-///
-/// `P` describes the complete path and can represent an operation, a
-/// sequence, or a fork/join.
-pub(crate) struct Plan<P>(PhantomData<fn() -> P>);
+impl<A> Edge<A> {
+    /// Names this handoff for topology inspection and backend policy.
+    pub(crate) fn named(self, name: &'static str) -> Edge<Named<A>, &'static str> {
+        Edge(PhantomData, name)
+    }
+}
+
+impl<A> Edge<Named<A>, &'static str> {
+    /// Attaches metadata while preserving the edge's name.
+    pub(crate) fn annotate<T: Annotation>(self) -> Edge<Named<Annotated<A, T>>, &'static str> {
+        Edge(PhantomData, self.1)
+    }
+}
+
+/// A path and the metadata values used when registering it.
+pub(crate) struct Plan<P, Names = ()>(TypeMarker<P>, Names);
 
 /// Describes one operation occurrence of type `N` with annotations `A`.
 ///
@@ -51,16 +65,26 @@ pub(crate) type NodePlan<N, Execution = NoInstruction, Origin = PreserveOrigin> 
 
 /// Turns an operation type into a plan that can participate in the graph.
 pub(in crate::framework) fn node<N, Execution, Origin>() -> NodePlan<N, Execution, Origin> {
-    Plan(PhantomData)
+    Plan(PhantomData, ())
 }
 
-impl<N, A, Execution, Origin> Plan<Node<N, A, Execution, Origin>> {
+impl<N, A, Execution, Origin, Names> Plan<Node<N, A, Execution, Origin>, Names> {
     /// Attaches a metadata tag to the node.
     #[allow(dead_code, reason = "used by the checked program driver examples")]
     pub(crate) fn annotate<T: Annotation>(
         self,
-    ) -> Plan<Node<N, Annotated<A, T>, Execution, Origin>> {
-        Plan(PhantomData)
+    ) -> Plan<Node<N, Annotated<A, T>, Execution, Origin>, Names> {
+        Plan(PhantomData, self.1)
+    }
+}
+
+impl<N, A, Execution, Origin> Plan<Node<N, A, Execution, Origin>> {
+    /// Names this operation occurrence in the topology.
+    pub(crate) fn named(
+        self,
+        name: &'static str,
+    ) -> Plan<Node<N, Named<A>, Execution, Origin>, &'static str> {
+        Plan(PhantomData, name)
     }
 }
 
@@ -70,37 +94,50 @@ impl<N, A, Execution, Origin> Plan<Node<N, A, Execution, Origin>> {
 /// that the payload types match.
 pub(crate) struct Sequence<L, E, R>(TypeMarker<(L, E, R)>);
 
-impl<L> Plan<L> {
+impl<L, Names> Plan<L, Names> {
     /// Connects the next path through an unannotated edge.
-    pub(crate) fn then<R: PathPlan>(self, next: R) -> Plan<Sequence<L, Unannotated, R::Path>> {
+    pub(crate) fn then<R: PathPlan>(
+        self,
+        next: R,
+    ) -> Connected<L, Unannotated, R::Path, Names, (), R::Names> {
         self.then_via(edge(), next)
     }
 
     /// Connects the next path through an explicitly configured edge.
-    pub(crate) fn then_via<E, R: PathPlan>(
+    pub(crate) fn then_via<E, EdgeNames, R: PathPlan>(
         self,
-        _: Edge<E>,
-        _: R,
-    ) -> Plan<Sequence<L, E, R::Path>> {
-        Plan(PhantomData)
+        connection: Edge<E, EdgeNames>,
+        next: R,
+    ) -> Connected<L, E, R::Path, Names, EdgeNames, R::Names> {
+        Plan(PhantomData, (self.1, connection.1, next.into_names()))
     }
 }
+
+type Connected<L, E, R, Left, Link, Right> = Plan<Sequence<L, E, R>, (Left, Link, Right)>;
 
 /// A declaration that can be appended to an existing path.
 pub(crate) trait PathPlan {
     type Path;
+    type Names;
+
+    fn into_names(self) -> Self::Names;
 }
 
-impl<P> PathPlan for Plan<P> {
+impl<P, Names> PathPlan for Plan<P, Names> {
     type Path = P;
+    type Names = Names;
+
+    fn into_names(self) -> Names {
+        self.1
+    }
 }
 
 /// Accumulates one continuation per element of the split payload.
-pub(crate) struct Fork<S, Branches>(TypeMarker<(S, Branches)>);
+pub(crate) struct Fork<S, Branches, Names = ()>(TypeMarker<(S, Branches)>, Names);
 
 /// Starts a fork whose input node supplies a tuple of branch payloads.
-pub(crate) fn split_with<S>(_: Plan<S>) -> Fork<S, ()> {
-    Fork(PhantomData)
+pub(crate) fn split_with<S, Names>(plan: Plan<S, Names>) -> Fork<S, (), Names> {
+    Fork(PhantomData, plan.1)
 }
 
 /// Appends an arm to a type-only branch tuple.
@@ -125,13 +162,13 @@ macro_rules! append_branch {
 }
 for_each_branch_tuple!(append_branch);
 
-impl<S, Branches> Fork<S, Branches> {
+impl<S, Branches, Names> Fork<S, Branches, Names> {
     /// Sends the next tuple element into this branch.
-    pub(crate) fn then<P: PathPlan>(self, _: P) -> Fork<S, Branches::Branches>
+    pub(crate) fn then<P: PathPlan>(self, path: P) -> Fork<S, Branches::Branches, (Names, P::Names)>
     where
         Branches: AppendBranch<P::Path>,
     {
-        Fork(PhantomData)
+        Fork(PhantomData, (self.1, path.into_names()))
     }
 }
 
@@ -141,13 +178,20 @@ pub(crate) struct ForkJoin<S, Branches>(TypeMarker<(S, Branches)>);
 /// Splits an input into terminal delivery branches.
 pub(crate) struct DeliverFork<S, Branches>(TypeMarker<(S, Branches)>);
 
-impl<S, Branches> PathPlan for Fork<S, Branches> {
+impl<S, Branches, Names> PathPlan for Fork<S, Branches, Names> {
     type Path = DeliverFork<S, Branches>;
+    type Names = Names;
+
+    fn into_names(self) -> Names {
+        self.1
+    }
 }
 
 /// Joins the results of a fork for use by the next route node.
-pub(crate) fn fork_join<S, Branches>(_: Fork<S, Branches>) -> Plan<ForkJoin<S, Branches>> {
-    Plan(PhantomData)
+pub(crate) fn fork_join<S, Branches, Names>(
+    fork: Fork<S, Branches, Names>,
+) -> Plan<ForkJoin<S, Branches>, Names> {
+    Plan(PhantomData, fork.1)
 }
 
 /// Marks a path with no instruction execution.
@@ -315,10 +359,11 @@ for_each_branch_tuple!(resolve_branches);
 pub(crate) struct Start<I>(PhantomData<fn() -> I>);
 
 /// Accumulates the path `P` for instruction `I`.
-pub(crate) struct Step<I, P>(TypeMarker<(I, P)>);
+pub(crate) struct Step<I, P, Names>(TypeMarker<(I, P)>, Names);
 
 /// Names the builder result after appending path `R` to `L` through edge `E`.
-pub(crate) type ExtendedStep<I, L, E, R> = Step<I, Sequence<L, E, R>>;
+pub(crate) type ExtendedStep<I, L, E, R, Left, Link, Right> =
+    Step<I, Sequence<L, E, R>, (Left, Link, Right)>;
 
 /// Starts describing a step for instruction type `I`.
 pub(crate) fn step_graph<I>() -> Start<I> {
@@ -327,33 +372,113 @@ pub(crate) fn step_graph<I>() -> Start<I> {
 
 impl<I> Start<I> {
     /// Installs the entry path.
-    pub(crate) fn begin<P>(self, _: Plan<P>) -> Step<I, P> {
-        Step(PhantomData)
+    pub(crate) fn begin<P, Names>(self, plan: Plan<P, Names>) -> Step<I, P, Names> {
+        Step(PhantomData, plan.1)
     }
 }
 
-impl<I, P> Step<I, P> {
+impl<I, P, Names> Step<I, P, Names> {
     /// Connects the next path through an unannotated edge.
-    pub(crate) fn then<R: PathPlan>(self, next: R) -> ExtendedStep<I, P, Unannotated, R::Path> {
+    pub(crate) fn then<R: PathPlan>(
+        self,
+        next: R,
+    ) -> ExtendedStep<I, P, Unannotated, R::Path, Names, (), R::Names> {
         self.then_via(edge(), next)
     }
 
     /// Connects the next path through an explicitly configured edge.
-    pub(crate) fn then_via<E, R: PathPlan>(
+    pub(crate) fn then_via<E, EdgeNames, R: PathPlan>(
         self,
-        _: Edge<E>,
-        _: R,
-    ) -> ExtendedStep<I, P, E, R::Path> {
-        Step(PhantomData)
+        connection: Edge<E, EdgeNames>,
+        next: R,
+    ) -> ExtendedStep<I, P, E, R::Path, Names, EdgeNames, R::Names> {
+        Step(PhantomData, (self.1, connection.1, next.into_names()))
     }
 }
 
-impl<I, P> Step<I, P>
+/// Supplies names in the order in which the topology visits their occurrences.
+pub(crate) trait CollectNames {
+    fn collect(self, names: &mut Vec<&'static str>);
+}
+
+impl CollectNames for () {
+    fn collect(self, _: &mut Vec<&'static str>) {}
+}
+
+impl CollectNames for &'static str {
+    fn collect(self, names: &mut Vec<&'static str>) {
+        names.push(self);
+    }
+}
+
+impl<L: CollectNames, R: CollectNames> CollectNames for (L, R) {
+    fn collect(self, names: &mut Vec<&'static str>) {
+        self.0.collect(names);
+        self.1.collect(names);
+    }
+}
+
+impl<L: CollectNames, E: CollectNames, R: CollectNames> CollectNames for (L, E, R) {
+    fn collect(self, names: &mut Vec<&'static str>) {
+        self.0.collect(names);
+        self.1.collect(names);
+        self.2.collect(names);
+    }
+}
+
+/// Finishes executable code or projects the named topology at registration time.
+pub(crate) trait RouteDeclaration<I> {
+    type Path;
+
+    fn finish(self) -> Route<I, Self::Path>;
+    fn registered_topology(self) -> RegisteredTopology
+    where
+        I: 'static,
+        Self::Path: Describe + 'static;
+}
+
+impl<I, P, Names: CollectNames> RouteDeclaration<I> for Step<I, P, Names>
 where
     P: InstructionCount<Count = OneInstruction> + ResolveOrigins<NoOrigin>,
 {
-    /// Produces a finished route and binds each composite effect node's source.
+    type Path = P::Path;
+
+    fn finish(self) -> Route<I, Self::Path> {
+        Route(PhantomData)
+    }
+
+    fn registered_topology(self) -> RegisteredTopology
+    where
+        I: 'static,
+        Self::Path: Describe + 'static,
+    {
+        let mut names = Vec::new();
+        self.1.collect(&mut names);
+        RegisteredTopology {
+            topology: Topology::describe::<Self::Path>(&mut names.into_iter()),
+            route_key: TypeId::of::<(I, Self::Path)>(),
+        }
+    }
+}
+
+impl<I, P, Names> Step<I, P, Names>
+where
+    P: InstructionCount<Count = OneInstruction> + ResolveOrigins<NoOrigin>,
+{
+    /// Produces the executable route, with names retained by topology registration.
     pub(crate) fn finish(self) -> Route<I, P::Path> {
+        Route(PhantomData)
+    }
+
+    /// Finishes a route that runs inline with the fetched instruction borrowed.
+    #[cfg(feature = "program-image-execution")]
+    pub(crate) fn finish_inline(self) -> InlineRoute<I, P::Path> {
+        Route(PhantomData)
+    }
+
+    /// Finishes a route that can park and owns its instruction at startup.
+    #[cfg(feature = "program-image-execution")]
+    pub(crate) fn finish_parkable(self) -> ParkableRoute<I, P::Path> {
         Route(PhantomData)
     }
 }
@@ -363,4 +488,14 @@ where
 /// The type records the instruction `I` and complete path `P`. Inspection
 /// projects that path without a machine. Each execution supplies its own inputs
 /// and any state needed to resume.
-pub(crate) struct Route<I, P>(PhantomData<fn() -> (I, P)>);
+pub(crate) struct Route<I, P, Mode = ()>(TypeMarker<(I, P, Mode)>);
+
+#[cfg(feature = "program-image-execution")]
+pub(crate) struct Inline;
+#[cfg(feature = "program-image-execution")]
+pub(crate) struct Parkable;
+
+#[cfg(feature = "program-image-execution")]
+pub(crate) type InlineRoute<I, P> = Route<I, P, Inline>;
+#[cfg(feature = "program-image-execution")]
+pub(crate) type ParkableRoute<I, P> = Route<I, P, Parkable>;

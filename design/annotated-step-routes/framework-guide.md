@@ -11,11 +11,14 @@ clamp does. In the sample program, all backends turn the completed sample
 into a typed `PushToStack` effect and the program field applies it before
 the next fetch. [Waveform handlers](../../crates/vihaco-runtime/examples/static_graph_routes/machines/waveform/mod.rs) · [Sample route](../../crates/vihaco-stdlib/examples/program_drivers/machine.rs)
 
-This walkthrough follows the checked Warehouse example. Its simulator
-stores a delivery callback in the event queue. The proposed shared
-scheduler interface uses a typed ticket and leaves the continuation
-with the program driver. The one-call `execute` entry point can wrap
-either arrangement. [Task submission and completion](route-drivers.md#task-submission-and-completion)
+This walkthrough follows the checked-in Warehouse example. It uses a
+route timing annotation and an explicit choice of interpreter. For the
+RFC's host-configured design, see `logical_routes`. Its route names the
+label handoff, and the host binds a release delay to that name when it
+configures the simulator. When delivery is deferred, the backend holds
+the owned label behind a typed ticket, and the program driver keeps the
+continuation.
+[Logical Warehouse example](../../crates/vihaco-stdlib/examples/logical_routes.rs) · [Using Sim as a machine author](annotated-step-topologies.md#using-sim-as-a-machine-author) · [Backend delivery policy](route-drivers.md#delivery-policy-at-the-backend)
 
 ## Warehouse label printing walkthrough
 
@@ -51,7 +54,7 @@ step_graph::<ops::PrintLabel>()
     .begin(prepare_message_at::<PrinterField, NoMessage>())
     .then(execute_instruction_at::<PrinterField>().annotate::<MinExecution<12>>())
     .then(apply_effect_at::<ParcelField>())
-    .finish()
+    .finish_parkable()
 ```
 
 `PrinterField` and `ParcelField` identify fields of the same `Warehouse`
@@ -114,7 +117,11 @@ Checked fetch reads the PC through `HasProgram` on Warehouse's
 `#[program]` field. It fetches the instruction and advances the PC to 1
 before calling generated dispatch. The selected `Step` passes its route
 and owned print instruction to `context.start`. The step context also
-carries the borrowed program module.
+carries the borrowed program module. Verification and `ExecutionState`
+instructions also use `context.start`. Their shared recipe route uses
+`finish_inline()` so it can prepare the message from the borrowed module
+and execute with the fetched instruction still borrowed. Printing uses
+`finish_parkable()` because its annotation lets the backend defer delivery.
 [Warehouse step](../../crates/vihaco-stdlib/examples/program_drivers/warehouse/mod.rs) · [Program driver](../../crates/vihaco-stdlib/examples/program_drivers/scheduled/driver.rs)
 
 ### 4. Issue the print at tick 5

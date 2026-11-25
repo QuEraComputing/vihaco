@@ -14,7 +14,7 @@
 //! operation reports them.
 
 use crate::framework::{
-    AnnotatedDriver, Await, FutureDriver, Metadata, Operation, PollJob, poll_future,
+    Await, FutureDriver, Metadata, Operation, PollJob, RouteDelivery, poll_future,
 };
 use crate::timing::minimum_execution;
 use eyre::{Result, ensure, eyre};
@@ -128,8 +128,8 @@ impl<M: 'static, T: 'static> Await<M, Scheduled<T>> for SimDriver<M> {
     }
 }
 
-impl<M: 'static> AnnotatedDriver<M> for SimDriver<M> {
-    fn run_annotated<I, N: Operation<M, I, Self>>(
+impl<M: 'static> RouteDelivery<M> for SimDriver<M> {
+    fn run_annotated<I, N: Operation<M, I, Self, Output: 'static>>(
         &self,
         machine: &mut M,
         metadata: &Metadata,

@@ -5,11 +5,21 @@
 
 use super::tasks::{Submit, TaskId, Ticket, TimedSubmit};
 use crate::{
-    framework::{AnnotatedDriver, FutureDriver, Metadata, Operation, Route, Run},
+    framework::{
+        EdgeId, FutureDriver, Metadata, Operation, Route, RouteDelivery, Run,
+        synchronous::{StartCallback, StartRoute},
+    },
     timing::minimum_execution,
 };
 use eyre::{Result, ensure, eyre};
-use std::{cell::RefCell, collections::HashMap, future::Future, ops::ControlFlow, rc::Rc};
+use std::{
+    any::TypeId,
+    cell::{Cell, OnceCell, RefCell},
+    collections::HashMap,
+    future::Future,
+    ops::ControlFlow,
+    rc::Rc,
+};
 use vihaco_abi::{Type, Value, word::Word};
 use vihaco_module::module::LocalModule;
 use vihaco_runtime::{Composite, Dispatch, HasInstructionSet, HasProgram};
@@ -27,55 +37,59 @@ pub(crate) enum Pause {
     Faulted,
 }
 
-type Resume<M, B> = Box<dyn FnOnce(&mut M, &RouteDriver<M, B>)>;
+type Resume<M, B> = Box<dyn FnOnce(&mut M, &RouteContext<M, B>)>;
 
-struct RouteState {
-    continuation_pc: u32,
-    terminal: Option<Result<()>>,
-}
-
-type ActiveRoute = Rc<RefCell<RouteState>>;
+// Shared only by pending continuations for one in-flight instruction.
+type ActiveRoute = Rc<Cell<u32>>;
 
 struct Parked<M, B> {
     machine: usize,
     route: ActiveRoute,
     resume: Resume<M, B>,
+    edge_delays: Option<Rc<[u64]>>,
 }
 
 type PendingRoutes<M, B> = Rc<RefCell<HashMap<TaskId, Parked<M, B>>>>;
 
-/// Bridges the current route trait to the machine-independent scheduler.
-pub(crate) struct RouteDriver<M, B> {
+/// Gives one invocation access to the program driver’s scheduling services.
+pub(crate) struct RouteContext<M, B> {
     machine: usize,
     submitter: B,
     pending: PendingRoutes<M, B>,
-    route: ActiveRoute,
+    route: OnceCell<ActiveRoute>,
+    terminal: RefCell<Option<Result<()>>>,
+    edge_delays: Option<Rc<[u64]>>,
 }
 
-impl<M: 'static, B: Submit> RouteDriver<M, B> {
+impl<M: 'static, B: Submit> RouteContext<M, B> {
     fn new(
         machine: usize,
         submitter: &B,
         pending: &PendingRoutes<M, B>,
-        route: ActiveRoute,
+        route: Option<ActiveRoute>,
+        edge_delays: Option<Rc<[u64]>>,
     ) -> Self {
         Self {
             machine,
             submitter: submitter.clone(),
             pending: Rc::clone(pending),
-            route,
+            route: route.map(OnceCell::from).unwrap_or_default(),
+            terminal: RefCell::default(),
+            edge_delays,
         }
     }
 
     fn has_pending_work(&self) -> bool {
-        self.pending
-            .borrow()
-            .values()
-            .any(|task| Rc::ptr_eq(&task.route, &self.route))
+        self.route.get().is_some_and(|route| {
+            self.pending
+                .borrow()
+                .values()
+                .any(|task| Rc::ptr_eq(&task.route, route))
+        })
     }
 }
 
-impl<M: 'static, B: Submit> FutureDriver<M> for RouteDriver<M, B> {
+impl<M: 'static, B: Submit> FutureDriver<M> for RouteContext<M, B> {
     fn run_future<T: 'static>(
         &self,
         machine: &mut M,
@@ -87,8 +101,32 @@ impl<M: 'static, B: Submit> FutureDriver<M> for RouteDriver<M, B> {
     }
 }
 
-impl<M: 'static, B: TimedSubmit> AnnotatedDriver<M> for RouteDriver<M, B> {
-    fn run_annotated<I, N: Operation<M, I, Self>>(
+impl<M: 'static, B: TimedSubmit> RouteDelivery<M> for RouteContext<M, B> {
+    fn deliver_edge<E: 'static>(
+        &self,
+        machine: &mut M,
+        id: EdgeId,
+        effect: E,
+        done: impl FnOnce(&mut M, &Self, Result<E>) + 'static,
+    ) {
+        let ticks = self
+            .edge_delays
+            .as_ref()
+            .and_then(|table| table.get(id.0))
+            .copied()
+            .unwrap_or(0);
+        if ticks == 0 {
+            done(machine, self, Ok(effect));
+        } else {
+            let ticket = self
+                .submitter
+                .deadline(ticks)
+                .and_then(|deadline| self.submitter.submit_at(deadline, effect));
+            self.register(machine, ticket, done);
+        }
+    }
+
+    fn run_annotated<I, N: Operation<M, I, Self, Output: 'static>>(
         &self,
         machine: &mut M,
         metadata: &Metadata,
@@ -119,7 +157,7 @@ impl<M: 'static, B: TimedSubmit> AnnotatedDriver<M> for RouteDriver<M, B> {
     }
 }
 
-impl<M: 'static, B: Submit> RouteDriver<M, B> {
+impl<M: 'static, B: Submit> RouteContext<M, B> {
     fn register<T: 'static>(
         &self,
         machine: &mut M,
@@ -134,7 +172,8 @@ impl<M: 'static, B: Submit> RouteDriver<M, B> {
             ticket.id(),
             Parked {
                 machine: self.machine,
-                route: Rc::clone(&self.route),
+                route: Rc::clone(self.route.get_or_init(Rc::default)),
+                edge_delays: self.edge_delays.clone(),
                 resume: Box::new(move |machine, driver| {
                     done(machine, driver, ticket.take_result())
                 }),
@@ -155,39 +194,66 @@ where
     M: HasInstructionSet + HasProgram<Program = ExecutionState<Pause>> + 'static,
     B: Submit,
 {
-    pub(crate) fn start<I, P>(
+    pub(crate) fn start<I>(
         &self,
         machine: &mut M,
-        route: &Route<I, P>,
+        route: &impl StartRoute<M, I, Module<M>, RouteContext<M, B>>,
         instruction: I,
+    ) -> Result<()> {
+        route.start(machine, instruction, self.module, self)
+    }
+}
+
+impl<M, B> StartCallback<M, RouteContext<M, B>> for StepContext<'_, M, B>
+where
+    M: HasInstructionSet + HasProgram<Program = ExecutionState<Pause>> + 'static,
+    B: Submit,
+{
+    fn start_callback<I, P, Mode, Input>(
+        &self,
+        machine: &mut M,
+        route: &Route<I, P, Mode>,
+        input: Input,
     ) -> Result<()>
     where
-        P: Run<M, I, RouteDriver<M, B>, Output = ()>,
+        I: 'static,
+        P: Run<M, Input, RouteContext<M, B>, Output = ()> + 'static,
     {
-        let state = Rc::new(RefCell::new(RouteState {
-            continuation_pc: machine.program().pc(),
-            terminal: None,
-        }));
-        let driver = RouteDriver::new(
+        // Inline routes keep completion on this stack frame.
+        let edge_delays = if P::NAMED_EDGES == 0 {
+            None
+        } else {
+            self.submitter.edge_delays(TypeId::of::<(I, P)>())
+        };
+        let route_context = RouteContext::new(
             self.machine,
             self.submitter,
             self.pending,
-            Rc::clone(&state),
+            None,
+            edge_delays,
         );
-        let terminal = Rc::clone(&state);
-        route.start_with(machine, &driver, instruction, move |_, _, result| {
-            terminal.borrow_mut().terminal = Some(result);
-        });
-        let result = state.borrow_mut().terminal.take();
+        route.start_with(
+            machine,
+            &route_context,
+            input,
+            |_, route_context, result| {
+                *route_context.terminal.borrow_mut() = Some(result);
+            },
+        );
+        let result = route_context.terminal.borrow_mut().take();
         if let Some(result) = result {
             return result;
         }
         ensure!(
-            driver.has_pending_work(),
+            route_context.has_pending_work(),
             "route started without pending work"
         );
         // Checked fetch will restore the originating PC when it sees the pause.
-        state.borrow_mut().continuation_pc = machine.program().pc();
+        route_context
+            .route
+            .get()
+            .expect("pending work has a route")
+            .set(machine.program().pc());
         machine.program_mut().suspend(Pause::Route);
         Ok(())
     }
@@ -253,29 +319,36 @@ where
             .borrow_mut()
             .remove(&task)
             .ok_or_else(|| eyre!("no parked route for {task:?}"))?;
-        let driver = RouteDriver::new(parked.machine, &self.submitter, &self.pending, parked.route);
+        let route = parked.route;
+        let route_context = RouteContext::new(
+            parked.machine,
+            &self.submitter,
+            &self.pending,
+            Some(Rc::clone(&route)),
+            parked.edge_delays,
+        );
         let machine = loaded.machine_mut();
         let origin = machine.program().pc();
         ensure!(
             matches!(machine.program().run_state(), RunState::Other(Pause::Route)),
             "task owner is not waiting for a route"
         );
-        let continuation_pc = driver.route.borrow().continuation_pc;
+        let continuation_pc = route.get();
         let result = run(
             machine,
             |machine| {
                 machine.program_mut().resume_at(continuation_pc);
-                (parked.resume)(machine, &driver);
-                let result = driver.route.borrow_mut().terminal.take();
+                (parked.resume)(machine, &route_context);
+                let result = route_context.terminal.borrow_mut().take();
                 if let Some(result) = result {
                     return result;
                 }
                 ensure!(
-                    driver.has_pending_work(),
+                    route_context.has_pending_work(),
                     "route returned without completion or pending work"
                 );
                 // Another stage parked. Keep the same visible origin until retirement.
-                driver.route.borrow_mut().continuation_pc = machine.program().pc();
+                route.set(machine.program().pc());
                 machine.program_mut().resume_at(origin);
                 machine.program_mut().suspend(Pause::Route);
                 Ok(())

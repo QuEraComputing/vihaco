@@ -9,7 +9,7 @@
 //!
 //! | Constructor | Input | Output or continuation |
 //! | --- | --- | --- |
-//! | `build_message_at::<F, Message>()` | Owned instruction for `Run`, or borrowed instruction and context for `RunSync` | `Prepared` instruction and message |
+//! | `build_message_at::<F, Message>()` | Borrowed instruction and context | `Prepared` instruction and message |
 //! | `execute_instruction_at::<F>()` | `Prepared` instruction and message | Effect from `Execute` on field `F` |
 //! | `apply_effect_at::<F>()` | Effect | Output of `Apply` on field `F` |
 //! | `duplicate()` | Cloneable payload | Two owned values for a fork |
@@ -36,7 +36,7 @@ use vihaco_runtime::{Apply, BuildMessage, Execute, Field, ReusableMessageRecipe}
 /// hands its continuation and the state it needs to the driver.
 pub(crate) trait Operation<M, I, D> {
     /// The owned value passed to the continuation.
-    type Output: 'static;
+    type Output;
 
     /// Starts the operation and either completes inline or parks the callback with the driver.
     fn start(
@@ -47,11 +47,39 @@ pub(crate) trait Operation<M, I, D> {
     );
 }
 
-/// Carries an owned or borrowed instruction alongside its prepared message.
-pub(crate) struct Prepared<I, Message> {
-    /// The instruction that the execution node will borrow.
-    pub(super) instruction: I,
-    /// The prepared snapshot, including any runtime bindings needed by this invocation.
+/// Borrowed data from checked fetch.
+pub(crate) struct Entry<'a, I, C: ?Sized> {
+    pub(crate) instruction: &'a I,
+    pub(crate) context: &'a C,
+}
+
+/// Holds a borrow until a stage needs to retain the instruction across a wait.
+pub(crate) enum Instruction<'a, I> {
+    Borrowed(&'a I),
+    Owned(I),
+}
+
+impl<I> Instruction<'_, I> {
+    pub(super) fn get(&self) -> &I {
+        match self {
+            Self::Borrowed(instruction) => instruction,
+            Self::Owned(instruction) => instruction,
+        }
+    }
+
+    pub(super) fn into_owned(self) -> I
+    where
+        I: Clone,
+    {
+        match self {
+            Self::Borrowed(instruction) => instruction.clone(),
+            Self::Owned(instruction) => instruction,
+        }
+    }
+}
+
+pub(crate) struct Prepared<'a, I, Message> {
+    pub(super) instruction: Instruction<'a, I>,
     pub(super) message: Message,
 }
 
@@ -73,22 +101,25 @@ impl<F, Message> Label for BuildAt<F, Message> {
 }
 
 /// Calls BuildMessage and forwards the prepared snapshot with the instruction.
-impl<M, D, F, I: 'static, Message: 'static> Operation<M, I, D> for BuildAt<F, Message>
+impl<'a, M, D, F, I, C: ?Sized, Message> Operation<M, Entry<'a, I, C>, D> for BuildAt<F, Message>
 where
-    M: BuildMessage<F, I, (), Message>,
+    M: BuildMessage<F, I, C, Message>,
 {
-    type Output = Prepared<I, Message>;
+    type Output = Prepared<'a, I, Message>;
 
     fn start(
         machine: &mut M,
         driver: &D,
-        instruction: I,
+        Entry {
+            instruction,
+            context,
+        }: Entry<'a, I, C>,
         done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
     ) {
         let result = machine
-            .build_message(&instruction, &())
+            .build_message(instruction, context)
             .map(|message| Prepared {
-                instruction,
+                instruction: Instruction::Borrowed(instruction),
                 message,
             });
         done(machine, driver, result);
@@ -111,21 +142,24 @@ impl<F, Message> Label for PrepareAt<F, Message> {
     }
 }
 
-impl<M, D, F, I: 'static, Message> Operation<M, I, D> for PrepareAt<F, Message>
+impl<'a, M, D, F, I, C: ?Sized, Message> Operation<M, Entry<'a, I, C>, D> for PrepareAt<F, Message>
 where
     M: Field<F>,
-    Message: ReusableMessageRecipe<M, F, I, ()> + 'static,
+    Message: ReusableMessageRecipe<M, F, I, C>,
 {
-    type Output = Prepared<I, Message>;
+    type Output = Prepared<'a, I, Message>;
 
     fn start(
         machine: &mut M,
         driver: &D,
-        instruction: I,
+        Entry {
+            instruction,
+            context,
+        }: Entry<'a, I, C>,
         done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
     ) {
-        let result = Message::prepare(machine, &instruction, &()).map(|message| Prepared {
-            instruction,
+        let result = Message::prepare(machine, instruction, context).map(|message| Prepared {
+            instruction: Instruction::Borrowed(instruction),
             message,
         });
         done(machine, driver, result);
@@ -150,7 +184,7 @@ impl<F> Label for ExecuteAt<F> {
 }
 
 /// Executes the prepared instruction once on the selected component and forwards its effect.
-impl<M, D, F, I, Message> Operation<M, Prepared<I, Message>, D> for ExecuteAt<F>
+impl<M, D, F, I, Message> Operation<M, Prepared<'_, I, Message>, D> for ExecuteAt<F>
 where
     M: Field<F>,
     M::Child: Execute<I, Message = Message, Effect: 'static, Error: Into<eyre::Report>>,
@@ -160,12 +194,12 @@ where
     fn start(
         machine: &mut M,
         driver: &D,
-        input: Prepared<I, Message>,
+        input: Prepared<'_, I, Message>,
         done: impl FnOnce(&mut M, &D, Result<Self::Output>) + 'static,
     ) {
         let result = machine
             .get_mut()
-            .execute(&input.instruction, input.message)
+            .execute(input.instruction.get(), input.message)
             .map_err(Into::into);
         done(machine, driver, result);
     }

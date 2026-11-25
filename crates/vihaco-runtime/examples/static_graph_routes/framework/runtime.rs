@@ -10,7 +10,7 @@
 //! shared driver reference. This permits the continuation to start another
 //! operation or park again.
 //!
-//! `AnnotatedDriver` lives in the graph executor. It lets a backend inspect
+//! `RouteDelivery` lives in the graph executor. It lets a backend inspect
 //! metadata before invoking an annotated operation. The simulator overrides
 //! the hook to delay a successful result. Unannotated operations require
 //! only the capabilities they use.
@@ -44,7 +44,7 @@
 //! and queues completed callbacks for host delivery. Its first poll happens
 //! when the executor runs.
 
-use super::graph::{AnnotatedDriver, Route, Run};
+use super::graph::{Route, RouteDelivery, Run};
 use eyre::{Result, eyre};
 use std::{
     cell::RefCell,
@@ -164,7 +164,7 @@ pub(crate) struct ChannelDriver<M> {
 }
 
 /// Uses the default annotation policy and delivers operation results without a timing delay.
-impl<M> AnnotatedDriver<M> for ChannelDriver<M> {}
+impl<M> RouteDelivery<M> for ChannelDriver<M> {}
 
 impl<M: 'static> ChannelDriver<M> {
     /// Creates an empty driver with its own wake channel.
@@ -193,11 +193,17 @@ impl<M: 'static> ChannelDriver<M> {
     /// Starts a route and queues its terminal result for the example caller.
     pub(crate) fn start<I, P>(&self, machine: &mut M, route: &Route<I, P>, instruction: I)
     where
-        P: Run<M, I, Self, Output = ()>,
+        P: for<'a> Run<M, super::Entry<'a, I, ()>, Self, Output = ()>,
     {
-        route.start_with(machine, self, instruction, |_, driver, result| {
-            driver.complete(result)
-        });
+        route.start_with(
+            machine,
+            self,
+            super::Entry {
+                instruction: &instruction,
+                context: &(),
+            },
+            |_, driver, result| driver.complete(result),
+        );
     }
 
     /// Resumes ready callbacks from the queue snapshot and returns their count.

@@ -7,8 +7,9 @@
 mod tokio_driver;
 
 use crate::framework::{
-    AsyncReusableMessageRecipe, AsyncSlot, ChannelDriver, Describe, FutureDriver, Route, Run,
-    apply_effect_at, async_prepare_message_at, execute_async_instruction_at, step_graph,
+    AsyncReusableMessageRecipe, AsyncSlot, ChannelDriver, Describe, Entry, FutureDriver, Route,
+    RouteDelivery, Run, apply_effect_at, async_prepare_message_at, execute_async_instruction_at,
+    step_graph,
 };
 use eyre::{Result, WrapErr, eyre};
 use std::{convert::Infallible, future::Future};
@@ -19,6 +20,7 @@ use vihaco_runtime::{Apply, AsyncExecute, Field, component, dialect};
 #[vihaco(crate = ::vihaco_runtime)]
 pub(crate) mod acquisition {
     #[instruction]
+    #[derive(Clone)]
     pub struct Capture;
 }
 
@@ -112,8 +114,8 @@ where
     }
 }
 
-fn route<D: FutureDriver<Machine>>()
--> Route<Capture, impl Run<Machine, Capture, D, Output = ()> + Describe> {
+fn route<D: FutureDriver<Machine> + RouteDelivery<Machine>>()
+-> Route<Capture, impl for<'a> Run<Machine, Entry<'a, Capture, ()>, D, Output = ()> + Describe> {
     step_graph::<Capture>()
         .begin(async_prepare_message_at::<
             DigitizerField,
@@ -225,22 +227,38 @@ mod tests {
     fn same_async_route_runs_on_tokio_and_simulation() -> Result<()> {
         let (mut machine, device) = fixture();
         let mut driver = TokioDriver::new()?;
-        route().start_with(&mut machine, &driver, Capture, |machine, _, result| {
-            result.expect("Tokio capture succeeds");
-            assert_eq!(
-                machine.digitizer.inspect(|digitizer| digitizer.sample),
-                Some(Some(23))
-            );
-        });
+        route().start_with(
+            &mut machine,
+            &driver,
+            Entry {
+                instruction: &Capture,
+                context: &(),
+            },
+            |machine, _, result| {
+                result.expect("Tokio capture succeeds");
+                assert_eq!(
+                    machine.digitizer.inspect(|digitizer| digitizer.sample),
+                    Some(Some(23))
+                );
+            },
+        );
         device.send(23).expect("capture owns the receiver");
         driver.resume_one(&mut machine)?; // Prepared input is ready.
         driver.resume_one(&mut machine)?; // Execution produced the sample.
 
         let (mut machine, device) = fixture();
         let driver = SimDriver::new();
-        route().start_with(&mut machine, &driver, Capture, |_, _, result| {
-            result.expect("simulated capture succeeds");
-        });
+        route().start_with(
+            &mut machine,
+            &driver,
+            Entry {
+                instruction: &Capture,
+                context: &(),
+            },
+            |_, _, result| {
+                result.expect("simulated capture succeeds");
+            },
+        );
         device.send(29).expect("capture owns the receiver");
         driver.advance_to(&mut machine, 1)?;
         assert_eq!(

@@ -4,7 +4,7 @@
 //! Shared submission vocabulary. No machine, route, or clock enters this API.
 
 use eyre::{Result, WrapErr, eyre};
-use std::{cell::Cell, future::Future};
+use std::{any::TypeId, cell::Cell, future::Future, rc::Rc};
 use tokio::sync::oneshot;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -25,6 +25,11 @@ impl TaskIds {
 }
 
 pub(crate) trait Submit: Clone + 'static {
+    /// Selects the numeric policy table once for a route invocation.
+    fn edge_delays(&self, _: TypeId) -> Option<Rc<[u64]>> {
+        None
+    }
+
     fn submit<T: 'static>(
         &self,
         future: impl Future<Output = Result<T>> + 'static,

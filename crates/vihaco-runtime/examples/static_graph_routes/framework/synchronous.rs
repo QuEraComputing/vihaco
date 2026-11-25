@@ -3,9 +3,9 @@
 
 //! # Borrowed inline execution
 //!
-//! The CPU runner lends a module and current instruction to
-//! `Route::run_synchronously`. The same `build_message_at` descriptor used
-//! by callback routes now reads the borrowed context through `BuildMessage`.
+//! The CPU runner lends a module and current instruction to `StepContext::start`.
+//! A route finished with `finish_inline` uses the inline interpreter. Its preparation nodes
+//! read the borrowed context through the recipe or `BuildMessage`.
 //! `Execute` borrows the original instruction. The program field
 //! applies the CPU effect to the operand stack before the runner fetches again.
 //!
@@ -15,9 +15,12 @@
 //! interpreter has no driver hooks, waits, or fork/join.
 
 use super::{
-    graph::{Node, Route, Sequence},
+    graph::{
+        Describe, InlineRoute, Node, ParkableRoute, Route, Run, Sequence, Unannotated, step_graph,
+    },
     operations::{
-        ApplyEffectAt, BuildAt, ExecuteAt, HandleEffect, HandleEffectBetween, PrepareAt, Prepared,
+        ApplyEffectAt, BuildAt, Entry, ExecuteAt, HandleEffect, HandleEffectBetween, Instruction,
+        PrepareAt, Prepared, execute_instruction_at, prepare_message_at,
     },
 };
 use eyre::Result;
@@ -43,9 +46,9 @@ pub(crate) trait SyncOperation<M, Input> {
     fn apply(machine: &mut M, input: Input) -> Result<Self::Output>;
 }
 
-/// The same static node can have an inline interpretation for borrowed inputs.
-impl<M, Input, N: SyncOperation<M, Input>, A, Execution> RunSync<M, Input>
-    for Node<N, A, Execution>
+/// Inline execution accepts nodes that need no annotation policy from the driver.
+impl<M, Input, N: SyncOperation<M, Input>, Execution> RunSync<M, Input>
+    for Node<N, Unannotated, Execution>
 {
     type Output = N::Output;
 
@@ -68,21 +71,103 @@ where
     }
 }
 
-impl<I, P> Route<I, P> {
-    /// Runs a unit-output step using the runner's borrowed instruction and context.
-    ///
-    /// Returns after the path has applied its effects or reported an error.
-    pub(crate) fn run_synchronously<'input, M, C: ?Sized>(
+/// Starts a route in the execution mode selected by its declaration.
+pub(crate) trait StartRoute<M, Input, C: ?Sized, D> {
+    fn start(
+        &self,
+        machine: &mut M,
+        instruction: Input,
+        context: &C,
+        driver: &impl StartCallback<M, D>,
+    ) -> Result<()>;
+}
+
+/// Driver services for a route whose callback may be retained across a wait.
+pub(crate) trait StartCallback<M, D> {
+    fn start_callback<I, P, Mode, Input>(
+        &self,
+        machine: &mut M,
+        route: &Route<I, P, Mode>,
+        input: Input,
+    ) -> Result<()>
+    where
+        I: 'static,
+        P: Run<M, Input, D, Output = ()> + 'static;
+}
+
+impl<'input, M, I, P, C: ?Sized, D> StartRoute<M, &'input I, C, D> for InlineRoute<I, P>
+where
+    P: for<'a> RunSync<M, (&'a I, &'a C), Output = ()>,
+{
+    fn start(
         &self,
         machine: &mut M,
         instruction: &'input I,
-        context: &'input C,
-    ) -> Result<()>
-    where
-        P: RunSync<M, (&'input I, &'input C), Output = ()>,
-    {
+        context: &C,
+        _: &impl StartCallback<M, D>,
+    ) -> Result<()> {
         P::run_sync(machine, (instruction, context))
     }
+}
+
+impl<M, I, P, C: ?Sized, D> StartRoute<M, I, C, D> for ParkableRoute<I, P>
+where
+    I: 'static,
+    P: for<'a> Run<M, Entry<'a, I, ()>, D, Output = ()> + 'static,
+{
+    fn start(
+        &self,
+        machine: &mut M,
+        instruction: I,
+        _: &C,
+        driver: &impl StartCallback<M, D>,
+    ) -> Result<()> {
+        driver.start_callback(
+            machine,
+            self,
+            Entry {
+                instruction: &instruction,
+                context: &(),
+            },
+        )
+    }
+}
+
+impl<'input, M, I, P, C: ?Sized, D> StartRoute<M, &'input I, C, D> for Route<I, P>
+where
+    I: 'static,
+    P: for<'a> Run<M, Entry<'a, I, C>, D, Output = ()> + 'static,
+{
+    fn start(
+        &self,
+        machine: &mut M,
+        instruction: &'input I,
+        context: &C,
+        driver: &impl StartCallback<M, D>,
+    ) -> Result<()> {
+        driver.start_callback(
+            machine,
+            self,
+            Entry {
+                instruction,
+                context,
+            },
+        )
+    }
+}
+
+/// Prepares input from a recipe and executes an instruction with no outgoing effect.
+pub(crate) fn recipe_instruction_route<M, F, I, C: ?Sized>()
+-> InlineRoute<I, impl for<'a> RunSync<M, (&'a I, &'a C), Output = ()> + Describe>
+where
+    M: Field<F>,
+    M::Child: Execute<I, Effect = (), Error: Into<eyre::Report>>,
+    <M::Child as Execute<I>>::Message: ReusableMessageRecipe<M, F, I, C>,
+{
+    step_graph::<I>()
+        .begin(prepare_message_at::<F, <M::Child as Execute<I>>::Message>())
+        .then(execute_instruction_at::<F>())
+        .finish_inline()
 }
 
 /// The entry node reads the borrowed context and passes on the prepared message.
@@ -91,7 +176,7 @@ impl<'input, M, F, I, C: ?Sized, Message> SyncOperation<M, (&'input I, &'input C
 where
     M: BuildMessage<F, I, C, Message>,
 {
-    type Output = Prepared<&'input I, Message>;
+    type Output = Prepared<'input, I, Message>;
 
     fn apply(
         machine: &mut M,
@@ -99,7 +184,7 @@ where
     ) -> Result<Self::Output> {
         let message = machine.build_message(instruction, context)?;
         Ok(Prepared {
-            instruction,
+            instruction: Instruction::Borrowed(instruction),
             message,
         })
     }
@@ -111,7 +196,7 @@ where
     M: Field<F>,
     Message: ReusableMessageRecipe<M, F, I, C>,
 {
-    type Output = Prepared<&'input I, Message>;
+    type Output = Prepared<'input, I, Message>;
 
     fn apply(
         machine: &mut M,
@@ -119,24 +204,24 @@ where
     ) -> Result<Self::Output> {
         let message = Message::prepare(machine, instruction, context)?;
         Ok(Prepared {
-            instruction,
+            instruction: Instruction::Borrowed(instruction),
             message,
         })
     }
 }
 
 /// Execute borrows the original instruction directly from the program.
-impl<M, F, I, Message> SyncOperation<M, Prepared<&I, Message>> for ExecuteAt<F>
+impl<M, F, I, Message> SyncOperation<M, Prepared<'_, I, Message>> for ExecuteAt<F>
 where
     M: Field<F>,
     M::Child: Execute<I, Message = Message, Error: Into<eyre::Report>>,
 {
     type Output = <M::Child as Execute<I>>::Effect;
 
-    fn apply(machine: &mut M, input: Prepared<&I, Message>) -> Result<Self::Output> {
+    fn apply(machine: &mut M, input: Prepared<'_, I, Message>) -> Result<Self::Output> {
         machine
             .get_mut()
-            .execute(input.instruction, input.message)
+            .execute(input.instruction.get(), input.message)
             .map_err(Into::into)
     }
 }

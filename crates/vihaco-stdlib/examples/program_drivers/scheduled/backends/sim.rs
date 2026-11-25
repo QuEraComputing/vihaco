@@ -5,10 +5,12 @@
 
 use super::super::tasks::{Submit, TaskId, TaskIds, Ticket, TimedSubmit, track};
 use super::{DemoInput, Drive, Input};
+use crate::framework::RegisteredTopology;
 use eyre::{Result, eyre};
 use std::{
+    any::TypeId,
     cell::{Cell, RefCell},
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
     future::Future,
     pin::Pin,
     rc::Rc,
@@ -33,6 +35,7 @@ type Events = BTreeMap<(u64, TaskId), Box<dyn FnOnce()>>;
 
 struct Queue {
     now: Cell<u64>,
+    delivery_delays: HashMap<TypeId, Rc<[u64]>>,
     events: RefCell<Events>,
     ids: TaskIds,
     jobs: RefCell<BTreeMap<TaskId, Job>>,
@@ -77,6 +80,10 @@ impl TimedSubmit for SimSubmitter {
 }
 
 impl Submit for SimSubmitter {
+    fn edge_delays(&self, route: TypeId) -> Option<Rc<[u64]>> {
+        self.0.delivery_delays.get(&route).cloned()
+    }
+
     fn submit<T: 'static>(
         &self,
         future: impl Future<Output = Result<T>> + 'static,
@@ -100,6 +107,27 @@ pub(crate) struct Sim {
 }
 
 impl Sim {
+    /// Resolves the name before the backend starts running any program turns.
+    #[allow(dead_code, reason = "used by the logical_routes example")]
+    pub(crate) fn delay_edge(
+        mut self,
+        route: &RegisteredTopology,
+        name: &str,
+        ticks: u64,
+    ) -> Result<Self> {
+        let id = route.topology.named_edge(name)?.0;
+        let queue = Rc::get_mut(&mut self.submitter.0)
+            .ok_or_else(|| eyre!("edge policy must be bound before the runtime starts"))?;
+        let delays = queue.delivery_delays.entry(route.route_key).or_default();
+        let mut by_edge = delays.to_vec();
+        if by_edge.len() <= id {
+            by_edge.resize(id + 1, 0);
+        }
+        by_edge[id] = ticks;
+        *delays = by_edge.into();
+        Ok(self)
+    }
+
     pub(crate) fn new() -> Self {
         Self::starting_at(0)
     }
@@ -110,6 +138,7 @@ impl Sim {
             runnable,
             submitter: SimSubmitter(Rc::new(Queue {
                 now: Cell::new(tick),
+                delivery_delays: HashMap::default(),
                 events: RefCell::default(),
                 ids: TaskIds::default(),
                 jobs: RefCell::default(),

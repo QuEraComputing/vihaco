@@ -4,12 +4,13 @@
 //! An async instruction keeps its component across a suspension.
 
 use crate::framework::{
-    AsyncBuildMessage, AsyncHandleEffect, AsyncSlot, Describe, FutureDriver, Route, Run,
-    async_build_message_at, async_handle_effect_at, execute_async_instruction_at, step_graph,
+    AsyncBuildMessage, AsyncHandleEffect, AsyncSlot, Describe, Entry, FutureDriver, ParkableRoute,
+    RouteDelivery, Run, async_build_message_at, async_handle_effect_at,
+    execute_async_instruction_at, step_graph, synchronous::recipe_instruction_route,
 };
 use crate::scheduled::{
-    driver::{Module, Pause, RouteDriver, StepContext},
-    tasks::Submit,
+    driver::{Module, Pause, RouteContext, StepContext},
+    tasks::TimedSubmit,
 };
 use eyre::{Result, WrapErr, eyre};
 use std::{collections::VecDeque, convert::Infallible, future::Future};
@@ -23,6 +24,7 @@ use vihaco_stdlib::ExecutionState;
 #[dialect]
 pub(crate) mod acquisition {
     #[instruction]
+    #[derive(Clone)]
     pub struct Capture;
 }
 
@@ -87,18 +89,21 @@ type ProgramField = field!(Machine::execution);
 type DigitizerField = field!(Machine::digitizer);
 pub(crate) type Instruction = <Machine as HasInstructionSet>::Runtime;
 
-impl<I, Message, B> Step<ProgramField, I, StepContext<'_, Self, B>> for Machine
+impl<I, Message, B: TimedSubmit> Step<ProgramField, I, StepContext<'_, Self, B>> for Machine
 where
     ExecutionState<Pause>: Execute<I, Message = Message, Effect = (), Error = eyre::Report>,
     Message: ReusableMessageRecipe<Self, ProgramField, I, Module<Self>>,
 {
     fn step(&mut self, instruction: &I, context: &StepContext<'_, Self, B>) -> Result<()> {
-        let message = Message::prepare(self, instruction, context.module)?;
-        self.execution.execute(instruction, message)
+        context.start(
+            self,
+            &recipe_instruction_route::<Self, ProgramField, I, _>(),
+            instruction,
+        )
     }
 }
 
-impl<B: Submit> Step<DigitizerField, Capture, StepContext<'_, Self, B>> for Machine {
+impl<B: TimedSubmit> Step<DigitizerField, Capture, StepContext<'_, Self, B>> for Machine {
     fn step(&mut self, _: &Capture, context: &StepContext<'_, Self, B>) -> Result<()> {
         context.start(self, &route(), Capture)
     }
@@ -135,14 +140,16 @@ impl AsyncHandleEffect<DigitizerField, DigitizerField, u16> for Machine {
     }
 }
 
-fn route<D: FutureDriver<Machine>>()
--> Route<Capture, impl Run<Machine, Capture, D, Output = ()> + Describe> {
+fn route<D: FutureDriver<Machine> + RouteDelivery<Machine>>() -> ParkableRoute<
+    Capture,
+    impl for<'a> Run<Machine, Entry<'a, Capture, ()>, D, Output = ()> + Describe,
+> {
     step_graph::<Capture>()
         .begin(async_build_message_at::<DigitizerField>())
         .then(execute_async_instruction_at::<DigitizerField>())
         // Execution restores the digitizer before the composite sees the sample.
         .then(async_handle_effect_at::<DigitizerField>())
-        .finish()
+        .finish_parkable()
 }
 
 pub(crate) fn fixture(count: usize) -> (Machine, Vec<oneshot::Sender<u16>>) {
@@ -176,8 +183,8 @@ pub(crate) struct TopologySignature {
 }
 
 /// Inspect the same declaration under either interpreter.
-pub(crate) fn topology<B: Submit>() -> TopologySignature {
-    let topology = route::<RouteDriver<Machine, B>>().topology();
+pub(crate) fn topology<B: TimedSubmit>() -> TopologySignature {
+    let topology = route::<RouteContext<Machine, B>>().topology();
     TopologySignature {
         nodes: topology
             .nodes
