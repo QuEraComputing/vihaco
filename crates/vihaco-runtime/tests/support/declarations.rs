@@ -34,8 +34,8 @@ impl DialectSpec for Foreign {
         mnemonic: "extra",
     }];
 }
-impl<C: Execute<A> + Execute<B>> Coverage<C> for Dialect {}
-impl<C: Execute<Extra>> Coverage<C> for Foreign {}
+impl<C: Supports<Dialect>> Coverage<C> for Dialect {}
+impl<C: Supports<Foreign>> Coverage<C> for Foreign {}
 
 impl InstructionSpec for A {
     type Syntax = Self;

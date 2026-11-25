@@ -425,7 +425,7 @@ fn emit(dialect: Dialect) -> Result<TokenStream> {
         }
 
         impl<#component: #root::Component> #root::__private::Coverage<#component> for __VihacoDialect
-        where #(#component: #root::Execute<#runtime_names>),* {}
+        where #component: #root::__private::Supports<__VihacoDialect> {}
     };
     // Ordinary items remain visible to expansion formatters. The internal
     // module attribute consumes parser markers and emits their parsers without

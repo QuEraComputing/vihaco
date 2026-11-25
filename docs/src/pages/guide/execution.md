@@ -26,8 +26,8 @@ The trait names describe different parts of that work:
 
 The component's associated types define its execution inputs and outputs.
 `Step` and `Dispatch` return `eyre::Result<()>`, so a step can propagate or
-convert errors along the way. `Apply::apply` returns `()`; write fallible result
-handling directly in the step when you need it.
+convert errors along the way. `Apply::apply` returns the destination's
+next effect or error. A terminal handler uses `()` for its effect.
 
 ## Trace the addition
 

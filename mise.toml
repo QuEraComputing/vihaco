@@ -25,6 +25,18 @@ run = "cargo nextest run --workspace --all-targets"
 description = "Run the guide / doc tests"
 run = "cargo test --workspace --doc"
 
+[tasks.static-graph-routes]
+description = "Run the static graph routing examples"
+run = "cargo run -p vihaco-runtime --example static_graph_routes --features typed-declarations"
+
+[tasks.static-execution-state]
+description = "Run the static graph example with ExecutionState and CPU"
+run = "cargo run -p vihaco-stdlib --example static_execution_state --features program-image-execution"
+
+[tasks.program-drivers]
+description = "Run the five checked program driver examples"
+run = "cargo run -p vihaco-stdlib --example program_drivers --features program-image-execution"
+
 [tasks.fmt]
 description = "Format all crates"
 run = "cargo fmt --all"

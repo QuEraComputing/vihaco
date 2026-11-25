@@ -74,7 +74,10 @@ pub use vihaco_parser_derive::Parse;
 pub use runtime::__private;
 
 #[cfg(feature = "typed-declarations")]
-pub use runtime::{BuildMessage, Dispatch, Execute, Field, ReusableMessageRecipe, Step};
+pub use runtime::{
+    AsyncExecute, BuildMessage, Dispatch, Execute, ExecutionCapability, Field,
+    ReusableMessageRecipe, Step,
+};
 
 /// Name a composite field or nested route. See [`runtime::field`].
 #[cfg(feature = "typed-declarations")]
@@ -100,9 +103,12 @@ pub use runtime::field;
 #[cfg(feature = "typed-declarations")]
 pub use runtime::dialect;
 
+#[cfg(feature = "typed-declarations")]
+pub use runtime::Apply;
+
 #[cfg(feature = "program-image-execution")]
 pub use runtime::{
-    Apply, HasOperandStack, InputCount, PopFromStack, PopStack, PushStack, PushToStack, StackBatch,
+    HasOperandStack, InputCount, PopFromStack, PopStack, PushStack, PushToStack, StackBatch,
     StackBatchIntoIter, StackInputCount, StackValue,
 };
 

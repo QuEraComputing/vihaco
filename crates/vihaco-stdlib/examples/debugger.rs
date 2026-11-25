@@ -7,11 +7,13 @@
 use vihaco_abi::{Type, Value};
 use vihaco_module::module::{FunctionInfo, LocalModule, Signature};
 use vihaco_runtime::{
-    Apply, BuildMessage, Execute, HasInstructionSet, ReusableMessageRecipe, Step, composite, field,
+    Apply, Execute, HasInstructionSet, ReusableMessageRecipe, Step, composite, field,
 };
 use vihaco_stdlib::{
     ExecutionState, Image, Loadable, RunState,
-    debugger::{DebugAction, DebuggerState, HasBreakpointInstruction, dialect::debug},
+    debugger::{
+        BreakpointMessage, DebugAction, DebuggerState, HasBreakpointInstruction, dialect::debug,
+    },
     program::program,
 };
 
@@ -28,36 +30,6 @@ type Instruction = <Machine as HasInstructionSet>::Runtime;
 type Program = LocalModule<Instruction, Value, Type>;
 type DebuggerField = field!(Machine::debugger);
 
-// This machine delegates message construction to the standard recipes.
-impl<I, M> BuildMessage<field!(Machine::execution), I, Program, M> for Machine
-where
-    ExecutionState<DebuggerState>: Execute<I, Message = M>,
-    M: ReusableMessageRecipe<Self, field!(Machine::execution), I, Program>,
-{
-    fn build_message(&mut self, instruction: &I, context: &Program) -> eyre::Result<M> {
-        <M as ReusableMessageRecipe<Self, field!(Machine::execution), I, Program>>::prepare(
-            self,
-            instruction,
-            context,
-        )
-    }
-}
-
-impl BuildMessage<DebuggerField, debug::Breakpoint, Program> for Machine {
-    fn build_message(
-        &mut self,
-        instruction: &debug::Breakpoint,
-        context: &Program,
-    ) -> eyre::Result<vihaco_stdlib::debugger::BreakpointMessage> {
-        <vihaco_stdlib::debugger::BreakpointMessage as ReusableMessageRecipe<
-            Self,
-            DebuggerField,
-            debug::Breakpoint,
-            Program,
-        >>::prepare(self, instruction, context)
-    }
-}
-
 impl HasBreakpointInstruction for Instruction {
     fn new_breakpoint() -> Self {
         Self::V_debugger__debug__Breakpoint(debug::Breakpoint)
@@ -65,18 +37,13 @@ impl HasBreakpointInstruction for Instruction {
 }
 
 // Program instructions update frames, operands, and control flow directly.
-impl<I> Step<field!(Machine::execution), I, Program> for Machine
+impl<I, Message> Step<field!(Machine::execution), I, Program> for Machine
 where
-    ExecutionState<DebuggerState>: Execute<I, Effect = (), Error = eyre::Report>,
-    Self: BuildMessage<field!(Machine::execution), I, Program>,
+    ExecutionState<DebuggerState>: Execute<I, Message = Message, Effect = (), Error = eyre::Report>,
+    Message: ReusableMessageRecipe<Self, field!(Machine::execution), I, Program>,
 {
     fn step(&mut self, instruction: &I, module: &Program) -> eyre::Result<()> {
-        let message =
-            <Self as BuildMessage<field!(Machine::execution), I, Program>>::build_message(
-                self,
-                instruction,
-                module,
-            )?;
+        let message = Message::prepare(self, instruction, module)?;
         self.execution.execute(instruction, message)
     }
 }
@@ -84,14 +51,14 @@ where
 // Applying Break suspends the invocation at the current breakpoint.
 impl Step<DebuggerField, debug::Breakpoint, Program> for Machine {
     fn step(&mut self, instruction: &debug::Breakpoint, module: &Program) -> eyre::Result<()> {
-        let message =
-            <Self as BuildMessage<DebuggerField, debug::Breakpoint, Program>>::build_message(
-                self,
-                instruction,
-                module,
-            )?;
+        let message = <BreakpointMessage as ReusableMessageRecipe<
+            Self,
+            DebuggerField,
+            debug::Breakpoint,
+            Program,
+        >>::prepare(self, instruction, module)?;
         let effect = self.debugger.execute(instruction, message)?;
-        self.execution.apply(effect);
+        self.execution.apply(effect)?;
         Ok(())
     }
 }

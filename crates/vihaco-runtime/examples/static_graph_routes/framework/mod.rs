@@ -1,0 +1,55 @@
+// SPDX-FileCopyrightText: 2026 The vihaco Authors
+// SPDX-License-Identifier: MIT
+
+//! Static route descriptions and their interpreters.
+//!
+//! See `design/annotated-step-routes/framework-guide.md` in the repository
+//! for the Warehouse walkthrough and a map of the implementation.
+
+// A parked async instruction can hold an exclusive component lease.
+mod async_execution;
+
+// Static graph composition, metadata, and topology inspection.
+mod graph;
+
+// Node constructors and the operation traits implemented by consumers.
+mod operations;
+
+// Runtime signals and continuations.
+mod runtime;
+
+// Inline interpretation for the stdlib example's borrowed program invocations.
+#[cfg(feature = "program-image-execution")]
+#[allow(dead_code)]
+pub(crate) mod synchronous;
+
+pub(crate) use async_execution::{
+    AsyncApply, AsyncBuildMessage, AsyncHandleEffect, AsyncReusableMessageRecipe, AsyncSlot,
+    async_apply_effect_at, async_build_message_at, async_handle_effect_at,
+    async_prepare_message_at, execute_async_instruction_at,
+};
+
+// The graph builder and the bounds used in route signatures.
+pub(crate) use graph::{Annotation, Describe, Route, Run, edge, fork_join, split_with, step_graph};
+#[cfg(feature = "program-image-execution")]
+#[allow(unused_imports, reason = "used by the loaded program examples")]
+pub(crate) use graph::{InlineRoute, ParkableRoute};
+
+// Built-in constructors for each route operation.
+pub(crate) use operations::{
+    HandleEffect, apply_effect_at, await_work, build_message_at, duplicate, execute_instruction_at,
+    handle_effect_at, prepare_message_at,
+};
+
+// The runtime driver and the owned wait handle used by asynchronous nodes.
+pub(crate) use runtime::{ChannelDriver, FutureDriver, Wait};
+
+#[allow(
+    unused_imports,
+    reason = "shared with the simulator and program examples"
+)]
+pub(crate) use {
+    graph::{EdgeId, Metadata, RegisteredTopology, RouteDeclaration, RouteDelivery},
+    operations::{Entry, Operation},
+    runtime::{Await, PollJob, Signal, poll_future},
+};

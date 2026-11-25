@@ -64,14 +64,13 @@
 //! where
 //!     CPU: Execute<I, Error = eyre::Report>,
 //!     Self: BuildMessage<field!(Machine::cpu), I, Program>,
-//!     ExecutionState: Apply<<CPU as Execute<I>>::Effect>,
+//!     ExecutionState: Apply<<CPU as Execute<I>>::Effect, Effect = (), Error: Into<eyre::Report>>,
 //! {
 //!     fn step(&mut self, instruction: &I, module: &Program) -> eyre::Result<()> {
 //!         let message = <Self as BuildMessage<field!(Machine::cpu), I, Program>>
 //!             ::build_message(self, instruction, module)?;
 //!         let effect = self.cpu.execute(instruction, message)?;
-//!         self.execution.apply(effect);
-//!         Ok(())
+//!         self.execution.apply(effect).map_err(Into::into)
 //!     }
 //! }
 //!
@@ -116,7 +115,7 @@ mod messages;
 pub(crate) mod runner;
 mod storage;
 
-pub use runner::{execute, execute_instruction, resume, run};
+pub use runner::{execute, execute_instruction, execute_instruction_with_context, resume, run};
 
 /// No custom execution state is available. By using this for the
 /// default in [`RunState`], we can get exhaustive pattern matching

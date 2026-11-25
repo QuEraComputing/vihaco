@@ -27,6 +27,56 @@ macro_rules! execute {
 
 execute!(imported::Add, imported::Halt);
 
+// The component's own generic bound must suffice for async support of a
+// leaf in a dialect published by another crate.
+#[rt::component]
+#[instructions { imported }]
+struct AsyncCpu<T: Copy>(T);
+
+impl<T: Copy> rt::AsyncExecute<imported::Add> for AsyncCpu<T> {
+    type Message = ();
+    type Effect = ();
+    type Error = std::convert::Infallible;
+
+    async fn execute(&mut self, _: &imported::Add, _: ()) -> Result<(), Self::Error> { Ok(()) }
+}
+
+impl<T: Copy> rt::AsyncExecute<imported::Halt> for AsyncCpu<T> {
+    type Message = ();
+    type Effect = ();
+    type Error = std::convert::Infallible;
+
+    async fn execute(&mut self, _: &imported::Halt, _: ()) -> Result<(), Self::Error> { Ok(()) }
+}
+
+impl<T: Copy> rt::Execute<imported::Halt> for AsyncCpu<T> {
+    type Message = ();
+    type Effect = ();
+    type Error = std::convert::Infallible;
+
+    fn execute(&mut self, _: &imported::Halt, _: ()) -> Result<(), Self::Error> { Ok(()) }
+}
+
+#[rt::composite]
+struct AsyncMachine {
+    #[device(9)]
+    cpu: AsyncCpu<u8>,
+}
+
+impl<I> rt::Step<rt::field!(AsyncMachine::cpu), I> for AsyncMachine
+where AsyncCpu<u8>: rt::ExecutionCapability<I> {
+    fn step(&mut self, _: &I, _: &()) -> rt::eyre::Result<()> { self.cpu.0 += 1; Ok(()) }
+}
+
+#[test]
+fn generated_dispatch_accepts_async_only_and_dual_mode_leaves() {
+    use rt::Dispatch;
+    let mut machine = AsyncMachine { cpu: AsyncCpu(0) };
+    machine.dispatch(&__vihaco_AsyncMachineInstruction::V_cpu__arithmetic__Add(imported::Add(2)), &()).unwrap();
+    machine.dispatch(&__vihaco_AsyncMachineInstruction::V_cpu__arithmetic__Halt(imported::Halt), &()).unwrap();
+    assert_eq!(machine.cpu.0, 2);
+}
+
 #[test]
 fn cross_crate_imports_preserve_identity_and_parser() {
     type Identity = <imported::Add as InstructionSpec>::Dialect;

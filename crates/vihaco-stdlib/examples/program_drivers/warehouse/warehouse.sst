@@ -1,0 +1,13 @@
+sst v2
+
+.section warehouse
+.header
+    .file "warehouse.sst"
+    .func @main(), locals 0
+    .entry @main
+.text
+@main:
+    printer::ops::printlabel 42
+    ; Verification can run only after the print route delivers its label.
+    parcels::records::verifylabel 42
+    execution::program::halt

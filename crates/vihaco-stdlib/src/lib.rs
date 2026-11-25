@@ -27,6 +27,9 @@ pub use image::Image;
 pub mod loadable;
 
 #[cfg(feature = "program-image-execution")]
+pub mod program_driver;
+
+#[cfg(feature = "program-image-execution")]
 pub use loadable::Loadable;
 
 #[cfg(feature = "program-image-execution")]

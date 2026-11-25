@@ -18,10 +18,10 @@ choose. For example, the standard `PushToStack` protocol inserts typed values
 into operand storage. Call it after `execute`; execution alone won't apply the
 result.
 
-`Apply` has no error return. If handling a result involves validation or other
-fallible work, do that in your step or a helper and propagate the error there.
-You don't need an `Apply` implementation for every application effect. A step
-can also store a result in another device or pass it to an application method.
+The destination chooses its output and error types. A terminal handler returns
+`()`, and an infallible handler uses `Infallible` as its error type. If a handler
+emits another effect, the step decides where to apply it next. Steps can also
+handle effects directly.
 
 ## Handle several effects
 

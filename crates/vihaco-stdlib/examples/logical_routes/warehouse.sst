@@ -1,0 +1,13 @@
+sst v2
+
+.section warehouse
+.header
+    .file "warehouse.sst"
+    .func @main(), locals 0
+    .entry @main
+.text
+@main:
+    printer::labels::printlabel 42
+    scanner::scans::scan
+    scanner::scans::inspect
+    execution::program::halt

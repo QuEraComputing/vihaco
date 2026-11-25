@@ -213,10 +213,14 @@ pub enum DebuggerState {
 }
 
 impl Apply<Break> for ExecutionState<DebuggerState> {
-    fn apply(&mut self, _: Break) {
+    type Effect = ();
+    type Error = Infallible;
+
+    fn apply(&mut self, _: Break) -> Result<(), Self::Error> {
         self.suspend(DebuggerState::Breakpoint {
             resume_pc: self.pc(),
         });
+        Ok(())
     }
 }
 

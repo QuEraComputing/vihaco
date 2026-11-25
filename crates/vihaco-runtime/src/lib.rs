@@ -70,6 +70,12 @@ mod no_message;
 mod observe;
 
 #[cfg(feature = "typed-declarations")]
+mod apply;
+
+#[cfg(feature = "typed-declarations")]
+pub use apply::Apply;
+
+#[cfg(feature = "typed-declarations")]
 mod build_message;
 
 #[cfg(feature = "typed-declarations")]
@@ -100,7 +106,7 @@ pub use build_message::{BuildMessage, ReusableMessageRecipe};
 pub use dispatch::Dispatch;
 
 #[cfg(feature = "typed-declarations")]
-pub use execute::Execute;
+pub use execute::{AsyncExecute, Execute, ExecutionCapability};
 
 #[cfg(feature = "typed-declarations")]
 pub use field::Field;
@@ -290,8 +296,9 @@ pub use vihaco_runtime_derive::dialect;
 ///
 /// Available with `typed-declarations`. Apply to any struct with exactly one
 /// nonempty `#[instructions { dialect_paths, ... }]` helper. Paths name whole
-/// dialect modules, including imported aliases. Implement [`Execute`] for every
-/// instruction in every listed dialect under the struct's original bounds.
+/// dialect modules, including imported aliases. Implement [`Execute`],
+/// [`AsyncExecute`], or both for every instruction in each listed dialect under
+/// the struct's original bounds.
 /// Each implementation may choose its own message, effect, and error types.
 /// The declaration preserves the struct and implements [`Component`] without
 /// requiring an aggregate instruction set. Canonical instruction overlaps are
@@ -365,7 +372,7 @@ pub use vihaco_runtime_derive::field;
 mod stack;
 
 #[cfg(feature = "program-image-execution")]
-pub use stack::{Apply, HasOperandStack, InputCount, PopFromStack, PushToStack, StackInputCount};
+pub use stack::{HasOperandStack, InputCount, PopFromStack, PushToStack, StackInputCount};
 
 #[cfg(feature = "program-image-execution")]
 mod stack_batch;

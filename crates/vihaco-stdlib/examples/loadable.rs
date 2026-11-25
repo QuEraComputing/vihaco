@@ -24,7 +24,7 @@ use vihaco_module::{
     raising::ExtraDirectives,
 };
 use vihaco_runtime::{
-    Apply, BuildMessage, Execute, HasInstructionSet, ReusableMessageRecipe, Step, composite, field,
+    Apply, Execute, HasInstructionSet, ReusableMessageRecipe, Step, composite, field,
 };
 use vihaco_stdlib::{ExecutionState, Image, Loadable};
 use vihaco_syntax::{HeaderDeclarations, ParsedModule, lower_code_with_metadata};
@@ -45,69 +45,29 @@ type SourceInstruction = <Machine as HasInstructionSet>::Syntax;
 type Program = LocalModule<Instruction, Value, Type, ExperimentInfo>;
 type ControllerImage = Image<Instruction, Value, Type, ExperimentInfo>;
 
-// Each Step supplies runtime input and chooses how to handle execution effects.
-// Control/storage instructions mutate ExecutionState directly.
-impl<I, M> BuildMessage<field!(Machine::execution), I, Program, M> for Machine
+// Program instructions prepare their input using the component's message recipe.
+impl<I, Message> Step<field!(Machine::execution), I, Program> for Machine
 where
-    ExecutionState: Execute<I, Message = M>,
-    M: ReusableMessageRecipe<Self, field!(Machine::execution), I, Program>,
-{
-    fn build_message(&mut self, instruction: &I, context: &Program) -> eyre::Result<M> {
-        <M as ReusableMessageRecipe<Self, field!(Machine::execution), I, Program>>::prepare(
-            self,
-            instruction,
-            context,
-        )
-    }
-}
-
-impl<I, M> BuildMessage<field!(Machine::cpu), I, Program, M> for Machine
-where
-    CPU: Execute<I, Message = M>,
-    M: ReusableMessageRecipe<Self, field!(Machine::cpu), I, Program>,
-{
-    fn build_message(&mut self, instruction: &I, context: &Program) -> eyre::Result<M> {
-        <M as ReusableMessageRecipe<Self, field!(Machine::cpu), I, Program>>::prepare(
-            self,
-            instruction,
-            context,
-        )
-    }
-}
-
-impl<I> Step<field!(Machine::execution), I, Program> for Machine
-where
-    ExecutionState: Execute<I, Effect = (), Error = eyre::Report>,
-    Self: BuildMessage<field!(Machine::execution), I, Program>,
+    ExecutionState: Execute<I, Message = Message, Effect = (), Error = eyre::Report>,
+    Message: ReusableMessageRecipe<Self, field!(Machine::execution), I, Program>,
 {
     fn step(&mut self, instruction: &I, module: &Program) -> eyre::Result<()> {
-        let message =
-            <Self as BuildMessage<field!(Machine::execution), I, Program>>::build_message(
-                self,
-                instruction,
-                module,
-            )?;
+        let message = Message::prepare(self, instruction, module)?;
         self.execution.execute(instruction, message)
     }
 }
 
-// Computation instructions consume operands through BuildMessage and return
-// effects that this policy applies to the invocation's operand stack.
-impl<I> Step<field!(Machine::cpu), I, Program> for Machine
+// The CPU message recipe consumes operands. The program field applies the result.
+impl<I, Message> Step<field!(Machine::cpu), I, Program> for Machine
 where
-    CPU: Execute<I, Error = eyre::Report>,
-    Self: BuildMessage<field!(Machine::cpu), I, Program>,
-    ExecutionState: Apply<<CPU as Execute<I>>::Effect>,
+    CPU: Execute<I, Message = Message, Error = eyre::Report>,
+    Message: ReusableMessageRecipe<Self, field!(Machine::cpu), I, Program>,
+    ExecutionState: Apply<<CPU as Execute<I>>::Effect, Effect = (), Error: Into<eyre::Report>>,
 {
     fn step(&mut self, instruction: &I, module: &Program) -> eyre::Result<()> {
-        let message = <Self as BuildMessage<field!(Machine::cpu), I, Program>>::build_message(
-            self,
-            instruction,
-            module,
-        )?;
+        let message = Message::prepare(self, instruction, module)?;
         let effect = self.cpu.execute(instruction, message)?;
-        self.execution.apply(effect);
-        Ok(())
+        self.execution.apply(effect).map_err(Into::into)
     }
 }
 

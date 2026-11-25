@@ -4,6 +4,7 @@ use declarations::{A, B, Dialect};
 use vihaco_runtime::{Component, Execute};
 struct Cpu<T>(T);
 impl<T> Component for Cpu<T> {}
+impl<T: Copy> vihaco_runtime::__private::Supports<Dialect> for Cpu<T> {}
 impl<T, I> Execute<I> for Cpu<T> where T: Copy {
     type Message = ();
     type Effect = ();

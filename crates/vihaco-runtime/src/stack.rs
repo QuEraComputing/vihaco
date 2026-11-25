@@ -4,8 +4,10 @@
 //! Framework stack preparation and effect-application protocols.
 
 use crate::{
-    Composite, Execute, Field, Message, PopStack, PushStack, ReusableMessageRecipe, StackValue,
+    Apply, Composite, Execute, Field, Message, PopStack, PushStack, ReusableMessageRecipe,
+    StackValue,
 };
+use std::convert::Infallible;
 
 /// Copied operands prepared for an instruction, distinct from its payload.
 ///
@@ -56,24 +58,6 @@ pub trait HasOperandStack<I> {
     fn operand_stack(&mut self, arity: usize) -> &mut Self::Source;
 }
 
-/// Framework hook to apply one effect during [`crate::Step`].
-///
-/// Authors can apply `PushToStack` effects to their program inside authored Steps.
-/// The framework does not impose effect handling. Implementations are
-/// extension plumbing for storage/effects, not required component boilerplate.
-///
-/// Stack output implementations use direct typed insertion. This trait neither
-/// executes instructions nor supplies a Step or observer callbacks. The caller
-/// handles [`crate::Effects`] in order, applying each effect after execution.
-/// Applied values are not
-/// rolled back if later work fails. Custom fallible effect handling remains in
-/// Step; stack insertion follows [`PushStack`]'s ordinary
-/// allocation behavior.
-pub trait Apply<E> {
-    /// Apply a single effect to this destination.
-    fn apply(&mut self, effect: E);
-}
-
 impl<C, F, I, Context: ?Sized> ReusableMessageRecipe<C, F, I, Context> for PopFromStack<()>
 where
     C: Composite + Field<F> + HasOperandStack<I>,
@@ -86,19 +70,28 @@ where
 }
 
 impl<D> Apply<PushToStack<()>> for D {
+    type Effect = ();
+    type Error = Infallible;
+
     #[inline]
-    fn apply(&mut self, _: PushToStack<()>) {}
+    fn apply(&mut self, _: PushToStack<()>) -> Result<(), Infallible> {
+        Ok(())
+    }
 }
 
 impl<D, T: StackValue, const N: usize> Apply<PushToStack<[T; N]>> for D
 where
     D: PushStack<T::Storage>,
 {
+    type Effect = ();
+    type Error = Infallible;
+
     #[inline]
-    fn apply(&mut self, effect: PushToStack<[T; N]>) {
+    fn apply(&mut self, effect: PushToStack<[T; N]>) -> Result<(), Infallible> {
         for value in effect.0 {
             value.push_to(self);
         }
+        Ok(())
     }
 }
 
@@ -131,10 +124,14 @@ macro_rules! stack_tuple {
         where
             Destination: $(PushStack<$ty::Storage> +)+ Sized,
         {
+            type Effect = ();
+            type Error = Infallible;
+
             #[inline]
-            fn apply(&mut self, effect: PushToStack<($($ty,)+)>) {
+            fn apply(&mut self, effect: PushToStack<($($ty,)+)>) -> Result<(), Infallible> {
                 let ($($value,)+) = effect.0;
                 $($value.push_to(self);)+
+                Ok(())
             }
         }
     };
