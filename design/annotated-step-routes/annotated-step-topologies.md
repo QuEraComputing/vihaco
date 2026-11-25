@@ -55,7 +55,7 @@ The runtime changes that can land ahead of the route API are tracked in
 | [Synchronous CPU](../../crates/vihaco-stdlib/examples/static_execution_state/machine.rs) | Borrow the current instruction and module to prepare a message. Run borrowed routes inline through the checked program driver and apply CPU effects before the next fetch. |
 | [Waveform fan-out](../../crates/vihaco-runtime/examples/static_graph_routes/machines/waveform/mod.rs) | Inspect the annotated DAC transfer. Follow the clamped and original samples down separate paths and join after both deliveries. |
 | [Device completion](../../crates/vihaco-runtime/examples/static_graph_routes/machines/device_completion.rs) | Start an acquisition with synchronous `Execute`. Park at a separate node on the handle the instruction returned. |
-| [Async digitizer](../../crates/vihaco-runtime/examples/static_graph_routes/machines/async_capture/mod.rs) | Let the component's own `async fn execute` wait for a sample. Return the leased component before delivering the result back to that field. |
+| [Async digitizer](../../crates/vihaco-runtime/examples/static_graph_routes/machines/async_capture/mod.rs) | Prepare the receiver, then let the component's `AsyncExecute` impl await the sample. Return the leased component before applying the result at that field. |
 | [Warehouse bytecode](../../crates/vihaco-stdlib/examples/program_drivers/warehouse/mod.rs) | Print a label and then verify it. Simulation delays the label's delivery by 12 ticks. The same bytecode completes inline with the channel driver. |
 
 Run the route-only examples with `mise run static-graph-routes`. Run the

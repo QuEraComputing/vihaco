@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Five ways to drive a program through the same checked driver API.
+//! Five ways to drive loaded programs and their routes.
 //!
 //! Run with `mise run program-drivers`.
 
@@ -10,8 +10,6 @@
 mod framework;
 #[path = "../../vihaco-runtime/examples/static_graph_routes/simulation.rs"]
 mod simulation;
-#[path = "../../vihaco-runtime/examples/static_graph_routes/machines/async_capture/tokio_driver.rs"]
-mod tokio_driver;
 
 #[path = "program_drivers/backends.rs"]
 mod backends;
@@ -21,17 +19,25 @@ mod checked;
 mod cpu_machine;
 #[path = "program_drivers/machine.rs"]
 mod machine;
+#[path = "program_drivers/portable/mod.rs"]
+mod portable;
 #[path = "program_drivers/scenarios.rs"]
 mod scenarios;
-#[path = "program_drivers/tokio_threads.rs"]
-mod tokio_threads;
 #[path = "program_drivers/warehouse/mod.rs"]
 mod warehouse;
 
 fn main() -> eyre::Result<()> {
+    let workers = std::env::args()
+        .nth(1)
+        .map(|value| value.parse())
+        .transpose()?;
+    run(workers.unwrap_or(2))
+}
+
+fn run(workers: usize) -> eyre::Result<()> {
     cpu_machine::demo()?;
     scenarios::debugger()?;
     scenarios::channel()?;
     warehouse::demo()?;
-    scenarios::tokio_threads()
+    portable::demo(workers)
 }

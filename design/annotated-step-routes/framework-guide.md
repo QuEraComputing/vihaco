@@ -194,6 +194,32 @@ verification first and checks that its missing-label error leaves the PC
 at 0. The checked driver owns one in-flight instruction per machine.
 [Failure test](../../crates/vihaco-stdlib/examples/program_drivers/warehouse/mod.rs) · [Route drivers](route-drivers.md)
 
+## Async capture on two backends
+
+The portable digitizer declares its capture dialect with `#[component]`
+and implements `AsyncExecute<Capture>`. The generated dispatch forwards
+the capture instruction to its `Step`. That step starts the same route
+with either scheduler. Read the three nodes in order.
+
+1. `async_build_message_at` takes the input channel handle from the
+   composite and submits an owned preparation future. This stage can
+   wait to receive the sample receiver while the digitizer stays available.
+2. `async_instruction_at` takes the digitizer out of its slot and moves
+   the component lease, instruction, and receiver into an owned future.
+   The async method borrows only those owned values when it waits for
+   the sample. The program driver keeps the machine and parked route.
+3. On completion, the lease returns the digitizer before the
+   continuation borrows the machine again. `apply_effect_at` calls
+   `Apply` on that field and stores the sample. The runtime can then
+   schedule the next fetch for this machine.
+
+The simulation backend chooses between runnable turns and timed input.
+The Tokio backend polls the same futures on the worker that owns the
+machine. The driver's ticket and continuation connect those backend
+events back to the correct capture. The route and effect handler stay
+the same when the host switches backends.
+[Digitizer route](../../crates/vihaco-stdlib/examples/program_drivers/portable/digitizer.rs) · [Program driver and scheduler](route-drivers.md#portable-digitizers)
+
 ## Where to read next
 
 | Part | Responsibility |

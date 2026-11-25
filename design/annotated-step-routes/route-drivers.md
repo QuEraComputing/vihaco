@@ -83,9 +83,9 @@ instruction retired, parked, halted, or hit a breakpoint. Ordinary
 scheduler turns preserve a debugger stop. The host explicitly authorizes
 a debugger step or continuation.
 
-The current examples expose the higher-level `ProgramDriver` interface.
-A single-machine driver accepts machine ID `()`. The Tokio wrapper uses
-machine IDs to send commands to the owning worker.
+The checked examples expose a higher-level `ProgramDriver` interface.
+A single-machine driver accepts machine ID `()`. The portable digitizer
+example exercises the scheduler-facing operations on several machines.
 [ProgramDriver](../../crates/vihaco-stdlib/src/program_driver.rs) · [Checked driver](../../crates/vihaco-stdlib/examples/program_drivers/checked.rs)
 
 | Host method | What it authorizes |
@@ -176,12 +176,14 @@ progress, such as a playback tick and its effects, while a task is still
 in flight. The runtime can schedule that progress before the terminal
 result arrives.
 
-The current route examples use machine-aware `Await` and
-`FutureDriver` callbacks. Those adapters fit on the program owner's side
-of the submission boundary. `await_work()` registers interest in an
-owned work handle. The annotation hook interprets typed route metadata
-as scheduling policy, such as an earliest simulated delivery tick.
-[Current route backend contracts](../../crates/vihaco-runtime/examples/static_graph_routes/framework/runtime.rs) · [Annotation hook](../../crates/vihaco-runtime/examples/static_graph_routes/framework/graph/execution.rs)
+The route interpreter uses machine-aware `Await` and `FutureDriver`
+callbacks. The portable example implements the latter on the program
+owner's side of the boundary. It submits an owned future, keeps the
+typed ticket and continuation, and receives an opaque task ID from
+the backend when the result is ready. In the Warehouse example,
+`await_work()` registers interest in a work handle and the annotation
+hook can select the earliest simulated delivery tick.
+[Route contracts](../../crates/vihaco-runtime/examples/static_graph_routes/framework/runtime.rs) · [Portable driver](../../crates/vihaco-stdlib/examples/program_drivers/portable/owner.rs) · [Task boundary](../../crates/vihaco-stdlib/examples/program_drivers/portable/tasks.rs)
 
 When a work handle resolves, its output continues along the route to the
 selected field's effect handler. In the sample route, `Await` produces a
@@ -251,12 +253,35 @@ Run the five scenarios with `mise run program-drivers`.
 | [Debugger](../../crates/vihaco-stdlib/examples/program_drivers/scenarios.rs) | Preserves a single-step across two waits, retires the sample instruction once, and stops independently at the next breakpoint. |
 | [Channel](../../crates/vihaco-stdlib/examples/program_drivers/scenarios.rs) | Delivers an external sample to a parked route. A stale work ID is rejected and the sensor issues once. |
 | [Simulation and Warehouse](framework-guide.md#warehouse-label-printing-walkthrough) | Runs real bytecode through one `execute` call. The print issues at tick 5 and its label arrives at tick 17. Verification fetches after delivery. The same routes complete inline with the channel backend. |
-| [Tokio threads](../../crates/vihaco-stdlib/examples/program_drivers/tokio_threads.rs) | Owns a composite and a Tokio `LocalSet` on each worker thread. A rendezvous shows both workers driving scheduled futures concurrently. Commands and results cross threads while a machine and its local continuations stay on their owner thread. |
+| [Portable digitizers](../../crates/vihaco-stdlib/examples/program_drivers/portable/mod.rs) | Runs two named SST sections through the same machine and route on a shared simulation timeline and on Tokio owner workers. |
 
 The waveform, device completion, and async digitizer demos remain small
 examples of route execution in isolation. They use the same route
 capabilities without a loaded program. Run them with
 `mise run static-graph-routes`. [Route-only examples](annotated-step-topologies.md#runnable-examples)
+
+### Portable digitizers
+
+The example uses one dialect, one composite, and one capture route.
+Each SST section runs on its own `Loadable`. One starts with a capture.
+The other branches around a halt before reaching the same capture
+instruction. The wrapper loads the sections, wires scripted samples,
+queues entry, and calls `run`.
+[Machine and route](../../crates/vihaco-stdlib/examples/program_drivers/portable/digitizer.rs) · [SST program](../../crates/vihaco-stdlib/examples/program_drivers/portable/digitizers.sst)
+
+The runtime uses the same execution loop on both backends. The simulator
+places both machines on one clock and delivers the second section's
+sample first at tick 4, followed by the first section's sample at tick
+20. The Tokio backend assigns sections to configurable OS workers,
+each with a `LocalSet` and wall-clock timers. The owner drives several
+machines when they share a worker. The tests compare route nodes and
+edges, sample values, capture counts, and halt PCs. They also drive
+multiple captures in one invocation.
+[Runtime loop](../../crates/vihaco-stdlib/examples/program_drivers/portable/runtime.rs) · [Simulation](../../crates/vihaco-stdlib/examples/program_drivers/portable/backends/sim.rs) · [Tokio workers](../../crates/vihaco-stdlib/examples/program_drivers/portable/backends/threaded.rs)
+
+Use `cargo run -p vihaco-stdlib --features program-image-execution
+--example program_drivers -- 1` to put both digitizers on one Tokio
+worker. The default uses two workers.
 
 ## Open integration work
 
@@ -271,37 +296,11 @@ capabilities without a loaded program. Run them with
   replacement, and cancellation. A late event must never resume a
   replacement invocation. Validate this with a deferred fault after
   a visible effect and a late completion after reset.
-- **Integration boundaries.** Generate coverage for sync and async
-  execution modes, connect suspending preparation and effect handling
-  to the route interpreter, and define how deferred routes can retain
-  any program context they still need.
-  Edge latency and arbitration across streams also remain open.
+- **Integration boundaries.** Connect suspending effect handling to
+  the route interpreter and define how deferred routes retain program
+  context. The portable example models independent streams. Timing
+  constraints and resource arbitration between distinct machine types
+  still need a shared-device scenario.
   [Foundational async traits](foundational-work.md#async-preparation-execution-and-effect-handling)
 
 [Issue #204](https://github.com/QuEraComputing/vihaco/issues/204)
-
-## Example follow-up
-
-The exploratory prototype ran two instances of one machine with
-scripted inputs. One run used a virtual clock, and the other put the
-machines on Tokio workers with wall-clock timers. Both used the same
-dialect, composite, route, and SST sections and reached the same
-recorded machine outcomes. This exercises backend substitution and
-independent resumption. Shared device arbitration and modeled
-instruction durations need separate examples.
-
-Update declaration-time component coverage first so the async examples
-can use the normal macros. Keep Warehouse as the one-call walkthrough.
-Add a portable digitizer program with two SST sections. Run the same
-machine definitions, routes, and program sections on one virtual
-timeline and on configurable Tokio owner workers. The wrapper loads
-each section, queues entry, and calls `run`. Compare route nodes and
-edges, final device state, and halt PCs. Check backend-specific timing
-and ordering separately.
-
-Add a focused case with two different machine types. One produces a
-timed event the other is waiting for, while the runtime has another
-eligible action to arbitrate. Also cover a route that parks again
-before retiring and a completion that arrives after its original
-invocation was reset.
-[Component coverage](foundational-work.md#component-coverage)

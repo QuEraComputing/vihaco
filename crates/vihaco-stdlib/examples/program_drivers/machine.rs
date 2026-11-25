@@ -60,7 +60,6 @@ pub struct Machine {
     pub(super) sensor: Sensor,
     // The channel scenario uses this sender to stand in for its external device.
     pub(super) sender: Option<Signal<Word>>,
-    pub(super) tokio_gate: Option<std::sync::Arc<tokio::sync::Barrier>>,
 }
 
 type ProgramField = field!(Machine::execution);

@@ -72,11 +72,11 @@ more receivers according to the composite's policy.
 
 ## Async preparation, execution, and effect handling
 
-Add three public runtime traits so authored execution code can suspend
-while preparing an instruction's input, executing the instruction, or
-handling its output. Each stage is independently selectable. For example,
-an instruction can execute synchronously and hand its result to an async
-effect handler.
+The RFC proposes public traits for suspending during message preparation,
+instruction execution, and effect handling. Each stage is independently
+selectable. A synchronous instruction can hand its result to an async effect
+handler. This branch implements `AsyncExecute` and prototypes
+`AsyncBuildMessage` in the route examples.
 
 ### Component coverage
 
@@ -161,12 +161,13 @@ use std::future::Future;
 
 pub trait AsyncBuildMessage<F, I, Context: ?Sized = ()>: Field<F> {
     type Message: 'static;
+    type Error;
 
     fn build_message(
         &mut self,
         instruction: &I,
         context: &Context,
-    ) -> impl Future<Output = eyre::Result<Self::Message>> + 'static;
+    ) -> impl Future<Output = Result<Self::Message, Self::Error>> + 'static;
 }
 
 pub trait AsyncExecute<I>: Component {
@@ -254,6 +255,8 @@ Use `BuildMessage` when it completes during the initial borrow and
 `AsyncBuildMessage` when it returns a future. Both can supply the
 message for `Execute` or `AsyncExecute`. Generalize the existing
 `BuildMessage` bound, which gets the message type from `Execute`, so
-the selected execution stage checks its input type. Synchronous
-preparation then needs only one hook even when execution can suspend.
+the selected execution stage checks its input type. The route adapters
+submit futures that report failures as `eyre::Report`.
+Synchronous preparation can then feed either execution mode through the
+same hook.
 [Current BuildMessage bound](../../crates/vihaco-runtime/src/build_message.rs)

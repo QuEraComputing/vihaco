@@ -5,17 +5,13 @@
 
 use crate::{
     checked::Backend,
-    framework::{AnnotatedDriver, Await, ChannelDriver, FutureDriver},
+    framework::{Await, ChannelDriver},
     machine::{Machine, SampleEffect, SampleRequest},
     simulation::{Scheduled, SimDriver},
-    tokio_driver::TokioDriver,
 };
-use eyre::{Result, ensure, eyre};
-use std::{thread, time::Duration};
+use eyre::{Result, eyre};
 use vihaco_abi::word::Word;
 use vihaco_runtime::PushToStack;
-
-impl AnnotatedDriver<Machine> for TokioDriver<Machine> {}
 
 impl Await<Machine, SampleRequest> for ChannelDriver<Machine> {
     type Output = SampleEffect;
@@ -77,42 +73,5 @@ impl<M> Backend<M> for SimDriver<M> {
     fn deliver(&mut self, machine: &mut M, (): ()) -> Result<()> {
         self.advance_next(machine)?;
         Ok(())
-    }
-}
-
-impl Await<Machine, SampleRequest> for TokioDriver<Machine> {
-    type Output = SampleEffect;
-
-    fn wait(
-        &self,
-        machine: &mut Machine,
-        request: SampleRequest,
-        done: impl FnOnce(&mut Machine, &Self, Result<SampleEffect>) + 'static,
-    ) {
-        let owner = thread::current().id();
-        let gate = machine.tokio_gate.clone();
-        self.run_future(
-            machine,
-            async move {
-                if let Some(gate) = gate {
-                    gate.wait().await;
-                }
-                tokio::time::sleep(Duration::from_millis(1)).await;
-                ensure!(
-                    thread::current().id() == owner,
-                    "route future left its owner thread"
-                );
-                Ok(PushToStack([request.0]))
-            },
-            done,
-        );
-    }
-}
-
-impl Backend<Machine> for TokioDriver<Machine> {
-    type Delivery = ();
-
-    fn deliver(&mut self, machine: &mut Machine, (): ()) -> Result<()> {
-        self.resume_one(machine)
     }
 }

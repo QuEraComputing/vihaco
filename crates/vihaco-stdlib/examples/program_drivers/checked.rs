@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! Checked issue and retirement shared by all five scenarios.
+//! Checked issue and retirement for a single loaded machine.
 
 use crate::framework::{Route, Run};
 use eyre::{Result, ensure, eyre};

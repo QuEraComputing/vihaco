@@ -24,7 +24,7 @@ mod runtime;
 pub(crate) mod synchronous;
 
 pub(crate) use async_execution::{
-    AsyncExecute, AsyncSlot, BuildAsyncMessage, async_instruction_at, build_async_message_at,
+    AsyncBuildMessage, AsyncSlot, async_build_message_at, async_instruction_at,
 };
 
 // The graph builder and the bounds used in route signatures.

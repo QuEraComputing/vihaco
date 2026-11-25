@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The vihaco Authors
 // SPDX-License-Identifier: MIT
 
-//! # Async instructions and component leases
+//! # Async preparation and leased execution
 //!
 //! An `AsyncExecute` future holds a mutable borrow of its component across
 //! suspension. The async node takes the component out of its `AsyncSlot` and
@@ -22,48 +22,34 @@ use super::{
     runtime::FutureDriver,
 };
 use eyre::{Result, eyre};
-use std::{any::type_name, cell::RefCell, marker::PhantomData, rc::Rc};
-use vihaco_runtime::{Apply, Field};
-
-/// Executes an instruction while borrowing its component across suspension.
-///
-/// The route submits the future to a local driver. The component's exclusive
-/// lease lets the driver release its machine borrow between polls.
-pub(crate) trait AsyncExecute<I> {
-    /// Invocation data prepared before the async execution node.
-    type Message;
-    /// The payload sent to the successor after the component is restored.
-    type Effect;
-    /// The failure reported by the component, converted to an eyre report by the node.
-    type Error;
-
-    /// Runs one instruction using the prepared message and the leased component.
-    async fn execute(
-        &mut self,
-        instruction: &I,
-        message: Self::Message,
-    ) -> std::result::Result<Self::Effect, Self::Error>;
-}
+use std::{any::type_name, cell::RefCell, future::Future, marker::PhantomData, rc::Rc};
+use vihaco_runtime::{Apply, AsyncExecute, Field};
 
 /// Prepares the owned message for an async instruction at field `F`.
-pub(crate) trait BuildAsyncMessage<F, I>: Field<F> {
+pub(crate) trait AsyncBuildMessage<F, I, Context: ?Sized = ()>: Field<F> {
     /// The selected async instruction's message.
-    type Message;
+    type Message: 'static;
+    /// The error produced during preparation.
+    type Error;
 
-    /// Resolves the message before the async component is leased.
-    fn build_async_message(&mut self, instruction: &I) -> Result<Self::Message>;
+    /// Returns an owned future that can finish before the component is leased.
+    fn build_message(
+        &mut self,
+        instruction: &I,
+        context: &Context,
+    ) -> impl Future<Output = Result<Self::Message, Self::Error>> + 'static;
 }
 
 /// Pairs an owned instruction with the message for its async execution site.
 pub(crate) struct BuildAsyncAt<F>(PhantomData<fn() -> F>);
 
 /// Creates the message preparation node for an async instruction at field `F`.
-pub(crate) fn build_async_message_at<F>() -> NodePlan<BuildAsyncAt<F>> {
+pub(crate) fn async_build_message_at<F>() -> NodePlan<BuildAsyncAt<F>> {
     node()
 }
 
 impl<F> Label for BuildAsyncAt<F> {
-    const LABEL: &'static str = "build async message";
+    const LABEL: &'static str = "async build message";
 
     fn field() -> Option<&'static str> {
         Some(type_name::<F>())
@@ -72,8 +58,10 @@ impl<F> Label for BuildAsyncAt<F> {
 
 impl<M, Backend, F, I, D> Operation<M, I, Backend> for BuildAsyncAt<F>
 where
-    M: BuildAsyncMessage<F, I, Message = D::Message> + Field<F, Child = AsyncSlot<D>>,
+    M: AsyncBuildMessage<F, I, Message = D::Message> + Field<F, Child = AsyncSlot<D>>,
     I: 'static,
+    M::Error: Into<eyre::Report>,
+    Backend: FutureDriver<M>,
     D: AsyncExecute<I, Message: 'static>,
 {
     type Output = Prepared<I, D::Message>;
@@ -84,13 +72,14 @@ where
         instruction: I,
         done: impl FnOnce(&mut M, &Backend, Result<Self::Output>) + 'static,
     ) {
-        let result = machine
-            .build_async_message(&instruction)
-            .map(|message| Prepared {
+        let message = machine.build_message(&instruction, &());
+        let prepare = async move {
+            Ok(Prepared {
                 instruction,
-                message,
-            });
-        done(machine, driver, result);
+                message: message.await.map_err(Into::into)?,
+            })
+        };
+        driver.run_future(machine, prepare, done);
     }
 }
 
@@ -99,6 +88,20 @@ where
 /// A pending route owns the component. The slot remains empty until its lease
 /// returns the component, so a second invocation can detect that the field is busy.
 pub(crate) struct AsyncSlot<D>(Rc<RefCell<Option<D>>>);
+
+#[cfg(feature = "program-image-execution")]
+impl<D: vihaco_runtime::__private::HasInventory> vihaco_runtime::__private::HasInventory
+    for AsyncSlot<D>
+{
+    type Provider = D::Provider;
+}
+
+#[cfg(feature = "program-image-execution")]
+impl<D: vihaco_runtime::__private::Capabilities> vihaco_runtime::__private::Capabilities
+    for AsyncSlot<D>
+{
+    const DESCRIPTION: &'static vihaco_runtime::__private::Description = D::DESCRIPTION;
+}
 
 impl<D> AsyncSlot<D> {
     /// Creates a slot containing a component ready to be leased.

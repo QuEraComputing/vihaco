@@ -1,0 +1,24 @@
+sst v2
+
+.section digitizer-a
+.header
+    .file "digitizers.sst"
+    .func @main(), locals 0
+    .entry @main
+.text
+@main:
+    digitizer::acquisition::capture
+    execution::program::halt
+
+.section digitizer-b
+.header
+    .file "digitizers.sst"
+    .func @main(), locals 0
+    .entry @main
+.text
+@main:
+    execution::program::br @read
+    execution::program::halt
+@read:
+    digitizer::acquisition::capture
+    execution::program::halt
