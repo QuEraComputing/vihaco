@@ -6,8 +6,8 @@
 use crate::{
     checked::{CheckedDriver, Module, Pause, StepContext},
     framework::{
-        AnnotatedDriver, Await, HandleEffect, Route, Run, Signal, await_work, build_message_at,
-        execute_instruction_at, handle_effect_at, step_graph,
+        AnnotatedDriver, Await, HandleEffect, Route, Run, Signal, await_work,
+        execute_instruction_at, handle_effect_at, prepare_message_at, step_graph,
     },
     timing::MinExecution,
 };
@@ -15,8 +15,8 @@ use eyre::Result;
 use vihaco_abi::{Type, word::Word};
 use vihaco_module::module::{FunctionInfo, Signature};
 use vihaco_runtime::{
-    BuildMessage, Execute, HasInstructionSet, NoMessage, PushToStack, ReusableMessageRecipe, Step,
-    component, composite, dialect, field,
+    Execute, HasInstructionSet, NoMessage, PushToStack, ReusableMessageRecipe, Step, component,
+    composite, dialect, field,
 };
 use vihaco_stdlib::{ExecutionState, Image, Loadable, program::program};
 
@@ -60,18 +60,13 @@ pub struct Machine {
     pub(super) sensor: Sensor,
     // The channel scenario uses this sender to stand in for its external device.
     pub(super) sender: Option<Signal<Word>>,
+    pub(super) samples_delivered: usize,
 }
 
 type ProgramField = field!(Machine::execution);
 type SensorField = field!(Machine::sensor);
 pub(super) type Instruction = <Machine as HasInstructionSet>::Runtime;
 pub(super) type Driver<B> = CheckedDriver<Machine, Instruction, B>;
-
-impl BuildMessage<SensorField, ops::Sample, (), NoMessage> for Machine {
-    fn build_message(&mut self, _: &ops::Sample, _: &()) -> Result<NoMessage> {
-        Ok(NoMessage::new())
-    }
-}
 
 impl<I, B, Message> Step<ProgramField, I, StepContext<'_, Instruction, B>> for Machine
 where
@@ -89,6 +84,8 @@ impl HandleEffect<SensorField, ProgramField, SampleEffect> for Machine {
 
     fn handle_effect(&mut self, effect: SampleEffect, _: &()) -> Result<()> {
         vihaco_runtime::Apply::apply(&mut self.execution, effect)?;
+        // The composite counts accepted replies separately from device issues.
+        self.samples_delivered += 1;
         Ok(())
     }
 }
@@ -97,7 +94,7 @@ fn sample_route<
     B: AnnotatedDriver<Machine> + Await<Machine, SampleRequest, Output = SampleEffect>,
 >() -> Route<ops::Sample, impl Run<Machine, ops::Sample, B, Output = ()>> {
     step_graph::<ops::Sample>()
-        .begin(build_message_at::<SensorField, NoMessage>())
+        .begin(prepare_message_at::<SensorField, NoMessage>())
         // Simulation releases the request after three ticks, then waits for its reply.
         .then(execute_instruction_at::<SensorField>().annotate::<MinExecution<3>>())
         .then(await_work())

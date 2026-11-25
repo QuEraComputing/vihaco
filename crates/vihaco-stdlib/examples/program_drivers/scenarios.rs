@@ -54,6 +54,7 @@ pub(super) fn channel() -> Result<()> {
     assert!(vm.deliver((), work + 1, Ok(99)).is_err());
     assert_eq!(vm.deliver((), work, Ok(19))?, ProgramStop::Halted { pc: 3 });
     assert_eq!(vm.machine().sensor.issued, 1);
+    assert_eq!(vm.machine().samples_delivered, 1);
     assert_eq!(vm.machine().execution.stack(), &[19]);
     assert_eq!(vm.retirements(), 3);
     println!("Channel: an external sample resumed the route without reissuing the sensor");
@@ -81,6 +82,7 @@ mod tests {
         assert_eq!(error.to_string(), "sensor failed");
         assert_eq!(vm.machine().execution.pc(), 2);
         assert_eq!(vm.machine().sensor.issued, 1);
+        assert_eq!(vm.machine().samples_delivered, 0);
         assert_eq!(vm.retirements(), 1);
         assert!(vm.run((), RunCommand::Continue).is_err());
         Ok(())

@@ -6,15 +6,13 @@
 mod metadata;
 
 use crate::framework::{
-    ChannelDriver, Describe, Route, Run, apply_effect_at, build_message_at, duplicate, edge,
-    execute_instruction_at, fork_join, step_graph,
+    ChannelDriver, Describe, Route, Run, apply_effect_at, duplicate, edge, execute_instruction_at,
+    fork_join, prepare_message_at, step_graph,
 };
 use eyre::Result;
 use metadata::{Bus, Critical, DacBus};
 use std::convert::Infallible;
-use vihaco_runtime::{
-    Apply, BuildMessage, Execute, Field, NoMessage, component, composite, dialect, field,
-};
+use vihaco_runtime::{Apply, Execute, Field, NoMessage, component, composite, dialect, field};
 
 #[dialect]
 #[vihaco(crate = ::vihaco_runtime)]
@@ -137,16 +135,10 @@ impl Field<DeliveryField> for Machine {
     }
 }
 
-impl BuildMessage<SourceField, ops::Fire, (), NoMessage> for Machine {
-    fn build_message(&mut self, _: &ops::Fire, _: &()) -> Result<NoMessage> {
-        Ok(NoMessage::new())
-    }
-}
-
 fn route()
 -> Route<ops::Fire, impl Run<Machine, ops::Fire, ChannelDriver<Machine>, Output = ()> + Describe> {
     step_graph::<ops::Fire>()
-        .begin(build_message_at::<SourceField, NoMessage>())
+        .begin(prepare_message_at::<SourceField, NoMessage>())
         .then(execute_instruction_at::<SourceField>())
         .then(fork_join(
             duplicate()

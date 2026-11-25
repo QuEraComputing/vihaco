@@ -48,26 +48,26 @@ scheduler. Warehouse and the digitizer share this structure.
 
 ```rust,ignore
 step_graph::<ops::PrintLabel>()
-    .begin(build_message_at::<PrinterField, NoMessage>())
+    .begin(prepare_message_at::<PrinterField, NoMessage>())
     .then(execute_instruction_at::<PrinterField>().annotate::<MinExecution<12>>())
-    .then(handle_effect_at::<ParcelField>())
+    .then(apply_effect_at::<ParcelField>())
     .finish()
 ```
 
 `PrinterField` and `ParcelField` identify fields of the same `Warehouse`
 machine. The printer implements `Execute<ops::PrintLabel>`. The parcel
 records implement `Apply<LabelPrinted>` and
-`Execute<records::VerifyLabel>`. The last print node calls Warehouse's
-`HandleEffect<PrinterField, ParcelField, LabelPrinted>`. The route
-infers the printer as the source. This composite impl delegates delivery
-to the records' `Apply`. Verification is a later instruction with its own route.
+`Execute<records::VerifyLabel>` as reusable component behavior.
+Printing and verification both use the reusable `NoMessage` recipe.
+The last print node calls the records' `Apply` directly. Verification
+is a later instruction with its own route.
 [Warehouse components and routes](../../crates/vihaco-stdlib/examples/program_drivers/warehouse/mod.rs)
 
 | Print route node | Input | Output |
 | --- | --- | --- |
 | Prepare at `PrinterField` | `PrintLabel(42)` | `Prepared { instruction: PrintLabel(42), message: NoMessage }` |
 | Execute at `PrinterField` | The prepared instruction and message | `LabelPrinted { parcel: 42, barcode: "BX-0042" }` |
-| Handle from `PrinterField` to `ParcelField` | The owned `LabelPrinted` effect | `()` after storing the barcode |
+| Apply at `ParcelField` | The owned `LabelPrinted` effect | `()` after storing the barcode |
 
 `begin` installs the preparation node. Each `then` connects the next
 stage. `execute_instruction_at` marks the printer node as the execution
@@ -85,9 +85,9 @@ labels, field markers, and annotation types. It produces this output.
 
 ```text
 Warehouse / Print Label
-  0  build message printer []
+  0  prepare message printer []
   1  execute instruction printer ["MinExecution<12>"]
-  2  handle composite effect printer → parcels []
+  2  apply effect parcels []
   0 → 1  []
   1 → 2  []
 ```
@@ -139,9 +139,8 @@ The simulator advances to tick 17, makes the typed result available, and
 reports the task ID. The runtime uses that ID to find the waiting machine
 and lends it to the driver for a resume turn. The driver restores PC 1,
 takes the result from the ticket, and runs the saved continuation.
-`handle_effect_at::<ParcelField>()` calls the composite hook with the
-inferred printer source. The hook stores the label through
-`ParcelRecords::apply`, and the print route completes.
+`apply_effect_at::<ParcelField>()` calls `ParcelRecords::apply` to store
+the label, and the print route completes.
 [Simulator](../../crates/vihaco-stdlib/examples/program_drivers/scheduled/backends/sim.rs) · [Driver resumption](../../crates/vihaco-stdlib/examples/program_drivers/scheduled/driver.rs)
 
 The resume turn returns with the machine runnable at PC 1. The runtime

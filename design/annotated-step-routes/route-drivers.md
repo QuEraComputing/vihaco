@@ -60,6 +60,16 @@ owner worker, run local tasks there, and use a shared executor for
 eligible `Send` work. Completions from shared work return to the owner.
 Machine count, worker count, and queue count are independent choices.
 
+The first standard implementation will be a concrete, generic
+`vihaco_stdlib::runtime::Runtime<M, B>` for multiple loaded instances of
+one machine type. The backend is the scheduling extension point. The
+runtime can load programs, queue entry, advance a turn, and drive
+scheduled streams to a host stop condition. It reports outcomes per run
+so the host can decide whether a fault should stop other streams.
+Support for coordinating different machine types will be informed by a
+shared-device example. A public `Runtime` trait can follow when a
+generic caller needs it.
+
 ## Program state stays in the machine
 
 A composite marks its `ExecutionState` field with `#[program]`. The
@@ -87,15 +97,24 @@ verification before execution is a separate layer.
 
 ## Program driver operations
 
-The runtime-facing operations are `enter`, `issue_one`, and `resume`.
-Issue and resume return control to the runtime before another instruction
-is fetched. The shared example driver uses the machine's run state to
-communicate whether the stream can be scheduled again. The RFC's driver
-interface can also expose retirement and debugger stops to the runtime.
-A debugger stop stays in force until the host authorizes a step or
-continuation.
+The runtime-facing primitives are `enter`, `issue_one`, and `resume`.
+They take a borrowed `Loadable` for the selected machine. Issue and
+resume return control to the runtime before another instruction is
+fetched. Their typed outcome reports both whether an instruction
+retired and whether the stream may fetch again. A stream may be runnable,
+parked on a route, held at a drain gate, stopped in the debugger, halted,
+or faulted. A barrier can retire while it closes a drain gate. Reopening
+that gate makes the stream runnable and adds no retirement.
 
-The inline, channel, and debugger demos use `CheckedDriver` as a
+Build `Continue` and `SingleStep` on these primitives. A breakpoint is
+checked before fetch, and the stop stays in force until the host
+authorizes a step or continuation. A single-step authorizes one
+retirement across any number of waits. A fault ends the command without
+retiring the faulting instruction.
+
+The shared example driver currently uses the machine's run state to
+decide whether to schedule another turn. The inline, channel, and
+debugger demos use `CheckedDriver` as a
 single-machine host adapter around the command-driven `ProgramDriver`
 interface. It combines ownership and program driving for those demos.
 Warehouse and the digitizer illustrate the canonical scheduler boundary.
@@ -174,6 +193,14 @@ notification can be queued immediately. The driver records the ticket
 and continuation before the runtime consumes the notification. Draining a
 ready queue requires no machine borrow.
 
+The public submission boundary distinguishes owner-local work and
+transferable `Send` work. A backend may poll transferable work on the
+owner or dispatch it elsewhere. Results that advance a route return
+to the machine owner. Synchronous `Apply` and `HandleEffect` run under
+the owner's machine borrow. CPU offloading would require a separate
+owned job with inputs extracted while the owner holds that borrow.
+Defer that API until an example needs it.
+
 Submission and readiness are public extension points for scheduler
 authors. The backend can expose native timing and readiness operations
 for a virtual clock or an external event source. A device may publish
@@ -196,7 +223,8 @@ When a work handle resolves, its output continues along the route to the
 selected field's effect handler. In the sample route, `Await` produces a
 typed `PushToStack` effect and preserves the sensor as its source.
 `handle_effect_at::<ProgramField>()` calls the composite's hook for that
-source and destination. The hook calls `Apply` on the program field. [Sample route](../../crates/vihaco-stdlib/examples/program_drivers/machine.rs)
+source and destination. The hook calls `Apply` on the program field and
+updates the composite's count of delivered replies. [Sample route](../../crates/vihaco-stdlib/examples/program_drivers/machine.rs)
 
 ### Ownership of parked routes
 
@@ -207,15 +235,27 @@ other available fields. The invocation stays parked until its route
 can proceed.
 
 The backend drives work that owns its inputs and any lease. When a
-result is ready, the program driver validates which invocation is
-waiting and resumes its continuation with a fresh machine borrow.
-One task can advance part of a route. Retirement happens when the
-route completes.
+result is ready, the program driver validates the ticket and resumes
+the continuation with fresh borrows of the machine, the same run's
+program image, and the services required by the next stage. A pending
+task can carry a resolved value or an identifier to resolve against
+that image on resumption. One task can advance part of a route.
+Retirement happens when the route completes successfully.
 
-Futures holding thread-local leases stay on their owner thread. A
-backend that moves work across threads requires `Send` for that work
-and returns its result to the machine owner. Cancelling work already
-issued to external devices remains the backend's responsibility.
+Each entry or restart gets a run ID. Each in-flight instruction has
+an instruction ID within that run. The driver associates every waiting
+ticket with its machine, run, and instruction. A PC can repeat within
+a run and serves as a position for reporting.
+
+Retirement and fault both close the instruction to further effect
+delivery. A fault preserves prior effects and requests cancellation of
+pending sibling work where the backend supports it. Reset and image
+replacement invalidate the entire run before the machine can enter
+again. Late completions from closed instructions or invalidated runs
+are consumed for cleanup without resuming a route or applying effects.
+The backend handles cancellation of issued external work. Futures
+holding thread-local leases stay on their owner thread, including
+when those leases are released during cleanup.
 [Borrowing across suspension](foundational-work.md#borrowing-across-suspension)
 
 ## Checked issue, resumption, and retirement
@@ -232,7 +272,8 @@ issued to external devices remains the backend's responsibility.
    Checked fetch restores the originating PC. The runtime leaves this
    stream parked and selects another ready turn.
 3. **Resume.** The backend announces the ready task. The driver checks
-   the waiting invocation, takes the typed result, restores the saved PC
+   that the ticket belongs to the current run and in-flight instruction,
+   takes the typed result, restores the saved PC
    under the reentrancy guard, and resumes the route. If a stage submits
    more work, the driver keeps the same instruction in flight.
 4. **Retire.** The instruction is complete once its route finishes. If
@@ -295,17 +336,18 @@ worker. The default uses two workers.
   events and report progress before a task completes. Provide the
   invocation identity, typed wait reason, and earliest eligible time
   when available.
-- **Drain gates.** A barrier may retire before the next instruction is
-  eligible to fetch. Clearing the drain gate must add no retirement.
-  An instruction waiting for input retires after its route finishes.
-- **Reset and cancellation.** Invalidate pending work on reset, image
-  replacement, and cancellation. A late event must never resume a
-  replacement invocation. Validate this with a deferred fault after
-  a visible effect and a late completion after reset.
-- **Integration boundaries.** Define how deferred routes retain program
-  context. The portable example models independent streams. Timing
-  constraints and resource arbitration between distinct machine types
-  still need a shared-device scenario.
+- **Driver integration.** Use the same typed driver outcomes in the
+  scheduled runtime and debugger. Verify that clearing a drain gate
+  enables fetch without retiring another instruction.
+- **Reset and cancellation.** Single-step through a fork that faults
+  after a visible effect while a sibling is still pending. Check that
+  the fault reports the originating PC without retirement. Restart the
+  machine, park the new run, and deliver the old result. The new run
+  must stay parked and the old result must apply no effects.
+- **Resumed context and shared devices.** Exercise a post-wait handler
+  that resolves an operand against the run's program image. Use a
+  shared-device scenario to explore timing and resource arbitration
+  between distinct machine types.
   [Foundational async traits](foundational-work.md#async-preparation-execution-and-effect-handling)
 
 [Issue #204](https://github.com/QuEraComputing/vihaco/issues/204)

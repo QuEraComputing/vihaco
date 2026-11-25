@@ -54,6 +54,7 @@ type DigitizerField = field!(Machine::digitizer);
 
 impl BuildMessage<DigitizerField, ops::Capture, (), Wait<u16>> for Machine {
     fn build_message(&mut self, _: &ops::Capture, _: &()) -> Result<Wait<u16>> {
+        // The composite picks the handle from its external device connection.
         self.next_completion
             .take()
             .ok_or_else(|| eyre!("capture has no completion handle"))

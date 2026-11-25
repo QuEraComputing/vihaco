@@ -21,21 +21,27 @@ receives source samples and returns the clamped samples that travel over
 the annotated DAC edge. For composite-level policy, `HandleEffect` and
 `AsyncHandleEffect` select a hook by source field, destination field,
 and incoming effect type.
-[Foundational effect handling](foundational-work.md#composite-and-receiving-field-effect-handling)
+[Component and composite authoring hooks](foundational-work.md#component-and-composite-authoring-hooks)
+
+Component authors implement reusable message recipes on their message
+types and `Apply` on their receiving components. Composite authors use
+`BuildMessage` for machine-specific input and `HandleEffect` for
+machine-specific delivery. The async counterparts follow the same
+authoring boundary.
 
 The route API has ten nodes for instruction preparation, execution,
 and effect handling.
 
 | Stage | Route constructor | Hook |
 | --- | --- | --- |
-| Prepare | `prepare_message_at::<F, Message>()` | `ReusableMessageRecipe` on the message type |
-| Prepare async | `async_prepare_message_at::<F, Message>()` | `AsyncReusableMessageRecipe` on the message type |
+| Prepare | `prepare_message_at::<F, Message>()` | `ReusableMessageRecipe` on the component author's message type |
+| Prepare async | `async_prepare_message_at::<F, Message>()` | `AsyncReusableMessageRecipe` on the component author's message type |
 | Build | `build_message_at::<F, Message>()` | `BuildMessage` on the composite |
 | Build async | `async_build_message_at::<F>()` | `AsyncBuildMessage` on the composite |
 | Execute | `execute_instruction_at::<F>()` | `Execute` on the destination field |
 | Execute async | `execute_async_instruction_at::<F>()` | `AsyncExecute` on the destination field |
-| Deliver effect | `apply_effect_at::<F>()` | `Apply` on the receiving field |
-| Deliver effect async | `async_apply_effect_at::<F>()` | `AsyncApply` on the receiving field |
+| Deliver effect | `apply_effect_at::<F>()` | `Apply` on the receiving component |
+| Deliver effect async | `async_apply_effect_at::<F>()` | `AsyncApply` on the receiving component |
 | Handle effect with composite policy | `handle_effect_at::<Destination>()` | `HandleEffect` on the composite |
 | Handle effect with async composite policy | `async_handle_effect_at::<Destination>()` | `AsyncHandleEffect` on the composite |
 
@@ -47,15 +53,22 @@ delegate to the receiving field within its implementation.
 
 The builder resolves the source of a composite handler at `finish()`.
 `Execute`, `AsyncExecute`, `Apply`, and `AsyncApply` attribute their output
-to the field they call. Transparent nodes such as `await_work()` and
-`duplicate()` preserve the source. The prototype requires a unique field
-source for composite handlers. A join result or an effect emitted by a
-composite hook has no single field source. Topology inspection displays
-the inferred source and the selected destination.
+to the field they call. `HandleEffect` and `AsyncHandleEffect` attribute
+their output to the destination field. For example, a handoff from `A`
+to `B` followed by `handle_effect_at::<C>()` selects the hook from `B`
+to `C`. `await_work()` preserves the source of its input. Each split
+branch inherits the source of the tuple being distributed. A join
+combines several producers and requires explicit
+source attribution before its result can enter a source-sensitive hook.
+Topology inspection displays the resolved source and selected destination.
+The prototype still needs destination attribution for composite hook
+outputs and an API for explicit attribution after a join.
 
-The callback interpreter supplies unit context to these hooks. The
-borrowed interpreter supplies program context to synchronous preparation
-and uses unit context for composite effect handling.
+In a loaded program, an initial or resumed stage can borrow the current
+run's image and the runtime services its hook requires. Pending work owns
+the inputs it needs across suspension. The callback prototype supplies
+unit context today, and the borrowed prototype supplies program context
+to synchronous preparation.
 [Borrowing across suspension](foundational-work.md#borrowing-across-suspension)
 
 `duplicate()` builds a fork that clones the incoming payload once.
@@ -81,7 +94,10 @@ and ordering assertions wherever the workload requires them.
 ## Foundational work
 
 The runtime changes that can land ahead of the route API are tracked in
-[Foundational work](foundational-work.md).
+[Foundational work](foundational-work.md). This includes automatic
+[composite field projections](foundational-work.md#composite-field-projections)
+that respect Rust field visibility and leave `#[device]` responsible for
+bytecode lifting.
 
 ## Runnable examples
 
@@ -106,9 +122,9 @@ to the parcel records.
 
 ```rust,ignore
 step_graph::<ops::PrintLabel>()
-    .begin(build_message_at::<PrinterField, NoMessage>())
+    .begin(prepare_message_at::<PrinterField, NoMessage>())
     .then(execute_instruction_at::<PrinterField>().annotate::<MinExecution<12>>())
-    .then(handle_effect_at::<ParcelField>())
+    .then(apply_effect_at::<ParcelField>())
     .finish()
 ```
 
@@ -180,9 +196,10 @@ and stable occurrence IDs for source mappings remain open.
 `Route::start_with` supplies the machine, driver, instruction, and a
 one-shot terminal callback. A wait owns the values needed to resume.
 The driver delivers readiness with a fresh machine borrow. A join releases
-its result after both arms succeed. If one arm fails, the terminal callback
-reports the error once. Any already-started work can still complete, and
-prior mutations and effects are retained.
+its result after all arms succeed. If one arm fails, the terminal callback
+reports the error once and prior mutations and effects are retained.
+Already-started sibling work can still finish. Its late completion is
+consumed for cleanup without applying route effects.
 
 The prototype framework lives under `examples/`. The public submission
 and readiness contracts let downstream runtimes supply their own

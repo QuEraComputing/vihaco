@@ -7,8 +7,8 @@ mod program;
 
 use crate::{
     framework::{
-        AnnotatedDriver, Describe, HandleEffect, Route, Run, build_message_at,
-        execute_instruction_at, handle_effect_at, prepare_message_at, step_graph,
+        AnnotatedDriver, Describe, Route, Run, apply_effect_at, execute_instruction_at,
+        prepare_message_at, step_graph,
     },
     scheduled::{
         backends::{
@@ -24,8 +24,8 @@ use crate::{
 use eyre::{Result, ensure};
 use std::collections::BTreeMap;
 use vihaco_runtime::{
-    Apply, BuildMessage, Execute, HasInstructionSet, HasProgram, NoMessage, ReusableMessageRecipe,
-    Step, component, composite, dialect, field,
+    Apply, Execute, HasInstructionSet, HasProgram, NoMessage, ReusableMessageRecipe, Step,
+    component, composite, dialect, field,
 };
 use vihaco_stdlib::{ExecutionState, Image, Loadable};
 
@@ -128,30 +128,16 @@ type ProgramField = field!(Warehouse::execution);
 type PrinterField = field!(Warehouse::printer);
 type ParcelField = field!(Warehouse::parcels);
 
-impl BuildMessage<PrinterField, ops::PrintLabel, (), NoMessage> for Warehouse {
-    fn build_message(&mut self, _: &ops::PrintLabel, _: &()) -> Result<NoMessage> {
-        Ok(NoMessage::new())
-    }
-}
-
-impl HandleEffect<PrinterField, ParcelField, LabelPrinted> for Warehouse {
-    type Effect = ();
-
-    fn handle_effect(&mut self, label: LabelPrinted, _: &()) -> Result<()> {
-        self.parcels.apply(label)
-    }
-}
-
 fn print_route<D>()
 -> Route<ops::PrintLabel, impl Run<Warehouse, ops::PrintLabel, D, Output = ()> + Describe>
 where
     D: AnnotatedDriver<Warehouse>,
 {
     step_graph::<ops::PrintLabel>()
-        .begin(build_message_at::<PrinterField, NoMessage>())
+        .begin(prepare_message_at::<PrinterField, NoMessage>())
         // Each backend delivers the label after its interpretation of 12 ticks.
         .then(execute_instruction_at::<PrinterField>().annotate::<MinExecution<12>>())
-        .then(handle_effect_at::<ParcelField>())
+        .then(apply_effect_at::<ParcelField>())
         .finish()
 }
 
@@ -310,10 +296,7 @@ mod tests {
             minimum_execution(&b.metadata)
         )));
         assert_eq!(simulated.nodes.len(), 3);
-        assert_eq!(
-            simulated.nodes[2].source_field,
-            Some(std::any::type_name::<PrinterField>())
-        );
+        assert_eq!(simulated.nodes[2].source_field, None);
         assert_eq!(
             simulated.nodes[2].field,
             Some(std::any::type_name::<ParcelField>())

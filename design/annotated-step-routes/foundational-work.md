@@ -5,13 +5,50 @@ This document tracks the runtime changes that can land before the
 be usable from authored execution code and verifiable on its own before
 the route framework uses it.
 
-## Composite and receiving-field effect handling
+## Composite field projections
 
-Introduce `HandleEffect` as a public runtime trait before exposing the route
-API. It gives authored steps a shared contract for composite-specific
-effect handling. `BuildMessage` is the corresponding input hook. A composite
-can delegate input preparation to `ReusableMessageRecipe::prepare` and
-delegate delivery to the receiving field's `Apply` implementation.
+`#[composite]` should generate a marker and a `Field<F>` implementation
+for every named field. `field!(Composite::name)` selects the marker.
+The implementation uses the declared field type as `Child` and projects
+ordinary shared and mutable borrows. This lets a route address an effect
+receiver or lets a message recipe borrow ordinary state. Each use still
+checks the bounds of its operation, such as `Apply` for effect delivery.
+
+Reserve `#[device]` for lifting a field's instruction inventory into the
+composite's bytecode dispatch. Only fields declared as devices need an
+instruction inventory and a device code. For example, a composite with
+`#[device(1)] digitizer: Digitizer`, `compressor: Compressor`, and
+`samples: Rc<[i16]>` exposes field projections for all three. Its dispatch
+includes instructions from `digitizer` under device code `1`.
+
+Generated access must respect the field's Rust visibility. Because
+`Field<F>` exposes shared and mutable borrows, generated markers and
+their re-exports must be usable only where the corresponding field is
+accessible. Preserve restricted visibility such as `pub(crate)` and
+`pub(in ...)`, resolving it from the field's declaration scope. Apply
+the same rule at every segment of a nested `field!` path. Compile-time
+coverage should verify that private fields are accessible in their
+allowed scope and that callers outside that scope cannot project them,
+even when the composite itself is public.
+
+## Component and composite authoring hooks
+
+| Responsibility | Component author supplies | Composite author customizes with |
+| --- | --- | --- |
+| Prepare instruction input | `ReusableMessageRecipe` on the message type, using the parent capabilities it needs | `BuildMessage` on the composite, for the destination field and instruction |
+| Handle an incoming effect | `Apply` on the receiving component | `HandleEffect` on the composite, for the source field, destination field, and incoming effect |
+
+The component author supplies reusable behavior for any composite that can
+meet its requirements. A composite author can select those hooks directly.
+When preparation or delivery depends on the particular machine, the
+composite author implements `BuildMessage` or `HandleEffect`. That hook can
+call the component author's recipe or `Apply` internally. The route chooses
+one preparation hook per instruction and one handler per effect handoff.
+
+### Composite effect handling
+
+Introduce `HandleEffect` as a public runtime trait before exposing the
+route API. Authored steps and routes use the same composite policy hook.
 
 ```rust,ignore
 pub trait HandleEffect<Source, Destination, E, Context: ?Sized = ()>:
@@ -42,6 +79,8 @@ route makes between a message recipe and a composite builder.
 
 If a handler emits a new effect, that effect can have its own handoff.
 Each link consumes the previous output and chooses its own handler.
+For a composite hook, the receiving field becomes the source of the
+next handoff. The same rule applies to the async hook.
 Use `()` when the hook consumes the effect and ends the chain. An
 error stops the chain and preserves prior mutations.
 
@@ -90,8 +129,8 @@ prototypes the other async hooks in the route examples.
 `async_build_message_at` calls the composite's builder.
 `async_apply_effect_at` calls `AsyncApply` at the receiving field.
 `async_handle_effect_at` calls `AsyncHandleEffect` on the composite
-using the inferred source and the named destination. Each submits owned work through the
-same driver boundary.
+using the inferred source and the named destination. The async hooks follow the same authoring boundary and submit owned
+work through the driver.
 [Async effect node](../../crates/vihaco-runtime/examples/static_graph_routes/framework/async_execution.rs) · [Validation example](../../crates/vihaco-runtime/examples/static_graph_routes/machines/device_completion.rs)
 
 ### Component coverage
@@ -170,7 +209,9 @@ At the driver boundary, all three stages submit an owned
 a setup failure. A later poll can report completion or a deferred
 failure through the same result. The driver can borrow the machine
 between polls and deliver the result to the next stage with a fresh
-borrow.
+borrow. Owner-local and transferable `Send` work use distinct submission
+capabilities. The backend chooses where eligible work runs.
+[Task submission and completion](route-drivers.md#task-submission-and-completion)
 
 ```rust,ignore
 use std::future::Future;
@@ -238,8 +279,11 @@ for its entire execution. A stage that can suspend copies or moves
 only the data it needs past dispatch. For example, it can resolve a
 module reference to an owned value before submitting work, or carry a
 stable identifier and resolve it with a fresh borrow on resumption.
-This keeps ordinary checked dispatch on the borrowed path and lets
-the owner inspect the machine between polls.
+The resumed stage borrows the same run's program image and any runtime
+services it needs. Image replacement invalidates the old run before a
+continuation can use the replacement image. This keeps ordinary checked
+dispatch on the borrowed path and lets the owner inspect the machine
+between polls.
 
 Use the narrowest ownership that the operation needs.
 
@@ -250,7 +294,7 @@ Use the narrowest ownership that the operation needs.
 | Handle an effect asynchronously at a receiving field | The effect and any inputs or handles extracted during a short field borrow. The next stage can borrow the machine afresh. |
 | Run a component method that borrows `&mut self` across suspension | The owned instruction and an exclusive lease of the component. |
 
-`AsyncSlot` is the prototype's way to implement the third case. The
+`AsyncSlot` is the prototype's way to implement the exclusive lease case. The
 adapter removes the component from the slot and places it in a lease
 owned by the submitted future. The method borrows the leased component
 inside that future. The field is busy while the lease is out. The lease
@@ -285,8 +329,8 @@ after reset or image replacement.
 [Driver ownership and delivery](route-drivers.md#ownership-of-parked-routes)
 
 The preparation contract depends on where preparation is defined and
-whether it can suspend. A recipe lives on the message type. A builder
-lives on the composite. Both can supply the message for `Execute`
+whether it can suspend. The component author implements a recipe on the message type. The
+composite author implements a builder for machine-specific preparation. Both can supply the message for `Execute`
 or `AsyncExecute`. `BuildMessage` still defaults to the synchronous
 execution message. An explicit message type lets it also feed the async
 execution node. The execution node checks message compatibility.

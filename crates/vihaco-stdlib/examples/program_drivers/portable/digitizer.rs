@@ -113,6 +113,7 @@ impl AsyncBuildMessage<DigitizerField, Capture> for Machine {
         _: &Capture,
         _: &(),
     ) -> impl Future<Output = Result<Self::Message>> + 'static {
+        // This composite supplies the sample handles in capture order.
         let sample = self
             .samples
             .pop_front()
